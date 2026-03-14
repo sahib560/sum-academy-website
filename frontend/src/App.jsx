@@ -25,6 +25,21 @@ import TeacherDashboard from "./pages/teacher/Dashboard.jsx";
 import TeacherLayout from "./layouts/TeacherLayout.jsx";
 import TeacherMyCourses from "./pages/teacher/MyCourses.jsx";
 import TeacherStudents from "./pages/teacher/Students.jsx";
+import TeacherAnnouncements from "./pages/teacher/Announcements.jsx";
+import TeacherSettings from "./pages/teacher/Settings.jsx";
+import StudentLayout from "./layouts/StudentLayout.jsx";
+import StudentDashboard from "./pages/student/Dashboard.jsx";
+import StudentMyCourses from "./pages/student/MyCourses.jsx";
+import StudentExploreCourses from "./pages/student/ExploreCourses.jsx";
+import StudentCertificates from "./pages/student/Certificates.jsx";
+import StudentQuizzes from "./pages/student/Quizzes.jsx";
+import StudentPayments from "./pages/student/Payments.jsx";
+import StudentAnnouncements from "./pages/student/Announcements.jsx";
+import StudentAttendance from "./pages/student/Attendance.jsx";
+import StudentSupport from "./pages/student/Support.jsx";
+import StudentProfile from "./pages/student/Profile.jsx";
+import StudentSettings from "./pages/student/Settings.jsx";
+import StudentCoursePlayer from "./pages/student/CoursePlayer.jsx";
 import Analytics from "./pages/admin/Analytics.jsx";
 import AdminTeachers from "./pages/admin/Teachers.jsx";
 import Students from "./pages/admin/Students.jsx";
@@ -42,7 +57,8 @@ function AppLayout() {
       "/verify-otp",
     ].includes(location.pathname) ||
     location.pathname.startsWith("/admin") ||
-    location.pathname.startsWith("/teacher");
+    location.pathname.startsWith("/teacher") ||
+    location.pathname.startsWith("/student");
 
   return (
     <>
@@ -62,7 +78,24 @@ function AppLayout() {
           <Route index element={<TeacherDashboard />} />
           <Route path="courses" element={<TeacherMyCourses />} />
           <Route path="students" element={<TeacherStudents />} />
+          <Route path="announcements" element={<TeacherAnnouncements />} />
+          <Route path="settings" element={<TeacherSettings />} />
           <Route path="*" element={<TeacherDashboard />} />
+        </Route>
+        <Route path="/student" element={<StudentLayout />}>
+          <Route index element={<StudentDashboard />} />
+          <Route path="courses" element={<StudentMyCourses />} />
+          <Route path="course-player" element={<StudentCoursePlayer />} />
+          <Route path="explore" element={<StudentExploreCourses />} />
+          <Route path="certificates" element={<StudentCertificates />} />
+          <Route path="quizzes" element={<StudentQuizzes />} />
+          <Route path="payments" element={<StudentPayments />} />
+          <Route path="announcements" element={<StudentAnnouncements />} />
+          <Route path="attendance" element={<StudentAttendance />} />
+          <Route path="support" element={<StudentSupport />} />
+          <Route path="profile" element={<StudentProfile />} />
+          <Route path="settings" element={<StudentSettings />} />
+          <Route path="*" element={<StudentDashboard />} />
         </Route>
         <Route path="/admin" element={<AdminLayout />}>
           <Route index element={<Dashboard />} />
