@@ -21,6 +21,10 @@ import PromoCodes from "./pages/admin/PromoCodes.jsx";
 import Certificates from "./pages/admin/Certificates.jsx";
 import Announcements from "./pages/admin/Announcements.jsx";
 import SiteSettings from "./pages/admin/SiteSettings.jsx";
+import TeacherDashboard from "./pages/teacher/Dashboard.jsx";
+import TeacherLayout from "./layouts/TeacherLayout.jsx";
+import TeacherMyCourses from "./pages/teacher/MyCourses.jsx";
+import TeacherStudents from "./pages/teacher/Students.jsx";
 import Analytics from "./pages/admin/Analytics.jsx";
 import AdminTeachers from "./pages/admin/Teachers.jsx";
 import Students from "./pages/admin/Students.jsx";
@@ -36,7 +40,9 @@ function AppLayout() {
       "/register",
       "/forgot-password",
       "/verify-otp",
-    ].includes(location.pathname) || location.pathname.startsWith("/admin");
+    ].includes(location.pathname) ||
+    location.pathname.startsWith("/admin") ||
+    location.pathname.startsWith("/teacher");
 
   return (
     <>
@@ -52,6 +58,12 @@ function AppLayout() {
         <Route path="/register" element={<Register />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/verify-otp" element={<VerifyOTP />} />
+        <Route path="/teacher" element={<TeacherLayout />}>
+          <Route index element={<TeacherDashboard />} />
+          <Route path="courses" element={<TeacherMyCourses />} />
+          <Route path="students" element={<TeacherStudents />} />
+          <Route path="*" element={<TeacherDashboard />} />
+        </Route>
         <Route path="/admin" element={<AdminLayout />}>
           <Route index element={<Dashboard />} />
           <Route path="analytics" element={<Analytics />} />
