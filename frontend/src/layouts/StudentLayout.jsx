@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
+import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { logout } from "../services/auth.service.js";
 
 const navItems = [
-  { label: "Dashboard", to: "/student", icon: "grid" },
+  { label: "Dashboard", to: "/student/dashboard", icon: "grid" },
   { label: "My Courses", to: "/student/courses", icon: "book" },
   { label: "Explore Courses", to: "/student/explore", icon: "compass" },
   { label: "Certificates", to: "/student/certificates", icon: "award" },
@@ -10,16 +11,16 @@ const navItems = [
   { label: "Payments", to: "/student/payments", icon: "credit" },
   { label: "Announcements", to: "/student/announcements", icon: "bell" },
   { label: "Attendance", to: "/student/attendance", icon: "calendar" },
-  { label: "Help & Support", to: "/student/support", icon: "help" },
+  { label: "Help & Support", to: "/student/help", icon: "help" },
   { label: "Settings", to: "/student/settings", icon: "settings" },
 ];
 
 const mobileTabs = [
-  { label: "Dashboard", to: "/student", icon: "grid" },
+  { label: "Dashboard", to: "/student/dashboard", icon: "grid" },
   { label: "My Courses", to: "/student/courses", icon: "book" },
   { label: "Explore", to: "/student/explore", icon: "compass" },
   { label: "Certificates", to: "/student/certificates", icon: "award" },
-  { label: "Profile", to: "/student/profile", icon: "user" },
+  { label: "Profile", to: "/student/settings", icon: "user" },
 ];
 
 const iconMap = {
@@ -82,6 +83,7 @@ const iconMap = {
 
 function StudentLayout() {
   const location = useLocation();
+  const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
 
@@ -113,6 +115,14 @@ function StudentLayout() {
     return match?.label || "Student Portal";
   }, [location.pathname]);
 
+  const handleLogout = async () => {
+    try {
+      await logout();
+    } finally {
+      navigate("/login");
+    }
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
       <div
@@ -138,7 +148,7 @@ function StudentLayout() {
               <NavLink
                 key={item.to}
                 to={item.to}
-                end={item.to === "/student"}
+                end={item.to === "/student/dashboard"}
                 className={({ isActive }) =>
                   `group flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-semibold transition ${
                     isActive
@@ -182,7 +192,10 @@ function StudentLayout() {
               </p>
               <span className="text-xs text-slate-500">3 Courses</span>
             </div>
-            <button className="rounded-full border border-slate-200 p-2 text-slate-500">
+            <button
+              className="rounded-full border border-slate-200 p-2 text-slate-500"
+              onClick={handleLogout}
+            >
               <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
                 <path d="M10 4h8a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-8v-2h8V6h-8V4zM4 12l4-4v3h8v2H8v3l-4-4z" />
               </svg>
@@ -217,7 +230,7 @@ function StudentLayout() {
             <div className="pointer-events-none absolute right-0 mt-3 w-40 rounded-2xl border border-slate-200 bg-white p-2 text-sm text-slate-600 opacity-0 shadow-xl transition group-hover:pointer-events-auto group-hover:opacity-100">
               <Link
                 className="block rounded-xl px-3 py-2 hover:bg-slate-100"
-                to="/student/profile"
+                to="/student/settings"
               >
                 My Profile
               </Link>
@@ -227,7 +240,10 @@ function StudentLayout() {
               >
                 Settings
               </Link>
-              <button className="block w-full rounded-xl px-3 py-2 text-left hover:bg-slate-100">
+              <button
+                className="block w-full rounded-xl px-3 py-2 text-left hover:bg-slate-100"
+                onClick={handleLogout}
+              >
                 Logout
               </button>
             </div>
@@ -245,7 +261,7 @@ function StudentLayout() {
             <NavLink
               key={tab.to}
               to={tab.to}
-              end={tab.to === "/student"}
+              end={tab.to === "/student/dashboard"}
               className={({ isActive }) =>
                 `flex flex-col items-center gap-1 rounded-xl px-2 py-2 text-[11px] font-semibold ${
                   isActive ? "text-primary" : "text-slate-400"

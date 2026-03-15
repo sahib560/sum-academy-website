@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
+import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { logout } from "../services/auth.service.js";
 
 const navItems = [
-  { label: "Dashboard", to: "/teacher", icon: "grid" },
+  { label: "Dashboard", to: "/teacher/dashboard", icon: "grid" },
   { label: "My Courses", to: "/teacher/courses", icon: "book" },
   { label: "Students", to: "/teacher/students", icon: "users" },
   { label: "Sessions", to: "/teacher/sessions", icon: "calendar" },
@@ -45,6 +46,7 @@ const iconMap = {
 
 function TeacherLayout() {
   const location = useLocation();
+  const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   useEffect(() => {
@@ -57,6 +59,14 @@ function TeacherLayout() {
     );
     return match?.label || "Teacher Dashboard";
   }, [location.pathname]);
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+    } finally {
+      navigate("/login");
+    }
+  };
 
   return (
     <div className="min-h-screen overflow-x-hidden bg-slate-50 text-slate-900">
@@ -94,7 +104,7 @@ function TeacherLayout() {
               <NavLink
                 key={item.to}
                 to={item.to}
-                end={item.to === "/teacher"}
+                end={item.to === "/teacher/dashboard"}
                 className={({ isActive }) =>
                   `group flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-semibold transition ${
                     isActive
@@ -131,7 +141,9 @@ function TeacherLayout() {
               <p className="text-sm font-semibold text-slate-900">
                 Mr. Qureshi
               </p>
-              <button className="text-xs text-slate-500">Logout</button>
+              <button className="text-xs text-slate-500" onClick={handleLogout}>
+                Logout
+              </button>
             </div>
           </div>
         </div>
@@ -178,13 +190,16 @@ function TeacherLayout() {
                 <span className="hidden sm:inline">Teacher</span>
               </button>
               <div className="pointer-events-none absolute right-0 mt-3 w-40 rounded-2xl border border-slate-200 bg-white p-2 text-sm text-slate-600 opacity-0 shadow-xl transition group-hover:pointer-events-auto group-hover:opacity-100">
-                <Link className="block rounded-xl px-3 py-2 hover:bg-slate-100" to="/teacher/profile">
+                <Link className="block rounded-xl px-3 py-2 hover:bg-slate-100" to="/teacher/settings">
                   Profile
                 </Link>
                 <Link className="block rounded-xl px-3 py-2 hover:bg-slate-100" to="/teacher/settings">
                   Settings
                 </Link>
-                <button className="block w-full rounded-xl px-3 py-2 text-left hover:bg-slate-100">
+                <button
+                  className="block w-full rounded-xl px-3 py-2 text-left hover:bg-slate-100"
+                  onClick={handleLogout}
+                >
                   Logout
                 </button>
               </div>

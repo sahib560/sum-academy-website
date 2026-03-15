@@ -3,15 +3,11 @@ import { Link, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import logo from "../../assets/logo.jpeg";
 import { useSiteSettings } from "../../context/SiteSettingsContext.jsx";
+import { loginWithEmail } from "../../services/auth.service.js";
 
 const fadeUp = {
   hidden: { opacity: 0, y: 20 },
   visible: { opacity: 1, y: 0, transition: { duration: 0.6 } },
-};
-
-const VALID_USER = {
-  email: "student@sumacademy.pk",
-  password: "sumacademy",
 };
 
 function Login() {
@@ -51,25 +47,29 @@ function Login() {
     return Object.keys(nextErrors).length === 0;
   };
 
-  const handleSubmit = (event) => {
+  const handleSubmit = async (event) => {
     event.preventDefault();
     if (!validate()) return;
     setLoading(true);
-    setTimeout(() => {
-      setLoading(false);
-      if (
-        form.email.toLowerCase() === VALID_USER.email &&
-        form.password === VALID_USER.password
-      ) {
-        setToast({ type: "success", message: "Login successful!" });
-        setTimeout(() => navigate("/dashboard"), 900);
+    try {
+      const userData = await loginWithEmail(form.email, form.password);
+      setToast({ type: "success", message: "Welcome back!" });
+      const nextRole = userData?.role || "student";
+      if (nextRole === "admin") {
+        navigate("/admin/dashboard");
+      } else if (nextRole === "teacher") {
+        navigate("/teacher/dashboard");
       } else {
-        setToast({
-          type: "error",
-          message: "Wrong credentials. Please try again.",
-        });
+        navigate("/student/dashboard");
       }
-    }, 900);
+    } catch (error) {
+      setToast({
+        type: "error",
+        message: error.message || "Login failed. Please try again.",
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (

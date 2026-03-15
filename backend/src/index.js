@@ -7,6 +7,7 @@ import cookieParser from "cookie-parser";
 import rateLimit    from "express-rate-limit";
 import dotenv       from "dotenv";
 import { db }       from "./config/firebase.js";
+import authRoutes   from "./routes/auth.routes.js";
 
 dotenv.config();
 
@@ -38,6 +39,17 @@ if (process.env.NODE_ENV === "development") {
   app.use(morgan("dev"));
 }
 
+// ── Routes ────────────────────────────────────────────────────
+app.use("/api/auth", authRoutes);
+
+app.get("/api/health", (req, res) => {
+  res.json({
+    status: "ok",
+    message: "SUM Academy API healthy",
+    timestamp: new Date().toISOString(),
+  });
+});
+
 // ── Test Route ────────────────────────────────────────────────
 app.get("/", async (req, res) => {
   try {
@@ -63,6 +75,7 @@ app.get("/", async (req, res) => {
 app.use((req, res) => {
   res.status(404).json({ error: "Route not found" });
 });
+
 
 // ── Global Error Handler ──────────────────────────────────────
 app.use((err, req, res, next) => {
