@@ -1,4 +1,11 @@
-import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
+import {
+  BrowserRouter,
+  Navigate,
+  Route,
+  Routes,
+  useLocation,
+} from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import Navbar from "./components/Navbar.jsx";
 import Footer from "./components/Footer.jsx";
 import ProtectedRoute from "./components/ProtectedRoute.jsx";
@@ -50,7 +57,9 @@ import NotFound from "./pages/NotFound.jsx";
 function AppLayout() {
   const location = useLocation();
   const hideLayout =
-    ["/login", "/register"].includes(location.pathname) ||
+    ["/login", "/register", "/lms-login", "/unauthorized"].includes(
+      location.pathname
+    ) ||
     location.pathname.startsWith("/admin") ||
     location.pathname === "/teacher" ||
     location.pathname.startsWith("/teacher/") ||
@@ -67,6 +76,7 @@ function AppLayout() {
         <Route path="/about" element={<About />} />
         <Route path="/contact" element={<Contact />} />
         <Route path="/login" element={<Login />} />
+        <Route path="/lms-login" element={<Login />} />
         <Route path="/register" element={<Register />} />
         <Route path="/unauthorized" element={<Unauthorized />} />
         <Route
@@ -136,14 +146,18 @@ function AppLayout() {
   );
 }
 
+const queryClient = new QueryClient();
+
 function App() {
   return (
     <BrowserRouter>
-      <SiteSettingsProvider>
-        <AuthProvider>
-          <AppLayout />
-        </AuthProvider>
-      </SiteSettingsProvider>
+      <QueryClientProvider client={queryClient}>
+        <SiteSettingsProvider>
+          <AuthProvider>
+            <AppLayout />
+          </AuthProvider>
+        </SiteSettingsProvider>
+      </QueryClientProvider>
     </BrowserRouter>
   );
 }

@@ -1,5 +1,6 @@
 import { createContext, useEffect, useMemo, useState } from "react";
-import { onAuthStateChange } from "../services/auth.service.js";
+import { onAuthStateChanged } from "firebase/auth";
+import { firebaseAuth } from "../config/firebase.js";
 import api from "../api/axios.js";
 
 const AuthContext = createContext(null);
@@ -9,44 +10,69 @@ function AuthProvider({ children }) {
   const [userProfile, setUserProfile] = useState(null);
   const [role, setRole] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [isTeacher, setIsTeacher] = useState(false);
+  const [isStudent, setIsStudent] = useState(false);
 
   useEffect(() => {
     let retryTimer = null;
     let cancelled = false;
 
-    const fetchProfile = async (attempt = 0) => {
+    const fetchProfile = async (firebaseUser, attempt = 0) => {
       try {
-        const response = await api.get("/auth/me");
-        const profile = response.data?.user || null;
+        const idToken = await firebaseUser.getIdToken(true);
+        const response = await api.get("/auth/me", {
+          headers: { Authorization: `Bearer ${idToken}` },
+        });
+        const profile = response.data.user;
         if (cancelled) return;
+        setUser(firebaseUser);
         setUserProfile(profile);
-        setRole(profile?.role || null);
+        setRole(profile.role);
+        setIsAdmin(profile.role === "admin");
+        setIsTeacher(profile.role === "teacher");
+        setIsStudent(profile.role === "student");
         setLoading(false);
       } catch (error) {
         if (cancelled) return;
-        const message = typeof error === "string" ? error : error?.message;
-        if (message === "User profile not found" && attempt < 5) {
-          retryTimer = setTimeout(() => fetchProfile(attempt + 1), 500);
+        const status = error?.response?.status;
+        if ((status === 401 || status === 404) && attempt < 8) {
+          retryTimer = setTimeout(
+            () => fetchProfile(firebaseUser, attempt + 1),
+            500
+          );
           return;
         }
+        console.error("Auth state error:", error);
+        setUser(null);
         setUserProfile(null);
         setRole(null);
+        setIsAdmin(false);
+        setIsTeacher(false);
+        setIsStudent(false);
         setLoading(false);
       }
     };
 
-    const unsubscribe = onAuthStateChange(async (firebaseUser) => {
-      setLoading(true);
-      setUser(firebaseUser || null);
-      setUserProfile(null);
-      setRole(null);
-      if (!firebaseUser) {
-        setLoading(false);
-        return;
-      }
+    const unsubscribe = onAuthStateChanged(
+      firebaseAuth,
+      async (firebaseUser) => {
+        setLoading(true);
+        if (!firebaseUser) {
+          setUser(null);
+          setUserProfile(null);
+          setRole(null);
+          setIsAdmin(false);
+          setIsTeacher(false);
+          setIsStudent(false);
+          setLoading(false);
+          return;
+        }
 
-      fetchProfile();
-    });
+        setUser(firebaseUser);
+        fetchProfile(firebaseUser);
+      }
+    );
 
     return () => {
       cancelled = true;
@@ -63,11 +89,11 @@ function AuthProvider({ children }) {
       role,
       loading,
       isAuthenticated,
-      isAdmin: role === "admin",
-      isTeacher: role === "teacher",
-      isStudent: role === "student",
+      isAdmin,
+      isTeacher,
+      isStudent,
     };
-  }, [user, userProfile, role, loading]);
+  }, [user, userProfile, role, loading, isAdmin, isTeacher, isStudent]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

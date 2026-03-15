@@ -205,3 +205,56 @@ export const sendCertificateIssued = async (email, name,
     throw error;
   }
 };
+
+export const sendWelcomeEmail = async (email, name, role) => {
+  try {
+    await transporter.sendMail({
+      from: process.env.EMAIL_FROM,
+      to: email,
+      subject: "Welcome to SUM Academy",
+      html: `
+        <div style="font-family: sans-serif; max-width: 480px;
+             margin: 0 auto; padding: 32px; background: #f8f9fe;
+             border-radius: 16px;">
+          <h2 style="color: #1a1a2e;">Welcome to SUM Academy</h2>
+          <p style="color: #64748b;">
+            Hi ${name || "there"}, your ${role || "student"} account has been created.
+          </p>
+          <p style="color: #64748b;">
+            You can now sign in and start using your dashboard.
+          </p>
+          <p style="color: #94a3b8; font-size: 12px; text-align: center;">
+            © 2026 SUM Academy — Karachi, Pakistan
+          </p>
+        </div>
+      `,
+    });
+  } catch (error) {
+    console.error("Welcome email failed:", error.message);
+    throw error;
+  }
+};
+
+export const sendAnnouncementEmail = async (email, title, message) => {
+  try {
+    await transporter.sendMail({
+      from: process.env.EMAIL_FROM,
+      to: email,
+      subject: title || "New Announcement — SUM Academy",
+      html: `
+        <div style="font-family: sans-serif; max-width: 480px;
+             margin: 0 auto; padding: 32px; background: #f8f9fe;
+             border-radius: 16px;">
+          <h2 style="color: #1a1a2e;">${title || "New Announcement"}</h2>
+          <p style="color: #64748b; white-space: pre-line;">${message || ""}</p>
+          <p style="color: #94a3b8; font-size: 12px; text-align: center;">
+            © 2026 SUM Academy — Karachi, Pakistan
+          </p>
+        </div>
+      `,
+    });
+  } catch (error) {
+    console.error("Announcement email failed:", error.message);
+    throw error;
+  }
+};

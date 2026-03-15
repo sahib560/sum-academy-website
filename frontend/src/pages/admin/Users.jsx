@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
+import { resetUserDevice } from "../../services/admin.service.js";
 
 const roles = ["Admin", "Teacher", "Student"];
 const statuses = ["Active", "Inactive"];
@@ -119,6 +120,7 @@ function Users() {
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [showDelete, setShowDelete] = useState(null);
+  const [showResetDevice, setShowResetDevice] = useState(null);
   const [toast, setToast] = useState(null);
   const [form, setForm] = useState({
     id: null,
@@ -129,6 +131,11 @@ function Users() {
     status: "Active",
   });
   const [saving, setSaving] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const [resetForm, setResetForm] = useState({
+    device: "",
+    webIp: "",
+  });
 
   const perPage = 10;
 
@@ -174,6 +181,14 @@ function Users() {
     setShowModal(true);
   };
 
+  const openResetDeviceModal = (user) => {
+    setShowResetDevice(user);
+    setResetForm({
+      device: user.assignedWebDevice || "",
+      webIp: user.lastKnownWebIp || "",
+    });
+  };
+
   const handleSave = (event) => {
     event.preventDefault();
     if (!form.name || !form.email || (!form.id && !form.password)) {
@@ -207,6 +222,28 @@ function Users() {
     setUsers((prev) => prev.filter((user) => user.id !== showDelete.id));
     setToast({ type: "success", message: "User deleted." });
     setShowDelete(null);
+  };
+
+  const handleResetDevice = async (event) => {
+    event.preventDefault();
+    if (!showResetDevice) return;
+    setResetting(true);
+    try {
+      await resetUserDevice(
+        showResetDevice.uid || showResetDevice.id,
+        resetForm
+      );
+      setToast({ type: "success", message: "Device reset successfully." });
+      setShowResetDevice(null);
+    } catch (error) {
+      const message =
+        error?.response?.data?.message ||
+        error?.message ||
+        "Failed to reset device.";
+      setToast({ type: "error", message });
+    } finally {
+      setResetting(false);
+    }
   };
 
   const toggleStatus = (user) => {
@@ -369,6 +406,12 @@ function Users() {
                   </div>
                   <div className="mt-3 flex items-center gap-2">
                     <button
+                      className="rounded-lg border border-orange-200 bg-orange-50 px-3 py-1 text-xs text-orange-600 hover:bg-orange-100"
+                      onClick={() => openResetDeviceModal(user)}
+                    >
+                      Reset Device
+                    </button>
+                    <button
                       className="rounded-full border border-slate-200 p-2 text-slate-500 hover:text-primary"
                       onClick={() => openEdit(user)}
                       aria-label="Edit user"
@@ -478,6 +521,12 @@ function Users() {
                     <td className="px-6 py-4 text-slate-600">{user.joined}</td>
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => openResetDeviceModal(user)}
+                          className="rounded-lg border border-orange-200 bg-orange-50 px-3 py-1 text-xs text-orange-600 hover:bg-orange-100"
+                        >
+                          Reset Device
+                        </button>
                         <button
                           className="rounded-full border border-slate-200 p-2 text-slate-500 hover:text-primary"
                           onClick={() => openEdit(user)}
@@ -596,6 +645,72 @@ function Users() {
               <button type="submit" className="btn-primary w-full" disabled={saving}>
                 {saving ? "Saving..." : "Save User"}
               </button>
+            </form>
+          </motion.div>
+        </div>
+      )}
+
+      {showResetDevice && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center px-4">
+          <button
+            type="button"
+            className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            onClick={() => setShowResetDevice(null)}
+          />
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="relative w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl"
+          >
+            <h3 className="font-heading text-2xl text-slate-900">Reset Device</h3>
+            <p className="mt-2 text-sm text-slate-600">
+              Update the assigned device or IP for{" "}
+              <span className="font-semibold text-slate-900">
+                {showResetDevice.name}
+              </span>
+              .
+            </p>
+            <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-xs text-slate-600">
+              <p>
+                <span className="font-semibold text-slate-700">Current Device:</span>{" "}
+                {showResetDevice.assignedWebDevice || "Not set"}
+              </p>
+              <p className="mt-1">
+                <span className="font-semibold text-slate-700">Current Web IP:</span>{" "}
+                {showResetDevice.lastKnownWebIp || "Not set"}
+              </p>
+            </div>
+            <form onSubmit={handleResetDevice} className="mt-5 space-y-4">
+              <input
+                type="text"
+                placeholder="New Device (e.g. Chrome on Windows)"
+                value={resetForm.device}
+                onChange={(event) =>
+                  setResetForm({ ...resetForm, device: event.target.value })
+                }
+                className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm"
+              />
+              <input
+                type="text"
+                placeholder="New Web IP"
+                value={resetForm.webIp}
+                onChange={(event) =>
+                  setResetForm({ ...resetForm, webIp: event.target.value })
+                }
+                className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm"
+              />
+              <div className="flex justify-end gap-3">
+                <button
+                  type="button"
+                  className="rounded-full border border-slate-200 px-4 py-2 text-sm"
+                  onClick={() => setShowResetDevice(null)}
+                >
+                  Cancel
+                </button>
+                <button type="submit" className="btn-primary" disabled={resetting}>
+                  {resetting ? "Updating..." : "Update Device"}
+                </button>
+              </div>
             </form>
           </motion.div>
         </div>

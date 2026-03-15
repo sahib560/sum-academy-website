@@ -26,19 +26,22 @@ api.interceptors.response.use(
   (response) => response,
   async (error) => {
     if (error?.response?.status === 401) {
-      try {
-        await signOut(firebaseAuth);
-      } catch {
-        // ignore sign out errors
+      const url = error?.config?.url || "";
+      const isAuthBootstrap =
+        url.includes("/auth/me") || url.includes("/auth/register");
+
+      if (!isAuthBootstrap) {
+        try {
+          await signOut(firebaseAuth);
+        } catch {
+          // ignore sign out errors
+        }
+        if (typeof window !== "undefined") {
+          window.location.href = "/login";
+        }
       }
-      if (typeof window !== "undefined") {
-        window.location.href = "/login";
-      }
-      return Promise.reject("Unauthorized");
     }
-    const message =
-      error?.response?.data?.message || error?.message || "Request failed";
-    return Promise.reject(message);
+    return Promise.reject(error);
   }
 );
 

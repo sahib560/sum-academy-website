@@ -1,141 +1,154 @@
-// import admin from "firebase-admin";
-// import { readFileSync } from "fs";
-// import { fileURLToPath } from "url";
-// import path from "path";
-// import dotenv from "dotenv";
+import { admin, db, auth } from "./config/firebase.js";
 
-// dotenv.config();
+const users = [
+  {
+    email: "admin@gmail.com",
+    password: "Admin123@",
+    name: "SUM Admin",
+    role: "admin",
+    phone: "03001234567",
+  },
+  {
+    email: "teacher@gmail.com",
+    password: "Teacher123@",
+    name: "SUM Teacher",
+    role: "teacher",
+    phone: "03001234568",
+    subject: "Mathematics",
+    bio: "Experienced teacher at SUM Academy",
+    assignedSubjects: ["Mathematics"],
+  },
+  {
+    email: "student@gmail.com",
+    password: "Student123@",
+    name: "SUM Student",
+    role: "student",
+    phone: "03001234569",
+    fatherName: "Sample Father",
+    caste: "Sample Caste",
+    fatherOccupation: "Business",
+    fatherContactNo: "03009998877",
+    districtOfDomicile: "Karachi",
+    address: "Block A, Karachi",
+  },
+];
 
-// const __filename = fileURLToPath(import.meta.url);
-// const __dirname  = path.dirname(__filename);
+const seedUsers = async () => {
+  console.log("Starting SUM Academy seed...\n");
 
-// const serviceAccount = JSON.parse(
-//   readFileSync(
-//     path.join(__dirname, "../serviceAccountKey.json"),
-//     "utf-8"
-//   )
-// );
+  for (const user of users) {
+    try {
+      let firebaseUser;
+      try {
+        firebaseUser = await auth.getUserByEmail(user.email);
+        console.log(`Auth user already exists: ${user.email}`);
+      } catch {
+        firebaseUser = await auth.createUser({
+          email: user.email,
+          password: user.password,
+          displayName: user.name,
+          emailVerified: true,
+        });
+        console.log(`Auth user created: ${user.email}`);
+      }
 
-// if (!admin.apps.length) {
-//   admin.initializeApp({
-//     credential: admin.credential.cert(serviceAccount),
-//   });
-// }
+      const uid = firebaseUser.uid;
+      await auth.setCustomUserClaims(uid, { role: user.role });
 
-// const db   = admin.firestore();
-// const auth = admin.auth();
+      const userRef = db.collection("users").doc(uid);
+      const userSnap = await userRef.get();
+      const baseData = {
+        uid,
+        email: user.email,
+        role: user.role,
+        isActive: true,
+        assignedWebDevice: null,
+        lastKnownWebIp: null,
+        lastLoginAt: null,
+      };
 
-// const users = [
-//   {
-//     email:       "admin@gmail.com",
-//     password:    "Admin123@",
-//     name:        "SUM Admin",
-//     phone:       "03001234567",
-//     role:        "admin",
-//     displayName: "SUM Admin",
-//   },
-//   {
-//     email:       "teacher@gmail.com",
-//     password:    "Teacher123@",
-//     name:        "SUM Teacher",
-//     phone:       "03001234568",
-//     role:        "teacher",
-//     displayName: "SUM Teacher",
-//   },
-//   {
-//     email:       "student@gmail.com",
-//     password:    "Student123@",
-//     name:        "SUM Student",
-//     phone:       "03001234569",
-//     role:        "student",
-//     displayName: "SUM Student",
-//   },
-// ];
+      if (userSnap.exists) {
+        await userRef.set(baseData, { merge: true });
+      } else {
+        await userRef.set({
+          ...baseData,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      }
 
-// const seedUsers = async () => {
-//   console.log("🌱 Starting SUM Academy seed...\n");
+      if (user.role === "admin") {
+        const adminRef = db.collection("admins").doc(uid);
+        const adminSnap = await adminRef.get();
+        const adminData = { uid, fullName: user.name };
+        if (adminSnap.exists) {
+          await adminRef.set(adminData, { merge: true });
+        } else {
+          await adminRef.set({
+            ...adminData,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+        }
+      }
 
-//   for (const user of users) {
-//     try {
-//       // ── Step 1: Create in Firebase Auth ──────────────────
-//       let firebaseUser;
+      if (user.role === "teacher") {
+        const teacherRef = db.collection("teachers").doc(uid);
+        const teacherSnap = await teacherRef.get();
+        const teacherData = {
+          uid,
+          fullName: user.name,
+          subject: user.subject || "",
+          bio: user.bio || "",
+          phone: user.phone || "",
+          assignedSubjects: user.assignedSubjects || [],
+          profilePicture: null,
+          assignedClasses: [],
+          assignedCourses: [],
+        };
+        if (teacherSnap.exists) {
+          await teacherRef.set(teacherData, { merge: true });
+        } else {
+          await teacherRef.set({
+            ...teacherData,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+        }
+      }
 
-//       try {
-//         // Try to get existing user first
-//         firebaseUser = await auth.getUserByEmail(user.email);
-//         console.log(`⚠️  Auth user already exists: ${user.email}`);
-//       } catch {
-//         // Does not exist — create it
-//         firebaseUser = await auth.createUser({
-//           email:         user.email,
-//           password:      user.password,
-//           displayName:   user.displayName,
-//           emailVerified: true,
-//         });
-//         console.log(`✅ Auth user created: ${user.email}`);
-//       }
+      if (user.role === "student") {
+        const studentRef = db.collection("students").doc(uid);
+        const studentSnap = await studentRef.get();
+        const studentData = {
+          uid,
+          fullName: user.name,
+          phoneNumber: user.phone || "",
+          fatherName: user.fatherName || "",
+          fatherPhone: user.fatherContactNo || "",
+          fatherOccupation: user.fatherOccupation || "",
+          address: user.address || "",
+          district: user.districtOfDomicile || "",
+          domicile: user.districtOfDomicile || "",
+          caste: user.caste || "",
+          enrolledCourses: [],
+          certificates: [],
+        };
+        if (studentSnap.exists) {
+          await studentRef.set(studentData, { merge: true });
+        } else {
+          await studentRef.set({
+            ...studentData,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+        }
+      }
 
-//       const uid = firebaseUser.uid;
+      console.log(`User ready: ${user.email} (${user.role})`);
+    } catch (error) {
+      console.error(`Failed for ${user.email}:`, error.message);
+    }
+  }
 
-//       // ── Step 2: Set custom role claim ─────────────────────
-//       await auth.setCustomUserClaims(uid, { role: user.role });
-//       console.log(`✅ Role set: ${user.role} → ${user.email}`);
+  console.log("\nSeed completed successfully.");
+  process.exit(0);
+};
 
-//       // ── Step 3: Save profile to Firestore ─────────────────
-//       const userRef  = db.collection("users").doc(uid);
-//       const userSnap = await userRef.get();
-
-//       if (userSnap.exists) {
-//         await userRef.update({
-//           role:      user.role,
-//           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-//         });
-//         console.log(`⚠️  Firestore doc updated: ${user.email}`);
-//       } else {
-//         await userRef.set({
-//           uid,
-//           name:             user.name,
-//           email:            user.email,
-//           phone:            user.phone,
-//           role:             user.role,
-//           isActive:         true,
-//           isVerified:       true,
-//           enrolledCourses:  [],
-//           certificates:     [],
-//           createdAt:        admin.firestore.FieldValue.serverTimestamp(),
-//           lastLoginAt:      null,
-//           lastKnownIP:      null,
-//           lastDevice:       null,
-//         });
-//         console.log(`✅ Firestore doc created: ${user.email}`);
-//       }
-
-//       console.log(`\n👤 ${user.role.toUpperCase()} ready:`);
-//       console.log(`   Email:    ${user.email}`);
-//       console.log(`   Password: ${user.password}`);
-//       console.log(`   UID:      ${uid}\n`);
-
-//     } catch (error) {
-//       console.error(`❌ Failed for ${user.email}:`, error.message);
-//     }
-//   }
-
-//   console.log("✅ Seed completed successfully!");
-//   console.log("\n─────────────────────────────────────");
-//   console.log("🔑 LOGIN CREDENTIALS:");
-//   console.log("─────────────────────────────────────");
-//   console.log("ADMIN:");
-//   console.log("  Email:    admin@gmail.com");
-//   console.log("  Password: Admin123@");
-//   console.log("\nTEACHER:");
-//   console.log("  Email:    teacher@gmail.com");
-//   console.log("  Password: Teacher123@");
-//   console.log("\nSTUDENT:");
-//   console.log("  Email:    student@gmail.com");
-//   console.log("  Password: Student123@");
-//   console.log("─────────────────────────────────────\n");
-
-//   process.exit(0);
-// };
-
-// seedUsers();
+seedUsers();

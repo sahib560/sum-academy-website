@@ -8,6 +8,7 @@ import rateLimit    from "express-rate-limit";
 import dotenv       from "dotenv";
 import { db }       from "./config/firebase.js";
 import authRoutes   from "./routes/auth.routes.js";
+import adminRoutes  from "./routes/admin.routes.js";
 
 dotenv.config();
 
@@ -17,8 +18,10 @@ const PORT = process.env.PORT || 5000;
 // ── Security ─────────────────────────────────────────────────
 app.use(helmet());
 app.use(cors({
-  origin:      process.env.CLIENT_URL,
-  credentials: true,
+  origin:        process.env.CLIENT_URL,
+  credentials:   true,
+  methods:       ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
 }));
 
 // ── Rate Limiting ─────────────────────────────────────────────
@@ -41,6 +44,7 @@ if (process.env.NODE_ENV === "development") {
 
 // ── Routes ────────────────────────────────────────────────────
 app.use("/api/auth", authRoutes);
+app.use("/api/admin", adminRoutes);
 
 app.get("/api/health", (req, res) => {
   res.json({

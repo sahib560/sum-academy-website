@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
+import { useQuery } from "@tanstack/react-query";
 import {
   CartesianGrid,
   Line,
@@ -9,168 +10,18 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import {
+  getDashboardStats,
+  getRecentEnrollments,
+  getTopCourses,
+  getRecentActivity,
+  getRevenueChart,
+} from "../../services/admin.service.js";
 
 const fadeUp = {
   hidden: { opacity: 0, y: 16 },
   visible: { opacity: 1, y: 0, transition: { duration: 0.4 } },
 };
-
-const kpis = [
-  {
-    label: "Total Students",
-    value: 12500,
-    change: 12.4,
-    trend: "up",
-    color: "text-primary",
-    icon: "users",
-  },
-  {
-    label: "Total Revenue PKR",
-    value: 4265000,
-    change: 8.1,
-    trend: "up",
-    color: "text-emerald-500",
-    icon: "trend",
-  },
-  {
-    label: "Active Courses",
-    value: 86,
-    change: -3.2,
-    trend: "down",
-    color: "text-accent",
-    icon: "book",
-  },
-  {
-    label: "Enrollments Today",
-    value: 142,
-    change: 5.6,
-    trend: "up",
-    color: "text-purple-500",
-    icon: "user-plus",
-  },
-];
-
-const chartData = {
-  "7 Days": [
-    { name: "Mon", revenue: 520000 },
-    { name: "Tue", revenue: 610000 },
-    { name: "Wed", revenue: 480000 },
-    { name: "Thu", revenue: 710000 },
-    { name: "Fri", revenue: 690000 },
-    { name: "Sat", revenue: 760000 },
-    { name: "Sun", revenue: 820000 },
-  ],
-  "30 Days": [
-    { name: "Week 1", revenue: 2100000 },
-    { name: "Week 2", revenue: 2480000 },
-    { name: "Week 3", revenue: 2320000 },
-    { name: "Week 4", revenue: 2700000 },
-  ],
-  "3 Months": [
-    { name: "Jan", revenue: 8200000 },
-    { name: "Feb", revenue: 7600000 },
-    { name: "Mar", revenue: 9100000 },
-  ],
-};
-
-const enrollments = [
-  {
-    name: "Hassan Ali",
-    course: "Class XI - Pre-Medical",
-    amount: 3500,
-    date: "Mar 12, 2026",
-    status: "Paid",
-  },
-  {
-    name: "Ayesha Noor",
-    course: "Pre-Entrance Test",
-    amount: 4200,
-    date: "Mar 12, 2026",
-    status: "Pending",
-  },
-  {
-    name: "Bilal Khan",
-    course: "Class XII - Pre-Medical",
-    amount: 3800,
-    date: "Mar 11, 2026",
-    status: "Paid",
-  },
-  {
-    name: "Sana Akbar",
-    course: "Pre-Entrance Test",
-    amount: 4200,
-    date: "Mar 11, 2026",
-    status: "Failed",
-  },
-  {
-    name: "Usman Raza",
-    course: "Class XI - Pre-Medical",
-    amount: 3500,
-    date: "Mar 10, 2026",
-    status: "Paid",
-  },
-];
-
-const topCourses = [
-  { name: "Class XI - Pre-Medical", enrolled: 420, revenue: 1470000 },
-  { name: "Class XII - Pre-Medical", enrolled: 380, revenue: 1420000 },
-  { name: "Pre-Entrance Test", enrolled: 310, revenue: 1300000 },
-  { name: "Matric Biology Essentials", enrolled: 260, revenue: 850000 },
-  { name: "English Language Fluency", enrolled: 210, revenue: 620000 },
-];
-
-const activityFeed = [
-  {
-    type: "enroll",
-    text: "New enrollment: Ayesha Noor joined Pre-Entrance Test.",
-    time: "2 mins ago",
-  },
-  {
-    type: "payment",
-    text: "Payment received from Hassan Ali (PKR 3,500).",
-    time: "15 mins ago",
-  },
-  {
-    type: "teacher",
-    text: "New teacher added: Mr. Waseem Ahmed Soomro.",
-    time: "1 hour ago",
-  },
-  {
-    type: "course",
-    text: "Course published: Chemistry Lab Workshop.",
-    time: "2 hours ago",
-  },
-  {
-    type: "certificate",
-    text: "Certificate issued to Bilal Khan.",
-    time: "3 hours ago",
-  },
-  {
-    type: "enroll",
-    text: "New enrollment: Usman Raza joined Class XI - Pre-Medical.",
-    time: "5 hours ago",
-  },
-  {
-    type: "payment",
-    text: "Payment received from Sana Akbar (PKR 4,200).",
-    time: "6 hours ago",
-  },
-  {
-    type: "course",
-    text: "Course updated: Class XII - Pre-Medical revision module.",
-    time: "8 hours ago",
-  },
-  {
-    type: "teacher",
-    text: "Teacher profile updated: Mr. Mansoor Ahmed Mangi.",
-    time: "1 day ago",
-  },
-  {
-    type: "certificate",
-    text: "Certificate issued to Ayesha Noor.",
-    time: "1 day ago",
-  },
-];
 
 const iconMap = {
   users: (
@@ -191,6 +42,11 @@ const iconMap = {
   "user-plus": (
     <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
       <path d="M15 14a4 4 0 1 0-4-4 4 4 0 0 0 4 4zm-9 6a6 6 0 0 1 9-5.2 6.4 6.4 0 0 0-.8 3.2V20H6zm12-4v-3h-2v3h-3v2h3v3h2v-3h3v-2z" />
+    </svg>
+  ),
+  activity: (
+    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
+      <path d="M3 12h3l3 7 4-14 3 7h5" />
     </svg>
   ),
   enroll: (
@@ -221,35 +77,223 @@ const iconMap = {
   ),
 };
 
-function CountUp({ value }) {
+const parseTimestamp = (value) => {
+  if (!value) return null;
+  if (typeof value.toDate === "function") return value.toDate();
+  if (typeof value._seconds === "number") return new Date(value._seconds * 1000);
+  if (typeof value.seconds === "number") return new Date(value.seconds * 1000);
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const formatDateLabel = (date) =>
+  date.toLocaleDateString("en-PK", { month: "short", day: "numeric" });
+
+const formatFullDate = (date) =>
+  date.toLocaleDateString("en-PK", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+
+const timeAgo = (date) => {
+  if (!date) return "";
+  const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes} mins ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} hours ago`;
+  const days = Math.floor(hours / 24);
+  return `${days} days ago`;
+};
+
+const statusClass = (status) => {
+  const normalized = (status || "").toLowerCase();
+  if (normalized === "paid") return "bg-emerald-50 text-emerald-600";
+  if (normalized === "pending") return "bg-amber-50 text-amber-600";
+  if (normalized === "failed" || normalized === "rejected")
+    return "bg-rose-50 text-rose-600";
+  return "bg-slate-100 text-slate-600";
+};
+
+const activityIcon = (action) => {
+  const normalized = (action || "").toLowerCase();
+  if (normalized.includes("payment")) return iconMap.payment;
+  if (normalized.includes("teacher")) return iconMap.teacher;
+  if (normalized.includes("course")) return iconMap.course;
+  if (normalized.includes("certificate")) return iconMap.certificate;
+  if (normalized.includes("enroll")) return iconMap.enroll;
+  return iconMap.activity;
+};
+
+const activityText = (activity) => {
+  const action = (activity?.action || "").replace(/_/g, " ");
+  if (!action) return "Activity logged";
+  const subject = activity?.email || activity?.uid || "user";
+  return `${action} — ${subject}`;
+};
+
+function CountUp({ value, prefix = "" }) {
   const [display, setDisplay] = useState(0);
 
   useEffect(() => {
+    const target = Number(value || 0);
     let start = null;
     let frame;
     const step = (timestamp) => {
       if (!start) start = timestamp;
       const progress = Math.min((timestamp - start) / 1000, 1);
-      setDisplay(Math.round(value * progress));
+      setDisplay(Math.round(target * progress));
       if (progress < 1) frame = requestAnimationFrame(step);
     };
     frame = requestAnimationFrame(step);
     return () => cancelAnimationFrame(frame);
   }, [value]);
 
-  return <span>{display.toLocaleString()}</span>;
+  return (
+    <span>
+      {prefix}
+      {display.toLocaleString()}
+    </span>
+  );
 }
 
 function Dashboard() {
-  const [loading, setLoading] = useState(true);
-  const [range, setRange] = useState("7 Days");
+  const [rangeDays, setRangeDays] = useState(7);
 
-  useEffect(() => {
-    const timer = setTimeout(() => setLoading(false), 1500);
-    return () => clearTimeout(timer);
-  }, []);
+  const {
+    data: statsResponse,
+    isLoading: statsLoading,
+    error: statsError,
+    refetch: refetchStats,
+  } = useQuery({
+    queryKey: ["admin", "dashboard-stats"],
+    queryFn: getDashboardStats,
+    staleTime: 30000,
+    retry: 2,
+  });
 
-  const maxEnroll = Math.max(...topCourses.map((course) => course.enrolled));
+  const {
+    data: revenueResponse,
+    isLoading: revenueLoading,
+    error: revenueError,
+    refetch: refetchRevenue,
+  } = useQuery({
+    queryKey: ["admin", "revenue-chart", rangeDays],
+    queryFn: () => getRevenueChart(rangeDays),
+    staleTime: 30000,
+    retry: 2,
+  });
+
+  const {
+    data: enrollmentsResponse,
+    isLoading: enrollmentsLoading,
+    error: enrollmentsError,
+  } = useQuery({
+    queryKey: ["admin", "recent-enrollments"],
+    queryFn: getRecentEnrollments,
+    staleTime: 30000,
+    retry: 2,
+  });
+
+  const {
+    data: topCoursesResponse,
+    isLoading: topCoursesLoading,
+    error: topCoursesError,
+  } = useQuery({
+    queryKey: ["admin", "top-courses"],
+    queryFn: getTopCourses,
+    staleTime: 30000,
+    retry: 2,
+  });
+
+  const {
+    data: activityResponse,
+    isLoading: activityLoading,
+    error: activityError,
+  } = useQuery({
+    queryKey: ["admin", "recent-activity"],
+    queryFn: getRecentActivity,
+    staleTime: 30000,
+    retry: 2,
+  });
+
+  const stats = statsResponse?.data ?? statsResponse ?? {};
+
+  const kpis = useMemo(
+    () => [
+      {
+        label: "Total Students",
+        value: Number(stats.totalStudents || 0),
+        color: "text-primary",
+        icon: "users",
+      },
+      {
+        label: "Total Revenue PKR",
+        value: Number(stats.totalRevenue || 0),
+        color: "text-emerald-500",
+        icon: "trend",
+        prefix: "PKR ",
+      },
+      {
+        label: "Active Courses",
+        value: Number(stats.totalCourses || 0),
+        color: "text-accent",
+        icon: "book",
+      },
+      {
+        label: "Enrollments Today",
+        value: Number(stats.enrollmentsToday || 0),
+        color: "text-purple-500",
+        icon: "user-plus",
+      },
+    ],
+    [stats]
+  );
+
+  const revenueRaw = useMemo(() => {
+    const data = revenueResponse?.data ?? revenueResponse ?? [];
+    return Array.isArray(data) ? data : [];
+  }, [revenueResponse]);
+
+  const revenueData = useMemo(
+    () =>
+      revenueRaw.map((item) => {
+        const date = parseTimestamp(item.date);
+        return {
+          label: date ? formatDateLabel(date) : item.date || "N/A",
+          amount: Number(item.amount || 0),
+        };
+      }),
+    [revenueRaw]
+  );
+
+  const enrollments = useMemo(() => {
+    const data = enrollmentsResponse?.data ?? enrollmentsResponse ?? [];
+    return Array.isArray(data) ? data : [];
+  }, [enrollmentsResponse]);
+
+  const topCourses = useMemo(() => {
+    const data = topCoursesResponse?.data ?? topCoursesResponse ?? [];
+    return Array.isArray(data) ? data : [];
+  }, [topCoursesResponse]);
+
+  const activityFeed = useMemo(() => {
+    const data = activityResponse?.data ?? activityResponse ?? [];
+    return Array.isArray(data) ? data : [];
+  }, [activityResponse]);
+
+  const maxEnroll =
+    topCourses.length > 0
+      ? Math.max(...topCourses.map((course) => Number(course.enrollmentCount || 0)))
+      : 0;
+
+  const ranges = [
+    { label: "7 Days", days: 7 },
+    { label: "30 Days", days: 30 },
+    { label: "3 Months", days: 90 },
+  ];
 
   return (
     <div className="space-y-8">
@@ -259,44 +303,50 @@ function Dashboard() {
         initial="hidden"
         animate="visible"
       >
-        {loading
-          ? Array.from({ length: 4 }).map((_, index) => (
-              <div key={`kpi-skeleton-${index}`} className="glass-card">
-                <div className="skeleton h-5 w-24" />
-                <div className="mt-4 skeleton h-10 w-32" />
-                <div className="mt-4 skeleton h-4 w-20" />
-              </div>
-            ))
-          : kpis.map((kpi) => (
-              <motion.div
-                key={kpi.label}
-                variants={fadeUp}
-                className="glass-card card-hover flex flex-col gap-4"
+        {statsLoading ? (
+          Array.from({ length: 4 }).map((_, index) => (
+            <div key={`kpi-skeleton-${index}`} className="glass-card">
+              <div className="skeleton h-5 w-24" />
+              <div className="mt-4 skeleton h-10 w-32" />
+              <div className="mt-4 skeleton h-4 w-20" />
+            </div>
+          ))
+        ) : statsError ? (
+          <div className="sm:col-span-2 xl:col-span-4 rounded-2xl border border-rose-100 bg-rose-50 p-6 text-sm text-rose-600">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <span>Failed to load dashboard stats.</span>
+              <button
+                className="rounded-full border border-rose-200 bg-white px-4 py-2 text-xs font-semibold text-rose-600"
+                onClick={() => refetchStats()}
               >
-                <div className="flex items-center justify-between">
-                  <p className="text-sm font-semibold text-slate-500">
-                    {kpi.label}
-                  </p>
-                  <div
-                    className={`flex h-10 w-10 items-center justify-center rounded-2xl bg-slate-100 ${kpi.color}`}
-                  >
-                    {iconMap[kpi.icon]}
-                  </div>
-                </div>
-                <p className="text-3xl font-semibold text-slate-900">
-                  <CountUp value={kpi.value} />
+                Retry
+              </button>
+            </div>
+          </div>
+        ) : (
+          kpis.map((kpi) => (
+            <motion.div
+              key={kpi.label}
+              variants={fadeUp}
+              className="glass-card card-hover flex flex-col gap-4"
+            >
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-semibold text-slate-500">
+                  {kpi.label}
                 </p>
-                <span
-                  className={`inline-flex w-fit items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold ${
-                    kpi.trend === "up"
-                      ? "bg-emerald-50 text-emerald-600"
-                      : "bg-rose-50 text-rose-600"
-                  }`}
+                <div
+                  className={`flex h-10 w-10 items-center justify-center rounded-2xl bg-slate-100 ${kpi.color}`}
                 >
-                  {kpi.trend === "up" ? "▲" : "▼"} {Math.abs(kpi.change)}%
-                </span>
-              </motion.div>
-            ))}
+                  {iconMap[kpi.icon]}
+                </div>
+              </div>
+              <p className="text-3xl font-semibold text-slate-900">
+                <CountUp value={kpi.value} prefix={kpi.prefix} />
+              </p>
+              <span className="text-xs text-slate-400">Live data</span>
+            </motion.div>
+          ))
+        )}
       </motion.div>
 
       <div className="glass-card">
@@ -310,29 +360,45 @@ function Dashboard() {
             </h2>
           </div>
           <div className="flex flex-wrap gap-2">
-            {Object.keys(chartData).map((label) => (
+            {ranges.map((range) => (
               <button
-                key={label}
+                key={range.label}
                 type="button"
-                onClick={() => setRange(label)}
+                onClick={() => setRangeDays(range.days)}
                 className={`rounded-full px-4 py-2 text-xs font-semibold transition ${
-                  range === label
+                  rangeDays === range.days
                     ? "bg-primary text-white"
                     : "border border-slate-200 text-slate-600"
                 }`}
               >
-                {label}
+                {range.label}
               </button>
             ))}
           </div>
         </div>
 
         <div className="mt-6 min-h-[18rem] w-full overflow-hidden">
-          {loading ? (
+          {revenueLoading ? (
             <div className="skeleton h-full w-full rounded-2xl" />
+          ) : revenueError ? (
+            <div className="rounded-2xl border border-rose-100 bg-rose-50 p-6 text-sm text-rose-600">
+              <div className="flex items-center justify-between gap-4">
+                <span>Failed to load revenue chart.</span>
+                <button
+                  className="rounded-full border border-rose-200 bg-white px-4 py-2 text-xs font-semibold text-rose-600"
+                  onClick={() => refetchRevenue()}
+                >
+                  Retry
+                </button>
+              </div>
+            </div>
+          ) : revenueData.length === 0 ? (
+            <div className="flex h-48 items-center justify-center text-sm text-slate-500">
+              No revenue data yet
+            </div>
           ) : (
             <ResponsiveContainer width="100%" height={288}>
-              <LineChart data={chartData[range]}>
+              <LineChart data={revenueData}>
                 <defs>
                   <linearGradient id="revenueFill" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor="#4a63f5" stopOpacity={0.35} />
@@ -340,14 +406,17 @@ function Dashboard() {
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                <XAxis dataKey="name" tickLine={false} axisLine={false} />
+                <XAxis dataKey="label" tickLine={false} axisLine={false} />
                 <YAxis
                   tickLine={false}
                   axisLine={false}
-                  tickFormatter={(value) => `${value / 1000}k`}
+                  tickFormatter={(value) => `${Math.round(value / 1000)}k`}
                 />
                 <Tooltip
-                  formatter={(value) => [`PKR ${value.toLocaleString()}`, "Revenue"]}
+                  formatter={(value) => [
+                    `PKR ${Number(value).toLocaleString()}`,
+                    "Revenue",
+                  ]}
                   contentStyle={{
                     borderRadius: "12px",
                     borderColor: "#e2e8f0",
@@ -355,7 +424,7 @@ function Dashboard() {
                 />
                 <Line
                   type="monotone"
-                  dataKey="revenue"
+                  dataKey="amount"
                   stroke="#4a63f5"
                   strokeWidth={3}
                   dot={{ r: 4 }}
@@ -377,41 +446,52 @@ function Dashboard() {
             <button className="text-sm font-semibold text-primary">View All</button>
           </div>
           <div className="mt-6">
-            {loading ? (
+            {enrollmentsLoading ? (
               <div className="space-y-3">
                 {Array.from({ length: 5 }).map((_, index) => (
                   <div key={`enroll-skeleton-${index}`} className="skeleton h-10 w-full" />
                 ))}
               </div>
+            ) : enrollmentsError ? (
+              <div className="rounded-2xl border border-rose-100 bg-rose-50 p-4 text-sm text-rose-600">
+                Failed to load enrollments.
+              </div>
+            ) : enrollments.length === 0 ? (
+              <div className="text-sm text-slate-500">No enrollments yet.</div>
             ) : (
               <>
                 <div className="space-y-3 sm:hidden">
-                  {enrollments.map((item) => (
-                    <div
-                      key={item.name}
-                      className="rounded-2xl border border-slate-100 bg-white/80 p-4 text-sm shadow-sm"
-                    >
-                      <div className="flex items-center justify-between">
-                        <p className="font-semibold text-slate-900">{item.name}</p>
-                        <span
-                          className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                            item.status === "Paid"
-                              ? "bg-emerald-50 text-emerald-600"
-                              : item.status === "Pending"
-                              ? "bg-amber-50 text-amber-600"
-                              : "bg-rose-50 text-rose-600"
-                          }`}
-                        >
-                          {item.status}
-                        </span>
+                  {enrollments.map((item) => {
+                    const createdAt = parseTimestamp(item.createdAt);
+                    return (
+                      <div
+                        key={item.id}
+                        className="rounded-2xl border border-slate-100 bg-white/80 p-4 text-sm shadow-sm"
+                      >
+                        <div className="flex items-center justify-between">
+                          <p className="font-semibold text-slate-900">
+                            {item.studentName || "Unknown"}
+                          </p>
+                          <span
+                            className={`rounded-full px-3 py-1 text-xs font-semibold ${statusClass(
+                              item.status
+                            )}`}
+                          >
+                            {item.status || "Pending"}
+                          </span>
+                        </div>
+                        <p className="mt-2 text-slate-600">
+                          {item.courseName || "Unknown"}
+                        </p>
+                        <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-slate-500">
+                          <span>PKR {Number(item.amount || 0).toLocaleString()}</span>
+                          <span>
+                            {createdAt ? formatFullDate(createdAt) : "N/A"}
+                          </span>
+                        </div>
                       </div>
-                      <p className="mt-2 text-slate-600">{item.course}</p>
-                      <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-slate-500">
-                        <span>PKR {item.amount.toLocaleString()}</span>
-                        <span>{item.date}</span>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
 
                 <div className="hidden sm:block">
@@ -427,33 +507,34 @@ function Dashboard() {
                         </tr>
                       </thead>
                       <tbody className="text-slate-600">
-                        {enrollments.map((item) => (
-                          <tr key={item.name} className="border-t border-slate-100">
-                            <td className="py-3 pr-3 font-semibold text-slate-900">
-                              {item.name}
-                            </td>
-                            <td className="py-3 pr-4 text-slate-600">
-                              {item.course}
-                            </td>
-                            <td className="py-3 whitespace-nowrap">
-                              PKR {item.amount.toLocaleString()}
-                            </td>
-                            <td className="py-3 whitespace-nowrap">{item.date}</td>
-                            <td className="py-3">
-                              <span
-                                className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                                  item.status === "Paid"
-                                    ? "bg-emerald-50 text-emerald-600"
-                                    : item.status === "Pending"
-                                    ? "bg-amber-50 text-amber-600"
-                                    : "bg-rose-50 text-rose-600"
-                                }`}
-                              >
-                                {item.status}
-                              </span>
-                            </td>
-                          </tr>
-                        ))}
+                        {enrollments.map((item) => {
+                          const createdAt = parseTimestamp(item.createdAt);
+                          return (
+                            <tr key={item.id} className="border-t border-slate-100">
+                              <td className="py-3 pr-3 font-semibold text-slate-900">
+                                {item.studentName || "Unknown"}
+                              </td>
+                              <td className="py-3 pr-4 text-slate-600">
+                                {item.courseName || "Unknown"}
+                              </td>
+                              <td className="py-3 whitespace-nowrap">
+                                PKR {Number(item.amount || 0).toLocaleString()}
+                              </td>
+                              <td className="py-3 whitespace-nowrap">
+                                {createdAt ? formatFullDate(createdAt) : "N/A"}
+                              </td>
+                              <td className="py-3">
+                                <span
+                                  className={`rounded-full px-3 py-1 text-xs font-semibold ${statusClass(
+                                    item.status
+                                  )}`}
+                                >
+                                  {item.status || "Pending"}
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
@@ -466,36 +547,45 @@ function Dashboard() {
         <div className="glass-card">
           <h3 className="font-heading text-xl text-slate-900">Top Courses</h3>
           <div className="mt-6 space-y-4">
-            {loading
-              ? Array.from({ length: 5 }).map((_, index) => (
-                  <div key={`top-skeleton-${index}`} className="space-y-2">
-                    <div className="skeleton h-4 w-3/4" />
-                    <div className="skeleton h-2 w-full" />
-                  </div>
-                ))
-              : topCourses.map((course, index) => (
-                  <div key={course.name} className="space-y-2">
+            {topCoursesLoading ? (
+              Array.from({ length: 5 }).map((_, index) => (
+                <div key={`top-skeleton-${index}`} className="space-y-2">
+                  <div className="skeleton h-4 w-3/4" />
+                  <div className="skeleton h-2 w-full" />
+                </div>
+              ))
+            ) : topCoursesError ? (
+              <div className="rounded-2xl border border-rose-100 bg-rose-50 p-4 text-sm text-rose-600">
+                Failed to load top courses.
+              </div>
+            ) : topCourses.length === 0 ? (
+              <div className="text-sm text-slate-500">No courses yet.</div>
+            ) : (
+              topCourses.map((course, index) => {
+                const enrolled = Number(course.enrollmentCount || 0);
+                return (
+                  <div key={course.id} className="space-y-2">
                     <div className="flex items-center justify-between text-sm">
                       <span className="font-semibold text-slate-900">
-                        {index + 1}. {course.name}
+                        {index + 1}. {course.title || "Untitled"}
                       </span>
-                      <span className="text-slate-500">
-                        {course.enrolled} enrolled
-                      </span>
+                      <span className="text-slate-500">{enrolled} enrolled</span>
                     </div>
                     <div className="h-2 rounded-full bg-slate-100">
                       <div
                         className="h-2 rounded-full bg-primary"
                         style={{
-                          width: `${(course.enrolled / maxEnroll) * 100}%`,
+                          width: maxEnroll ? `${(enrolled / maxEnroll) * 100}%` : "0%",
                         }}
                       />
                     </div>
                     <div className="text-xs text-slate-500">
-                      PKR {course.revenue.toLocaleString()}
+                      PKR {Number(course.revenue || 0).toLocaleString()}
                     </div>
                   </div>
-                ))}
+                );
+              })
+            )}
           </div>
         </div>
       </div>
@@ -503,24 +593,38 @@ function Dashboard() {
       <div className="glass-card">
         <h3 className="font-heading text-xl text-slate-900">Recent Activity</h3>
         <div className="mt-6 space-y-4">
-          {loading
-            ? Array.from({ length: 6 }).map((_, index) => (
-                <div key={`activity-skeleton-${index}`} className="skeleton h-6 w-full" />
-              ))
-            : activityFeed.map((item, index) => (
+          {activityLoading ? (
+            Array.from({ length: 6 }).map((_, index) => (
+              <div key={`activity-skeleton-${index}`} className="skeleton h-6 w-full" />
+            ))
+          ) : activityError ? (
+            <div className="rounded-2xl border border-rose-100 bg-rose-50 p-4 text-sm text-rose-600">
+              Failed to load recent activity.
+            </div>
+          ) : activityFeed.length === 0 ? (
+            <div className="text-sm text-slate-500">No recent activity.</div>
+          ) : (
+            activityFeed.map((item) => {
+              const createdAt = parseTimestamp(item.timestamp);
+              return (
                 <div
-                  key={`${item.text}-${index}`}
+                  key={item.id}
                   className="flex items-start gap-3 text-sm text-slate-600"
                 >
                   <span className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-primary">
-                    {iconMap[item.type]}
+                    {activityIcon(item.action)}
                   </span>
                   <div className="flex-1">
-                    <p className="text-slate-700">{item.text}</p>
-                    <p className="text-xs text-slate-400">{item.time}</p>
+                    <p className="text-slate-700">{activityText(item)}</p>
+                    <p className="text-xs text-slate-400">
+                      {item.ip ? `IP ${item.ip}` : "IP unavailable"}
+                      {createdAt ? ` • ${timeAgo(createdAt)}` : ""}
+                    </p>
                   </div>
                 </div>
-              ))}
+              );
+            })
+          )}
         </div>
       </div>
     </div>

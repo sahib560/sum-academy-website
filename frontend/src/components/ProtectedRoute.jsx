@@ -18,7 +18,7 @@ function ProtectedRoute({ allowedRoles = [], children }) {
     }
   }, [allowedRoles, isAuthenticated, loading, location.pathname, navigate, role]);
 
-  if (loading) {
+  if (loading || (isAuthenticated && allowedRoles.length > 0 && !role)) {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <div className="h-10 w-10 animate-spin rounded-full border-4 border-primary/30 border-t-primary" />
