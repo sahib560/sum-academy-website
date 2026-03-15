@@ -308,7 +308,92 @@ function Users() {
       </div>
 
       <div className="rounded-3xl border border-slate-200 bg-white shadow-sm">
-        <div className="overflow-x-auto">
+        <div className="sm:hidden">
+          <div className="space-y-3 px-4 py-4">
+            {loading ? (
+              Array.from({ length: 6 }).map((_, index) => (
+                <div
+                  key={`card-skeleton-${index}`}
+                  className="skeleton h-24 w-full rounded-2xl"
+                />
+              ))
+            ) : paginatedUsers.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-10 text-center text-sm text-slate-500">
+                No users found.
+              </div>
+            ) : (
+              paginatedUsers.map((user) => (
+                <div
+                  key={user.id}
+                  className="rounded-2xl border border-slate-100 bg-white/80 p-4 text-sm shadow-sm"
+                >
+                  <div className="flex items-start gap-3">
+                    <div className="flex min-w-0 flex-1 items-center gap-3">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
+                        {user.name
+                          .split(" ")
+                          .slice(0, 2)
+                          .map((word) => word[0])
+                          .join("")}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="truncate font-semibold text-slate-900">
+                          {user.name}
+                        </p>
+                        <p className="truncate text-xs text-slate-500">
+                          {user.email}
+                        </p>
+                      </div>
+                    </div>
+                    <span
+                      className={`shrink-0 rounded-full px-3 py-1 text-xs font-semibold ${roleColors[user.role]}`}
+                    >
+                      {user.role}
+                    </span>
+                  </div>
+                  <div className="mt-3 flex items-center justify-between gap-3 text-xs text-slate-600">
+                    <span>Joined: {user.joined}</span>
+                    <button
+                      className={`relative h-6 w-12 rounded-full transition ${
+                        user.status === "Active" ? "bg-emerald-400" : "bg-slate-200"
+                      }`}
+                      onClick={() => toggleStatus(user)}
+                      aria-pressed={user.status === "Active"}
+                    >
+                      <span
+                        className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
+                          user.status === "Active" ? "translate-x-6" : "translate-x-0"
+                        }`}
+                      />
+                    </button>
+                  </div>
+                  <div className="mt-3 flex items-center gap-2">
+                    <button
+                      className="rounded-full border border-slate-200 p-2 text-slate-500 hover:text-primary"
+                      onClick={() => openEdit(user)}
+                      aria-label="Edit user"
+                    >
+                      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
+                        <path d="M3 17.2V21h3.8l11-11-3.8-3.8-11 11zm17.7-10.5a1 1 0 0 0 0-1.4l-2-2a1 1 0 0 0-1.4 0l-1.6 1.6 3.8 3.8 1.2-1z" />
+                      </svg>
+                    </button>
+                    <button
+                      className="rounded-full border border-slate-200 p-2 text-rose-500 hover:text-rose-600"
+                      onClick={() => setShowDelete(user)}
+                      aria-label="Delete user"
+                    >
+                      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
+                        <path d="M6 7h12l-1 14H7L6 7zm3-3h6l1 2H8l1-2z" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        <div className="hidden overflow-x-auto sm:block">
           <table className="min-w-full text-left text-sm">
             <thead className="border-b border-slate-200 text-xs uppercase text-slate-400">
               <tr>
@@ -396,14 +481,20 @@ function Users() {
                         <button
                           className="rounded-full border border-slate-200 p-2 text-slate-500 hover:text-primary"
                           onClick={() => openEdit(user)}
+                          aria-label="Edit user"
                         >
-                          ✎
+                          <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
+                            <path d="M3 17.2V21h3.8l11-11-3.8-3.8-11 11zm17.7-10.5a1 1 0 0 0 0-1.4l-2-2a1 1 0 0 0-1.4 0l-1.6 1.6 3.8 3.8 1.2-1z" />
+                          </svg>
                         </button>
                         <button
                           className="rounded-full border border-slate-200 p-2 text-rose-500 hover:text-rose-600"
                           onClick={() => setShowDelete(user)}
+                          aria-label="Delete user"
                         >
-                          🗑
+                          <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
+                            <path d="M6 7h12l-1 14H7L6 7zm3-3h6l1 2H8l1-2z" />
+                          </svg>
                         </button>
                       </div>
                     </td>

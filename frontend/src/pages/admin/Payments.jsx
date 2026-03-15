@@ -111,6 +111,8 @@ function Payments() {
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [toast, setToast] = useState(null);
+  const [activeTransaction, setActiveTransaction] = useState(null);
+  const [activeInstallment, setActiveInstallment] = useState(null);
   const perPage = 10;
 
   useMemo(() => {
@@ -243,7 +245,72 @@ function Payments() {
           </div>
 
           <div className="rounded-3xl border border-slate-200 bg-white shadow-sm">
-            <div className="overflow-x-auto">
+            <div className="space-y-3 p-4 lg:hidden">
+              {loading ? (
+                Array.from({ length: 5 }).map((_, index) => (
+                  <div key={`tx-card-skeleton-${index}`} className="rounded-2xl border border-slate-200 p-4">
+                    <div className="skeleton h-4 w-1/2" />
+                    <div className="mt-3 space-y-2">
+                      <div className="skeleton h-3 w-3/4" />
+                      <div className="skeleton h-3 w-1/3" />
+                    </div>
+                  </div>
+                ))
+              ) : paginated.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-10 text-center text-sm text-slate-500">
+                  No transactions found.
+                </div>
+              ) : (
+                paginated.map((tx) => (
+                  <div
+                    key={tx.id}
+                    className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                          Student
+                        </p>
+                        <p className="mt-1 font-semibold text-slate-900">{tx.student}</p>
+                        <p className="text-xs text-slate-500">{tx.course}</p>
+                      </div>
+                      <span
+                        className={`rounded-full px-3 py-1 text-xs font-semibold ${methodStyles[tx.method]}`}
+                      >
+                        {tx.method}
+                      </span>
+                    </div>
+                    <div className="mt-3 grid grid-cols-2 gap-3 text-xs text-slate-500">
+                      <div>
+                        <p className="uppercase tracking-[0.2em] text-slate-400">Amount</p>
+                        <p className="mt-1 text-sm font-semibold text-slate-900">
+                          PKR {tx.amount.toLocaleString()}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="uppercase tracking-[0.2em] text-slate-400">Date</p>
+                        <p className="mt-1 text-sm text-slate-600">{tx.date}</p>
+                      </div>
+                    </div>
+                    <div className="mt-3 flex items-center justify-between gap-2">
+                      <span
+                        className={`rounded-full px-3 py-1 text-xs font-semibold ${statusStyles[tx.status]}`}
+                      >
+                        {tx.status}
+                      </span>
+                      <button
+                        className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600"
+                        onClick={() => setActiveTransaction(tx)}
+                      >
+                        View Details
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="hidden overflow-x-auto lg:block">
               <table className="min-w-full text-left text-sm">
                 <thead className="border-b border-slate-200 text-xs uppercase text-slate-400">
                   <tr>
@@ -334,7 +401,7 @@ function Payments() {
               </table>
             </div>
 
-            <div className="flex items-center justify-between px-6 py-4 text-sm text-slate-500">
+            <div className="flex items-center justify-between px-4 py-4 text-sm text-slate-500 lg:px-6">
               <span>
                 Page {page} of {pageCount}
               </span>
@@ -398,7 +465,76 @@ function Payments() {
 
       {tab === "Installments" && (
         <div className="rounded-3xl border border-slate-200 bg-white shadow-sm">
-          <div className="overflow-x-auto">
+          <div className="space-y-3 p-4 lg:hidden">
+            {loading ? (
+              Array.from({ length: 4 }).map((_, index) => (
+                <div key={`inst-card-skeleton-${index}`} className="rounded-2xl border border-slate-200 p-4">
+                  <div className="skeleton h-4 w-1/2" />
+                  <div className="mt-3 space-y-2">
+                    <div className="skeleton h-3 w-3/4" />
+                    <div className="skeleton h-3 w-1/3" />
+                  </div>
+                </div>
+              ))
+            ) : (
+              installments.map((plan) => (
+                <div
+                  key={plan.id}
+                  className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                        Student
+                      </p>
+                      <p className="mt-1 font-semibold text-slate-900">{plan.student}</p>
+                      <p className="text-xs text-slate-500">{plan.course}</p>
+                    </div>
+                    <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-600">
+                      {plan.status}
+                    </span>
+                  </div>
+                  <div className="mt-3 grid grid-cols-2 gap-3 text-xs text-slate-500">
+                    <div>
+                      <p className="uppercase tracking-[0.2em] text-slate-400">Total</p>
+                      <p className="mt-1 text-sm font-semibold text-slate-900">
+                        PKR {plan.total.toLocaleString()}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="uppercase tracking-[0.2em] text-slate-400">Paid</p>
+                      <p className="mt-1 text-sm text-slate-600">
+                        PKR {plan.paid.toLocaleString()}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="uppercase tracking-[0.2em] text-slate-400">Remaining</p>
+                      <p className="mt-1 text-sm text-slate-600">
+                        PKR {plan.remaining.toLocaleString()}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="uppercase tracking-[0.2em] text-slate-400">Next Due</p>
+                      <p className="mt-1 text-sm text-slate-600">{plan.nextDue}</p>
+                    </div>
+                  </div>
+                  <div className="mt-3 flex items-center justify-between gap-2">
+                    <button
+                      className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600"
+                      onClick={() => setActiveInstallment(plan)}
+                    >
+                      View Details
+                    </button>
+                    <button className="rounded-full border border-slate-200 px-3 py-1 text-xs">
+                      Override
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+
+          <div className="hidden overflow-x-auto lg:block">
             <table className="min-w-full text-left text-sm">
               <thead className="border-b border-slate-200 text-xs uppercase text-slate-400">
                 <tr>
@@ -468,6 +604,124 @@ function Payments() {
                 )}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {activeTransaction && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 lg:hidden"
+          onClick={() => setActiveTransaction(null)}
+        >
+          <div
+            className="w-full max-w-md rounded-3xl bg-white p-6 shadow-xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                  Transaction
+                </p>
+                <h3 className="mt-1 text-lg font-semibold text-slate-900">
+                  {activeTransaction.student}
+                </h3>
+                <p className="text-sm text-slate-500">{activeTransaction.course}</p>
+              </div>
+              <button
+                className="rounded-full border border-slate-200 px-3 py-1 text-xs text-slate-500"
+                onClick={() => setActiveTransaction(null)}
+              >
+                Close
+              </button>
+            </div>
+            <div className="mt-4 space-y-3 text-sm text-slate-600">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-slate-500">Method</span>
+                <span>{activeTransaction.method}</span>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-slate-500">Amount</span>
+                <span className="font-semibold text-slate-900">
+                  PKR {activeTransaction.amount.toLocaleString()}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-slate-500">Date</span>
+                <span>{activeTransaction.date}</span>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-slate-500">Status</span>
+                <span
+                  className={`rounded-full px-3 py-1 text-xs font-semibold ${statusStyles[activeTransaction.status]}`}
+                >
+                  {activeTransaction.status}
+                </span>
+              </div>
+            </div>
+            <div className="mt-5 flex flex-wrap gap-2">
+              <button className="btn-outline flex-1">View Receipt</button>
+              {activeTransaction.method === "Bank Transfer" && (
+                <button className="btn-outline flex-1">Verify</button>
+              )}
+              <button className="btn-primary flex-1">Mark Paid</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeInstallment && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 lg:hidden"
+          onClick={() => setActiveInstallment(null)}
+        >
+          <div
+            className="w-full max-w-md rounded-3xl bg-white p-6 shadow-xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                  Installment Plan
+                </p>
+                <h3 className="mt-1 text-lg font-semibold text-slate-900">
+                  {activeInstallment.student}
+                </h3>
+                <p className="text-sm text-slate-500">{activeInstallment.course}</p>
+              </div>
+              <button
+                className="rounded-full border border-slate-200 px-3 py-1 text-xs text-slate-500"
+                onClick={() => setActiveInstallment(null)}
+              >
+                Close
+              </button>
+            </div>
+            <div className="mt-4 space-y-3 text-sm text-slate-600">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-slate-500">Total Fee</span>
+                <span className="font-semibold text-slate-900">
+                  PKR {activeInstallment.total.toLocaleString()}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-slate-500">Paid</span>
+                <span>PKR {activeInstallment.paid.toLocaleString()}</span>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-slate-500">Remaining</span>
+                <span>PKR {activeInstallment.remaining.toLocaleString()}</span>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-slate-500">Next Due</span>
+                <span>{activeInstallment.nextDue}</span>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-slate-500">Status</span>
+                <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-600">
+                  {activeInstallment.status}
+                </span>
+              </div>
+            </div>
+            <button className="btn-primary mt-5 w-full">Override</button>
           </div>
         </div>
       )}

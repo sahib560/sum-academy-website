@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { useSiteSettings } from "../context/SiteSettingsContext.jsx";
 
 const subjects = ["Admissions", "Courses", "Technical Support", "Payments", "Other"];
 
@@ -39,6 +40,8 @@ const initialForm = {
 };
 
 function Contact() {
+  const { settings } = useSiteSettings();
+  const content = settings.content || {};
   const [form, setForm] = useState(initialForm);
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
@@ -82,13 +85,14 @@ function Contact() {
         <div className="mx-auto max-w-7xl">
           <div className="flex flex-col gap-4 rounded-3xl border border-slate-200/70 bg-white/80 p-8 shadow-2xl shadow-slate-200/50 backdrop-blur dark:border-white/10 dark:bg-dark/70 dark:shadow-black/40">
             <p className="text-xs font-semibold uppercase tracking-[0.4em] text-slate-500 dark:text-slate-300">
-              SUM Academy
+              {settings.general.siteName || "SUM Academy"}
             </p>
             <h1 className="font-heading text-4xl text-slate-900 dark:text-white">
-              Get In Touch
+              {content.contactHeroTitle || "Get In Touch"}
             </h1>
             <p className="text-sm text-slate-600 dark:text-slate-200">
-              We are here to help with admissions, course guidance, and support.
+              {content.contactHeroSubtitle ||
+                "We are here to help with admissions, course guidance, and support."}
             </p>
           </div>
         </div>
@@ -193,7 +197,7 @@ function Contact() {
                     Address
                   </p>
                   <p className="mt-2 font-semibold text-slate-900 dark:text-white">
-                    Karachi, Pakistan
+                    {settings.general.address || "Karachi, Pakistan"}
                   </p>
                 </div>
                 <div className="rounded-2xl border border-slate-200/70 bg-white/70 p-4 dark:border-white/10 dark:bg-white/5">
@@ -201,7 +205,7 @@ function Contact() {
                     Email
                   </p>
                   <p className="mt-2 font-semibold text-slate-900 dark:text-white">
-                    info@sumacademy.pk
+                    {settings.general.contactEmail || "info@sumacademy.pk"}
                   </p>
                 </div>
                 <div className="rounded-2xl border border-slate-200/70 bg-white/70 p-4 dark:border-white/10 dark:bg-white/5">
@@ -209,7 +213,7 @@ function Contact() {
                     Phone
                   </p>
                   <p className="mt-2 font-semibold text-slate-900 dark:text-white">
-                    +92 300 123 4567
+                    {settings.general.contactPhone || "+92 300 123 4567"}
                   </p>
                 </div>
                 <div className="rounded-2xl border border-slate-200/70 bg-white/70 p-4 dark:border-white/10 dark:bg-white/5">
@@ -217,7 +221,7 @@ function Contact() {
                     WhatsApp
                   </p>
                   <p className="mt-2 font-semibold text-slate-900 dark:text-white">
-                    +92 300 123 4567
+                    {settings.general.contactPhone || "+92 300 123 4567"}
                   </p>
                 </div>
               </div>
@@ -228,10 +232,7 @@ function Contact() {
                 Office Hours
               </h3>
               <p className="mt-3 text-sm text-slate-600 dark:text-slate-200">
-                Monday - السبت: 9:00 AM - 6:00 PM
-              </p>
-              <p className="mt-2 text-sm text-slate-600 dark:text-slate-200">
-                Sunday: 10:00 AM - 2:00 PM
+                {content.officeHours || "Mon-Sat, 9AM - 6PM PKT"}
               </p>
             </div>
 
@@ -240,9 +241,13 @@ function Contact() {
                 Social Links
               </h3>
               <div className="mt-4 flex flex-wrap gap-3">
-                {["Facebook", "Instagram", "TikTok", "YouTube"].map((item) => (
-                  <Link key={item} to={`/${item.toLowerCase()}`} className="tag">
-                    {item}
+                {[
+                  { label: "Facebook", to: content.facebookUrl || "/facebook" },
+                  { label: "WhatsApp", to: content.whatsappUrl || "/whatsapp" },
+                  { label: "TikTok", to: content.tiktokUrl || "/tiktok" },
+                ].map((item) => (
+                  <Link key={item.label} to={item.to} className="tag">
+                    {item.label}
                   </Link>
                 ))}
               </div>
@@ -257,7 +262,7 @@ function Contact() {
                   <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
                     <path d="M12 2a7 7 0 0 0-7 7c0 5.2 7 13 7 13s7-7.8 7-13a7 7 0 0 0-7-7zm0 9.5a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5z" />
                   </svg>
-                  Karachi, Pakistan
+                  {settings.general.address || "Karachi, Pakistan"}
                 </div>
               </div>
             </div>

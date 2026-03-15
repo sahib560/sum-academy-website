@@ -182,17 +182,27 @@ function AdminLayout({ children }) {
                     to={item.to}
                     end={item.to === "/admin"}
                     className={({ isActive }) =>
-                      `flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-semibold transition ${
+                      `group flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-semibold transition ${
                         isActive
                           ? "bg-primary text-white shadow-lg shadow-primary/30"
-                          : "text-white/70 hover:bg-white/10"
+                          : "text-white/70 hover:bg-primary hover:text-white"
                       }`
                     }
                   >
-                    <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/10 text-white">
-                      {iconMap[item.icon]}
-                    </span>
-                    {!collapsed && <span>{item.label}</span>}
+                    {({ isActive }) => (
+                      <>
+                        <span
+                          className={`flex h-8 w-8 items-center justify-center rounded-lg transition ${
+                            isActive
+                              ? "bg-white/20 text-white"
+                              : "bg-white/10 text-white group-hover:bg-white/20"
+                          }`}
+                        >
+                          {iconMap[item.icon]}
+                        </span>
+                        {!collapsed && <span>{item.label}</span>}
+                      </>
+                    )}
                   </NavLink>
                 ))}
               </div>

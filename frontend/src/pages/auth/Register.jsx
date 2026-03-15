@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import logo from "../../assets/logo.jpeg";
+import { useSiteSettings } from "../../context/SiteSettingsContext.jsx";
 
 const fadeUp = {
   hidden: { opacity: 0, y: 16 },
@@ -36,6 +37,7 @@ const phoneRegex = /^\+92\d{10}$/;
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function Register() {
+  const { settings } = useSiteSettings();
   const navigate = useNavigate();
   const [step, setStep] = useState(1);
   const [form, setForm] = useState(initialForm);
@@ -44,6 +46,8 @@ function Register() {
   const [otpTimer, setOtpTimer] = useState(60);
   const [loading, setLoading] = useState(false);
   const [toast, setToast] = useState(null);
+  const logoSrc = settings.general.logoPreview || logo;
+  const siteName = settings.general.siteName || "SUM Academy";
   const otpRefs = useRef([]);
 
   useEffect(() => {
@@ -173,13 +177,13 @@ function Register() {
               <div>
                 <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl bg-white shadow-lg shadow-primary/20">
                   <img
-                    src={logo}
-                    alt="SUM Academy logo"
+                    src={logoSrc}
+                    alt={`${siteName} logo`}
                     className="h-full w-full object-cover"
                   />
                 </div>
                 <p className="text-xs font-semibold uppercase tracking-[0.4em] text-slate-500">
-                  SUM Academy
+                  {siteName}
                 </p>
                 <h1 className="mt-2 font-heading text-3xl text-slate-900">
                   Create Account
@@ -584,12 +588,12 @@ function Register() {
           <div className="relative z-10 max-w-sm">
             <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-2xl bg-white shadow-lg shadow-primary/40">
               <img
-                src={logo}
-                alt="SUM Academy logo"
+                src={logoSrc}
+                alt={`${siteName} logo`}
                 className="h-full w-full object-cover"
               />
             </div>
-            <h2 className="mt-4 font-heading text-3xl">SUM Academy</h2>
+            <h2 className="mt-4 font-heading text-3xl">{siteName}</h2>
             <p className="mt-3 text-sm text-slate-300">
               Build your future with modern learning and verified credentials.
             </p>

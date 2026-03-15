@@ -60,9 +60,9 @@ const revenueSeries = {
 };
 
 const revenueBreakdown = [
-  { name: "JazzCash", value: 42, color: "#ef4444" },
-  { name: "EasyPaisa", value: 33, color: "#10b981" },
-  { name: "Bank Transfer", value: 25, color: "#3b82f6" },
+  { name: "JazzCash", percent: 42, color: "#ef4444" },
+  { name: "EasyPaisa", percent: 33, color: "#10b981" },
+  { name: "Bank Transfer", percent: 25, color: "#3b82f6" },
 ];
 
 const enrollmentsByCourse = [
@@ -200,6 +200,14 @@ function Analytics() {
   }, [sortTeacher]);
 
   const totalRevenue = revenueSeries[range].reduce((sum, item) => sum + item.value, 0);
+  const breakdownData = useMemo(
+    () =>
+      revenueBreakdown.map((entry) => ({
+        ...entry,
+        amount: Math.round((entry.percent / 100) * totalRevenue),
+      })),
+    [totalRevenue]
+  );
 
   const exportReport = () => {
     const rows = [
@@ -219,17 +227,17 @@ function Analytics() {
 
   return (
     <div className="space-y-8">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h2 className="font-heading text-3xl text-slate-900">Analytics & Reports</h2>
-          <p className="text-sm text-slate-500">
-            Track revenue, enrollments, and growth metrics.
-          </p>
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h2 className="font-heading text-3xl text-slate-900">Analytics & Reports</h2>
+            <p className="text-sm text-slate-500">
+              Track revenue, enrollments, and growth metrics.
+            </p>
+          </div>
+          <button className="btn-outline" onClick={exportReport}>
+            Export Report
+          </button>
         </div>
-        <button className="btn-outline" onClick={exportReport}>
-          Export Report
-        </button>
-      </div>
 
       <motion.section
         variants={fadeUp}
@@ -237,33 +245,35 @@ function Analytics() {
         animate="visible"
         className="glass-card space-y-4"
       >
-        <div className="flex flex-wrap items-center gap-3">
-          {quickRanges.map((item) => (
-            <button
-              key={item}
-              className={`rounded-full px-4 py-2 text-sm font-semibold ${
-                range === item
-                  ? "bg-primary text-white"
-                  : "border border-slate-200 text-slate-600"
-              }`}
-              onClick={() => setRange(item)}
-            >
-              {item}
-            </button>
-          ))}
-          <div className="flex items-center gap-2">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex flex-wrap items-center gap-2">
+            {quickRanges.map((item) => (
+              <button
+                key={item}
+                className={`rounded-full px-4 py-2 text-sm font-semibold ${
+                  range === item
+                    ? "bg-primary text-white"
+                    : "border border-slate-200 text-slate-600"
+                }`}
+                onClick={() => setRange(item)}
+              >
+                {item}
+              </button>
+            ))}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
             <input
               type="date"
               value={startDate}
               onChange={(event) => setStartDate(event.target.value)}
-              className="rounded-full border border-slate-200 px-3 py-2 text-sm"
+              className="w-full min-w-[140px] flex-1 rounded-full border border-slate-200 px-3 py-2 text-sm sm:max-w-[180px]"
             />
-            <span className="text-sm text-slate-400">-</span>
+            <span className="hidden text-sm text-slate-400 sm:inline">-</span>
             <input
               type="date"
               value={endDate}
               onChange={(event) => setEndDate(event.target.value)}
-              className="rounded-full border border-slate-200 px-3 py-2 text-sm"
+              className="w-full min-w-[140px] flex-1 rounded-full border border-slate-200 px-3 py-2 text-sm sm:max-w-[180px]"
             />
           </div>
         </div>
@@ -275,8 +285,8 @@ function Analytics() {
         animate="visible"
         className="grid gap-6 lg:grid-cols-[2fr_1fr]"
       >
-        <div className="glass-card">
-          <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="glass-card min-w-0">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="text-sm font-semibold uppercase tracking-[0.3em] text-slate-400">
                 Revenue
@@ -285,7 +295,7 @@ function Analytics() {
                 Revenue Analytics
               </h3>
             </div>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               {revenueViews.map((item) => (
                 <button
                   key={item}
@@ -301,15 +311,15 @@ function Analytics() {
               ))}
             </div>
           </div>
-          <div className="mt-6 min-h-[18rem] w-full overflow-hidden">
+          <div className="mt-6 min-h-[18rem] w-full px-2 sm:px-4">
             {loading ? (
               <div className="skeleton h-full w-full rounded-2xl" />
             ) : (
-              <ResponsiveContainer width="100%" height={300}>
-                <LineChart data={revenueSeries[range]}>
+              <ResponsiveContainer width="100%" height={300} minWidth={0} minHeight={300}>
+                <LineChart data={revenueSeries[range]} margin={{ left: 8, right: 8 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                   <XAxis dataKey="name" tickLine={false} axisLine={false} />
-                  <YAxis tickLine={false} axisLine={false} />
+                  <YAxis tickLine={false} axisLine={false} width={56} tickMargin={8} />
                   <Tooltip
                     formatter={(value) => [`PKR ${value.toLocaleString()}`, "Revenue"]}
                     contentStyle={{ borderRadius: "12px", borderColor: "#e2e8f0" }}
@@ -321,7 +331,7 @@ function Analytics() {
           </div>
         </div>
 
-        <div className="glass-card space-y-6">
+        <div className="glass-card min-w-0 space-y-6">
           <div>
             <p className="text-sm text-slate-500">Total Revenue</p>
             <h3 className="mt-2 font-heading text-3xl text-slate-900">
@@ -332,32 +342,34 @@ function Analytics() {
             {loading ? (
               <div className="skeleton h-full w-full rounded-2xl" />
             ) : (
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={200}>
                 <PieChart>
                   <Pie
-                    data={revenueBreakdown}
-                    dataKey="value"
+                    data={breakdownData}
+                    dataKey="amount"
                     innerRadius={50}
                     outerRadius={80}
                     paddingAngle={4}
                   >
-                    {revenueBreakdown.map((entry) => (
+                    {breakdownData.map((entry) => (
                       <Cell key={entry.name} fill={entry.color} />
                     ))}
                   </Pie>
-                  <Tooltip />
+                  <Tooltip
+                    formatter={(value) => [`PKR ${value.toLocaleString()}`, "Revenue"]}
+                  />
                 </PieChart>
               </ResponsiveContainer>
             )}
           </div>
           <div className="space-y-2 text-sm text-slate-600">
-            {revenueBreakdown.map((entry) => (
+            {breakdownData.map((entry) => (
               <div key={entry.name} className="flex items-center justify-between">
                 <span className="flex items-center gap-2">
                   <span className="h-2 w-2 rounded-full" style={{ background: entry.color }} />
                   {entry.name}
                 </span>
-                <span>{entry.value}%</span>
+                <span>PKR {entry.amount.toLocaleString()}</span>
               </div>
             ))}
           </div>
@@ -377,32 +389,58 @@ function Analytics() {
           </p>
         </div>
         <div className="grid gap-6 lg:grid-cols-[1.2fr_1fr]">
-          <div className="glass-card">
+          <div className="glass-card min-w-0">
             <h4 className="text-sm font-semibold text-slate-500">Top Courses</h4>
-            <div className="mt-4 h-64">
+            <div className="mt-4">
               {loading ? (
-                <div className="skeleton h-full w-full rounded-2xl" />
+                <div className="skeleton h-64 w-full rounded-2xl" />
               ) : (
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={enrollmentsByCourse}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                    <XAxis dataKey="name" tickLine={false} axisLine={false} />
-                    <YAxis tickLine={false} axisLine={false} />
-                    <Tooltip />
-                    <Bar dataKey="value" fill="#4a63f5" radius={[8, 8, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
+                <>
+                  <div className="h-72 sm:hidden">
+                    <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={260}>
+                      <BarChart
+                        data={enrollmentsByCourse}
+                        layout="vertical"
+                        margin={{ top: 8, right: 12, left: 12, bottom: 8 }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                        <XAxis type="number" tickLine={false} axisLine={false} />
+                        <YAxis
+                          dataKey="name"
+                          type="category"
+                          tickLine={false}
+                          axisLine={false}
+                          width={120}
+                          tick={{ fontSize: 10 }}
+                        />
+                        <Tooltip />
+                        <Bar dataKey="value" fill="#4a63f5" radius={[6, 6, 6, 6]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div className="hidden h-64 sm:block">
+                    <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={240}>
+                      <BarChart data={enrollmentsByCourse}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                        <XAxis dataKey="name" tickLine={false} axisLine={false} />
+                        <YAxis tickLine={false} axisLine={false} />
+                        <Tooltip />
+                        <Bar dataKey="value" fill="#4a63f5" radius={[8, 8, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </>
               )}
             </div>
           </div>
 
-          <div className="glass-card">
+          <div className="glass-card min-w-0">
             <h4 className="text-sm font-semibold text-slate-500">New Enrollments</h4>
             <div className="mt-4 h-64">
               {loading ? (
                 <div className="skeleton h-full w-full rounded-2xl" />
               ) : (
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={240}>
                   <LineChart data={enrollmentsTrend}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                     <XAxis dataKey="name" tickLine={false} axisLine={false} />
@@ -451,13 +489,13 @@ function Analytics() {
           </p>
         </div>
         <div className="grid gap-6 lg:grid-cols-[1.2fr_1fr]">
-          <div className="glass-card">
+          <div className="glass-card min-w-0">
             <h4 className="text-sm font-semibold text-slate-500">Active Students</h4>
             <div className="mt-4 h-64">
               {loading ? (
                 <div className="skeleton h-full w-full rounded-2xl" />
               ) : (
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={240}>
                   <BarChart data={activeStudents}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                     <XAxis dataKey="name" tickLine={false} axisLine={false} />
@@ -470,13 +508,13 @@ function Analytics() {
             </div>
           </div>
 
-          <div className="glass-card">
+          <div className="glass-card min-w-0">
             <h4 className="text-sm font-semibold text-slate-500">Student Growth</h4>
             <div className="mt-4 h-64">
               {loading ? (
                 <div className="skeleton h-full w-full rounded-2xl" />
               ) : (
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={240}>
                   <LineChart data={studentGrowth}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                     <XAxis dataKey="name" tickLine={false} axisLine={false} />
@@ -523,63 +561,117 @@ function Analytics() {
             <h3 className="font-heading text-xl text-slate-900">Course Performance</h3>
             <span className="text-xs text-slate-400">Sortable</span>
           </div>
-          <div className="mt-4 overflow-x-auto">
-            <table className="min-w-full text-left text-sm">
-              <thead className="border-b border-slate-200 text-xs uppercase text-slate-400">
-                <tr>
-                  {[
-                    { label: "Course Name", key: "name" },
-                    { label: "Teacher", key: "teacher" },
-                    { label: "Enrolled", key: "enrolled" },
-                    { label: "Completed", key: "completed" },
-                    { label: "Completion Rate %", key: "rate" },
-                    { label: "Revenue PKR", key: "revenue" },
-                    { label: "Avg Rating", key: "rating" },
-                  ].map((col) => (
-                    <th
-                      key={col.key}
-                      className="cursor-pointer pb-3"
-                      onClick={() =>
-                        setSortCourse((prev) => ({
-                          key: col.key,
-                          dir:
-                            prev.key === col.key && prev.dir === "asc"
-                              ? "desc"
-                              : "asc",
-                        }))
-                      }
+          <div className="mt-4">
+            {loading ? (
+              <div className="space-y-3">
+                {Array.from({ length: 3 }).map((_, index) => (
+                  <div
+                    key={`course-card-skeleton-${index}`}
+                    className="skeleton h-20 w-full rounded-2xl"
+                  />
+                ))}
+              </div>
+            ) : (
+              <>
+                <div className="space-y-3 sm:hidden">
+                  {sortedCoursePerformance.map((course) => (
+                    <div
+                      key={course.name}
+                      className="rounded-2xl border border-slate-100 bg-white/80 p-4 text-sm shadow-sm"
                     >
-                      {col.label}
-                    </th>
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="font-semibold text-slate-900">
+                            {course.name}
+                          </p>
+                          <p className="text-xs text-slate-500">{course.teacher}</p>
+                        </div>
+                        <span className="rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-600">
+                          {course.rating}
+                        </span>
+                      </div>
+                      <div className="mt-3 grid grid-cols-2 gap-3 text-xs text-slate-600">
+                        <div>
+                          <p className="text-slate-400">Enrolled</p>
+                          <p className="font-semibold text-slate-900">
+                            {course.enrolled}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-slate-400">Completed</p>
+                          <p className="font-semibold text-slate-900">
+                            {course.completed}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-slate-400">Completion</p>
+                          <p className="font-semibold text-slate-900">{course.rate}%</p>
+                        </div>
+                        <div>
+                          <p className="text-slate-400">Revenue</p>
+                          <p className="font-semibold text-slate-900">
+                            PKR {course.revenue.toLocaleString()}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
                   ))}
-                </tr>
-              </thead>
-              <tbody>
-                {loading
-                  ? Array.from({ length: 3 }).map((_, index) => (
-                      <tr key={`course-row-${index}`}>
-                        <td colSpan={7} className="py-3">
-                          <div className="skeleton h-6 w-full" />
-                        </td>
+                </div>
+
+                <div className="hidden overflow-x-auto sm:block">
+                  <table className="min-w-[760px] text-left text-sm">
+                    <thead className="border-b border-slate-200 text-xs uppercase text-slate-400">
+                      <tr>
+                        {[
+                          { label: "Course Name", key: "name" },
+                          { label: "Teacher", key: "teacher" },
+                          { label: "Enrolled", key: "enrolled" },
+                          { label: "Completed", key: "completed" },
+                          { label: "Completion Rate %", key: "rate" },
+                          { label: "Revenue PKR", key: "revenue" },
+                          { label: "Avg Rating", key: "rating" },
+                        ].map((col) => (
+                          <th
+                            key={col.key}
+                            className="cursor-pointer pb-3 pr-4 whitespace-nowrap"
+                            onClick={() =>
+                              setSortCourse((prev) => ({
+                                key: col.key,
+                                dir:
+                                  prev.key === col.key && prev.dir === "asc"
+                                    ? "desc"
+                                    : "asc",
+                              }))
+                            }
+                          >
+                            {col.label}
+                          </th>
+                        ))}
                       </tr>
-                    ))
-                  : sortedCoursePerformance.map((course) => (
-                      <tr key={course.name} className="border-b border-slate-100">
-                        <td className="py-3 font-semibold text-slate-900">
-                          {course.name}
-                        </td>
-                        <td className="py-3 text-slate-600">{course.teacher}</td>
-                        <td className="py-3">{course.enrolled}</td>
-                        <td className="py-3">{course.completed}</td>
-                        <td className="py-3">{course.rate}%</td>
-                        <td className="py-3">
-                          PKR {course.revenue.toLocaleString()}
-                        </td>
-                        <td className="py-3">{course.rating}</td>
-                      </tr>
-                    ))}
-              </tbody>
-            </table>
+                    </thead>
+                    <tbody>
+                      {sortedCoursePerformance.map((course) => (
+                        <tr key={course.name} className="border-b border-slate-100">
+                          <td className="py-3 pr-4 font-semibold text-slate-900">
+                            {course.name}
+                          </td>
+                          <td className="py-3 pr-4 text-slate-600">
+                            {course.teacher}
+                          </td>
+                          <td className="py-3 pr-4">{course.enrolled}</td>
+                          <td className="py-3 pr-4">{course.completed}</td>
+                          <td className="py-3 pr-4">{course.rate}%</td>
+                          <td className="py-3 pr-4 whitespace-nowrap">
+                            PKR {course.revenue.toLocaleString()}
+                          </td>
+                          <td className="py-3 pr-4">{course.rating}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
           </div>
         </div>
       </motion.section>
@@ -595,59 +687,103 @@ function Analytics() {
             <h3 className="font-heading text-xl text-slate-900">Teacher Performance</h3>
             <span className="text-xs text-slate-400">Sortable</span>
           </div>
-          <div className="mt-4 overflow-x-auto">
-            <table className="min-w-full text-left text-sm">
-              <thead className="border-b border-slate-200 text-xs uppercase text-slate-400">
-                <tr>
-                  {[
-                    { label: "Teacher Name", key: "name" },
-                    { label: "Courses", key: "courses" },
-                    { label: "Total Students", key: "students" },
-                    { label: "Avg Completion Rate", key: "completion" },
-                    { label: "Revenue Generated", key: "revenue" },
-                  ].map((col) => (
-                    <th
-                      key={col.key}
-                      className="cursor-pointer pb-3"
-                      onClick={() =>
-                        setSortTeacher((prev) => ({
-                          key: col.key,
-                          dir:
-                            prev.key === col.key && prev.dir === "asc"
-                              ? "desc"
-                              : "asc",
-                        }))
-                      }
+          <div className="mt-4">
+            {loading ? (
+              <div className="space-y-3">
+                {Array.from({ length: 3 }).map((_, index) => (
+                  <div
+                    key={`teacher-card-skeleton-${index}`}
+                    className="skeleton h-20 w-full rounded-2xl"
+                  />
+                ))}
+              </div>
+            ) : (
+              <>
+                <div className="space-y-3 sm:hidden">
+                  {sortedTeacherPerformance.map((teacher) => (
+                    <div
+                      key={teacher.name}
+                      className="rounded-2xl border border-slate-100 bg-white/80 p-4 text-sm shadow-sm"
                     >
-                      {col.label}
-                    </th>
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="font-semibold text-slate-900">
+                            {teacher.name}
+                          </p>
+                          <p className="text-xs text-slate-500">
+                            {teacher.courses} Courses
+                          </p>
+                        </div>
+                        <span className="rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-600">
+                          {teacher.completion}%
+                        </span>
+                      </div>
+                      <div className="mt-3 grid grid-cols-2 gap-3 text-xs text-slate-600">
+                        <div>
+                          <p className="text-slate-400">Students</p>
+                          <p className="font-semibold text-slate-900">
+                            {teacher.students}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-slate-400">Revenue</p>
+                          <p className="font-semibold text-slate-900">
+                            PKR {teacher.revenue.toLocaleString()}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
                   ))}
-                </tr>
-              </thead>
-              <tbody>
-                {loading
-                  ? Array.from({ length: 3 }).map((_, index) => (
-                      <tr key={`teacher-row-${index}`}>
-                        <td colSpan={5} className="py-3">
-                          <div className="skeleton h-6 w-full" />
-                        </td>
+                </div>
+
+                <div className="hidden overflow-x-auto sm:block">
+                  <table className="min-w-[680px] text-left text-sm">
+                    <thead className="border-b border-slate-200 text-xs uppercase text-slate-400">
+                      <tr>
+                        {[
+                          { label: "Teacher Name", key: "name" },
+                          { label: "Courses", key: "courses" },
+                          { label: "Total Students", key: "students" },
+                          { label: "Avg Completion Rate", key: "completion" },
+                          { label: "Revenue Generated", key: "revenue" },
+                        ].map((col) => (
+                          <th
+                            key={col.key}
+                            className="cursor-pointer pb-3 pr-4 whitespace-nowrap"
+                            onClick={() =>
+                              setSortTeacher((prev) => ({
+                                key: col.key,
+                                dir:
+                                  prev.key === col.key && prev.dir === "asc"
+                                    ? "desc"
+                                    : "asc",
+                              }))
+                            }
+                          >
+                            {col.label}
+                          </th>
+                        ))}
                       </tr>
-                    ))
-                  : sortedTeacherPerformance.map((teacher) => (
-                      <tr key={teacher.name} className="border-b border-slate-100">
-                        <td className="py-3 font-semibold text-slate-900">
-                          {teacher.name}
-                        </td>
-                        <td className="py-3">{teacher.courses}</td>
-                        <td className="py-3">{teacher.students}</td>
-                        <td className="py-3">{teacher.completion}%</td>
-                        <td className="py-3">
-                          PKR {teacher.revenue.toLocaleString()}
-                        </td>
-                      </tr>
-                    ))}
-              </tbody>
-            </table>
+                    </thead>
+                    <tbody>
+                      {sortedTeacherPerformance.map((teacher) => (
+                        <tr key={teacher.name} className="border-b border-slate-100">
+                          <td className="py-3 pr-4 font-semibold text-slate-900">
+                            {teacher.name}
+                          </td>
+                          <td className="py-3 pr-4">{teacher.courses}</td>
+                          <td className="py-3 pr-4">{teacher.students}</td>
+                          <td className="py-3 pr-4">{teacher.completion}%</td>
+                          <td className="py-3 pr-4 whitespace-nowrap">
+                            PKR {teacher.revenue.toLocaleString()}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
           </div>
         </div>
       </motion.section>

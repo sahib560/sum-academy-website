@@ -222,7 +222,75 @@ function Transactions() {
       </div>
 
       <div className="rounded-3xl border border-slate-200 bg-white shadow-sm">
-        <div className="overflow-x-auto">
+        <div className="space-y-3 p-4 lg:hidden">
+          {loading ? (
+            Array.from({ length: 5 }).map((_, index) => (
+              <div key={`tx-card-${index}`} className="rounded-2xl border border-slate-200 p-4">
+                <div className="skeleton h-4 w-1/2" />
+                <div className="mt-3 space-y-2">
+                  <div className="skeleton h-3 w-3/4" />
+                  <div className="skeleton h-3 w-1/3" />
+                </div>
+              </div>
+            ))
+          ) : paginated.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-10 text-center text-sm text-slate-500">
+              No transactions found.
+            </div>
+          ) : (
+            paginated.map((tx) => (
+              <div
+                key={tx.id}
+                className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                      Transaction ID
+                    </p>
+                    <p className="mt-1 font-mono text-xs text-slate-500">{tx.id}</p>
+                    <p className="mt-2 font-semibold text-slate-900">{tx.student}</p>
+                    <p className="text-xs text-slate-500">{tx.course}</p>
+                  </div>
+                  <span
+                    className={`rounded-full px-3 py-1 text-xs font-semibold ${methodStyles[tx.method]}`}
+                  >
+                    {tx.method}
+                  </span>
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-3 text-xs text-slate-500">
+                  <div>
+                    <p className="uppercase tracking-[0.2em] text-slate-400">Amount</p>
+                    <p className="mt-1 text-sm font-semibold text-slate-900">
+                      PKR {tx.amount.toLocaleString()}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="uppercase tracking-[0.2em] text-slate-400">Date</p>
+                    <p className="mt-1 text-sm text-slate-600">
+                      {tx.date} · {tx.time}
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-3 flex items-center justify-between gap-2">
+                  <span
+                    className={`rounded-full px-3 py-1 text-xs font-semibold ${statusStyles[tx.status]}`}
+                  >
+                    {tx.status}
+                  </span>
+                  <button
+                    className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600"
+                    onClick={() => setDetailTx(tx)}
+                  >
+                    View Details
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        <div className="hidden overflow-x-auto lg:block">
           <table className="min-w-full text-left text-sm">
             <thead className="border-b border-slate-200 text-xs uppercase text-slate-400">
               <tr>
@@ -330,7 +398,7 @@ function Transactions() {
           </table>
         </div>
 
-        <div className="flex items-center justify-between px-6 py-4 text-sm text-slate-500">
+        <div className="flex items-center justify-between px-4 py-4 text-sm text-slate-500 lg:px-6">
           <span>
             Page {page} of {pageCount}
           </span>

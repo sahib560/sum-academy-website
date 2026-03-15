@@ -11,6 +11,7 @@ const navItems = [
   { label: "Announcements", to: "/student/announcements", icon: "bell" },
   { label: "Attendance", to: "/student/attendance", icon: "calendar" },
   { label: "Help & Support", to: "/student/support", icon: "help" },
+  { label: "Settings", to: "/student/settings", icon: "settings" },
 ];
 
 const mobileTabs = [
@@ -67,6 +68,11 @@ const iconMap = {
       <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 15a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm1.1-6.1-.6.5v.6h-1.6v-1.3l1.2-1c.5-.4.8-.8.8-1.3a1.6 1.6 0 0 0-3.2 0H7.8a3.4 3.4 0 0 1 6.8 0c0 .9-.4 1.7-1.5 2.4z" />
     </svg>
   ),
+  settings: (
+    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
+      <path d="M19.4 13.5a7.8 7.8 0 0 0 .1-1.5 7.8 7.8 0 0 0-.1-1.5l2-1.5-2-3.4-2.4 1a7.5 7.5 0 0 0-2.6-1.5l-.4-2.5h-4l-.4 2.5a7.5 7.5 0 0 0-2.6 1.5l-2.4-1-2 3.4 2 1.5a7.8 7.8 0 0 0-.1 1.5 7.8 7.8 0 0 0 .1 1.5l-2 1.5 2 3.4 2.4-1a7.5 7.5 0 0 0 2.6 1.5l.4 2.5h4l.4-2.5a7.5 7.5 0 0 0 2.6-1.5l2.4 1 2-3.4-2-1.5zM12 15.2A3.2 3.2 0 1 1 12 8.8a3.2 3.2 0 0 1 0 6.4z" />
+    </svg>
+  ),
   user: (
     <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
       <path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm0 2c-4.4 0-8 2-8 4.5V21h16v-2.5c0-2.5-3.6-4.5-8-4.5z" />
@@ -77,10 +83,28 @@ const iconMap = {
 function StudentLayout() {
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
 
   useEffect(() => {
     setSidebarOpen(false);
   }, [location.pathname]);
+
+  useEffect(() => {
+    const readUnread = () => {
+      if (typeof window === "undefined") return;
+      const value = Number(
+        window.localStorage.getItem("studentUnreadAnnouncements") || 0
+      );
+      setUnreadCount(Number.isNaN(value) ? 0 : value);
+    };
+    readUnread();
+    window.addEventListener("student:announcements", readUnread);
+    window.addEventListener("storage", readUnread);
+    return () => {
+      window.removeEventListener("student:announcements", readUnread);
+      window.removeEventListener("storage", readUnread);
+    };
+  }, []);
 
   const pageTitle = useMemo(() => {
     const match = navItems.find((item) =>
@@ -116,17 +140,32 @@ function StudentLayout() {
                 to={item.to}
                 end={item.to === "/student"}
                 className={({ isActive }) =>
-                  `flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-semibold transition ${
+                  `group flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-semibold transition ${
                     isActive
                       ? "bg-primary text-white shadow-lg shadow-primary/30"
-                      : "text-slate-500 hover:bg-blue-50"
+                      : "text-slate-500 hover:bg-primary hover:text-white"
                   }`
                 }
               >
-                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100 text-slate-500">
-                  {iconMap[item.icon]}
-                </span>
-                <span>{item.label}</span>
+                {({ isActive }) => (
+                  <>
+                    <span
+                      className={`flex h-8 w-8 items-center justify-center rounded-lg transition ${
+                        isActive
+                          ? "bg-white/20 text-white"
+                          : "bg-slate-100 text-slate-500 group-hover:bg-white/20 group-hover:text-white"
+                      }`}
+                    >
+                      {iconMap[item.icon]}
+                    </span>
+                    <span className="flex-1">{item.label}</span>
+                    {item.label === "Announcements" && unreadCount > 0 && (
+                      <span className="inline-flex min-w-[20px] items-center justify-center rounded-full bg-primary px-2 py-0.5 text-[10px] font-semibold text-white">
+                        {unreadCount}
+                      </span>
+                    )}
+                  </>
+                )}
               </NavLink>
             ))}
           </div>

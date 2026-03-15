@@ -6,6 +6,13 @@
 
 @layer base {
   :root {
+    --brand-primary: #4a63f5;
+    --brand-primary-rgb: 74 99 245;
+    --brand-accent: #ff6f0f;
+    --brand-accent-rgb: 255 111 15;
+    --brand-dark: #0d0f1a;
+    --brand-font: "DM Sans";
+    --brand-heading-font: "Playfair Display";
     color-scheme: light;
   }
 
@@ -14,7 +21,8 @@
   }
 
   body {
-    @apply m-0 min-h-screen bg-white font-body text-slate-900 antialiased dark:bg-dark dark:text-slate-100;
+    @apply m-0 min-h-screen bg-white text-slate-900 antialiased dark:bg-dark dark:text-slate-100;
+    font-family: var(--brand-font), system-ui, sans-serif;
   }
 
   h1,
@@ -23,7 +31,8 @@
   h4,
   h5,
   h6 {
-    @apply font-heading text-slate-900 dark:text-white;
+    @apply text-slate-900 dark:text-white;
+    font-family: var(--brand-heading-font), serif;
   }
 
   a {
@@ -57,15 +66,22 @@
   }
 
   .btn-primary {
-    @apply inline-flex items-center justify-center rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-primary/30 transition duration-200 hover:-translate-y-0.5 hover:bg-primary/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary;
+    @apply inline-flex items-center justify-center rounded-full border border-primary bg-primary px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-primary/30 transition duration-200 hover:-translate-y-0.5 hover:bg-white hover:text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary;
   }
 
   .btn-lms {
-    @apply inline-flex items-center justify-center rounded-full bg-gradient-to-r from-accent to-primary px-4 py-2 text-xs font-semibold uppercase tracking-wider text-white shadow-lg shadow-accent/30 transition duration-200 hover:-translate-y-0.5 hover:opacity-90;
+    @apply inline-flex items-center justify-center rounded-full border border-primary/40 bg-gradient-to-r from-accent to-primary px-4 py-2 text-xs font-semibold uppercase tracking-wider text-white shadow-lg shadow-accent/30 transition duration-200 hover:-translate-y-0.5 hover:bg-white hover:text-primary hover:shadow-primary/20;
   }
 
   .btn-outline {
-    @apply inline-flex items-center justify-center rounded-full border border-primary/50 px-5 py-2.5 text-sm font-semibold text-primary transition duration-200 hover:bg-primary hover:text-white dark:border-white/20 dark:text-white;
+    @apply inline-flex items-center justify-center rounded-full border border-primary/50 px-5 py-2.5 text-sm font-semibold text-primary transition duration-200 hover:bg-primary hover:text-white dark:border-white/20 dark:text-white dark:hover:bg-white dark:hover:text-slate-900;
+  }
+
+  button.rounded-full.border.border-slate-200.text-slate-500:not(:disabled):not(.btn-primary):not(.btn-outline):not(.btn-lms),
+  button.rounded-full.border.border-slate-200.text-slate-600:not(:disabled):not(.btn-primary):not(.btn-outline):not(.btn-lms),
+  a.rounded-full.border.border-slate-200.text-slate-500:not(.btn-primary):not(.btn-outline):not(.btn-lms),
+  a.rounded-full.border.border-slate-200.text-slate-600:not(.btn-primary):not(.btn-outline):not(.btn-lms) {
+    @apply transition duration-200 hover:border-primary/60 hover:bg-primary hover:text-white;
   }
 
   .card-hover {
@@ -83,7 +99,11 @@
     bottom: -6px;
     height: 2px;
     width: 100%;
-    background: linear-gradient(90deg, #4a63f5, #ff6f0f);
+    background: linear-gradient(
+      90deg,
+      var(--brand-primary),
+      var(--brand-accent)
+    );
     transform: scaleX(0);
     transform-origin: left;
     opacity: 0;

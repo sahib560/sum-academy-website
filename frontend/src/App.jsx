@@ -36,15 +36,17 @@ import StudentQuizzes from "./pages/student/Quizzes.jsx";
 import StudentPayments from "./pages/student/Payments.jsx";
 import StudentAnnouncements from "./pages/student/Announcements.jsx";
 import StudentAttendance from "./pages/student/Attendance.jsx";
-import StudentSupport from "./pages/student/Support.jsx";
+import StudentHelpSupport from "./pages/student/HelpSupport.jsx";
 import StudentProfile from "./pages/student/Profile.jsx";
 import StudentSettings from "./pages/student/Settings.jsx";
 import StudentCoursePlayer from "./pages/student/CoursePlayer.jsx";
+import StudentQuizAttempt from "./pages/student/QuizAttempt.jsx";
 import Analytics from "./pages/admin/Analytics.jsx";
 import AdminTeachers from "./pages/admin/Teachers.jsx";
 import Students from "./pages/admin/Students.jsx";
 import Classes from "./pages/admin/Classes.jsx";
 import ClassDetail from "./pages/admin/ClassDetail.jsx";
+import { SiteSettingsProvider } from "./context/SiteSettingsContext.jsx";
 
 function AppLayout() {
   const location = useLocation();
@@ -57,8 +59,11 @@ function AppLayout() {
       "/verify-otp",
     ].includes(location.pathname) ||
     location.pathname.startsWith("/admin") ||
-    location.pathname.startsWith("/teacher") ||
-    location.pathname.startsWith("/student");
+    location.pathname === "/teacher" ||
+    location.pathname.startsWith("/teacher/") ||
+    location.pathname === "/student" ||
+    location.pathname.startsWith("/student/") ||
+    location.pathname === "/student/quiz-attempt";
 
   return (
     <>
@@ -92,11 +97,12 @@ function AppLayout() {
           <Route path="payments" element={<StudentPayments />} />
           <Route path="announcements" element={<StudentAnnouncements />} />
           <Route path="attendance" element={<StudentAttendance />} />
-          <Route path="support" element={<StudentSupport />} />
+          <Route path="support" element={<StudentHelpSupport />} />
           <Route path="profile" element={<StudentProfile />} />
           <Route path="settings" element={<StudentSettings />} />
           <Route path="*" element={<StudentDashboard />} />
         </Route>
+        <Route path="/student/quiz-attempt" element={<StudentQuizAttempt />} />
         <Route path="/admin" element={<AdminLayout />}>
           <Route index element={<Dashboard />} />
           <Route path="analytics" element={<Analytics />} />
@@ -126,7 +132,9 @@ function AppLayout() {
 function App() {
   return (
     <BrowserRouter>
-      <AppLayout />
+      <SiteSettingsProvider>
+        <AppLayout />
+      </SiteSettingsProvider>
     </BrowserRouter>
   );
 }

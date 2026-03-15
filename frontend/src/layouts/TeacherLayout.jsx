@@ -96,17 +96,27 @@ function TeacherLayout() {
                 to={item.to}
                 end={item.to === "/teacher"}
                 className={({ isActive }) =>
-                  `flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-semibold transition ${
+                  `group flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-semibold transition ${
                     isActive
                       ? "bg-primary text-white shadow-lg shadow-primary/30"
-                      : "text-slate-600 hover:bg-slate-100"
+                      : "text-slate-600 hover:bg-primary hover:text-white"
                   }`
                 }
               >
-                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100 text-slate-500">
-                  {iconMap[item.icon]}
-                </span>
-                <span>{item.label}</span>
+                {({ isActive }) => (
+                  <>
+                    <span
+                      className={`flex h-8 w-8 items-center justify-center rounded-lg transition ${
+                        isActive
+                          ? "bg-white/20 text-white"
+                          : "bg-slate-100 text-slate-500 group-hover:bg-white/20 group-hover:text-white"
+                      }`}
+                    >
+                      {iconMap[item.icon]}
+                    </span>
+                    <span>{item.label}</span>
+                  </>
+                )}
               </NavLink>
             ))}
           </div>

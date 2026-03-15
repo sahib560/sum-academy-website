@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { SkeletonTeacherCard } from "../components/Skeleton.jsx";
+import { useSiteSettings } from "../context/SiteSettingsContext.jsx";
 
 const teacherData = [
   {
@@ -120,6 +121,8 @@ function TeacherCard({ teacher, onSelect }) {
 }
 
 function Teachers() {
+  const { settings } = useSiteSettings();
+  const siteName = settings.general.siteName || "SUM Academy";
   const [loading, setLoading] = useState(true);
   const [selectedTeacher, setSelectedTeacher] = useState(null);
 
@@ -149,7 +152,7 @@ function Teachers() {
         <div className="mx-auto max-w-7xl">
           <div className="flex flex-col gap-4 rounded-3xl border border-slate-200/70 bg-white/80 p-8 shadow-2xl shadow-slate-200/50 backdrop-blur dark:border-white/10 dark:bg-dark/70 dark:shadow-black/40">
             <p className="text-xs font-semibold uppercase tracking-[0.4em] text-slate-500 dark:text-slate-300">
-              SUM Academy
+              {siteName}
             </p>
             <h1 className="font-heading text-4xl text-slate-900 dark:text-white">
               Meet Our Expert Teachers

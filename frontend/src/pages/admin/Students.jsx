@@ -334,7 +334,124 @@ function Students() {
       </div>
 
       <div className="rounded-3xl border border-slate-200 bg-white shadow-sm">
-        <div className="overflow-x-auto">
+        <div className="sm:hidden">
+          <div className="space-y-3 px-4 py-4">
+            {loading ? (
+              Array.from({ length: 6 }).map((_, index) => (
+                <div
+                  key={`student-card-skeleton-${index}`}
+                  className="skeleton h-28 w-full rounded-2xl"
+                />
+              ))
+            ) : paginated.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-10 text-center text-sm text-slate-500">
+                No students found.
+              </div>
+            ) : (
+              paginated.map((student) => (
+                <div
+                  key={student.id}
+                  className="rounded-2xl border border-slate-100 bg-white/80 p-4 text-sm shadow-sm"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex min-w-0 flex-1 items-center gap-3">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
+                        {student.name
+                          .split(" ")
+                          .slice(0, 2)
+                          .map((word) => word[0])
+                          .join("")}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="truncate font-semibold text-slate-900">
+                          {student.name}
+                        </p>
+                        <p className="truncate text-xs text-slate-500">
+                          {student.email}
+                        </p>
+                        <p className="text-xs text-slate-400">{student.phone}</p>
+                      </div>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={selected.includes(student.id)}
+                      onChange={() => toggleSelect(student.id)}
+                      className="mt-1"
+                    />
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-2 gap-3 text-xs text-slate-600">
+                    <div>
+                      <p className="text-slate-400">Courses</p>
+                      <p className="font-semibold text-slate-900">
+                        {student.courses.length}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-slate-400">Last Active</p>
+                      <p className="font-semibold text-slate-900">
+                        {student.lastActive}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-slate-400">Joined</p>
+                      <p className="font-semibold text-slate-900">
+                        {student.joined}
+                      </p>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-slate-400">Status</p>
+                        <p className="font-semibold text-slate-900">
+                          {student.status}
+                        </p>
+                      </div>
+                      <button
+                        className={`relative h-6 w-12 rounded-full transition ${
+                          student.status === "Active"
+                            ? "bg-emerald-400"
+                            : "bg-slate-200"
+                        }`}
+                        onClick={() => toggleStatus(student)}
+                      >
+                        <span
+                          className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
+                            student.status === "Active"
+                              ? "translate-x-6"
+                              : "translate-x-0"
+                          }`}
+                        />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      className="rounded-full border border-slate-200 px-3 py-1 text-xs"
+                      onClick={() => setDetailStudent(student)}
+                    >
+                      View Profile
+                    </button>
+                    <button
+                      className="rounded-full border border-slate-200 px-3 py-1 text-xs"
+                      onClick={() => openEdit(student)}
+                    >
+                      Edit
+                    </button>
+                    <button
+                      className="rounded-full border border-slate-200 px-3 py-1 text-xs text-rose-500"
+                      onClick={() => setShowDelete(student)}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        <div className="hidden overflow-x-auto sm:block">
           <table className="min-w-full text-left text-sm">
             <thead className="border-b border-slate-200 text-xs uppercase text-slate-400">
               <tr>

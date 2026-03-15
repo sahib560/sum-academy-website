@@ -376,7 +376,7 @@ function Dashboard() {
             </h3>
             <button className="text-sm font-semibold text-primary">View All</button>
           </div>
-          <div className="mt-6 overflow-x-auto">
+          <div className="mt-6">
             {loading ? (
               <div className="space-y-3">
                 {Array.from({ length: 5 }).map((_, index) => (
@@ -384,26 +384,15 @@ function Dashboard() {
                 ))}
               </div>
             ) : (
-              <table className="min-w-full text-left text-sm">
-                <thead className="text-xs uppercase text-slate-400">
-                  <tr>
-                    <th className="pb-3">Student Name</th>
-                    <th className="pb-3">Course</th>
-                    <th className="pb-3">Amount PKR</th>
-                    <th className="pb-3">Date</th>
-                    <th className="pb-3">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="text-slate-600">
+              <>
+                <div className="space-y-3 sm:hidden">
                   {enrollments.map((item) => (
-                    <tr key={item.name} className="border-t border-slate-100">
-                      <td className="py-3 font-semibold text-slate-900">
-                        {item.name}
-                      </td>
-                      <td className="py-3">{item.course}</td>
-                      <td className="py-3">PKR {item.amount.toLocaleString()}</td>
-                      <td className="py-3">{item.date}</td>
-                      <td className="py-3">
+                    <div
+                      key={item.name}
+                      className="rounded-2xl border border-slate-100 bg-white/80 p-4 text-sm shadow-sm"
+                    >
+                      <div className="flex items-center justify-between">
+                        <p className="font-semibold text-slate-900">{item.name}</p>
                         <span
                           className={`rounded-full px-3 py-1 text-xs font-semibold ${
                             item.status === "Paid"
@@ -415,11 +404,61 @@ function Dashboard() {
                         >
                           {item.status}
                         </span>
-                      </td>
-                    </tr>
+                      </div>
+                      <p className="mt-2 text-slate-600">{item.course}</p>
+                      <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-slate-500">
+                        <span>PKR {item.amount.toLocaleString()}</span>
+                        <span>{item.date}</span>
+                      </div>
+                    </div>
                   ))}
-                </tbody>
-              </table>
+                </div>
+
+                <div className="hidden sm:block">
+                  <div className="overflow-x-auto">
+                    <table className="min-w-[680px] text-left text-sm sm:min-w-full">
+                      <thead className="text-xs uppercase text-slate-400">
+                        <tr>
+                          <th className="pb-3 whitespace-nowrap">Student Name</th>
+                          <th className="pb-3">Course</th>
+                          <th className="pb-3 whitespace-nowrap">Amount PKR</th>
+                          <th className="pb-3 whitespace-nowrap">Date</th>
+                          <th className="pb-3 whitespace-nowrap">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="text-slate-600">
+                        {enrollments.map((item) => (
+                          <tr key={item.name} className="border-t border-slate-100">
+                            <td className="py-3 pr-3 font-semibold text-slate-900">
+                              {item.name}
+                            </td>
+                            <td className="py-3 pr-4 text-slate-600">
+                              {item.course}
+                            </td>
+                            <td className="py-3 whitespace-nowrap">
+                              PKR {item.amount.toLocaleString()}
+                            </td>
+                            <td className="py-3 whitespace-nowrap">{item.date}</td>
+                            <td className="py-3">
+                              <span
+                                className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                                  item.status === "Paid"
+                                    ? "bg-emerald-50 text-emerald-600"
+                                    : item.status === "Pending"
+                                    ? "bg-amber-50 text-amber-600"
+                                    : "bg-rose-50 text-rose-600"
+                                }`}
+                              >
+                                {item.status}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </>
             )}
           </div>
         </div>

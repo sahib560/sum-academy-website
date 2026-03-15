@@ -5,6 +5,7 @@ import {
   SkeletonCard,
   SkeletonTeacherCard,
 } from "../components/Skeleton.jsx";
+import { useSiteSettings } from "../context/SiteSettingsContext.jsx";
 
 const fadeUp = {
   hidden: { opacity: 0, y: 24 },
@@ -219,6 +220,9 @@ function StarRow() {
 }
 
 function Home() {
+  const { settings } = useSiteSettings();
+  const heroContent = settings.content || {};
+  const siteName = settings.general.siteName || "SUM Academy";
   const [coursesLoading, setCoursesLoading] = useState(true);
   const [teachersLoading, setTeachersLoading] = useState(true);
   const [selectedCourse, setSelectedCourse] = useState(null);
@@ -293,21 +297,29 @@ function Home() {
         <div className="mx-auto flex max-w-7xl flex-col gap-12 lg:flex-row lg:items-center lg:justify-between">
           <div className="relative z-10 max-w-2xl">
             <p className="text-sm font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-200">
-              SUM Academy Pakistan
+              {heroContent.heroBadge || "SUM Academy Pakistan"}
             </p>
             <h1 className="mt-4 font-heading text-4xl leading-tight text-slate-900 dark:text-white sm:text-5xl lg:text-6xl">
-              <span className="gradient-text">Learn Without Limits</span>
+              <span className="gradient-text">
+                {heroContent.heroTitle || "Learn Without Limits"}
+              </span>
             </h1>
             <p className="mt-4 text-base text-slate-600 dark:text-slate-100 sm:text-lg">
-              Empowering Pakistani academies with a premium LMS experience,
-              personalized learning paths, and real-time performance insights.
+              {heroContent.heroSubtitle ||
+                "Empowering Pakistani academies with a premium LMS experience, personalized learning paths, and real-time performance insights."}
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-4">
-              <Link to="/courses" className="btn-primary">
-                Browse Courses
+              <Link
+                to={heroContent.heroPrimaryLink || "/courses"}
+                className="btn-primary"
+              >
+                {heroContent.heroPrimaryLabel || "Browse Courses"}
               </Link>
-              <Link to="/demo" className="btn-outline">
-                Watch Demo
+              <Link
+                to={heroContent.heroSecondaryLink || "/demo"}
+                className="btn-outline"
+              >
+                {heroContent.heroSecondaryLabel || "Watch Demo"}
               </Link>
             </div>
           </div>
@@ -505,7 +517,7 @@ function Home() {
               Testimonials
             </p>
             <h2 className="mt-3 font-heading text-3xl text-slate-900">
-              Students love learning with SUM Academy
+              Students love learning with {siteName}
             </h2>
           </div>
           <div className="mt-8 grid gap-6 md:grid-cols-3">
@@ -543,18 +555,18 @@ function Home() {
                     Start Now
                   </p>
                   <h2 className="mt-3 font-heading text-3xl text-slate-900 dark:text-white sm:text-4xl">
-                    Start Your Journey Today
+                    {heroContent.footerCtaTitle || "Start Your Journey Today"}
                   </h2>
                   <p className="mt-3 text-sm text-slate-600 dark:text-slate-200 sm:text-base">
-                    Join SUM Academy and unlock personalized learning paths
-                    built for Pakistan&apos;s top boards.
+                    {heroContent.footerCtaSubtitle ||
+                      `Join ${siteName} and unlock personalized learning paths built for Pakistan's top boards.`}
                   </p>
                 </div>
                 <Link
-                  to="/enroll"
+                  to="/register"  
                   className="inline-flex items-center justify-center rounded-full bg-gradient-to-r from-primary to-accent px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-primary/30 transition hover:-translate-y-0.5"
                 >
-                  Enroll for Free
+                  {heroContent.footerCtaButton || "Enroll for Free"}
                 </Link>
               </div>
             </div>
@@ -628,7 +640,7 @@ function Home() {
                 <Link to="/courses" className="btn-outline">
                   View Curriculum
                 </Link>
-                <Link to="/enroll" className="btn-primary">
+                <Link to="/register" className="btn-primary">
                   Enroll Now
                 </Link>
               </div>

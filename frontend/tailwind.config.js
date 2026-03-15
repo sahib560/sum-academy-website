@@ -5,13 +5,13 @@ export default {
   theme: {
     extend: {
       colors: {
-        primary: "#4a63f5",
-        accent: "#ff6f0f",
-        dark: "#0d0f1a",
+        primary: "rgb(var(--brand-primary-rgb) / <alpha-value>)",
+        accent: "rgb(var(--brand-accent-rgb) / <alpha-value>)",
+        dark: "var(--brand-dark)",
       },
       fontFamily: {
-        body: ['"DM Sans"', "system-ui", "sans-serif"],
-        heading: ['"Playfair Display"', "serif"],
+        body: ["var(--brand-font)", "system-ui", "sans-serif"],
+        heading: ["var(--brand-heading-font)", "serif"],
       },
       keyframes: {
         fadeUp: {

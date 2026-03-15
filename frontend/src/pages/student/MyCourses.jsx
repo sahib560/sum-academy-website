@@ -239,9 +239,12 @@ function StudentMyCourses() {
                       Locked
                     </button>
                   ) : course.status === "Completed" ? (
-                    <button className="w-full rounded-full border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600">
+                    <Link
+                      className="w-full rounded-full border border-slate-200 px-3 py-2 text-center text-xs font-semibold text-slate-600"
+                      to="/student/certificates"
+                    >
                       View Certificate
-                    </button>
+                    </Link>
                   ) : (
                     <Link className="btn-primary w-full text-center" to="/student/course-player">
                       Continue Learning

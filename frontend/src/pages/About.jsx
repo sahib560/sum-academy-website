@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
+import { useSiteSettings } from "../context/SiteSettingsContext.jsx";
 
 const fadeUp = {
   hidden: { opacity: 0, y: 24 },
@@ -90,6 +91,9 @@ const founders = [
 ];
 
 function About() {
+  const { settings } = useSiteSettings();
+  const content = settings.content || {};
+  const siteName = settings.general.siteName || "SUM Academy";
   return (
     <main className="pt-24">
       <motion.section
@@ -105,14 +109,14 @@ function About() {
         </div>
         <div className="mx-auto max-w-7xl">
           <p className="text-xs font-semibold uppercase tracking-[0.4em] text-slate-500 dark:text-slate-300">
-            SUM Academy
+            {siteName}
           </p>
           <h1 className="mt-4 font-heading text-4xl text-slate-900 dark:text-white sm:text-5xl">
-            About SUM Academy
+            {content.aboutHeroTitle || `About ${siteName}`}
           </h1>
           <p className="mt-4 max-w-2xl text-base text-slate-600 dark:text-slate-200 sm:text-lg">
-            Our mission is to deliver a modern, student-first learning experience
-            for Pakistani academies with powerful tools and trusted educators.
+            {content.aboutMission ||
+              "Our mission is to deliver a modern, student-first learning experience for Pakistani academies with powerful tools and trusted educators."}
           </p>
         </div>
       </motion.section>
@@ -127,12 +131,11 @@ function About() {
         <div className="mx-auto grid max-w-7xl gap-8 lg:grid-cols-[1.2fr_0.8fr]">
           <div className="glass-card flex flex-col gap-4">
             <h2 className="font-heading text-3xl text-slate-900 dark:text-white">
-              Our Story
+              {content.aboutStoryTitle || "Our Story"}
             </h2>
             <p className="text-sm text-slate-600 dark:text-slate-200">
-              SUM Academy was founded to make high-quality education accessible
-              across Pakistan. We combine structured curricula with technology to
-              keep students engaged and confident.
+              {content.aboutStoryBody ||
+                "SUM Academy was founded to make high-quality education accessible across Pakistan. We combine structured curricula with technology to keep students engaged and confident."}
             </p>
             <p className="text-sm text-slate-600 dark:text-slate-200">
               Our vision is to empower academies with data-driven insights,
@@ -361,7 +364,7 @@ function About() {
                     Join Us
                   </p>
                   <h2 className="mt-3 font-heading text-3xl text-slate-900 dark:text-white sm:text-4xl">
-                    Join SUM Academy Today
+                    Join {siteName} Today
                   </h2>
                   <p className="mt-3 text-sm text-slate-600 dark:text-slate-200 sm:text-base">
                     Empower your academy with modern tools and student-first

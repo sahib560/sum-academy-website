@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
+import { useSiteSettings } from "../../context/SiteSettingsContext.jsx";
 
 const tabs = [
   "General",
   "Appearance",
+  "Content",
   "Email Settings",
   "Payment Settings",
   "Security Settings",
@@ -36,6 +38,7 @@ Thank you,
 SUM Academy`;
 
 function SiteSettings() {
+  const { settings, updateSettings } = useSiteSettings();
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("General");
   const [toast, setToast] = useState(null);
@@ -44,22 +47,11 @@ function SiteSettings() {
   const [previewOpen, setPreviewOpen] = useState(false);
   const hasMounted = useRef(false);
 
-  const [general, setGeneral] = useState({
-    siteName: "SUM Academy",
-    tagline: "Empowering Pakistani academies",
-    contactEmail: "support@sumacademy.pk",
-    contactPhone: "+92 300 1234567",
-    address: "Karachi, Pakistan",
-    logoPreview: "",
-    faviconPreview: "",
-  });
+  const [general, setGeneral] = useState(settings.general);
 
-  const [appearance, setAppearance] = useState({
-    primaryColor: "#4a63f5",
-    accentColor: "#ff6f0f",
-    darkMode: false,
-    font: "DM Sans",
-  });
+  const [appearance, setAppearance] = useState(settings.appearance);
+
+  const [content, setContent] = useState(settings.content);
 
   const [emailSettings, setEmailSettings] = useState({
     host: "",
@@ -110,6 +102,12 @@ function SiteSettings() {
   }, [toast]);
 
   useEffect(() => {
+    setGeneral(settings.general);
+    setAppearance(settings.appearance);
+    setContent(settings.content);
+  }, [settings]);
+
+  useEffect(() => {
     const beforeUnload = (event) => {
       if (!dirty) return;
       event.preventDefault();
@@ -125,11 +123,22 @@ function SiteSettings() {
       return;
     }
     setDirty(true);
-  }, [general, appearance, emailSettings, paymentSettings, security, templates]);
+  }, [
+    general,
+    appearance,
+    content,
+    emailSettings,
+    paymentSettings,
+    security,
+    templates,
+  ]);
 
-  const handleSave = (message) => {
+  const handleSave = (message, updater) => {
     setSaving(true);
     setTimeout(() => {
+      if (updater) {
+        updateSettings(updater);
+      }
       setSaving(false);
       setDirty(false);
       setToast({ type: "success", message });
@@ -356,7 +365,9 @@ function SiteSettings() {
                   </div>
                   <button
                     className="btn-primary"
-                    onClick={() => handleSave("General settings saved.")}
+                    onClick={() =>
+                      handleSave("General settings saved.", { general })
+                    }
                     disabled={saving}
                   >
                     {saving ? (
@@ -485,7 +496,9 @@ function SiteSettings() {
                   </div>
                   <button
                     className="btn-primary"
-                    onClick={() => handleSave("Appearance settings saved.")}
+                    onClick={() =>
+                      handleSave("Appearance settings saved.", { appearance })
+                    }
                     disabled={saving}
                   >
                     {saving ? (
@@ -495,6 +508,260 @@ function SiteSettings() {
                       </span>
                     ) : (
                       "Save Appearance"
+                    )}
+                  </button>
+                </div>
+              )}
+
+              {activeTab === "Content" && (
+                <div className="space-y-6">
+                  <div>
+                    <h3 className="font-heading text-xl text-slate-900">
+                      Home Hero
+                    </h3>
+                    <div className="mt-4 grid gap-4 md:grid-cols-2">
+                      {[
+                        ["Hero Badge", "heroBadge"],
+                        ["Hero Title", "heroTitle"],
+                        ["Primary CTA Label", "heroPrimaryLabel"],
+                        ["Primary CTA Link", "heroPrimaryLink"],
+                        ["Secondary CTA Label", "heroSecondaryLabel"],
+                        ["Secondary CTA Link", "heroSecondaryLink"],
+                      ].map(([label, key]) => (
+                        <div key={key}>
+                          <label className="text-xs font-semibold uppercase text-slate-400">
+                            {label}
+                          </label>
+                          <input
+                            type="text"
+                            value={content[key]}
+                            onChange={(event) =>
+                              setContent((prev) => ({
+                                ...prev,
+                                [key]: event.target.value,
+                              }))
+                            }
+                            className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                          />
+                        </div>
+                      ))}
+                      <div className="md:col-span-2">
+                        <label className="text-xs font-semibold uppercase text-slate-400">
+                          Hero Subtitle
+                        </label>
+                        <textarea
+                          value={content.heroSubtitle}
+                          onChange={(event) =>
+                            setContent((prev) => ({
+                              ...prev,
+                              heroSubtitle: event.target.value,
+                            }))
+                          }
+                          className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                          rows={3}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <h3 className="font-heading text-xl text-slate-900">
+                      About Page
+                    </h3>
+                    <div className="mt-4 grid gap-4 md:grid-cols-2">
+                      {[
+                        ["About Hero Title", "aboutHeroTitle"],
+                        ["Story Title", "aboutStoryTitle"],
+                      ].map(([label, key]) => (
+                        <div key={key}>
+                          <label className="text-xs font-semibold uppercase text-slate-400">
+                            {label}
+                          </label>
+                          <input
+                            type="text"
+                            value={content[key]}
+                            onChange={(event) =>
+                              setContent((prev) => ({
+                                ...prev,
+                                [key]: event.target.value,
+                              }))
+                            }
+                            className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                          />
+                        </div>
+                      ))}
+                      <div className="md:col-span-2">
+                        <label className="text-xs font-semibold uppercase text-slate-400">
+                          Mission Statement
+                        </label>
+                        <textarea
+                          value={content.aboutMission}
+                          onChange={(event) =>
+                            setContent((prev) => ({
+                              ...prev,
+                              aboutMission: event.target.value,
+                            }))
+                          }
+                          className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                          rows={3}
+                        />
+                      </div>
+                      <div className="md:col-span-2">
+                        <label className="text-xs font-semibold uppercase text-slate-400">
+                          Story Body
+                        </label>
+                        <textarea
+                          value={content.aboutStoryBody}
+                          onChange={(event) =>
+                            setContent((prev) => ({
+                              ...prev,
+                              aboutStoryBody: event.target.value,
+                            }))
+                          }
+                          className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                          rows={4}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <h3 className="font-heading text-xl text-slate-900">
+                      Contact Page
+                    </h3>
+                    <div className="mt-4 grid gap-4 md:grid-cols-2">
+                      {[
+                        ["Contact Hero Title", "contactHeroTitle"],
+                        ["Office Hours", "officeHours"],
+                      ].map(([label, key]) => (
+                        <div key={key}>
+                          <label className="text-xs font-semibold uppercase text-slate-400">
+                            {label}
+                          </label>
+                          <input
+                            type="text"
+                            value={content[key]}
+                            onChange={(event) =>
+                              setContent((prev) => ({
+                                ...prev,
+                                [key]: event.target.value,
+                              }))
+                            }
+                            className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                          />
+                        </div>
+                      ))}
+                      <div className="md:col-span-2">
+                        <label className="text-xs font-semibold uppercase text-slate-400">
+                          Contact Subtitle
+                        </label>
+                        <textarea
+                          value={content.contactHeroSubtitle}
+                          onChange={(event) =>
+                            setContent((prev) => ({
+                              ...prev,
+                              contactHeroSubtitle: event.target.value,
+                            }))
+                          }
+                          className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                          rows={3}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <h3 className="font-heading text-xl text-slate-900">
+                      Footer
+                    </h3>
+                    <div className="mt-4 grid gap-4 md:grid-cols-2">
+                      {[
+                        ["CTA Title", "footerCtaTitle"],
+                        ["CTA Subtitle", "footerCtaSubtitle"],
+                        ["CTA Button", "footerCtaButton"],
+                        ["Copyright Text", "footerCopyright"],
+                      ].map(([label, key]) => (
+                        <div key={key}>
+                          <label className="text-xs font-semibold uppercase text-slate-400">
+                            {label}
+                          </label>
+                          <input
+                            type="text"
+                            value={content[key]}
+                            onChange={(event) =>
+                              setContent((prev) => ({
+                                ...prev,
+                                [key]: event.target.value,
+                              }))
+                            }
+                            className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                          />
+                        </div>
+                      ))}
+                      <div className="md:col-span-2">
+                        <label className="text-xs font-semibold uppercase text-slate-400">
+                          Footer Description
+                        </label>
+                        <textarea
+                          value={content.footerDescription}
+                          onChange={(event) =>
+                            setContent((prev) => ({
+                              ...prev,
+                              footerDescription: event.target.value,
+                            }))
+                          }
+                          className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                          rows={3}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <h3 className="font-heading text-xl text-slate-900">
+                      Navigation & Social Links
+                    </h3>
+                    <div className="mt-4 grid gap-4 md:grid-cols-2">
+                      {[
+                        ["Navbar LMS Label", "navbarLmsLabel"],
+                        ["Navbar Sign In Label", "navbarSignInLabel"],
+                        ["Navbar Get Started Label", "navbarGetStartedLabel"],
+                        ["Facebook URL", "facebookUrl"],
+                        ["WhatsApp URL", "whatsappUrl"],
+                        ["TikTok URL", "tiktokUrl"],
+                      ].map(([label, key]) => (
+                        <div key={key}>
+                          <label className="text-xs font-semibold uppercase text-slate-400">
+                            {label}
+                          </label>
+                          <input
+                            type="text"
+                            value={content[key]}
+                            onChange={(event) =>
+                              setContent((prev) => ({
+                                ...prev,
+                                [key]: event.target.value,
+                              }))
+                            }
+                            className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <button
+                    className="btn-primary"
+                    onClick={() => handleSave("Content settings saved.", { content })}
+                    disabled={saving}
+                  >
+                    {saving ? (
+                      <span className="inline-flex items-center gap-2">
+                        <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/70 border-t-transparent" />
+                        Saving...
+                      </span>
+                    ) : (
+                      "Save Content"
                     )}
                   </button>
                 </div>

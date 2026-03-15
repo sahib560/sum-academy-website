@@ -383,7 +383,99 @@ function Installments() {
       </div>
 
       <div className="rounded-3xl border border-slate-200 bg-white shadow-sm">
-        <div className="overflow-x-auto">
+        <div className="space-y-3 p-4 lg:hidden">
+          {loading ? (
+            Array.from({ length: 5 }).map((_, index) => (
+              <div key={`plan-card-${index}`} className="rounded-2xl border border-slate-200 p-4">
+                <div className="skeleton h-4 w-1/2" />
+                <div className="mt-3 space-y-2">
+                  <div className="skeleton h-3 w-3/4" />
+                  <div className="skeleton h-3 w-1/3" />
+                </div>
+              </div>
+            ))
+          ) : filteredPlans.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-10 text-center text-sm text-slate-500">
+              No installment plans found.
+            </div>
+          ) : (
+            filteredPlans.map((plan) => {
+              const totals = computePlanTotals(plan);
+              const status = derivePlanStatus(plan);
+              return (
+                <div
+                  key={plan.id}
+                  className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                        Student
+                      </p>
+                      <p className="mt-1 font-semibold text-slate-900">
+                        {plan.student}
+                      </p>
+                      <p className="text-xs text-slate-500">{plan.course}</p>
+                    </div>
+                    <span
+                      className={`rounded-full px-3 py-1 text-xs font-semibold ${statusStyles[status]}`}
+                    >
+                      {status}
+                    </span>
+                  </div>
+                  <div className="mt-3 grid grid-cols-2 gap-3 text-xs text-slate-500">
+                    <div>
+                      <p className="uppercase tracking-[0.2em] text-slate-400">Plan</p>
+                      <p className="mt-1 text-sm font-semibold text-slate-900">
+                        {totals.paidCount} of {totals.totalCount} paid
+                      </p>
+                    </div>
+                    <div>
+                      <p className="uppercase tracking-[0.2em] text-slate-400">Next Due</p>
+                      <p className="mt-1 text-sm text-slate-600">
+                        {formatDate(totals.nextDue)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="uppercase tracking-[0.2em] text-slate-400">Total</p>
+                      <p className="mt-1 text-sm font-semibold text-slate-900">
+                        {formatPKR(plan.total)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="uppercase tracking-[0.2em] text-slate-400">Remaining</p>
+                      <p className="mt-1 text-sm text-slate-600">
+                        {formatPKR(totals.remaining)}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <button
+                      className="rounded-full border border-slate-200 px-3 py-1 text-xs"
+                      onClick={() => openPlanModal(plan)}
+                    >
+                      View Plan
+                    </button>
+                    <button
+                      className="rounded-full border border-slate-200 px-3 py-1 text-xs"
+                      onClick={() => openPlanModal(plan)}
+                    >
+                      Override
+                    </button>
+                    <button
+                      className="rounded-full border border-slate-200 px-3 py-1 text-xs"
+                      onClick={() => handleSendReminder(plan.student)}
+                    >
+                      Send Reminder
+                    </button>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        <div className="hidden overflow-x-auto lg:block">
           <table className="min-w-full text-left text-sm">
             <thead className="border-b border-slate-200 text-xs uppercase text-slate-400">
               <tr>

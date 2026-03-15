@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, NavLink } from "react-router-dom";
 import logo from "../assets/logo.jpeg";
+import { useSiteSettings } from "../context/SiteSettingsContext.jsx";
 
 const navLinks = [
   { label: "Home", to: "/" },
@@ -11,6 +12,7 @@ const navLinks = [
 ];
 
 function Navbar() {
+  const { settings } = useSiteSettings();
   const [isScrolled, setIsScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [theme, setTheme] = useState("light");
@@ -60,6 +62,9 @@ function Navbar() {
   ].join(" ");
 
   const closeMenu = () => setMenuOpen(false);
+  const logoSrc = settings.general.logoPreview || logo;
+  const siteName = settings.general.siteName || "SUM Academy";
+  const navbarLabels = settings.content || {};
 
   return (
     <header className={headerClasses}>
@@ -67,13 +72,13 @@ function Navbar() {
         <Link to="/" className="flex items-center gap-3" onClick={closeMenu}>
           <span className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-xl bg-white shadow-lg shadow-primary/30">
             <img
-              src={logo}
-              alt="SUM Academy logo"
+              src={logoSrc}
+              alt={`${siteName} logo`}
               className="h-full w-full object-cover"
             />
           </span>
           <span className="font-heading text-lg tracking-wide text-slate-900 dark:text-white">
-            SUM Academy
+            {siteName}
           </span>
         </Link>
 
@@ -93,7 +98,7 @@ function Navbar() {
 
         <div className="hidden items-center gap-3 lg:flex">
           <Link to="/lms-login" className="btn-lms">
-            LMS Login
+            {navbarLabels.navbarLmsLabel || "LMS Login"}
           </Link>
           <button
             type="button"
@@ -103,11 +108,11 @@ function Navbar() {
           >
             {theme === "dark" ? "Light" : "Dark"}
           </button>
-          <Link to="/signin" className="btn-outline">
-            Sign In
+          <Link to="/lms-login" className="btn-outline">
+            {navbarLabels.navbarSignInLabel || "Sign In"}
           </Link>
-          <Link to="/get-started" className="btn-primary">
-            Get Started
+          <Link to="/register" className="btn-primary">
+            {navbarLabels.navbarGetStartedLabel || "Get Started"}
           </Link>
         </div>
 
@@ -158,7 +163,7 @@ function Navbar() {
           </div>
           <div className="mt-6 flex flex-col gap-3">
             <Link to="/lms-login" className="btn-lms" onClick={closeMenu}>
-              LMS Login
+              {navbarLabels.navbarLmsLabel || "LMS Login"}
             </Link>
             <button
               type="button"
@@ -169,10 +174,10 @@ function Navbar() {
               {theme === "dark" ? "Light" : "Dark"}
             </button>
             <Link to="/signin" className="btn-outline" onClick={closeMenu}>
-              Sign In
+              {navbarLabels.navbarSignInLabel || "Sign In"}
             </Link>
             <Link to="/get-started" className="btn-primary" onClick={closeMenu}>
-              Get Started
+              {navbarLabels.navbarGetStartedLabel || "Get Started"}
             </Link>
           </div>
         </div>

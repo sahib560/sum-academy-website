@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { SkeletonCard } from "../components/Skeleton.jsx";
+import { useSiteSettings } from "../context/SiteSettingsContext.jsx";
 
 const courseData = [
   {
@@ -150,6 +151,8 @@ function CourseCard({ course, onSelect }) {
 }
 
 function Courses() {
+  const { settings } = useSiteSettings();
+  const siteName = settings.general.siteName || "SUM Academy";
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [selectedCategories, setSelectedCategories] = useState([]);
@@ -306,7 +309,7 @@ function Courses() {
           <div className="flex flex-col gap-6 rounded-3xl border border-slate-200/70 bg-white/80 p-8 shadow-2xl shadow-slate-200/50 backdrop-blur dark:border-white/10 dark:bg-dark/70 dark:shadow-black/40 md:flex-row md:items-center md:justify-between">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.4em] text-slate-500 dark:text-slate-300">
-                SUM Academy
+                {siteName}
               </p>
               <h1 className="mt-3 font-heading text-4xl text-slate-900 dark:text-white">
                 Explore Our Courses

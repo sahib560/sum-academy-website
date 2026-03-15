@@ -365,7 +365,99 @@ function PromoCodes() {
       </div>
 
       <div className="rounded-3xl border border-slate-200 bg-white shadow-sm">
-        <div className="overflow-x-auto">
+        <div className="space-y-3 p-4 lg:hidden">
+          {loading ? (
+            Array.from({ length: 5 }).map((_, index) => (
+              <div key={`promo-card-${index}`} className="rounded-2xl border border-slate-200 p-4">
+                <div className="skeleton h-4 w-1/2" />
+                <div className="mt-3 space-y-2">
+                  <div className="skeleton h-3 w-3/4" />
+                  <div className="skeleton h-3 w-1/3" />
+                </div>
+              </div>
+            ))
+          ) : filteredPromos.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-10 text-center text-sm text-slate-500">
+              No promo codes found.
+            </div>
+          ) : (
+            filteredPromos.map((promo) => (
+              <div
+                key={promo.id}
+                className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                      Code
+                    </p>
+                    <p className="mt-1 inline-flex rounded-full bg-slate-100 px-3 py-1 font-mono text-xs font-semibold text-slate-700">
+                      {promo.code}
+                    </p>
+                    <p className="mt-2 text-xs text-slate-500">
+                      {promo.appliesTo}
+                    </p>
+                  </div>
+                  <span
+                    className={`rounded-full px-3 py-1 text-xs font-semibold ${statusStyles[promo.status]}`}
+                  >
+                    {promo.status}
+                  </span>
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-3 text-xs text-slate-500">
+                  <div>
+                    <p className="uppercase tracking-[0.2em] text-slate-400">Discount</p>
+                    <p className="mt-1 text-sm font-semibold text-slate-900">
+                      {promo.discountType === "percentage"
+                        ? `${promo.discountValue}%`
+                        : formatPKR(promo.discountValue)}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="uppercase tracking-[0.2em] text-slate-400">Used</p>
+                    <p className="mt-1 text-sm text-slate-600">
+                      {promo.used}/{promo.limit === 0 ? "Unlimited" : promo.limit}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="uppercase tracking-[0.2em] text-slate-400">Expiry</p>
+                    <p className="mt-1 text-sm text-slate-600">
+                      {formatDate(promo.expiry)}
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    className="rounded-full border border-slate-200 px-3 py-1 text-xs"
+                    onClick={() => openModal(promo)}
+                  >
+                    Edit
+                  </button>
+                  <button
+                    className="rounded-full border border-slate-200 px-3 py-1 text-xs"
+                    onClick={() => handleToggleStatus(promo)}
+                  >
+                    {promo.status === "Disabled" ? "Enable" : "Disable"}
+                  </button>
+                  <button
+                    className="rounded-full border border-slate-200 px-3 py-1 text-xs"
+                    onClick={() => handleDeletePromo(promo)}
+                  >
+                    Delete
+                  </button>
+                  <button
+                    className="rounded-full border border-slate-200 px-3 py-1 text-xs"
+                    onClick={() => handleCopyCode(promo)}
+                  >
+                    {copiedId === promo.id ? "Copied!" : "Copy Code"}
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        <div className="hidden overflow-x-auto lg:block">
           <table className="min-w-full text-left text-sm">
             <thead className="border-b border-slate-200 text-xs uppercase text-slate-400">
               <tr>
@@ -464,7 +556,77 @@ function PromoCodes() {
             Course-level Discounts
           </h3>
         </div>
-        <div className="mt-4 overflow-x-auto">
+        <div className="mt-4 space-y-3 lg:hidden">
+          {courseDiscounts.map((course) => {
+            const discounted =
+              course.originalPrice -
+              (course.originalPrice * course.discountPercent) / 100;
+            return (
+              <div
+                key={course.id}
+                className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                      Course
+                    </p>
+                    <p className="mt-1 font-semibold text-slate-900">
+                      {course.course}
+                    </p>
+                  </div>
+                  <button
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition ${
+                      course.active ? "bg-emerald-500" : "bg-slate-200"
+                    }`}
+                    onClick={() => handleToggleCourse(course.id)}
+                  >
+                    <span
+                      className={`inline-block h-5 w-5 transform rounded-full bg-white transition ${
+                        course.active ? "translate-x-5" : "translate-x-1"
+                      }`}
+                    />
+                  </button>
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-3 text-xs text-slate-500">
+                  <div>
+                    <p className="uppercase tracking-[0.2em] text-slate-400">
+                      Original
+                    </p>
+                    <p className="mt-1 text-sm font-semibold text-slate-900">
+                      {formatPKR(course.originalPrice)}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="uppercase tracking-[0.2em] text-slate-400">
+                      Discounted
+                    </p>
+                    <p className="mt-1 text-sm text-slate-600">
+                      {formatPKR(Math.max(discounted, 0))}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="uppercase tracking-[0.2em] text-slate-400">
+                      Discount %
+                    </p>
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      value={course.discountPercent}
+                      onChange={(event) =>
+                        handleDiscountChange(course.id, event.target.value)
+                      }
+                      className="mt-1 w-24 rounded-lg border border-slate-200 px-2 py-1 text-sm"
+                    />
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="mt-4 hidden overflow-x-auto lg:block">
           <table className="min-w-full text-left text-sm">
             <thead className="border-b border-slate-200 text-xs uppercase text-slate-400">
               <tr>
