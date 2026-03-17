@@ -24,7 +24,13 @@ function AuthProvider({ children }) {
         const response = await api.get("/auth/me", {
           headers: { Authorization: `Bearer ${idToken}` },
         });
-        const profile = response.data.user;
+        const profile =
+          response.data?.user ||
+          response.data?.data?.user ||
+          response.data?.data;
+        if (!profile) {
+          throw new Error("Profile not found in response");
+        }
         if (cancelled) return;
         setUser(firebaseUser);
         setUserProfile(profile);

@@ -49,11 +49,23 @@ function Navbar() {
     document.documentElement.classList.toggle("dark", nextTheme === "dark");
   };
 
+  const isDark = theme === "dark";
   const headerClasses = [
     "fixed left-0 right-0 top-0 z-50 transition-all duration-300",
     isScrolled
-      ? "bg-white/85 shadow-lg shadow-slate-200/70 backdrop-blur-xl dark:bg-dark/85 dark:shadow-black/40"
+      ? isDark
+        ? "border-b border-white/10 bg-dark/95 shadow-lg shadow-black/70 backdrop-blur-xl"
+        : "border-b border-slate-200/60 bg-white/90 shadow-lg shadow-slate-200/70 backdrop-blur-xl"
+      : isDark
+      ? "bg-dark/80 backdrop-blur lg:bg-transparent"
       : "bg-transparent",
+  ].join(" ");
+
+  const menuPanelClasses = [
+    "mx-4 mb-5 rounded-2xl border p-5 shadow-xl backdrop-blur sm:mx-6",
+    isDark
+      ? "border-white/10 bg-dark/95 text-white shadow-black/50"
+      : "border-slate-200/70 bg-white/90 text-slate-900 shadow-slate-200/60",
   ].join(" ");
 
   const containerClasses = [
@@ -146,7 +158,7 @@ function Navbar() {
           menuOpen ? "max-h-[420px] opacity-100" : "max-h-0 opacity-0"
         }`}
       >
-        <div className="mx-4 mb-5 rounded-2xl border border-slate-200/70 bg-white/90 p-5 shadow-xl shadow-slate-200/60 backdrop-blur dark:border-white/10 dark:bg-dark/90 dark:shadow-black/40 sm:mx-6">
+        <div className={menuPanelClasses}>
           <div className="flex flex-col gap-4">
             {navLinks.map((link) => (
               <NavLink
@@ -154,7 +166,9 @@ function Navbar() {
                 to={link.to}
                 onClick={closeMenu}
                 className={({ isActive }) =>
-                  `nav-link text-base ${isActive ? "text-primary dark:text-white" : ""}`
+                  `nav-link text-base ${
+                    isDark ? "text-slate-100 hover:text-white" : ""
+                  } ${isActive ? "text-primary dark:text-white" : ""}`
                 }
               >
                 {link.label}
@@ -168,7 +182,9 @@ function Navbar() {
             <button
               type="button"
               onClick={toggleTheme}
-              className="inline-flex items-center justify-center rounded-full border border-slate-200/80 bg-white/70 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-700 transition hover:-translate-y-0.5 hover:text-primary dark:border-white/10 dark:bg-white/5 dark:text-white"
+              className={`inline-flex items-center justify-center rounded-full border border-slate-200/80 bg-white/70 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-700 transition hover:-translate-y-0.5 hover:text-primary dark:border-white/10 dark:bg-white/5 dark:text-white ${
+                isDark ? "border-white/10 bg-white/10 text-white" : ""
+              }`}
               aria-label="Toggle theme"
             >
               {theme === "dark" ? "Light" : "Dark"}

@@ -9,48 +9,45 @@ import {
 import api from "../api/axios.js";
 import { firebaseAuth, googleProvider } from "../config/firebase.js";
 
-const registerWithEmail = async ({
+const registerWithEmail = async (
   fullName,
   email,
   password,
-  phoneNumber,
-  fatherName,
-  fatherPhone,
-  fatherOccupation,
-  address,
-  district,
-  domicile,
-  caste,
-}) => {
-  const { user } = await createUserWithEmailAndPassword(
-    firebaseAuth,
-    email,
-    password
-  );
-
-  await updateProfile(user, { displayName: fullName });
-  const idToken = await user.getIdToken();
-  const response = await api.post(
-    "/auth/register",
-    {
-      uid: user.uid,
+  phoneNumber
+) => {
+  try {
+    console.log("Step 1: Creating Firebase user...");
+    const result = await createUserWithEmailAndPassword(
+      firebaseAuth,
       email,
-      fullName,
-      phoneNumber,
-      fatherName,
-      fatherPhone,
-      fatherOccupation,
-      address,
-      district,
-      domicile,
-      caste,
-    },
-    {
-      headers: { Authorization: "Bearer " + idToken },
-    }
-  );
+      password
+    );
+    const user = result.user;
 
-  return response.data?.user || response.data?.data || response.data;
+    console.log("Step 2: Updating profile...");
+    await updateProfile(user, { displayName: fullName });
+
+    console.log("Step 3: Getting ID token...");
+    const idToken = await user.getIdToken(true);
+
+    console.log("Step 4: Calling backend register...");
+    const response = await api.post(
+      "/auth/register",
+      {
+        uid: user.uid,
+        email,
+        fullName,
+        phoneNumber: phoneNumber || "",
+      },
+      { headers: { Authorization: `Bearer ${idToken}` } }
+    );
+
+    console.log("Step 5: Done:", response.data);
+    return response.data;
+  } catch (error) {
+    console.error("Register error:", error.response?.data || error.message);
+    throw error;
+  }
 };
 
 const loginWithEmail = async (email, password) => {
@@ -70,8 +67,8 @@ const loginWithEmail = async (email, password) => {
   );
 
   return (
-    response.data?.user ||
     response.data?.data?.user ||
+    response.data?.user ||
     response.data?.data ||
     response.data
   );
@@ -98,13 +95,6 @@ const loginWithGoogle = async () => {
           email: user.email,
           fullName: user.displayName || user.email.split("@")[0],
           phoneNumber: "",
-          fatherName: "",
-          fatherPhone: "",
-          fatherOccupation: "",
-          address: "",
-          district: "",
-          domicile: "",
-          caste: "",
         },
         { headers: { Authorization: `Bearer ${idToken}` } }
       );

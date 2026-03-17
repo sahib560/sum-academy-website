@@ -124,30 +124,30 @@ function Login() {
   };
 
   return (
-    <main className="min-h-screen bg-white">
-      <div className="grid min-h-screen lg:grid-cols-[3fr_2fr]">
-        <div className="flex items-center justify-center px-6 py-12 sm:px-10">
+    <main className="min-h-screen bg-white lg:h-screen lg:overflow-hidden">
+      <div className="grid min-h-screen lg:h-screen lg:grid-cols-[3fr_2fr]">
+        <div className="flex items-center justify-center px-6 py-12 sm:px-10 lg:h-screen lg:overflow-y-auto">
           <motion.div
             initial="hidden"
             animate="visible"
             variants={fadeUp}
-            className="w-full max-w-md"
+            className="w-full max-w-md lg:my-auto"
           >
-            <div>
-              <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl bg-white shadow-lg shadow-primary/20">
+            <div className="flex flex-col items-center text-center">
+              <div className="mx-auto flex h-20 w-20 items-center justify-center overflow-hidden rounded-2xl bg-white shadow-lg shadow-primary/20">
                 <img
                   src={logoSrc}
                   alt={`${siteName} logo`}
                   className="h-full w-full object-cover"
                 />
               </div>
-              <p className="text-xs font-semibold uppercase tracking-[0.4em] text-slate-500">
+              <p className="text-xs font-semibold uppercase tracking-[0.4em] text-slate-500 dark:text-slate-500">
                 {siteName}
               </p>
-              <h1 className="mt-3 font-heading text-3xl text-slate-900">
+              <h1 className="mt-3 font-heading text-3xl text-slate-900 dark:text-slate-900">
                 Welcome Back
               </h1>
-              <p className="mt-2 text-sm text-slate-600">
+              <p className="mt-2 text-sm text-slate-600 dark:text-slate-600">
                 Log in to continue your learning journey.
               </p>
             </div>
@@ -325,20 +325,20 @@ function Login() {
           </motion.div>
         </div>
 
-        <div className="relative hidden items-center justify-center bg-dark px-10 py-12 text-white lg:flex">
+        <div className="relative hidden items-center justify-center bg-dark px-10 py-12 text-white lg:sticky lg:top-0 lg:flex lg:h-screen">
           <div className="absolute inset-0 opacity-60">
             <div className="absolute -left-20 top-10 h-48 w-48 rounded-full bg-primary/30 blur-[100px]" />
             <div className="absolute bottom-10 right-0 h-48 w-48 rounded-full bg-accent/30 blur-[100px]" />
           </div>
           <div className="relative z-10 max-w-sm text-center">
-            <div className="mx-auto flex h-14 w-14 items-center justify-center overflow-hidden rounded-2xl bg-white shadow-lg shadow-primary/40">
+            <div className="mx-auto flex h-20 w-20 items-center justify-center overflow-hidden rounded-2xl bg-white shadow-lg shadow-primary/40">
               <img
                 src={logoSrc}
                 alt={`${siteName} logo`}
                 className="h-full w-full object-cover"
               />
             </div>
-            <h2 className="mt-4 font-heading text-3xl">{siteName}</h2>
+            <h2 className="mt-4 font-heading text-3xl text-white">{siteName}</h2>
             <p className="mt-3 text-sm text-slate-300">
               A modern LMS experience for Pakistan&apos;s academies.
             </p>

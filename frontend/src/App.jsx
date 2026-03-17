@@ -56,15 +56,32 @@ import NotFound from "./pages/NotFound.jsx";
 
 function AppLayout() {
   const location = useLocation();
-  const hideLayout =
-    ["/login", "/register", "/lms-login", "/unauthorized"].includes(
-      location.pathname
-    ) ||
+  const publicRoutes = new Set([
+    "/",
+    "/courses",
+    "/teachers",
+    "/about",
+    "/contact",
+    "/login",
+    "/register",
+    "/lms-login",
+    "/unauthorized",
+  ]);
+  const noLayoutRoutes = new Set([
+    "/login",
+    "/register",
+    "/lms-login",
+    "/unauthorized",
+  ]);
+  const isDashboardRoute =
     location.pathname.startsWith("/admin") ||
     location.pathname === "/teacher" ||
     location.pathname.startsWith("/teacher/") ||
     location.pathname === "/student" ||
     location.pathname.startsWith("/student/");
+  const isKnownPublic = publicRoutes.has(location.pathname);
+  const hideLayout =
+    isDashboardRoute || noLayoutRoutes.has(location.pathname) || !isKnownPublic;
 
   return (
     <>

@@ -6,22 +6,13 @@ const registerUser = async (req, res) => {
     const {
       uid,
       email,
-      fullName,
+      fullName = "",
       phoneNumber = "",
-      fatherName = "",
-      fatherPhone = "",
-      fatherOccupation = "",
-      address = "",
-      district = "",
-      domicile = "",
-      caste = "",
     } = req.body || {};
 
     if (!uid || !email) {
       return errorResponse(res, "uid and email are required", 400);
     }
-
-    const displayName = fullName || email.split("@")[0];
 
     const existingUser = await db.collection("users").doc(uid).get();
     if (existingUser.exists) {
@@ -32,14 +23,31 @@ const registerUser = async (req, res) => {
 
     const batch = db.batch();
 
+    const displayName = fullName || email.split("@")[0];
+    const safeDevice = req.clientDevice || req.headers?.["user-agent"] || "";
+    const rawIp =
+      req.clientIP ||
+      req.headers?.["x-forwarded-for"]?.split(",")[0]?.trim() ||
+      req.connection?.remoteAddress ||
+      req.socket?.remoteAddress ||
+      req.ip ||
+      "";
+    const safeIp =
+      rawIp === "::1"
+        ? "127.0.0.1"
+        : rawIp.startsWith("::ffff:")
+          ? rawIp.replace("::ffff:", "")
+          : rawIp;
+
     const userRef = db.collection("users").doc(uid);
     batch.set(userRef, {
       uid,
       email,
       role: "student",
       isActive: true,
-      assignedWebDevice: req.clientDevice || null,
-      lastKnownWebIp: req.clientIP || null,
+      assignedWebDevice: safeDevice,
+      assignedWebIp: safeIp,
+      lastKnownWebIp: safeIp,
       lastLoginAt: admin.firestore.FieldValue.serverTimestamp(),
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
@@ -49,13 +57,6 @@ const registerUser = async (req, res) => {
       uid,
       fullName: displayName,
       phoneNumber,
-      fatherName,
-      fatherPhone,
-      fatherOccupation,
-      address,
-      district,
-      domicile,
-      caste,
       enrolledCourses: [],
       certificates: [],
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -79,12 +80,8 @@ const loginUser = async (req, res) => {
   try {
     const uid = req.user.uid;
 
-    if (!uid) {
-      return errorResponse(res, "Missing user uid", 400);
-    }
-
-    const userRef = db.collection("users").doc(uid);
-    const userSnap = await userRef.get();
+    // Fetch user doc
+    const userSnap = await db.collection("users").doc(uid).get();
 
     if (!userSnap.exists) {
       return errorResponse(res, "User profile not found", 404);
@@ -92,56 +89,82 @@ const loginUser = async (req, res) => {
 
     const userData = userSnap.data();
 
+    // Check account is active
     if (!userData.isActive) {
       return errorResponse(
         res,
-        "Account has been deactivated. Contact admin.",
+        "Your account has been deactivated. Contact admin.",
         403
       );
     }
 
-    if (!userData.assignedWebDevice && !userData.lastKnownWebIp) {
-      await db.collection("users").doc(uid).update({
-        assignedWebDevice: req.clientDevice || null,
-        lastKnownWebIp: req.clientIP || null,
-        lastLoginAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
-      console.log("[Security] First login - device and IP assigned");
-    }
-
-    if (userData.lastKnownWebIp) {
+    // ── DEVICE + IP CHECK ──────────────────────────────────
+    // Only run check if assignedWebDevice and assignedWebIp
+    // are already saved (means user registered from web before)
+    if (
+      userData.assignedWebDevice &&
+      userData.assignedWebDevice !== "" &&
+      userData.assignedWebIp &&
+      userData.assignedWebIp !== ""
+    ) {
+      const currentDevice = req.clientDevice;
       const currentIP = req.clientIP;
-      const ipMatch = userData.lastKnownWebIp === currentIP;
+
+      const deviceMatch =
+        userData.assignedWebDevice === currentDevice;
+      const ipMatch =
+        userData.assignedWebIp === currentIP;
 
       console.log(`[Security Check]`);
       console.log(`  Assigned Device : ${userData.assignedWebDevice}`);
-      console.log(`  Current Device  : ${req.clientDevice}`);
-      console.log(`  Assigned IP     : ${userData.lastKnownWebIp}`);
+      console.log(`  Current Device  : ${currentDevice}`);
+      console.log(`  Device Match    : ${deviceMatch}`);
+      console.log(`  Assigned IP     : ${userData.assignedWebIp}`);
       console.log(`  Current IP      : ${currentIP}`);
       console.log(`  IP Match        : ${ipMatch}`);
 
-      if (!ipMatch) {
+      if (!deviceMatch || !ipMatch) {
+        // Log the blocked attempt in auditLogs
+        // Do NOT update any user fields
         await db.collection("auditLogs").add({
           uid,
           email: userData.email,
           action: "blocked_login",
-          reason: "ip_mismatch",
+          reason: !deviceMatch && !ipMatch
+            ? "device_and_ip_mismatch"
+            : !deviceMatch
+              ? "device_mismatch"
+              : "ip_mismatch",
           assignedDevice: userData.assignedWebDevice,
-          attemptDevice: req.clientDevice,
-          assignedIP: userData.lastKnownWebIp,
+          attemptDevice: currentDevice,
+          assignedIP: userData.assignedWebIp,
           attemptIP: currentIP,
           timestamp: admin.firestore.FieldValue.serverTimestamp(),
         });
 
         return errorResponse(
           res,
-          "You are trying to login from another device or network. Contact your admin or teacher.",
+          "You are not allowed to login from a new device. Please login from your own device or contact your teacher.",
           403,
           { code: "DEVICE_IP_MISMATCH", contactAdmin: true }
         );
       }
+    } else {
+      // assignedWebDevice or assignedWebIp is empty
+      // This means account was created by admin
+      // First web login — save device and IP now
+      await db.collection("users").doc(uid).update({
+        assignedWebDevice: req.clientDevice,
+        assignedWebIp: req.clientIP,
+        lastKnownWebIp: req.clientIP,
+      });
+      console.log(
+        `[Security] First web login — device and IP saved`
+      );
     }
+    // ── END CHECK ──────────────────────────────────────────
 
+    // Single device enforcement — deactivate old sessions
     const sessionsSnap = await db
       .collection("sessions")
       .where("uid", "==", uid)
@@ -156,26 +179,28 @@ const loginUser = async (req, res) => {
       await batch.commit();
     }
 
+    // Create new active session
     await db.collection("sessions").add({
       uid,
       active: true,
       ip: req.clientIP,
       device: req.clientDevice,
-      deviceType: req.deviceType || "web",
+      deviceType: "web",
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
-    await userRef.update({
+    // Update ONLY lastLoginAt — never touch assigned fields
+    await db.collection("users").doc(uid).update({
       lastLoginAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
+    // Log successful login
     await db.collection("auditLogs").add({
       uid,
       email: userData.email,
       action: "login_success",
       ip: req.clientIP,
       device: req.clientDevice,
-      deviceType: req.deviceType || "web",
       timestamp: admin.firestore.FieldValue.serverTimestamp(),
     });
 
@@ -265,10 +290,11 @@ const getMe = async (req, res) => {
       ...userData,
       ...roleData,
       uid,
-      name: roleData.fullName || roleData.name || userData.email,
+      name: roleData.fullName || userData.email,
     };
 
     delete fullProfile.assignedWebDevice;
+    delete fullProfile.assignedWebIp;
     delete fullProfile.lastKnownWebIp;
 
     return successResponse(res, { user: fullProfile }, "Profile fetched");

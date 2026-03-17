@@ -24,12 +24,6 @@ const users = [
     name: "SUM Student",
     role: "student",
     phone: "03001234569",
-    fatherName: "Sample Father",
-    caste: "Sample Caste",
-    fatherOccupation: "Business",
-    fatherContactNo: "03009998877",
-    districtOfDomicile: "Karachi",
-    address: "Block A, Karachi",
   },
 ];
 
@@ -62,8 +56,9 @@ const seedUsers = async () => {
         email: user.email,
         role: user.role,
         isActive: true,
-        assignedWebDevice: null,
-        lastKnownWebIp: null,
+        assignedWebDevice: "",
+        assignedWebIp: "",
+        lastKnownWebIp: "",
         lastLoginAt: null,
       };
 
@@ -96,9 +91,9 @@ const seedUsers = async () => {
         const teacherData = {
           uid,
           fullName: user.name,
+          phoneNumber: user.phone || "",
           subject: user.subject || "",
           bio: user.bio || "",
-          phone: user.phone || "",
           assignedSubjects: user.assignedSubjects || [],
           profilePicture: null,
           assignedClasses: [],
@@ -121,13 +116,6 @@ const seedUsers = async () => {
           uid,
           fullName: user.name,
           phoneNumber: user.phone || "",
-          fatherName: user.fatherName || "",
-          fatherPhone: user.fatherContactNo || "",
-          fatherOccupation: user.fatherOccupation || "",
-          address: user.address || "",
-          district: user.districtOfDomicile || "",
-          domicile: user.districtOfDomicile || "",
-          caste: user.caste || "",
           enrolledCourses: [],
           certificates: [],
         };

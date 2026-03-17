@@ -49,6 +49,8 @@ function Register() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [toastState, setToastState] = useState(null);
   const logoSrc = settings.general.logoPreview || logo;
   const siteName = settings.general.siteName || "SUM Academy";
@@ -82,16 +84,10 @@ function Register() {
   const validate = () => {
     const nextErrors = {};
     if (!form.fullName.trim()) nextErrors.fullName = "Name is required.";
-    if (!form.fatherName.trim()) nextErrors.fatherName = "Father's name required.";
     if (!form.phoneNumber.trim()) {
       nextErrors.phoneNumber = "Phone number is required.";
     } else if (!phoneRegex.test(form.phoneNumber.trim())) {
       nextErrors.phoneNumber = "Use +92XXXXXXXXXX format.";
-    }
-    if (!form.fatherPhone.trim()) {
-      nextErrors.fatherPhone = "Father's phone is required.";
-    } else if (!phoneRegex.test(form.fatherPhone.trim())) {
-      nextErrors.fatherPhone = "Use +92XXXXXXXXXX format.";
     }
     if (!form.email.trim()) {
       nextErrors.email = "Email is required.";
@@ -121,19 +117,12 @@ function Register() {
     setError("");
 
     try {
-      const registeredUser = await registerWithEmail({
+      const registeredUser = await registerWithEmail(
         fullName,
         email,
         password,
-        phoneNumber,
-        fatherName: form.fatherName.trim(),
-        fatherPhone: form.fatherPhone.trim(),
-        fatherOccupation: form.fatherOccupation.trim(),
-        address: form.address.trim(),
-        district: form.district.trim(),
-        domicile: form.domicile.trim(),
-        caste: form.caste.trim(),
-      });
+        phoneNumber
+      );
       toast.success("Account created successfully! Welcome to SUM Academy");
       const nextRole = registeredUser?.role || "student";
       if (nextRole === "admin") {
@@ -178,26 +167,24 @@ function Register() {
   };
 
   return (
-    <main className="min-h-screen bg-white">
-      <div className="grid min-h-screen lg:grid-cols-[3fr_2fr]">
-        <div className="flex items-center justify-center px-6 py-12 sm:px-10">
+    <main className="min-h-screen bg-white lg:h-screen lg:overflow-hidden">
+      <div className="grid min-h-screen lg:h-screen lg:grid-cols-[3fr_2fr]">
+        <div className="flex items-center justify-center px-6 py-12 sm:px-10 lg:h-screen lg:items-start lg:overflow-y-auto">
           <div className="w-full max-w-md">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl bg-white shadow-lg shadow-primary/20">
-                  <img
-                    src={logoSrc}
-                    alt={`${siteName} logo`}
-                    className="h-full w-full object-cover"
-                  />
-                </div>
-                <p className="text-xs font-semibold uppercase tracking-[0.4em] text-slate-500">
-                  {siteName}
-                </p>
-                <h1 className="mt-2 font-heading text-3xl text-slate-900">
-                  Create Account
-                </h1>
+            <div className="flex flex-col items-center text-center">
+              <div className="mx-auto flex h-20 w-20 items-center justify-center overflow-hidden rounded-2xl bg-white shadow-lg shadow-primary/20">
+                <img
+                  src={logoSrc}
+                  alt={`${siteName} logo`}
+                  className="h-full w-full object-cover"
+                />
               </div>
+              <p className="text-xs font-semibold uppercase tracking-[0.4em] text-slate-500 dark:text-slate-500">
+                {siteName}
+              </p>
+              <h1 className="mt-2 font-heading text-3xl text-slate-900 dark:text-slate-900">
+                Create Account
+              </h1>
             </div>
 
             <motion.form
@@ -265,15 +252,33 @@ function Register() {
                 <label className="text-sm font-semibold text-slate-700">
                   Password
                 </label>
-                <input
-                  type="password"
-                  value={form.password}
-                  onChange={(event) =>
-                    setForm({ ...form, password: event.target.value })
-                  }
-                  className="mt-2 w-full rounded-full border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
-                  placeholder="Create a password"
-                />
+                <div className="relative mt-2">
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    value={form.password}
+                    onChange={(event) =>
+                      setForm({ ...form, password: event.target.value })
+                    }
+                    className="w-full rounded-full border border-slate-200 bg-white px-4 py-3 pr-12 text-sm text-slate-700 shadow-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                    placeholder="Create a password"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((prev) => !prev)}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 transition hover:text-slate-600"
+                    aria-label="Toggle password visibility"
+                  >
+                    {showPassword ? (
+                      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
+                        <path d="M12 5c5 0 9.3 3.1 11 7-1.7 3.9-6 7-11 7S2.7 15.9 1 12c1.7-3.9 6-7 11-7zm0 3.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7z" />
+                      </svg>
+                    ) : (
+                      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
+                        <path d="M2 5.3 3.3 4 20 20.7 18.7 22l-3.2-3.2A12.4 12.4 0 0 1 12 19C7 19 2.7 15.9 1 12c.8-1.8 2-3.4 3.5-4.7L2 5.3zm9.9 9.9a3.5 3.5 0 0 1-3.1-3.1l3.1 3.1zm7.2-1.7-2.2-2.2a3.5 3.5 0 0 0-4.2-4.2L9.3 6.4A8.7 8.7 0 0 1 12 5c5 0 9.3 3.1 11 7-.9 2.1-2.5 4-4.6 5.5z" />
+                      </svg>
+                    )}
+                  </button>
+                </div>
                 <div className="mt-2 flex items-center gap-2 text-xs text-slate-500">
                   <div className="flex-1 rounded-full bg-slate-100">
                     <div
@@ -297,15 +302,33 @@ function Register() {
                 <label className="text-sm font-semibold text-slate-700">
                   Confirm Password
                 </label>
-                <input
-                  type="password"
-                  value={form.confirmPassword}
-                  onChange={(event) =>
-                    setForm({ ...form, confirmPassword: event.target.value })
-                  }
-                  className="mt-2 w-full rounded-full border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
-                  placeholder="Confirm password"
-                />
+                <div className="relative mt-2">
+                  <input
+                    type={showConfirmPassword ? "text" : "password"}
+                    value={form.confirmPassword}
+                    onChange={(event) =>
+                      setForm({ ...form, confirmPassword: event.target.value })
+                    }
+                    className="w-full rounded-full border border-slate-200 bg-white px-4 py-3 pr-12 text-sm text-slate-700 shadow-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                    placeholder="Confirm password"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPassword((prev) => !prev)}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 transition hover:text-slate-600"
+                    aria-label="Toggle confirm password visibility"
+                  >
+                    {showConfirmPassword ? (
+                      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
+                        <path d="M12 5c5 0 9.3 3.1 11 7-1.7 3.9-6 7-11 7S2.7 15.9 1 12c1.7-3.9 6-7 11-7zm0 3.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7z" />
+                      </svg>
+                    ) : (
+                      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
+                        <path d="M2 5.3 3.3 4 20 20.7 18.7 22l-3.2-3.2A12.4 12.4 0 0 1 12 19C7 19 2.7 15.9 1 12c.8-1.8 2-3.4 3.5-4.7L2 5.3zm9.9 9.9a3.5 3.5 0 0 1-3.1-3.1l3.1 3.1zm7.2-1.7-2.2-2.2a3.5 3.5 0 0 0-4.2-4.2L9.3 6.4A8.7 8.7 0 0 1 12 5c5 0 9.3 3.1 11 7-.9 2.1-2.5 4-4.6 5.5z" />
+                      </svg>
+                    )}
+                  </button>
+                </div>
                 {errors.confirmPassword && (
                   <p className="mt-2 text-xs text-accent">
                     {errors.confirmPassword}
@@ -320,9 +343,12 @@ function Register() {
                 <input
                   type="text"
                   value={form.phoneNumber}
-                  onChange={(event) =>
-                    setForm({ ...form, phoneNumber: event.target.value })
-                  }
+                  inputMode="numeric"
+                  pattern="[0-9+]*"
+                  onChange={(event) => {
+                    const nextValue = event.target.value.replace(/[^0-9+]/g, "");
+                    setForm({ ...form, phoneNumber: nextValue });
+                  }}
                   className="mt-2 w-full rounded-full border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
                   placeholder="+92XXXXXXXXXX"
                 />
@@ -344,9 +370,6 @@ function Register() {
                   className="mt-2 w-full rounded-full border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
                   placeholder="Father's name"
                 />
-                {errors.fatherName && (
-                  <p className="mt-2 text-xs text-accent">{errors.fatherName}</p>
-                )}
               </div>
 
               <div>
@@ -356,15 +379,15 @@ function Register() {
                 <input
                   type="text"
                   value={form.fatherPhone}
-                  onChange={(event) =>
-                    setForm({ ...form, fatherPhone: event.target.value })
-                  }
+                  inputMode="numeric"
+                  pattern="[0-9+]*"
+                  onChange={(event) => {
+                    const nextValue = event.target.value.replace(/[^0-9+]/g, "");
+                    setForm({ ...form, fatherPhone: nextValue });
+                  }}
                   className="mt-2 w-full rounded-full border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
                   placeholder="+92XXXXXXXXXX"
                 />
-                {errors.fatherPhone && (
-                  <p className="mt-2 text-xs text-accent">{errors.fatherPhone}</p>
-                )}
               </div>
 
               <div className="grid gap-4 sm:grid-cols-2">
@@ -447,7 +470,6 @@ function Register() {
                 </div>
               </div>
 
-
               <label className="flex items-center gap-2 text-sm text-slate-600">
                 <input
                   type="checkbox"
@@ -526,20 +548,20 @@ function Register() {
           </div>
         </div>
 
-        <div className="relative hidden items-center justify-center bg-dark px-10 py-12 text-white lg:flex">
+        <div className="relative hidden items-center justify-center bg-dark px-10 py-12 text-white lg:sticky lg:top-0 lg:flex lg:h-screen">
           <div className="absolute inset-0 opacity-60">
             <div className="absolute -left-20 top-10 h-48 w-48 rounded-full bg-primary/30 blur-[100px]" />
             <div className="absolute bottom-10 right-0 h-48 w-48 rounded-full bg-accent/30 blur-[100px]" />
           </div>
           <div className="relative z-10 max-w-sm">
-            <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-2xl bg-white shadow-lg shadow-primary/40">
+            <div className="mx-auto flex h-20 w-20 items-center justify-center overflow-hidden rounded-2xl bg-white shadow-lg shadow-primary/40">
               <img
                 src={logoSrc}
                 alt={`${siteName} logo`}
                 className="h-full w-full object-cover"
               />
             </div>
-            <h2 className="mt-4 font-heading text-3xl">{siteName}</h2>
+            <h2 className="mt-4 font-heading text-3xl text-white">{siteName}</h2>
             <p className="mt-3 text-sm text-slate-300">
               Build your future with modern learning and verified credentials.
             </p>
@@ -561,7 +583,7 @@ function Register() {
 
       {toastState && (
         <div
-          className={`fixed right-6 top-6 z-50 rounded-2xl px-4 py-3 text-sm font-semibold shadow-xl ${
+          className={`fixed left-6 top-6 z-50 rounded-2xl px-4 py-3 text-sm font-semibold shadow-xl ${
             toastState.type === "success"
               ? "bg-emerald-500 text-white"
               : "bg-slate-900 text-white"

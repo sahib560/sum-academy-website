@@ -66,11 +66,12 @@ const verifyToken = async (req, res, next) => {
 
       await userRef.set({
         uid: decoded.uid,
-        email: decoded.email || null,
+        email: decoded.email || "",
         role,
         isActive: true,
-        assignedWebDevice: null,
-        lastKnownWebIp: null,
+        assignedWebDevice: "",
+        assignedWebIp: "",
+        lastKnownWebIp: "",
         lastLoginAt: null,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
       });

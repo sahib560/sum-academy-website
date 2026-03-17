@@ -4,23 +4,17 @@ import { useSiteSettings } from "../context/SiteSettingsContext.jsx";
 
 const learnLinks = [
   { label: "Courses", to: "/courses" },
-  { label: "Programs", to: "/programs" },
-  { label: "Pricing", to: "/pricing" },
-  { label: "Scholarships", to: "/scholarships" },
+  { label: "Teachers", to: "/teachers" },
 ];
 
 const companyLinks = [
   { label: "About Us", to: "/about" },
-  { label: "Our Story", to: "/story" },
-  { label: "Careers", to: "/careers" },
-  { label: "Partners", to: "/partners" },
+  { label: "Contact", to: "/contact" },
 ];
 
 const supportLinks = [
-  { label: "Help Center", to: "/support" },
-  { label: "Admissions", to: "/admissions" },
-  { label: "Contact", to: "/contact" },
-  { label: "FAQs", to: "/faqs" },
+  { label: "Login", to: "/login" },
+  { label: "Register", to: "/register" },
 ];
 
 function Footer() {

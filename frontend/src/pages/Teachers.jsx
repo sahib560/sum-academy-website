@@ -150,7 +150,7 @@ function Teachers() {
     <main className="pt-24">
       <section className="section">
         <div className="mx-auto max-w-7xl">
-          <div className="flex flex-col gap-4 rounded-3xl border border-slate-200/70 bg-white/80 p-8 shadow-2xl shadow-slate-200/50 backdrop-blur dark:border-white/10 dark:bg-dark/70 dark:shadow-black/40">
+          <div className="flex flex-col gap-4 rounded-3xl border border-slate-200/70 bg-white/80 p-8 shadow-2xl shadow-slate-200/50 backdrop-blur dark:border-white/10 dark:bg-slate-900/70 dark:shadow-black/40">
             <p className="text-xs font-semibold uppercase tracking-[0.4em] text-slate-500 dark:text-slate-300">
               {siteName}
             </p>
@@ -172,12 +172,12 @@ function Teachers() {
               {Array.from({ length: 6 }).map((_, index) => (
                 <SkeletonTeacherCard
                   key={`teacher-skeleton-${index}`}
-                  className="h-full rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-lg shadow-slate-200/40 dark:border-white/10 dark:bg-white/5 dark:shadow-black/40"
+                  className="h-full rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-lg shadow-slate-200/40 dark:border-white/10 dark:bg-slate-900/70 dark:shadow-black/40"
                 />
               ))}
             </div>
           ) : teacherData.length === 0 ? (
-            <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-slate-200 bg-white/80 px-6 py-16 text-center dark:border-white/10 dark:bg-dark/70">
+            <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-slate-200 bg-white/80 px-6 py-16 text-center dark:border-white/10 dark:bg-slate-900/70">
               <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 text-primary">
                 <svg viewBox="0 0 24 24" className="h-7 w-7" fill="currentColor">
                   <path d="M12 12a4 4 0 1 1 0-8 4 4 0 0 1 0 8zm-6 8a6 6 0 1 1 12 0H6z" />

@@ -346,14 +346,14 @@ function Home() {
         viewport={{ once: true, amount: 0.3 }}
         variants={fadeUp}
       >
-        <div className="mx-auto max-w-7xl rounded-3xl border border-slate-200/70 bg-gradient-to-r from-white via-slate-50 to-white p-1 shadow-2xl shadow-slate-200/60 backdrop-blur dark:border-white/10 dark:from-white/5 dark:via-white/10 dark:to-white/5 dark:shadow-black/40">
-          <div className="grid gap-6 rounded-[1.4rem] bg-white/80 p-6 backdrop-blur sm:grid-cols-2 lg:grid-cols-4 dark:bg-dark/70">
+        <div className="mx-auto max-w-7xl rounded-3xl border border-slate-200/70 bg-gradient-to-r from-white via-slate-50 to-white p-1 shadow-2xl shadow-slate-200/60 backdrop-blur dark:border-white/10 dark:bg-none dark:bg-white/5 dark:shadow-black/60">
+          <div className="grid gap-6 rounded-[1.4rem] bg-white/80 p-6 backdrop-blur sm:grid-cols-2 lg:grid-cols-4 dark:bg-white/5">
             {stats.map((stat, index) => (
               <div
                 key={stat.label}
-                className={`relative overflow-hidden rounded-2xl border border-slate-200/70 bg-white/70 p-5 shadow-lg shadow-slate-200/40 transition hover:-translate-y-1 dark:border-white/10 dark:bg-white/5 dark:shadow-black/40 ${
+                className={`relative overflow-hidden rounded-2xl border border-slate-200/70 bg-white/70 p-5 shadow-lg shadow-slate-200/40 transition hover:-translate-y-1 dark:border-white/15 dark:bg-slate-900/70 dark:shadow-black/70 ${
                   index !== stats.length - 1
-                    ? "after:absolute after:-right-3 after:top-1/2 after:hidden after:h-10 after:w-[1px] after:-translate-y-1/2 after:bg-slate-200/70 lg:after:block dark:after:bg-white/10"
+                    ? "after:absolute after:-right-3 after:top-1/2 after:hidden after:h-10 after:w-[1px] after:-translate-y-1/2 after:bg-slate-200/70 lg:after:block dark:after:bg-white/15"
                     : ""
                 }`}
               >
@@ -523,14 +523,23 @@ function Home() {
           <div className="mt-8 grid gap-6 md:grid-cols-3">
             {testimonials.map((item) => (
               <div key={item.name} className="glass-card card-hover">
-                <StarRow />
-                <p className="mt-4 text-sm text-slate-600">{item.review}</p>
-                <div className="mt-6">
-                  <p className="font-semibold text-slate-900">{item.name}</p>
-                  <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
-                    {item.course}
-                  </p>
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
+                    {item.name[0]}
+                  </div>
+                  <div>
+                    <p className="font-semibold text-slate-900 dark:text-white">
+                      {item.name}
+                    </p>
+                    <p className="text-xs uppercase tracking-[0.2em] text-slate-400 dark:text-slate-400">
+                      {item.course}
+                    </p>
+                  </div>
                 </div>
+                <StarRow />
+                <p className="mt-4 text-sm text-slate-600 dark:text-slate-200">
+                  {item.review}
+                </p>
               </div>
             ))}
           </div>
@@ -546,7 +555,7 @@ function Home() {
       >
         <div className="mx-auto max-w-7xl">
           <div className="rounded-[2rem] bg-gradient-to-r from-primary/90 via-indigo-500 to-accent/90 p-[2px] shadow-2xl shadow-primary/30 dark:shadow-black/50">
-            <div className="relative overflow-hidden rounded-[1.9rem] bg-white/90 px-6 py-10 backdrop-blur dark:bg-dark/80 sm:px-10 sm:py-12">
+            <div className="relative overflow-hidden rounded-[1.9rem] bg-white/90 px-6 py-10 backdrop-blur dark:border dark:border-white/10 dark:bg-white/5 sm:px-10 sm:py-12">
               <div className="pointer-events-none absolute -left-16 -top-10 h-40 w-40 rounded-full bg-primary/20 blur-[80px]" />
               <div className="pointer-events-none absolute -bottom-16 -right-10 h-48 w-48 rounded-full bg-accent/20 blur-[90px]" />
               <div className="relative z-10 flex flex-col items-start justify-between gap-6 sm:flex-row sm:items-center">

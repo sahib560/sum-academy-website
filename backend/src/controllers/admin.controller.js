@@ -96,13 +96,8 @@ const createUser = async (req, res) => {
       password,
       phone,
       role,
-      caste,
-      fatherName,
-      fatherPhone,
-      fatherOccupation,
-      district,
-      domicile,
-      address,
+      subject = "",
+      bio = "",
     } = req.body || {};
 
     const allowedRoles = ["student", "teacher", "admin"];
@@ -139,8 +134,9 @@ const createUser = async (req, res) => {
       email,
       role,
       isActive: true,
-      assignedWebDevice: null,
-      lastKnownWebIp: null,
+      assignedWebDevice: "",
+      assignedWebIp: "",
+      lastKnownWebIp: "",
       lastLoginAt: null,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
@@ -150,13 +146,6 @@ const createUser = async (req, res) => {
         uid,
         fullName: name,
         phoneNumber: phone || "",
-        fatherName: "",
-        fatherPhone: "",
-        fatherOccupation: "",
-        address: "",
-        district: "",
-        domicile: "",
-        caste: "",
         enrolledCourses: [],
         certificates: [],
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -165,10 +154,10 @@ const createUser = async (req, res) => {
       batch.set(db.collection("teachers").doc(uid), {
         uid,
         fullName: name,
-        subject: "",
-        bio: "",
-        phone: phone || "",
-        assignedSubjects: [],
+        phoneNumber: phone || "",
+        subject,
+        bio,
+        assignedSubjects: subject ? [subject] : [],
         profilePicture: null,
         assignedClasses: [],
         assignedCourses: [],
@@ -276,7 +265,10 @@ const resetUserDevice = async (req, res) => {
     };
 
     if (device) updateData.assignedWebDevice = device;
-    if (webIp) updateData.lastKnownWebIp = webIp;
+    if (webIp) {
+      updateData.assignedWebIp = webIp;
+      updateData.lastKnownWebIp = webIp;
+    }
 
     await db.collection("users").doc(uid).update(updateData);
 
@@ -376,8 +368,9 @@ const createTeacher = async (req, res) => {
       email,
       role: "teacher",
       isActive: true,
-      assignedWebDevice: null,
-      lastKnownWebIp: null,
+      assignedWebDevice: "",
+      assignedWebIp: "",
+      lastKnownWebIp: "",
       lastLoginAt: null,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
@@ -385,9 +378,9 @@ const createTeacher = async (req, res) => {
     batch.set(db.collection("teachers").doc(uid), {
       uid,
       fullName: name,
+      phoneNumber: phone || "",
       subject: subject || "",
       bio: bio || "",
-      phone: phone || "",
       assignedSubjects: subject ? [subject] : [],
       profilePicture: null,
       assignedClasses: [],

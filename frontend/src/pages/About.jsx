@@ -355,7 +355,7 @@ function About() {
       >
         <div className="mx-auto max-w-7xl">
           <div className="rounded-[2rem] bg-gradient-to-r from-primary/90 via-indigo-500 to-accent/90 p-[2px] shadow-2xl shadow-primary/30 dark:shadow-black/50">
-            <div className="relative overflow-hidden rounded-[1.9rem] bg-white/90 px-6 py-10 backdrop-blur dark:bg-dark/80 sm:px-10 sm:py-12">
+            <div className="relative overflow-hidden rounded-[1.9rem] bg-white/90 px-6 py-10 backdrop-blur dark:border dark:border-white/10 dark:bg-white/5 sm:px-10 sm:py-12">
               <div className="pointer-events-none absolute -left-16 -top-10 h-40 w-40 rounded-full bg-primary/20 blur-[80px]" />
               <div className="pointer-events-none absolute -bottom-16 -right-10 h-48 w-48 rounded-full bg-accent/20 blur-[90px]" />
               <div className="relative z-10 flex flex-col items-start justify-between gap-6 sm:flex-row sm:items-center">

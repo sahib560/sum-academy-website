@@ -83,7 +83,7 @@ function Contact() {
     <main className="pt-24">
       <section className="section">
         <div className="mx-auto max-w-7xl">
-          <div className="flex flex-col gap-4 rounded-3xl border border-slate-200/70 bg-white/80 p-8 shadow-2xl shadow-slate-200/50 backdrop-blur dark:border-white/10 dark:bg-dark/70 dark:shadow-black/40">
+          <div className="flex flex-col gap-4 rounded-3xl border border-slate-200/70 bg-white/80 p-8 shadow-2xl shadow-slate-200/50 backdrop-blur dark:border-white/10 dark:bg-slate-900/70 dark:shadow-black/40">
             <p className="text-xs font-semibold uppercase tracking-[0.4em] text-slate-500 dark:text-slate-300">
               {settings.general.siteName || "SUM Academy"}
             </p>
@@ -287,14 +287,14 @@ function Contact() {
                 <button
                   key={faq.question}
                   type="button"
-                  className="w-full rounded-2xl border border-slate-200/70 bg-white/80 p-5 text-left shadow-lg shadow-slate-200/40 transition hover:-translate-y-0.5 dark:border-white/10 dark:bg-dark/70 dark:shadow-black/40"
+                  className="w-full rounded-2xl border border-slate-200/70 bg-white/80 p-5 text-left shadow-lg shadow-slate-200/40 transition hover:-translate-y-0.5 dark:border-white/10 dark:bg-slate-900/70 dark:shadow-black/50"
                   onClick={() => setOpenFaq(isOpen ? null : index)}
                 >
                   <div className="flex items-center justify-between">
                     <span className="font-semibold text-slate-900 dark:text-white">
                       {faq.question}
                     </span>
-                    <span className="text-slate-400">
+                    <span className="text-slate-400 dark:text-slate-300">
                       {isOpen ? "-" : "+"}
                     </span>
                   </div>
