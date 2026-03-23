@@ -19,11 +19,14 @@ const serviceAccount = JSON.parse(
 if (!admin.apps.length) {
   admin.initializeApp({
     credential: admin.credential.cert(serviceAccount),
-    // Storage skipped for now — will add later
+    storageBucket:
+      process.env.FIREBASE_STORAGE_BUCKET ||
+      `${serviceAccount.project_id}.appspot.com`,
   });
 }
 
 const db   = admin.firestore();
 const auth = admin.auth();
+const bucket = admin.storage().bucket();
 
-export { admin, db, auth };
+export { admin, db, auth, bucket };

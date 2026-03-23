@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
+import { useQuery } from "@tanstack/react-query";
 import {
   Bar,
   BarChart,
@@ -14,6 +15,15 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import {
+  getRevenueChart,
+  getPayments,
+  getTopCourses,
+  getRecentEnrollments,
+  getCourses,
+  getTeachers,
+  getStudents,
+} from "../../services/admin.service.js";
 
 const fadeUp = {
   hidden: { opacity: 0, y: 16 },
@@ -23,145 +33,70 @@ const fadeUp = {
 const quickRanges = ["Today", "7 Days", "30 Days", "3 Months", "1 Year"];
 const revenueViews = ["Daily", "Weekly", "Monthly"];
 
-const revenueSeries = {
-  Today: [
-    { name: "9 AM", value: 85000 },
-    { name: "12 PM", value: 120000 },
-    { name: "3 PM", value: 98000 },
-    { name: "6 PM", value: 145000 },
-    { name: "9 PM", value: 160000 },
-  ],
-  "7 Days": [
-    { name: "Mon", value: 520000 },
-    { name: "Tue", value: 610000 },
-    { name: "Wed", value: 480000 },
-    { name: "Thu", value: 710000 },
-    { name: "Fri", value: 690000 },
-    { name: "Sat", value: 760000 },
-    { name: "Sun", value: 820000 },
-  ],
-  "30 Days": [
-    { name: "Week 1", value: 2100000 },
-    { name: "Week 2", value: 2480000 },
-    { name: "Week 3", value: 2320000 },
-    { name: "Week 4", value: 2700000 },
-  ],
-  "3 Months": [
-    { name: "Jan", value: 8200000 },
-    { name: "Feb", value: 7600000 },
-    { name: "Mar", value: 9100000 },
-  ],
-  "1 Year": [
-    { name: "Q1", value: 24500000 },
-    { name: "Q2", value: 26700000 },
-    { name: "Q3", value: 25200000 },
-    { name: "Q4", value: 28900000 },
-  ],
+const rangeDaysMap = {
+  Today: 1,
+  "7 Days": 7,
+  "30 Days": 30,
+  "3 Months": 90,
+  "1 Year": 365,
 };
 
-const revenueBreakdown = [
-  { name: "JazzCash", percent: 42, color: "#ef4444" },
-  { name: "EasyPaisa", percent: 33, color: "#10b981" },
-  { name: "Bank Transfer", percent: 25, color: "#3b82f6" },
-];
+const parseTimestamp = (value) => {
+  if (!value) return null;
+  if (typeof value.toDate === "function") return value.toDate();
+  if (typeof value._seconds === "number") return new Date(value._seconds * 1000);
+  if (typeof value.seconds === "number") return new Date(value.seconds * 1000);
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
 
-const enrollmentsByCourse = [
-  { name: "Class XI - Pre-Medical", value: 420 },
-  { name: "Class XII - Pre-Medical", value: 380 },
-  { name: "Pre-Entrance Test", value: 310 },
-  { name: "Chemistry Workshop", value: 240 },
-  { name: "Physics Prep", value: 210 },
-  { name: "English Fluency", value: 190 },
-  { name: "Biology Essentials", value: 170 },
-  { name: "Math Foundations", value: 150 },
-  { name: "Computer Basics", value: 140 },
-  { name: "Test Strategy", value: 120 },
-];
+const formatDateLabel = (date) =>
+  date.toLocaleDateString("en-PK", { month: "short", day: "numeric" });
 
-const enrollmentsTrend = [
-  { name: "Mon", value: 42 },
-  { name: "Tue", value: 55 },
-  { name: "Wed", value: 38 },
-  { name: "Thu", value: 68 },
-  { name: "Fri", value: 60 },
-  { name: "Sat", value: 74 },
-  { name: "Sun", value: 79 },
-];
+const formatMonthLabel = (date) =>
+  date.toLocaleDateString("en-PK", { month: "short", year: "2-digit" });
 
-const activeStudents = [
-  { name: "Mon", value: 920 },
-  { name: "Tue", value: 980 },
-  { name: "Wed", value: 860 },
-  { name: "Thu", value: 1040 },
-  { name: "Fri", value: 990 },
-  { name: "Sat", value: 1120 },
-  { name: "Sun", value: 1180 },
-];
+const getWeekStart = (date) => {
+  const start = new Date(date);
+  const day = start.getDay();
+  const diff = (day === 0 ? -6 : 1) - day;
+  start.setDate(start.getDate() + diff);
+  start.setHours(0, 0, 0, 0);
+  return start;
+};
 
-const studentGrowth = [
-  { name: "Jan", value: 9800 },
-  { name: "Feb", value: 10400 },
-  { name: "Mar", value: 11200 },
-  { name: "Apr", value: 12100 },
-  { name: "May", value: 12500 },
-];
+const normalizeMethod = (method = "") => {
+  const value = method.toLowerCase().replace(/\s+/g, "_");
+  if (value.includes("jazz")) return "JazzCash";
+  if (value.includes("easy")) return "EasyPaisa";
+  if (value.includes("bank")) return "Bank Transfer";
+  return "Other";
+};
 
-const coursePerformance = [
-  {
-    name: "Class XI - Pre-Medical",
-    teacher: "Mr. Sikander Ali Qureshi",
-    enrolled: 420,
-    completed: 360,
-    rate: 86,
-    revenue: 1470000,
-    rating: 4.8,
-  },
-  {
-    name: "Class XII - Pre-Medical",
-    teacher: "Mr. Shah Mohammad Pathan",
-    enrolled: 380,
-    completed: 315,
-    rate: 82,
-    revenue: 1420000,
-    rating: 4.7,
-  },
-  {
-    name: "Pre-Entrance Test",
-    teacher: "Mr. Muhammad Idress Mahar",
-    enrolled: 310,
-    completed: 250,
-    rate: 81,
-    revenue: 1300000,
-    rating: 4.6,
-  },
-];
+const methodColors = {
+  JazzCash: "#ef4444",
+  EasyPaisa: "#10b981",
+  "Bank Transfer": "#3b82f6",
+  Other: "#94a3b8",
+};
 
-const teacherPerformance = [
-  {
-    name: "Mr. Sikander Ali Qureshi",
-    courses: 5,
-    students: 920,
-    completion: 84,
-    revenue: 2400000,
-  },
-  {
-    name: "Mr. Shah Mohammad Pathan",
-    courses: 4,
-    students: 780,
-    completion: 82,
-    revenue: 1980000,
-  },
-  {
-    name: "Mr. Muhammad Idress Mahar",
-    courses: 3,
-    students: 630,
-    completion: 79,
-    revenue: 1560000,
-  },
-];
+const sortRows = (rows, sort) =>
+  [...rows].sort((a, b) => {
+    const valueA = a[sort.key];
+    const valueB = b[sort.key];
+    if (typeof valueA === "string" || typeof valueB === "string") {
+      const safeA = String(valueA ?? "");
+      const safeB = String(valueB ?? "");
+      return sort.dir === "asc"
+        ? safeA.localeCompare(safeB)
+        : safeB.localeCompare(safeA);
+    }
+    const numA = Number(valueA || 0);
+    const numB = Number(valueB || 0);
+    return sort.dir === "asc" ? numA - numB : numB - numA;
+  });
 
 function Analytics() {
-  const [loading, setLoading] = useState(true);
   const [range, setRange] = useState("7 Days");
   const [view, setView] = useState("Daily");
   const [sortCourse, setSortCourse] = useState({ key: "revenue", dir: "desc" });
@@ -172,42 +107,409 @@ function Analytics() {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
 
-  useEffect(() => {
-    const timer = setTimeout(() => setLoading(false), 1500);
-    return () => clearTimeout(timer);
-  }, []);
+  const rangeDays = rangeDaysMap[range] || 7;
+  const hasCustomRange = Boolean(startDate && endDate);
 
-  const sortedCoursePerformance = useMemo(() => {
-    const sorted = [...coursePerformance].sort((a, b) => {
-      const valueA = a[sortCourse.key];
-      const valueB = b[sortCourse.key];
-      if (valueA < valueB) return sortCourse.dir === "asc" ? -1 : 1;
-      if (valueA > valueB) return sortCourse.dir === "asc" ? 1 : -1;
-      return 0;
-    });
-    return sorted;
-  }, [sortCourse]);
+  const rangeWindow = useMemo(() => {
+    const end = hasCustomRange ? new Date(endDate) : new Date();
+    end.setHours(23, 59, 59, 999);
+    const start = hasCustomRange ? new Date(startDate) : new Date();
+    if (!hasCustomRange) {
+      start.setDate(end.getDate() - rangeDays + 1);
+    }
+    start.setHours(0, 0, 0, 0);
+    return { start, end };
+  }, [startDate, endDate, rangeDays, hasCustomRange]);
 
-  const sortedTeacherPerformance = useMemo(() => {
-    const sorted = [...teacherPerformance].sort((a, b) => {
-      const valueA = a[sortTeacher.key];
-      const valueB = b[sortTeacher.key];
-      if (valueA < valueB) return sortTeacher.dir === "asc" ? -1 : 1;
-      if (valueA > valueB) return sortTeacher.dir === "asc" ? 1 : -1;
-      return 0;
-    });
-    return sorted;
-  }, [sortTeacher]);
+  const {
+    data: revenueResponse,
+    isLoading: revenueLoading,
+    error: revenueError,
+  } = useQuery({
+    queryKey: ["admin", "analytics-revenue", rangeDays],
+    queryFn: () => getRevenueChart(rangeDays),
+    staleTime: 30000,
+    retry: 2,
+  });
 
-  const totalRevenue = revenueSeries[range].reduce((sum, item) => sum + item.value, 0);
-  const breakdownData = useMemo(
+  const {
+    data: paymentsResponse,
+    isLoading: paymentsLoading,
+    error: paymentsError,
+  } = useQuery({
+    queryKey: ["admin", "analytics-payments"],
+    queryFn: () => getPayments(),
+    staleTime: 30000,
+    retry: 2,
+  });
+
+  const {
+    data: topCoursesResponse,
+    isLoading: topCoursesLoading,
+    error: topCoursesError,
+  } = useQuery({
+    queryKey: ["admin", "analytics-top-courses"],
+    queryFn: getTopCourses,
+    staleTime: 30000,
+    retry: 2,
+  });
+
+  const {
+    data: enrollmentsResponse,
+    isLoading: enrollmentsLoading,
+    error: enrollmentsError,
+  } = useQuery({
+    queryKey: ["admin", "analytics-enrollments"],
+    queryFn: getRecentEnrollments,
+    staleTime: 30000,
+    retry: 2,
+  });
+
+  const {
+    data: coursesResponse,
+    isLoading: coursesLoading,
+    error: coursesError,
+  } = useQuery({
+    queryKey: ["admin", "analytics-courses"],
+    queryFn: getCourses,
+    staleTime: 30000,
+    retry: 2,
+  });
+
+  const {
+    data: teachersResponse,
+    isLoading: teachersLoading,
+    error: teachersError,
+  } = useQuery({
+    queryKey: ["admin", "analytics-teachers"],
+    queryFn: getTeachers,
+    staleTime: 30000,
+    retry: 2,
+  });
+
+  const {
+    data: studentsResponse,
+    isLoading: studentsLoading,
+    error: studentsError,
+  } = useQuery({
+    queryKey: ["admin", "analytics-students"],
+    queryFn: getStudents,
+    staleTime: 30000,
+    retry: 2,
+  });
+
+  const revenueRaw = useMemo(() => {
+    const data = revenueResponse?.data ?? revenueResponse ?? [];
+    return Array.isArray(data) ? data : [];
+  }, [revenueResponse]);
+
+  const revenueDaily = useMemo(
     () =>
-      revenueBreakdown.map((entry) => ({
-        ...entry,
-        amount: Math.round((entry.percent / 100) * totalRevenue),
-      })),
-    [totalRevenue]
+      revenueRaw
+        .map((item) => {
+          const date = parseTimestamp(item.date || item.createdAt || item.day);
+          if (!date) return null;
+          if (date < rangeWindow.start || date > rangeWindow.end) return null;
+          return {
+            date,
+            label: formatDateLabel(date),
+            amount: Number(item.amount || item.value || 0),
+          };
+        })
+        .filter(Boolean),
+    [revenueRaw, rangeWindow]
   );
+
+  const revenueWeekly = useMemo(() => {
+    const totals = {};
+    revenueDaily.forEach((item) => {
+      const weekStart = getWeekStart(item.date);
+      const key = weekStart.toISOString().slice(0, 10);
+      totals[key] = (totals[key] || 0) + item.amount;
+    });
+    return Object.keys(totals)
+      .sort()
+      .map((key) => ({
+        label: `Week of ${formatDateLabel(new Date(key))}`,
+        amount: totals[key],
+      }));
+  }, [revenueDaily]);
+
+  const revenueMonthly = useMemo(() => {
+    const totals = {};
+    revenueDaily.forEach((item) => {
+      const key = `${item.date.getFullYear()}-${item.date.getMonth()}`;
+      totals[key] = (totals[key] || 0) + item.amount;
+    });
+    return Object.keys(totals)
+      .sort()
+      .map((key) => {
+        const [year, month] = key.split("-").map(Number);
+        return {
+          label: formatMonthLabel(new Date(year, month, 1)),
+          amount: totals[key],
+        };
+      });
+  }, [revenueDaily]);
+
+  const revenueChartData = useMemo(() => {
+    if (view === "Weekly") return revenueWeekly;
+    if (view === "Monthly") return revenueMonthly;
+    return revenueDaily;
+  }, [view, revenueDaily, revenueWeekly, revenueMonthly]);
+
+  const totalRevenue = useMemo(
+    () => revenueChartData.reduce((sum, item) => sum + Number(item.amount || 0), 0),
+    [revenueChartData]
+  );
+
+  const paymentsRaw = useMemo(() => {
+    const data = paymentsResponse?.data ?? paymentsResponse ?? [];
+    return Array.isArray(data) ? data : [];
+  }, [paymentsResponse]);
+
+  const paidPayments = useMemo(
+    () =>
+      paymentsRaw.filter((payment) => {
+        const status = (payment.status || "").toLowerCase();
+        if (status !== "paid") return false;
+        const date = parseTimestamp(payment.createdAt);
+        if (!date) return false;
+        return date >= rangeWindow.start && date <= rangeWindow.end;
+      }),
+    [paymentsRaw, rangeWindow]
+  );
+
+  const breakdownData = useMemo(() => {
+    const totals = { JazzCash: 0, EasyPaisa: 0, "Bank Transfer": 0, Other: 0 };
+    paidPayments.forEach((payment) => {
+      const method = normalizeMethod(payment.method || "");
+      totals[method] += Number(payment.amount || 0);
+    });
+    return Object.entries(totals)
+      .map(([name, amount]) => ({
+        name,
+        amount,
+        color: methodColors[name] || "#94a3b8",
+      }))
+      .filter((item) => item.amount > 0);
+  }, [paidPayments]);
+
+  const topCourses = useMemo(() => {
+    const data = topCoursesResponse?.data ?? topCoursesResponse ?? [];
+    return Array.isArray(data) ? data : [];
+  }, [topCoursesResponse]);
+
+  const enrollments = useMemo(() => {
+    const data = enrollmentsResponse?.data ?? enrollmentsResponse ?? [];
+    return Array.isArray(data) ? data : [];
+  }, [enrollmentsResponse]);
+
+  const courses = useMemo(() => {
+    const data = coursesResponse?.data ?? coursesResponse ?? [];
+    return Array.isArray(data) ? data : [];
+  }, [coursesResponse]);
+
+  const teachers = useMemo(() => {
+    const data = teachersResponse?.data ?? teachersResponse ?? [];
+    return Array.isArray(data) ? data : [];
+  }, [teachersResponse]);
+
+  const students = useMemo(() => {
+    const data = studentsResponse?.data ?? studentsResponse ?? [];
+    return Array.isArray(data) ? data : [];
+  }, [studentsResponse]);
+
+  const enrollmentsByCourse = useMemo(
+    () =>
+      topCourses.map((course) => ({
+        name: course.title || course.name || "Untitled",
+        value: Number(course.enrollmentCount || 0),
+      })),
+    [topCourses]
+  );
+
+  const enrollmentsTrend = useMemo(() => {
+    const totals = {};
+    enrollments.forEach((item) => {
+      const date = parseTimestamp(item.createdAt);
+      if (!date) return;
+      if (date < rangeWindow.start || date > rangeWindow.end) return;
+      const key = date.toISOString().slice(0, 10);
+      totals[key] = (totals[key] || 0) + 1;
+    });
+    return Object.keys(totals)
+      .sort()
+      .map((key) => ({
+        name: formatDateLabel(new Date(key)),
+        value: totals[key],
+      }));
+  }, [enrollments, rangeWindow]);
+
+  const totalEnrollments = useMemo(
+    () =>
+      courses.reduce(
+        (sum, course) => sum + Number(course.enrollmentCount || 0),
+        0
+      ),
+    [courses]
+  );
+
+  const newEnrollmentsThisMonth = useMemo(() => {
+    const start = new Date();
+    start.setDate(1);
+    start.setHours(0, 0, 0, 0);
+    return enrollments.filter((item) => {
+      const date = parseTimestamp(item.createdAt);
+      return date && date >= start;
+    }).length;
+  }, [enrollments]);
+
+  const avgEnrollmentsPerDay = useMemo(
+    () => Math.round(newEnrollmentsThisMonth / 30),
+    [newEnrollmentsThisMonth]
+  );
+
+  const activeStudentsData = useMemo(() => {
+    const activeCount = students.filter((student) => student.isActive !== false)
+      .length;
+    const inactiveCount = Math.max(students.length - activeCount, 0);
+    return [
+      { name: "Active", value: activeCount },
+      { name: "Inactive", value: inactiveCount },
+    ];
+  }, [students]);
+
+  const studentGrowth = useMemo(() => {
+    const totals = {};
+    students.forEach((student) => {
+      const date = parseTimestamp(student.createdAt);
+      if (!date) return;
+      const key = `${date.getFullYear()}-${date.getMonth()}`;
+      totals[key] = (totals[key] || 0) + 1;
+    });
+    return Object.keys(totals)
+      .sort()
+      .map((key) => {
+        const [year, month] = key.split("-").map(Number);
+        return {
+          name: formatMonthLabel(new Date(year, month, 1)),
+          value: totals[key],
+        };
+      });
+  }, [students]);
+
+  const totalStudents = students.length;
+
+  const newStudentsThisMonth = useMemo(() => {
+    const start = new Date();
+    start.setDate(1);
+    start.setHours(0, 0, 0, 0);
+    return students.filter((student) => {
+      const date = parseTimestamp(student.createdAt);
+      return date && date >= start;
+    }).length;
+  }, [students]);
+
+  const averageSessionTime = useMemo(() => {
+    const values = students
+      .map((student) => Number(student.avgSessionTime || 0))
+      .filter((value) => value > 0);
+    if (!values.length) return "N/A";
+    const avg = Math.round(
+      values.reduce((sum, value) => sum + value, 0) / values.length
+    );
+    return `${avg} mins`;
+  }, [students]);
+
+  const coursePerformance = useMemo(
+    () =>
+      courses.map((course) => {
+        const enrolled = Number(course.enrollmentCount || course.enrolled || 0);
+        const completed = Number(
+          course.completedCount || course.completed || 0
+        );
+        const rate = enrolled ? Math.round((completed / enrolled) * 100) : 0;
+        const ratingValue = Number(course.rating || course.avgRating || 0);
+        return {
+          name: course.title || course.name || "Untitled",
+          teacher: course.teacherName || "Unknown",
+          enrolled,
+          completed,
+          rate,
+          revenue: Number(course.revenue || 0),
+          rating: ratingValue,
+          ratingLabel: ratingValue ? ratingValue.toFixed(1) : "N/A",
+        };
+      }),
+    [courses]
+  );
+
+  const teacherPerformance = useMemo(() => {
+    return teachers.map((teacher) => {
+      const teacherId = teacher.uid || teacher.id;
+      const teacherName =
+        teacher.fullName || teacher.name || teacher.email || "Unknown";
+      const ownedCourses = courses.filter(
+        (course) => course.teacherId === teacherId
+      );
+      const studentsCount = ownedCourses.reduce(
+        (sum, course) => sum + Number(course.enrollmentCount || 0),
+        0
+      );
+      const revenue = ownedCourses.reduce(
+        (sum, course) => sum + Number(course.revenue || 0),
+        0
+      );
+      const completionValues = ownedCourses.map((course) => {
+        const enrolled = Number(course.enrollmentCount || 0);
+        const completed = Number(
+          course.completedCount || course.completed || 0
+        );
+        if (enrolled === 0) return 0;
+        return Math.round((completed / enrolled) * 100);
+      });
+      const completion =
+        completionValues.length > 0
+          ? Math.round(
+              completionValues.reduce((sum, value) => sum + value, 0) /
+                completionValues.length
+            )
+          : 0;
+      return {
+        name: teacherName,
+        courses: ownedCourses.length,
+        students: studentsCount,
+        completion,
+        revenue,
+      };
+    });
+  }, [teachers, courses]);
+
+  const sortedCoursePerformance = useMemo(
+    () => sortRows(coursePerformance, sortCourse),
+    [coursePerformance, sortCourse]
+  );
+
+  const sortedTeacherPerformance = useMemo(
+    () => sortRows(teacherPerformance, sortTeacher),
+    [teacherPerformance, sortTeacher]
+  );
+
+  const showRevenueEmpty =
+    !revenueLoading && (revenueError || revenueChartData.length === 0);
+  const showBreakdownEmpty =
+    !paymentsLoading && (paymentsError || breakdownData.length === 0);
+  const showEnrollmentsEmpty =
+    !topCoursesLoading && (topCoursesError || enrollmentsByCourse.length === 0);
+  const showEnrollmentsTrendEmpty =
+    !enrollmentsLoading && (enrollmentsError || enrollmentsTrend.length === 0);
+  const showCoursesEmpty =
+    !coursesLoading && (coursesError || coursePerformance.length === 0);
+  const showTeachersEmpty =
+    !teachersLoading && (teachersError || teacherPerformance.length === 0);
+  const showStudentsEmpty =
+    !studentsLoading && (studentsError || students.length === 0);
 
   const exportReport = () => {
     const rows = [
@@ -227,17 +529,19 @@ function Analytics() {
 
   return (
     <div className="space-y-8">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <h2 className="font-heading text-3xl text-slate-900">Analytics & Reports</h2>
-            <p className="text-sm text-slate-500">
-              Track revenue, enrollments, and growth metrics.
-            </p>
-          </div>
-          <button className="btn-outline" onClick={exportReport}>
-            Export Report
-          </button>
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h2 className="font-heading text-3xl text-slate-900">
+            Analytics & Reports
+          </h2>
+          <p className="text-sm text-slate-500">
+            Track revenue, enrollments, and growth metrics.
+          </p>
         </div>
+        <button className="btn-outline" onClick={exportReport}>
+          Export Report
+        </button>
+      </div>
 
       <motion.section
         variants={fadeUp}
@@ -312,19 +616,31 @@ function Analytics() {
             </div>
           </div>
           <div className="mt-6 min-h-[18rem] w-full px-2 sm:px-4">
-            {loading ? (
+            {revenueLoading ? (
               <div className="skeleton h-full w-full rounded-2xl" />
+            ) : showRevenueEmpty ? (
+              <div className="flex h-64 items-center justify-center text-sm text-slate-500">
+                No revenue data yet
+              </div>
             ) : (
               <ResponsiveContainer width="100%" height={300} minWidth={0} minHeight={300}>
-                <LineChart data={revenueSeries[range]} margin={{ left: 8, right: 8 }}>
+                <LineChart data={revenueChartData} margin={{ left: 8, right: 8 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                  <XAxis dataKey="name" tickLine={false} axisLine={false} />
+                  <XAxis dataKey="label" tickLine={false} axisLine={false} />
                   <YAxis tickLine={false} axisLine={false} width={56} tickMargin={8} />
                   <Tooltip
-                    formatter={(value) => [`PKR ${value.toLocaleString()}`, "Revenue"]}
+                    formatter={(value) => [
+                      `PKR ${Number(value).toLocaleString()}`,
+                      "Revenue",
+                    ]}
                     contentStyle={{ borderRadius: "12px", borderColor: "#e2e8f0" }}
                   />
-                  <Line type="monotone" dataKey="value" stroke="#4a63f5" strokeWidth={3} />
+                  <Line
+                    type="monotone"
+                    dataKey="amount"
+                    stroke="#4a63f5"
+                    strokeWidth={3}
+                  />
                 </LineChart>
               </ResponsiveContainer>
             )}
@@ -339,8 +655,12 @@ function Analytics() {
             </h3>
           </div>
           <div className="h-52">
-            {loading ? (
+            {paymentsLoading ? (
               <div className="skeleton h-full w-full rounded-2xl" />
+            ) : showBreakdownEmpty ? (
+              <div className="flex h-full items-center justify-center text-sm text-slate-500">
+                No payment data yet
+              </div>
             ) : (
               <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={200}>
                 <PieChart>
@@ -356,22 +676,32 @@ function Analytics() {
                     ))}
                   </Pie>
                   <Tooltip
-                    formatter={(value) => [`PKR ${value.toLocaleString()}`, "Revenue"]}
+                    formatter={(value) => [
+                      `PKR ${Number(value).toLocaleString()}`,
+                      "Revenue",
+                    ]}
                   />
                 </PieChart>
               </ResponsiveContainer>
             )}
           </div>
           <div className="space-y-2 text-sm text-slate-600">
-            {breakdownData.map((entry) => (
-              <div key={entry.name} className="flex items-center justify-between">
-                <span className="flex items-center gap-2">
-                  <span className="h-2 w-2 rounded-full" style={{ background: entry.color }} />
-                  {entry.name}
-                </span>
-                <span>PKR {entry.amount.toLocaleString()}</span>
-              </div>
-            ))}
+            {breakdownData.length === 0 ? (
+              <p className="text-sm text-slate-500">No payment breakdown yet.</p>
+            ) : (
+              breakdownData.map((entry) => (
+                <div key={entry.name} className="flex items-center justify-between">
+                  <span className="flex items-center gap-2">
+                    <span
+                      className="h-2 w-2 rounded-full"
+                      style={{ background: entry.color }}
+                    />
+                    {entry.name}
+                  </span>
+                  <span>PKR {entry.amount.toLocaleString()}</span>
+                </div>
+              ))
+            )}
           </div>
         </div>
       </motion.section>
@@ -383,7 +713,9 @@ function Analytics() {
         className="space-y-6"
       >
         <div>
-          <h3 className="font-heading text-2xl text-slate-900">Enrollment Analytics</h3>
+          <h3 className="font-heading text-2xl text-slate-900">
+            Enrollment Analytics
+          </h3>
           <p className="text-sm text-slate-500">
             Track enrollments by course and daily trends.
           </p>
@@ -392,8 +724,12 @@ function Analytics() {
           <div className="glass-card min-w-0">
             <h4 className="text-sm font-semibold text-slate-500">Top Courses</h4>
             <div className="mt-4">
-              {loading ? (
+              {topCoursesLoading ? (
                 <div className="skeleton h-64 w-full rounded-2xl" />
+              ) : showEnrollmentsEmpty ? (
+                <div className="flex h-64 items-center justify-center text-sm text-slate-500">
+                  No enrollment data yet
+                </div>
               ) : (
                 <>
                   <div className="h-72 sm:hidden">
@@ -435,10 +771,16 @@ function Analytics() {
           </div>
 
           <div className="glass-card min-w-0">
-            <h4 className="text-sm font-semibold text-slate-500">New Enrollments</h4>
+            <h4 className="text-sm font-semibold text-slate-500">
+              New Enrollments
+            </h4>
             <div className="mt-4 h-64">
-              {loading ? (
+              {enrollmentsLoading ? (
                 <div className="skeleton h-full w-full rounded-2xl" />
+              ) : showEnrollmentsTrendEmpty ? (
+                <div className="flex h-full items-center justify-center text-sm text-slate-500">
+                  No enrollment trends yet
+                </div>
               ) : (
                 <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={240}>
                   <LineChart data={enrollmentsTrend}>
@@ -454,25 +796,33 @@ function Analytics() {
           </div>
         </div>
         <div className="grid gap-4 sm:grid-cols-3">
-          {loading
-            ? Array.from({ length: 3 }).map((_, index) => (
-                <div key={`kpi-skeleton-${index}`} className="glass-card space-y-2">
-                  <div className="skeleton h-4 w-1/3" />
-                  <div className="skeleton h-6 w-1/2" />
-                </div>
-              ))
-            : [
-                { label: "Total Enrollments", value: "3,420" },
-                { label: "New This Month", value: "420" },
-                { label: "Avg per Day", value: "65" },
-              ].map((item) => (
-                <div key={item.label} className="glass-card">
-                  <p className="text-sm text-slate-500">{item.label}</p>
-                  <p className="mt-2 text-2xl font-semibold text-slate-900">
-                    {item.value}
-                  </p>
-                </div>
-              ))}
+          {coursesLoading || enrollmentsLoading ? (
+            Array.from({ length: 3 }).map((_, index) => (
+              <div key={`kpi-skeleton-${index}`} className="glass-card space-y-2">
+                <div className="skeleton h-4 w-1/3" />
+                <div className="skeleton h-6 w-1/2" />
+              </div>
+            ))
+          ) : (
+            [
+              {
+                label: "Total Enrollments",
+                value: totalEnrollments.toLocaleString(),
+              },
+              {
+                label: "New This Month",
+                value: newEnrollmentsThisMonth.toLocaleString(),
+              },
+              { label: "Avg per Day", value: avgEnrollmentsPerDay.toLocaleString() },
+            ].map((item) => (
+              <div key={item.label} className="glass-card">
+                <p className="text-sm text-slate-500">{item.label}</p>
+                <p className="mt-2 text-2xl font-semibold text-slate-900">
+                  {item.value}
+                </p>
+              </div>
+            ))
+          )}
         </div>
       </motion.section>
 
@@ -483,20 +833,28 @@ function Analytics() {
         className="space-y-6"
       >
         <div>
-          <h3 className="font-heading text-2xl text-slate-900">Student Analytics</h3>
+          <h3 className="font-heading text-2xl text-slate-900">
+            Student Analytics
+          </h3>
           <p className="text-sm text-slate-500">
             Monitor active students and growth trends.
           </p>
         </div>
         <div className="grid gap-6 lg:grid-cols-[1.2fr_1fr]">
           <div className="glass-card min-w-0">
-            <h4 className="text-sm font-semibold text-slate-500">Active Students</h4>
+            <h4 className="text-sm font-semibold text-slate-500">
+              Active Students
+            </h4>
             <div className="mt-4 h-64">
-              {loading ? (
+              {studentsLoading ? (
                 <div className="skeleton h-full w-full rounded-2xl" />
+              ) : showStudentsEmpty ? (
+                <div className="flex h-full items-center justify-center text-sm text-slate-500">
+                  No student data yet
+                </div>
               ) : (
                 <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={240}>
-                  <BarChart data={activeStudents}>
+                  <BarChart data={activeStudentsData}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                     <XAxis dataKey="name" tickLine={false} axisLine={false} />
                     <YAxis tickLine={false} axisLine={false} />
@@ -509,10 +867,16 @@ function Analytics() {
           </div>
 
           <div className="glass-card min-w-0">
-            <h4 className="text-sm font-semibold text-slate-500">Student Growth</h4>
+            <h4 className="text-sm font-semibold text-slate-500">
+              Student Growth
+            </h4>
             <div className="mt-4 h-64">
-              {loading ? (
+              {studentsLoading ? (
                 <div className="skeleton h-full w-full rounded-2xl" />
+              ) : showStudentsEmpty || studentGrowth.length === 0 ? (
+                <div className="flex h-full items-center justify-center text-sm text-slate-500">
+                  No growth data yet
+                </div>
               ) : (
                 <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={240}>
                   <LineChart data={studentGrowth}>
@@ -528,25 +892,27 @@ function Analytics() {
           </div>
         </div>
         <div className="grid gap-4 sm:grid-cols-3">
-          {loading
-            ? Array.from({ length: 3 }).map((_, index) => (
-                <div key={`student-kpi-${index}`} className="glass-card space-y-2">
-                  <div className="skeleton h-4 w-1/3" />
-                  <div className="skeleton h-6 w-1/2" />
-                </div>
-              ))
-            : [
-                { label: "Total Students", value: "12,500" },
-                { label: "New This Month", value: "860" },
-                { label: "Avg Session Time", value: "32 mins" },
-              ].map((item) => (
-                <div key={item.label} className="glass-card">
-                  <p className="text-sm text-slate-500">{item.label}</p>
-                  <p className="mt-2 text-2xl font-semibold text-slate-900">
-                    {item.value}
-                  </p>
-                </div>
-              ))}
+          {studentsLoading ? (
+            Array.from({ length: 3 }).map((_, index) => (
+              <div key={`student-kpi-${index}`} className="glass-card space-y-2">
+                <div className="skeleton h-4 w-1/3" />
+                <div className="skeleton h-6 w-1/2" />
+              </div>
+            ))
+          ) : (
+            [
+              { label: "Total Students", value: totalStudents.toLocaleString() },
+              { label: "New This Month", value: newStudentsThisMonth.toLocaleString() },
+              { label: "Avg Session Time", value: averageSessionTime },
+            ].map((item) => (
+              <div key={item.label} className="glass-card">
+                <p className="text-sm text-slate-500">{item.label}</p>
+                <p className="mt-2 text-2xl font-semibold text-slate-900">
+                  {item.value}
+                </p>
+              </div>
+            ))
+          )}
         </div>
       </motion.section>
 
@@ -558,11 +924,13 @@ function Analytics() {
       >
         <div className="glass-card">
           <div className="flex items-center justify-between">
-            <h3 className="font-heading text-xl text-slate-900">Course Performance</h3>
+            <h3 className="font-heading text-xl text-slate-900">
+              Course Performance
+            </h3>
             <span className="text-xs text-slate-400">Sortable</span>
           </div>
           <div className="mt-4">
-            {loading ? (
+            {coursesLoading ? (
               <div className="space-y-3">
                 {Array.from({ length: 3 }).map((_, index) => (
                   <div
@@ -571,6 +939,8 @@ function Analytics() {
                   />
                 ))}
               </div>
+            ) : showCoursesEmpty ? (
+              <div className="text-sm text-slate-500">No course data yet.</div>
             ) : (
               <>
                 <div className="space-y-3 sm:hidden">
@@ -587,7 +957,7 @@ function Analytics() {
                           <p className="text-xs text-slate-500">{course.teacher}</p>
                         </div>
                         <span className="rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-600">
-                          {course.rating}
+                          {course.ratingLabel}
                         </span>
                       </div>
                       <div className="mt-3 grid grid-cols-2 gap-3 text-xs text-slate-600">
@@ -605,7 +975,9 @@ function Analytics() {
                         </div>
                         <div>
                           <p className="text-slate-400">Completion</p>
-                          <p className="font-semibold text-slate-900">{course.rate}%</p>
+                          <p className="font-semibold text-slate-900">
+                            {course.rate}%
+                          </p>
                         </div>
                         <div>
                           <p className="text-slate-400">Revenue</p>
@@ -664,7 +1036,7 @@ function Analytics() {
                           <td className="py-3 pr-4 whitespace-nowrap">
                             PKR {course.revenue.toLocaleString()}
                           </td>
-                          <td className="py-3 pr-4">{course.rating}</td>
+                          <td className="py-3 pr-4">{course.ratingLabel}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -684,11 +1056,13 @@ function Analytics() {
       >
         <div className="glass-card">
           <div className="flex items-center justify-between">
-            <h3 className="font-heading text-xl text-slate-900">Teacher Performance</h3>
+            <h3 className="font-heading text-xl text-slate-900">
+              Teacher Performance
+            </h3>
             <span className="text-xs text-slate-400">Sortable</span>
           </div>
           <div className="mt-4">
-            {loading ? (
+            {teachersLoading || coursesLoading ? (
               <div className="space-y-3">
                 {Array.from({ length: 3 }).map((_, index) => (
                   <div
@@ -697,6 +1071,8 @@ function Analytics() {
                   />
                 ))}
               </div>
+            ) : showTeachersEmpty ? (
+              <div className="text-sm text-slate-500">No teacher data yet.</div>
             ) : (
               <>
                 <div className="space-y-3 sm:hidden">

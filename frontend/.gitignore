@@ -21,7 +21,8 @@ dist-ssr
 *.ntvs*
 *.njsproj
 *.sln
-*.sw?
-node_modules 
-.env 
+*.sw? 
 backend/serviceAccountKey.json
+backend/serviceAccountKey.json.bak
+node_modules
+.env

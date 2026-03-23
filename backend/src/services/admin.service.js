@@ -1,411 +1,325 @@
-import { admin, db } from "../config/firebase.js";
+import { db, admin } from "../config/firebase.js";
+import { COLLECTIONS } from "../config/collections.js";
 
-const getCollectionCount = async (collectionRef) => {
-  const snapshot = await collectionRef.get();
-  return snapshot.size;
-};
-
-const sumPaidRevenue = async () => {
-  const snapshot = await db
-    .collection("payments")
-    .where("status", "==", "paid")
-    .get();
-
-  let total = 0;
-  snapshot.forEach((doc) => {
-    const amount = Number(doc.data()?.amount || 0);
-    total += Number.isNaN(amount) ? 0 : amount;
-  });
-
-  return total;
-};
-
-const resolveUserName = (userDoc) => {
-  if (!userDoc) return "Unknown";
-  return (
-    userDoc.fullName ||
-    userDoc.name ||
-    userDoc.displayName ||
-    userDoc.email ||
-    "Unknown"
-  );
-};
-
-const resolveCourseName = (courseDoc) => {
-  if (!courseDoc) return "Unknown";
-  return courseDoc.title || courseDoc.name || "Unknown";
-};
-
-const getDashboardStats = async () => {
-  const startOfDay = new Date();
-  startOfDay.setHours(0, 0, 0, 0);
-
+export const getDashboardStats = async () => {
   const [
-    totalStudents,
-    totalTeachers,
-    totalCourses,
-    totalClasses,
-    totalRevenue,
-    enrollmentsToday,
-    activeUsers,
-    pendingBankTransfers,
+    studentsSnap,
+    teachersSnap,
+    coursesSnap,
+    classesSnap,
+    paymentsSnap,
+    enrollmentsSnap,
+    pendingPaymentsSnap,
   ] = await Promise.all([
-    getCollectionCount(db.collection("students")),
-    getCollectionCount(db.collection("teachers")),
-    getCollectionCount(db.collection("courses")),
-    getCollectionCount(db.collection("classes")),
-    sumPaidRevenue(),
+    db.collection(COLLECTIONS.STUDENTS).count().get(),
+    db.collection(COLLECTIONS.TEACHERS).count().get(),
+    db.collection(COLLECTIONS.COURSES).count().get(),
+    db.collection(COLLECTIONS.CLASSES).count().get(),
+    db.collection(COLLECTIONS.PAYMENTS).where("status", "==", "paid").get(),
     db
-      .collection("enrollments")
-      .where(
-        "createdAt",
-        ">=",
-        admin.firestore.Timestamp.fromDate(startOfDay)
-      )
-      .get()
-      .then((snap) => snap.size),
+      .collection(COLLECTIONS.ENROLLMENTS)
+      .where("status", "==", "active")
+      .count()
+      .get(),
     db
-      .collection("users")
-      .where("isActive", "==", true)
-      .get()
-      .then((snap) => snap.size),
-    db
-      .collection("payments")
-      .where("method", "==", "bank_transfer")
+      .collection(COLLECTIONS.PAYMENTS)
       .where("status", "==", "pending")
-      .get()
-      .then((snap) => snap.size),
+      .where("method", "==", "bank_transfer")
+      .count()
+      .get(),
   ]);
 
+  const totalRevenue = paymentsSnap.docs.reduce(
+    (sum, doc) => sum + (doc.data().amount || 0),
+    0
+  );
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const enrollmentsToday = paymentsSnap.docs.filter((doc) => {
+    const createdAt = doc.data().createdAt?.toDate();
+    return createdAt && createdAt >= today;
+  }).length;
+
   return {
-    totalStudents,
-    totalTeachers,
-    totalCourses,
-    totalClasses,
+    totalStudents: studentsSnap.data().count,
+    totalTeachers: teachersSnap.data().count,
+    totalCourses: coursesSnap.data().count,
+    totalClasses: classesSnap.data().count,
     totalRevenue,
+    activeEnrollments: enrollmentsSnap.data().count,
     enrollmentsToday,
-    activeUsers,
-    pendingBankTransfers,
+    pendingBankTransfers: pendingPaymentsSnap.data().count,
   };
 };
 
-const getRecentEnrollments = async (limit = 8) => {
-  const snapshot = await db
-    .collection("enrollments")
-    .orderBy("createdAt", "desc")
-    .limit(limit)
-    .get();
+export const getRevenueChart = async (days = 7) => {
+  try {
+    const snap = await db.collection(COLLECTIONS.PAYMENTS).get();
 
-  const results = await Promise.all(
-    snapshot.docs.map(async (doc) => {
-      const data = doc.data() || {};
-      const studentId = data.studentId || data.studentUid || data.uid;
-      const courseId = data.courseId;
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - days);
+    startDate.setHours(0, 0, 0, 0);
 
-      const [studentSnap, courseSnap] = await Promise.all([
-        studentId ? db.collection("users").doc(studentId).get() : null,
-        courseId ? db.collection("courses").doc(courseId).get() : null,
-      ]);
+    const revenueMap = {};
+    snap.docs.forEach((doc) => {
+      const data = doc.data();
+      if (data.status !== "paid") return;
 
-      const studentName = studentSnap?.exists
-        ? resolveUserName(studentSnap.data())
-        : "Unknown";
-      const courseName = courseSnap?.exists
-        ? resolveCourseName(courseSnap.data())
-        : "Unknown";
+      const createdAt = data.createdAt?.toDate?.();
+      if (!createdAt || createdAt < startDate) return;
 
-      return {
-        id: doc.id,
-        studentName,
-        courseName,
-        amount: data.amount || 0,
-        method: data.method || "unknown",
-        status: data.status || "pending",
-        createdAt: data.createdAt || null,
-      };
-    })
-  );
+      const date = createdAt.toISOString().split("T")[0];
+      revenueMap[date] = (revenueMap[date] || 0) + (data.amount || 0);
+    });
 
-  return results;
+    const result = [];
+    for (let i = days - 1; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const dateStr = d.toISOString().split("T")[0];
+      result.push({ date: dateStr, amount: revenueMap[dateStr] || 0 });
+    }
+
+    return result;
+  } catch (e) {
+    console.error("getRevenueChart error:", e.message);
+    return [];
+  }
 };
 
-const getTopCourses = async (limit = 5) => {
-  const snapshot = await db
-    .collection("courses")
+export const getRecentEnrollments = async (limit = 8) => {
+  try {
+    const snap = await db.collection(COLLECTIONS.PAYMENTS).get();
+
+    if (snap.empty) return [];
+
+    return snap.docs
+      .map((doc) => ({ id: doc.id, ...doc.data() }))
+      .filter((payment) => payment.status === "paid")
+      .sort((a, b) => {
+        const aTime = a.createdAt?.toDate?.() || new Date(0);
+        const bTime = b.createdAt?.toDate?.() || new Date(0);
+        return bTime - aTime;
+      })
+      .slice(0, limit)
+      .map((payment) => ({
+        ...payment,
+        createdAt: payment.createdAt?.toDate?.()?.toISOString() || null,
+      }));
+  } catch (e) {
+    console.error("getRecentEnrollments error:", e.message);
+    return [];
+  }
+};
+
+export const getTopCourses = async (limit = 5) => {
+  const snap = await db
+    .collection(COLLECTIONS.COURSES)
     .orderBy("enrollmentCount", "desc")
     .limit(limit)
     .get();
 
-  return snapshot.docs.map((doc) => {
-    const data = doc.data() || {};
-    return {
-      id: doc.id,
-      title: data.title || data.name || "Untitled",
-      teacherName: data.teacherName || "",
-      enrollmentCount: data.enrollmentCount || 0,
-      revenue: data.revenue || 0,
-    };
-  });
+  return snap.docs.map((doc) => ({
+    id: doc.id,
+    ...doc.data(),
+  }));
 };
 
-const getRecentActivity = async (limit = 10) => {
-  const snapshot = await db
-    .collection("auditLogs")
+export const getRecentActivity = async (limit = 10) => {
+  const snap = await db
+    .collection(COLLECTIONS.AUDIT_LOGS)
     .orderBy("timestamp", "desc")
     .limit(limit)
     .get();
 
-  return snapshot.docs.map((doc) => {
-    const data = doc.data() || {};
+  return snap.docs.map((doc) => ({
+    id: doc.id,
+    ...doc.data(),
+    timestamp: doc.data().timestamp?.toDate()?.toISOString(),
+  }));
+};
+
+export const getAllUsers = async (filters = {}) => {
+  let query = db.collection(COLLECTIONS.USERS);
+  if (filters.role) query = query.where("role", "==", filters.role);
+  if (filters.isActive !== undefined)
+    query = query.where("isActive", "==", filters.isActive);
+
+  const snap = await query.orderBy("createdAt", "desc").get();
+  let users = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+
+  if (filters.search) {
+    const s = filters.search.toLowerCase();
+    users = users.filter((u) => u.email?.toLowerCase().includes(s));
+  }
+  return users;
+};
+
+export const getAllTeachers = async () => {
+  const [teachersSnap, usersSnap] = await Promise.all([
+    db.collection(COLLECTIONS.TEACHERS).get(),
+    db.collection(COLLECTIONS.USERS).where("role", "==", "teacher").get(),
+  ]);
+
+  const teachersMap = {};
+  teachersSnap.docs.forEach((doc) => {
+    teachersMap[doc.id] = doc.data();
+  });
+
+  return Promise.all(
+    usersSnap.docs.map(async (doc) => {
+      const userData = doc.data();
+      const teacherData = teachersMap[doc.id] || {};
+
+      let authDisplayName = "";
+      try {
+        const authUser = await admin.auth().getUser(doc.id);
+        authDisplayName = authUser.displayName || "";
+      } catch (_e) {
+        authDisplayName = "";
+      }
+
+      const emailPrefix = (userData.email || "").split("@")[0];
+      const fallbackName = emailPrefix
+        .split(/[._-]+/)
+        .filter(Boolean)
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(" ");
+
+      const fullName =
+        teacherData.fullName ||
+        teacherData.name ||
+        authDisplayName ||
+        fallbackName ||
+        "Unknown Teacher";
+
+      return {
+        id: doc.id,
+        uid: doc.id,
+        ...teacherData,
+        fullName,
+        email: userData.email || "",
+        isActive: userData.isActive ?? true,
+        createdAt: teacherData.createdAt || userData.createdAt || null,
+      };
+    })
+  );
+};
+
+export const getAllStudents = async () => {
+  const [studentsSnap, usersSnap] = await Promise.all([
+    db.collection(COLLECTIONS.STUDENTS).get(),
+    db.collection(COLLECTIONS.USERS).where("role", "==", "student").get(),
+  ]);
+
+  const studentsMap = {};
+  studentsSnap.docs.forEach((doc) => {
+    studentsMap[doc.id] = doc.data();
+  });
+
+  return usersSnap.docs.map((doc) => {
+    const userData = doc.data();
+    const studentData = studentsMap[doc.id] || {};
+
+    const emailPrefix = (userData.email || "").split("@")[0];
+    const fallbackName = emailPrefix
+      .split(/[._-]+/)
+      .filter(Boolean)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(" ");
+
+    const fullName =
+      studentData.fullName ||
+      studentData.name ||
+      fallbackName ||
+      "Unknown Student";
+
     return {
       id: doc.id,
-      action: data.action || "",
-      uid: data.uid || "",
-      email: data.email || "",
-      ip: data.ip || "",
-      device: data.device || "",
-      timestamp: data.timestamp || null,
+      uid: doc.id,
+      ...studentData,
+      fullName,
+      email: userData.email || "",
+      isActive: userData.isActive ?? true,
+      createdAt: studentData.createdAt || userData.createdAt || null,
+      lastLoginAt: userData.lastLoginAt || null,
+      assignedWebDevice: userData.assignedWebDevice || "",
+      assignedWebIp: userData.assignedWebIp || "",
+      lastKnownWebIp: userData.lastKnownWebIp || "",
     };
   });
 };
 
-const getRevenueByDay = async (days = 7) => {
-  const startDate = new Date();
-  startDate.setDate(startDate.getDate() - days + 1);
-  startDate.setHours(0, 0, 0, 0);
-
-  const snapshot = await db
-    .collection("payments")
-    .where("status", "==", "paid")
-    .where(
-      "createdAt",
-      ">=",
-      admin.firestore.Timestamp.fromDate(startDate)
-    )
-    .get();
-
-  const totals = {};
-  snapshot.forEach((doc) => {
-    const data = doc.data() || {};
-    const createdAt = data.createdAt?.toDate?.() || null;
-    if (!createdAt) return;
-    const key = createdAt.toISOString().slice(0, 10);
-    const amount = Number(data.amount || 0);
-    totals[key] = (totals[key] || 0) + (Number.isNaN(amount) ? 0 : amount);
-  });
-
-  return Object.keys(totals)
-    .sort()
-    .map((date) => ({ date, amount: totals[date] }));
-};
-
-const getAllUsers = async (filters = {}) => {
-  let query = db.collection("users");
-
-  if (filters.role) {
-    query = query.where("role", "==", filters.role);
-  }
-  if (typeof filters.isActive === "boolean") {
-    query = query.where("isActive", "==", filters.isActive);
-  }
-
-  const snapshot = await query.get();
-  let users = snapshot.docs.map((doc) => ({
-    id: doc.id,
-    ...doc.data(),
-  }));
-
-  if (filters.search) {
-    const term = filters.search.toLowerCase();
-    users = users.filter((user) => {
-      const name =
-        user.fullName ||
-        user.name ||
-        user.displayName ||
-        user.email ||
-        "";
-      return name.toLowerCase().includes(term);
-    });
-  }
-
-  return users;
-};
-
-const getAllTeachers = async () => {
-  const snapshot = await db.collection("teachers").get();
-  const results = await Promise.all(
-    snapshot.docs.map(async (doc) => {
-      const data = doc.data() || {};
-      const userSnap = await db.collection("users").doc(data.uid).get();
-      return {
-        id: doc.id,
-        ...(userSnap.exists ? userSnap.data() : {}),
-        ...data,
-      };
-    })
-  );
-  return results;
-};
-
-const getAllStudents = async () => {
-  const snapshot = await db.collection("students").get();
-  const results = await Promise.all(
-    snapshot.docs.map(async (doc) => {
-      const data = doc.data() || {};
-      const userSnap = await db.collection("users").doc(data.uid).get();
-      return {
-        id: doc.id,
-        ...(userSnap.exists ? userSnap.data() : {}),
-        ...data,
-      };
-    })
-  );
-  return results;
-};
-
-const getAllCourses = async () => {
-  const snapshot = await db.collection("courses").get();
-  const results = await Promise.all(
-    snapshot.docs.map(async (doc) => {
-      const data = doc.data() || {};
-      const teacherId = data.teacherId;
-      const teacherSnap = teacherId
-        ? await db.collection("users").doc(teacherId).get()
-        : null;
-      const teacherName =
-        teacherSnap?.exists ? resolveUserName(teacherSnap.data()) : "Unknown";
-      return {
-        id: doc.id,
-        ...data,
-        teacherName,
-      };
-    })
-  );
-  return results;
-};
-
-const getAllClasses = async () => {
-  const snapshot = await db.collection("classes").get();
-  const results = await Promise.all(
-    snapshot.docs.map(async (doc) => {
-      const data = doc.data() || {};
-      const teacherId = data.teacherId;
-      const teacherSnap = teacherId
-        ? await db.collection("users").doc(teacherId).get()
-        : null;
-      const teacherName =
-        teacherSnap?.exists ? resolveUserName(teacherSnap.data()) : "Unknown";
-      return {
-        id: doc.id,
-        ...data,
-        teacherName,
-      };
-    })
-  );
-  return results;
-};
-
-const getAllPayments = async (filters = {}) => {
-  let query = db.collection("payments");
-
-  if (filters.method) {
-    query = query.where("method", "==", filters.method);
-  }
-  if (filters.status) {
-    query = query.where("status", "==", filters.status);
-  }
-  if (filters.dateRange?.start) {
-    query = query.where(
-      "createdAt",
-      ">=",
-      admin.firestore.Timestamp.fromDate(filters.dateRange.start)
-    );
-  }
-  if (filters.dateRange?.end) {
-    query = query.where(
-      "createdAt",
-      "<=",
-      admin.firestore.Timestamp.fromDate(filters.dateRange.end)
-    );
-  }
-
-  const snapshot = await query.get();
-  const results = await Promise.all(
-    snapshot.docs.map(async (doc) => {
-      const data = doc.data() || {};
-      const studentId = data.studentId || data.studentUid || data.uid;
-      const courseId = data.courseId;
-      const [studentSnap, courseSnap] = await Promise.all([
-        studentId ? db.collection("users").doc(studentId).get() : null,
-        courseId ? db.collection("courses").doc(courseId).get() : null,
-      ]);
-      return {
-        id: doc.id,
-        ...data,
-        studentName: studentSnap?.exists
-          ? resolveUserName(studentSnap.data())
-          : "Unknown",
-        courseName: courseSnap?.exists
-          ? resolveCourseName(courseSnap.data())
-          : "Unknown",
-      };
-    })
-  );
-  return results;
-};
-
-const getAllPromoCodes = async () => {
-  const snapshot = await db.collection("promoCodes").get();
-  return snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-};
-
-const getAllCertificates = async () => {
-  const snapshot = await db.collection("certificates").get();
-  const results = await Promise.all(
-    snapshot.docs.map(async (doc) => {
-      const data = doc.data() || {};
-      const studentId = data.studentId || data.studentUid || data.uid;
-      const courseId = data.courseId;
-      const [studentSnap, courseSnap] = await Promise.all([
-        studentId ? db.collection("users").doc(studentId).get() : null,
-        courseId ? db.collection("courses").doc(courseId).get() : null,
-      ]);
-      return {
-        id: doc.id,
-        ...data,
-        studentName: studentSnap?.exists
-          ? resolveUserName(studentSnap.data())
-          : "Unknown",
-        courseName: courseSnap?.exists
-          ? resolveCourseName(courseSnap.data())
-          : "Unknown",
-      };
-    })
-  );
-  return results;
-};
-
-const getAllAnnouncements = async () => {
-  const snapshot = await db
-    .collection("announcements")
+export const getAllCourses = async () => {
+  const snap = await db
+    .collection(COLLECTIONS.COURSES)
     .orderBy("createdAt", "desc")
     .get();
-  return snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+  return snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
 };
 
-export {
-  getDashboardStats,
-  getRecentEnrollments,
-  getTopCourses,
-  getRecentActivity,
-  getRevenueByDay,
-  getAllUsers,
-  getAllTeachers,
-  getAllStudents,
-  getAllCourses,
-  getAllClasses,
-  getAllPayments,
-  getAllPromoCodes,
-  getAllCertificates,
-  getAllAnnouncements,
+export const getAllClasses = async () => {
+  const snap = await db
+    .collection(COLLECTIONS.CLASSES)
+    .orderBy("createdAt", "desc")
+    .get();
+  return snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+};
+
+export const getAllPayments = async (filters = {}) => {
+  let query = db.collection(COLLECTIONS.PAYMENTS);
+  if (filters.method) query = query.where("method", "==", filters.method);
+  if (filters.status) query = query.where("status", "==", filters.status);
+
+  const snap = await query.orderBy("createdAt", "desc").get();
+  return snap.docs.map((doc) => ({
+    id: doc.id,
+    ...doc.data(),
+    createdAt: doc.data().createdAt?.toDate()?.toISOString(),
+  }));
+};
+
+export const getAllInstallments = async () => {
+  const snap = await db
+    .collection(COLLECTIONS.INSTALLMENTS)
+    .orderBy("createdAt", "desc")
+    .get();
+  return snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+};
+
+export const getAllPromoCodes = async () => {
+  const snap = await db
+    .collection(COLLECTIONS.PROMO_CODES)
+    .orderBy("createdAt", "desc")
+    .get();
+  return snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+};
+
+export const getAllCertificates = async () => {
+  const snap = await db
+    .collection(COLLECTIONS.CERTIFICATES)
+    .orderBy("createdAt", "desc")
+    .get();
+  return snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+};
+
+export const getAllAnnouncements = async () => {
+  const snap = await db
+    .collection(COLLECTIONS.ANNOUNCEMENTS)
+    .orderBy("createdAt", "desc")
+    .get();
+  return snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+};
+
+export const getSiteSettings = async () => {
+  const snap = await db.collection(COLLECTIONS.SETTINGS).doc("general").get();
+  return snap.exists ? snap.data() : {};
+};
+
+export const updateSiteSettings = async (data) => {
+  await db.collection(COLLECTIONS.SETTINGS).doc("general").set(data, {
+    merge: true,
+  });
+  return data;
 };

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { logout } from "../services/auth.service.js";
+import { useAuth } from "../hooks/useAuth.js";
 
 const navItems = [
   { label: "Dashboard", to: "/teacher/dashboard", icon: "grid" },
@@ -47,6 +48,7 @@ const iconMap = {
 function TeacherLayout() {
   const location = useLocation();
   const navigate = useNavigate();
+  const { userProfile } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   useEffect(() => {
@@ -67,6 +69,19 @@ function TeacherLayout() {
       navigate("/login");
     }
   };
+
+  const displayName =
+    userProfile?.name ||
+    userProfile?.fullName ||
+    userProfile?.email ||
+    "Teacher";
+  const initials = displayName
+    .split(" ")
+    .filter(Boolean)
+    .map((part) => part[0])
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
 
   return (
     <div className="min-h-screen overflow-x-hidden bg-slate-50 text-slate-900">
@@ -135,11 +150,11 @@ function TeacherLayout() {
         <div className="border-t border-slate-200 px-6 py-4">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
-              MQ
+              {initials || "T"}
             </div>
             <div className="flex-1">
               <p className="text-sm font-semibold text-slate-900">
-                Mr. Qureshi
+                {displayName}
               </p>
               <button className="text-xs text-slate-500" onClick={handleLogout}>
                 Logout
@@ -185,9 +200,9 @@ function TeacherLayout() {
             <div className="relative group">
               <button className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm">
                 <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-primary">
-                  T
+                  {initials || "T"}
                 </span>
-                <span className="hidden sm:inline">Teacher</span>
+                <span className="hidden sm:inline">{displayName}</span>
               </button>
               <div className="pointer-events-none absolute right-0 mt-3 w-40 rounded-2xl border border-slate-200 bg-white p-2 text-sm text-slate-600 opacity-0 shadow-xl transition group-hover:pointer-events-auto group-hover:opacity-100">
                 <Link className="block rounded-xl px-3 py-2 hover:bg-slate-100" to="/teacher/settings">

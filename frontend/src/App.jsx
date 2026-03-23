@@ -51,8 +51,45 @@ import Students from "./pages/admin/Students.jsx";
 import Classes from "./pages/admin/Classes.jsx";
 import { SiteSettingsProvider } from "./context/SiteSettingsContext.jsx";
 import { AuthProvider } from "./context/AuthContext.jsx";
+import { useAuth } from "./hooks/useAuth.js";
 import Unauthorized from "./pages/Unauthorized.jsx";
 import NotFound from "./pages/NotFound.jsx";
+
+const getDashboardPathByRole = (role) => {
+  if (role === "admin") return "/admin/dashboard";
+  if (role === "teacher") return "/teacher/dashboard";
+  return "/student/dashboard";
+};
+
+function AuthRedirectLoader() {
+  return (
+    <div className="flex min-h-screen items-center justify-center">
+      <div className="h-10 w-10 animate-spin rounded-full border-4 border-primary/30 border-t-primary" />
+    </div>
+  );
+}
+
+function GuestRoute({ children }) {
+  const { isAuthenticated, role, loading } = useAuth();
+
+  if (loading) return <AuthRedirectLoader />;
+  if (isAuthenticated) {
+    return <Navigate to={getDashboardPathByRole(role)} replace />;
+  }
+
+  return children;
+}
+
+function HomeRoute() {
+  const { isAuthenticated, role, loading } = useAuth();
+
+  if (loading) return <AuthRedirectLoader />;
+  if (isAuthenticated) {
+    return <Navigate to={getDashboardPathByRole(role)} replace />;
+  }
+
+  return <Home />;
+}
 
 function AppLayout() {
   const location = useLocation();
@@ -87,14 +124,35 @@ function AppLayout() {
     <>
       {!hideLayout && <Navbar />}
       <Routes>
-        <Route path="/" element={<Home />} />
+        <Route path="/" element={<HomeRoute />} />
         <Route path="/courses" element={<Courses />} />
         <Route path="/teachers" element={<Teachers />} />
         <Route path="/about" element={<About />} />
         <Route path="/contact" element={<Contact />} />
-        <Route path="/login" element={<Login />} />
-        <Route path="/lms-login" element={<Login />} />
-        <Route path="/register" element={<Register />} />
+        <Route
+          path="/login"
+          element={
+            <GuestRoute>
+              <Login />
+            </GuestRoute>
+          }
+        />
+        <Route
+          path="/lms-login"
+          element={
+            <GuestRoute>
+              <Login />
+            </GuestRoute>
+          }
+        />
+        <Route
+          path="/register"
+          element={
+            <GuestRoute>
+              <Register />
+            </GuestRoute>
+          }
+        />
         <Route path="/unauthorized" element={<Unauthorized />} />
         <Route
           path="/admin"

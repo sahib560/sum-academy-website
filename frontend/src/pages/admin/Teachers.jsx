@@ -1,564 +1,1044 @@
-import { useMemo, useState } from "react";
-import { motion } from "framer-motion";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Toaster, toast } from "react-hot-toast";
+import { jsPDF } from "jspdf";
+import {
+  createUser,
+  deleteUser,
+  getTeachers,
+  updateUser,
+} from "../../services/admin.service.js";
 
-const subjects = ["Biology", "Chemistry", "Physics", "English", "Botany"];
-const allCourses = [
-  "Class XI - Pre-Medical",
-  "Class XII - Pre-Medical",
-  "Pre-Entrance Test",
-  "Chemistry Lab Workshop",
-  "English Fluency",
-];
+const PHONE_REGEX = /^\+92\d{10}$/;
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const PASSWORD_REGEX = /^(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/;
+const FOCUSABLE_SELECTOR =
+  'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
 
-const initialTeachers = [
-  {
-    id: 1,
-    name: "Mr. Sikander Ali Qureshi",
-    email: "sikander@sumacademy.pk",
-    subject: "Chemistry",
-    bio: "Founder & Director with a focus on conceptual clarity.",
-    courses: ["Class XI - Pre-Medical", "Chemistry Lab Workshop"],
-    classes: ["Class XI", "Class XII"],
-    students: 620,
-    rating: 4.9,
-    status: "Active",
-    revenue: 2200000,
-  },
-  {
-    id: 2,
-    name: "Mr. Shah Mohammad Pathan",
-    email: "shah.pathan@sumacademy.pk",
-    subject: "Botany",
-    bio: "Associate Professor of Botany.",
-    courses: ["Class XII - Pre-Medical"],
-    classes: ["Class XII"],
-    students: 480,
-    rating: 4.8,
-    status: "Active",
-    revenue: 1800000,
-  },
-  {
-    id: 3,
-    name: "Mr. Mansoor Ahmed Mangi",
-    email: "mansoor.mangi@sumacademy.pk",
-    subject: "Chemistry",
-    bio: "Lecturer Chemistry with exam-focused modules.",
-    courses: ["Pre-Entrance Test"],
-    classes: ["Class XI"],
-    students: 360,
-    rating: 4.6,
-    status: "Inactive",
-    revenue: 1200000,
-  },
-  {
-    id: 4,
-    name: "Mr. Muhammad Idress Mahar",
-    email: "idress.mahar@sumacademy.pk",
-    subject: "Physics",
-    bio: "Lecturer Physics with practical problem-solving focus.",
-    courses: ["Pre-Entrance Test", "Class XI - Pre-Medical"],
-    classes: ["Class XI", "Class XII"],
-    students: 510,
-    rating: 4.7,
-    status: "Active",
-    revenue: 1500000,
-  },
-  {
-    id: 5,
-    name: "Mr. Waseem Ahmed Soomro",
-    email: "waseem.soomro@sumacademy.pk",
-    subject: "English",
-    bio: "Lecturer English specializing in fluency and writing.",
-    courses: ["English Fluency"],
-    classes: ["Class XI"],
-    students: 290,
-    rating: 4.5,
-    status: "Active",
-    revenue: 780000,
-  },
-];
+const emptyAddForm = {
+  fullName: "",
+  email: "",
+  password: "",
+  phone: "",
+  subject: "",
+  bio: "",
+};
+
+const emptyEditForm = {
+  uid: "",
+  fullName: "",
+  phone: "",
+  subject: "",
+  bio: "",
+};
+
+const parseDate = (value) => {
+  if (!value) return null;
+  if (typeof value?.toDate === "function") return value.toDate();
+  if (typeof value?._seconds === "number") return new Date(value._seconds * 1000);
+  if (typeof value?.seconds === "number") return new Date(value.seconds * 1000);
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const formatDate = (value) => {
+  const date = parseDate(value);
+  if (!date) return "N/A";
+  return date.toLocaleDateString("en-PK", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+};
+
+const getInitials = (name = "") =>
+  name
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part.charAt(0).toUpperCase())
+    .join("");
+
+const normalizeTeachers = (teachers = []) =>
+  teachers.map((teacher) => ({
+    ...teacher,
+    uid: teacher.uid || teacher.id,
+    fullName: teacher.fullName || "Unknown Teacher",
+    phone: teacher.phoneNumber || "",
+    subject: teacher.subject || "General",
+    bio: teacher.bio || "",
+    email: teacher.email || "",
+    joinedDate: formatDate(teacher.createdAt),
+    initials: getInitials(teacher.fullName || "Teacher"),
+    isActive: teacher.isActive !== false,
+  }));
+
+const validateAddForm = (values) => {
+  const errors = {};
+  if (!values.fullName.trim()) {
+    errors.fullName = "Full Name is required.";
+  } else if (values.fullName.trim().length < 3) {
+    errors.fullName = "Full Name must be at least 3 characters.";
+  }
+
+  if (!values.email.trim()) {
+    errors.email = "Email is required.";
+  } else if (!EMAIL_REGEX.test(values.email.trim())) {
+    errors.email = "Enter a valid email address.";
+  }
+
+  if (!values.password) {
+    errors.password = "Password is required.";
+  } else if (!PASSWORD_REGEX.test(values.password)) {
+    errors.password =
+      "Password must be 8+ chars with uppercase, number, and special char.";
+  }
+
+  if (!values.phone.trim()) {
+    errors.phone = "Phone is required.";
+  } else if (!PHONE_REGEX.test(values.phone.trim())) {
+    errors.phone = "Use +923001234567 format.";
+  }
+
+  if (!values.subject.trim()) {
+    errors.subject = "Subject is required.";
+  } else if (values.subject.trim().length < 2) {
+    errors.subject = "Subject must be at least 2 characters.";
+  }
+
+  if (values.bio.length > 300) {
+    errors.bio = "Bio cannot exceed 300 characters.";
+  }
+
+  return errors;
+};
+
+const validateEditForm = (values) => {
+  const errors = {};
+  if (!values.fullName.trim()) {
+    errors.fullName = "Full Name is required.";
+  } else if (values.fullName.trim().length < 3) {
+    errors.fullName = "Full Name must be at least 3 characters.";
+  }
+
+  if (!values.phone.trim()) {
+    errors.phone = "Phone is required.";
+  } else if (!PHONE_REGEX.test(values.phone.trim())) {
+    errors.phone = "Use +923001234567 format.";
+  }
+
+  if (!values.subject.trim()) {
+    errors.subject = "Subject is required.";
+  } else if (values.subject.trim().length < 2) {
+    errors.subject = "Subject must be at least 2 characters.";
+  }
+
+  if (values.bio.length > 300) {
+    errors.bio = "Bio cannot exceed 300 characters.";
+  }
+
+  return errors;
+};
+
+function ModalShell({ open, title, onClose, children, maxWidth = "max-w-lg" }) {
+  const dialogRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+
+    const dialog = dialogRef.current;
+    const preferredFocus =
+      dialog?.querySelector("input, select, textarea, button:not([aria-label='Close'])") ||
+      dialog?.querySelectorAll(FOCUSABLE_SELECTOR)?.[0];
+    preferredFocus?.focus();
+
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") {
+        onClose();
+        return;
+      }
+
+      if (event.key !== "Tab" || !dialog) return;
+      const items = Array.from(dialog.querySelectorAll(FOCUSABLE_SELECTOR)).filter(
+        (element) => !element.hasAttribute("disabled")
+      );
+      if (!items.length) return;
+
+      const first = items[0];
+      const last = items[items.length - 1];
+
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [open]);
+
+  return (
+    <AnimatePresence>
+      {open ? (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center px-4 py-6">
+          <button
+            type="button"
+            className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            onClick={onClose}
+            aria-label="Close modal"
+          />
+          <motion.div
+            ref={dialogRef}
+            initial={{ opacity: 0, scale: 0.96, y: 12 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.96, y: 12 }}
+            transition={{ duration: 0.2 }}
+            className={`relative z-10 flex max-h-[90vh] w-full ${maxWidth} flex-col overflow-hidden rounded-3xl bg-white p-6 shadow-2xl`}
+            role="dialog"
+            aria-modal="true"
+            aria-label={title}
+          >
+            <div className="flex items-start justify-between gap-4">
+              <h3 className="font-heading text-2xl text-slate-900">{title}</h3>
+              <button
+                type="button"
+                onClick={onClose}
+                className="rounded-full border border-slate-200 p-2 text-slate-500 transition hover:text-slate-900"
+                aria-label="Close"
+              >
+                <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
+                  <path d="M18.3 5.7 12 12l6.3 6.3-1.4 1.4L10.6 13.4 4.3 19.7l-1.4-1.4L9.2 12 2.9 5.7l1.4-1.4 6.3 6.3 6.3-6.3z" />
+                </svg>
+              </button>
+            </div>
+            <div className="overflow-y-auto pr-1">{children}</div>
+          </motion.div>
+        </div>
+      ) : null}
+    </AnimatePresence>
+  );
+}
+
+function FieldError({ message }) {
+  if (!message) return null;
+  return <p className="mt-2 text-xs text-rose-500">{message}</p>;
+}
 
 function Teachers() {
-  const [teachers, setTeachers] = useState(initialTeachers);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
-  const [subjectFilter, setSubjectFilter] = useState("All");
-  const [statusFilter, setStatusFilter] = useState("All");
-  const [showModal, setShowModal] = useState(false);
-  const [showDeactivate, setShowDeactivate] = useState(null);
-  const [detailTeacher, setDetailTeacher] = useState(null);
-  const [saving, setSaving] = useState(false);
-  const [toast, setToast] = useState(null);
-  const [form, setForm] = useState({
-    id: null,
-    name: "",
-    email: "",
-    password: "",
-    subject: subjects[0],
-    bio: "",
-    courses: [],
-    status: "Active",
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [showStatusModal, setShowStatusModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [selectedTeacher, setSelectedTeacher] = useState(null);
+  const [addForm, setAddForm] = useState(emptyAddForm);
+  const [editForm, setEditForm] = useState(emptyEditForm);
+  const [addTouched, setAddTouched] = useState({});
+  const [editTouched, setEditTouched] = useState({});
+  const [showPassword, setShowPassword] = useState(false);
+  const [emailFieldError, setEmailFieldError] = useState("");
+
+  const teachersQuery = useQuery({
+    queryKey: ["admin", "teachers"],
+    queryFn: getTeachers,
+    staleTime: 30000,
   });
 
-  useMemo(() => {
-    const timer = setTimeout(() => setLoading(false), 1500);
-    return () => clearTimeout(timer);
-  }, []);
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      setDebouncedSearch(search);
+    }, 300);
 
-  useMemo(() => {
-    if (!toast) return;
-    const timer = setTimeout(() => setToast(null), 2000);
-    return () => clearTimeout(timer);
-  }, [toast]);
+    return () => clearTimeout(timeout);
+  }, [search]);
+
+  const teachers = useMemo(
+    () => normalizeTeachers(teachersQuery.data || []),
+    [teachersQuery.data]
+  );
 
   const filteredTeachers = useMemo(() => {
-    const query = search.trim().toLowerCase();
+    const query = debouncedSearch.trim().toLowerCase();
     return teachers.filter((teacher) => {
       const matchesSearch =
         !query ||
-        teacher.name.toLowerCase().includes(query) ||
-        teacher.email.toLowerCase().includes(query);
-      const matchesSubject =
-        subjectFilter === "All" || teacher.subject === subjectFilter;
+        teacher.fullName.toLowerCase().includes(query) ||
+        teacher.subject.toLowerCase().includes(query);
       const matchesStatus =
-        statusFilter === "All" || teacher.status === statusFilter;
-      return matchesSearch && matchesSubject && matchesStatus;
+        statusFilter === "all" ||
+        (statusFilter === "active" && teacher.isActive) ||
+        (statusFilter === "inactive" && !teacher.isActive);
+      return matchesSearch && matchesStatus;
     });
-  }, [search, statusFilter, subjectFilter, teachers]);
+  }, [debouncedSearch, statusFilter, teachers]);
 
-  const stats = {
-    total: teachers.length,
-    active: teachers.filter((teacher) => teacher.status === "Active").length,
-    courses: teachers.reduce((sum, teacher) => sum + teacher.courses.length, 0),
+  const stats = useMemo(
+    () => ({
+      total: teachers.length,
+      active: teachers.filter((teacher) => teacher.isActive).length,
+      inactive: teachers.filter((teacher) => !teacher.isActive).length,
+    }),
+    [teachers]
+  );
+
+  const addErrors = useMemo(() => validateAddForm(addForm), [addForm]);
+  const editErrors = useMemo(() => validateEditForm(editForm), [editForm]);
+
+  const invalidateTeachers = async () => {
+    await queryClient.invalidateQueries({ queryKey: ["admin", "teachers"] });
   };
 
+  const createTeacherMutation = useMutation({
+    mutationFn: (payload) => createUser(payload),
+    onSuccess: async () => {
+      await invalidateTeachers();
+      setShowAddModal(false);
+      setAddForm(emptyAddForm);
+      setAddTouched({});
+      setShowPassword(false);
+      setEmailFieldError("");
+      toast.success("Teacher created");
+    },
+    onError: (error) => {
+      if (error?.response?.status === 409) {
+        setEmailFieldError("Email already in use");
+        return;
+      }
+      toast.error(error?.response?.data?.error || "Failed to create teacher.");
+    },
+  });
+
+  const updateTeacherMutation = useMutation({
+    mutationFn: (payload) => updateUser(payload.uid, payload.data),
+    onSuccess: async () => {
+      await invalidateTeachers();
+      setShowEditModal(false);
+      setSelectedTeacher(null);
+      setEditTouched({});
+      toast.success("Teacher updated");
+    },
+    onError: (error) => {
+      toast.error(error?.response?.data?.error || "Failed to update teacher.");
+    },
+  });
+
+  const statusMutation = useMutation({
+    mutationFn: ({ uid, isActive }) => updateUser(uid, { isActive }),
+    onSuccess: async (_data, variables) => {
+      await invalidateTeachers();
+      setShowStatusModal(false);
+      setSelectedTeacher(null);
+      toast.success(variables.isActive ? "Teacher activated" : "Teacher deactivated");
+    },
+    onError: (error) => {
+      toast.error(error?.response?.data?.error || "Failed to update status.");
+    },
+  });
+
+  const deleteTeacherMutation = useMutation({
+    mutationFn: (uid) => deleteUser(uid),
+    onSuccess: async () => {
+      await invalidateTeachers();
+      setShowDeleteModal(false);
+      setSelectedTeacher(null);
+      toast.success("Teacher deleted");
+    },
+    onError: (error) => {
+      toast.error(error?.response?.data?.error || "Failed to delete teacher.");
+    },
+  });
+
+  const sanitizePhone = (value) =>
+    value
+      .replace(/(?!^\+)[^\d]/g, "")
+      .replace(/^(\+)?(.*)$/, (_m, plus, rest) => `${plus || ""}${rest.replace(/\+/g, "")}`);
+
   const openAdd = () => {
-    setForm({
-      id: null,
-      name: "",
-      email: "",
-      password: "",
-      subject: subjects[0],
-      bio: "",
-      courses: [],
-      status: "Active",
-    });
-    setShowModal(true);
+    setAddForm(emptyAddForm);
+    setAddTouched({});
+    setShowPassword(false);
+    setEmailFieldError("");
+    setShowAddModal(true);
+  };
+
+  const handleAddChange = (field, value) => {
+    if (field === "email") setEmailFieldError("");
+    setAddForm((current) => ({ ...current, [field]: value }));
+  };
+
+  const handleEditChange = (field, value) => {
+    setEditForm((current) => ({ ...current, [field]: value }));
+  };
+
+  const markAddTouched = (field) => {
+    setAddTouched((current) => ({ ...current, [field]: true }));
+  };
+
+  const markEditTouched = (field) => {
+    setEditTouched((current) => ({ ...current, [field]: true }));
   };
 
   const openEdit = (teacher) => {
-    setForm({ ...teacher, password: "" });
-    setShowModal(true);
+    setSelectedTeacher(teacher);
+    setEditForm({
+      uid: teacher.uid,
+      fullName: teacher.fullName,
+      phone: teacher.phone,
+      subject: teacher.subject,
+      bio: teacher.bio,
+    });
+    setEditTouched({});
+    setShowEditModal(true);
   };
 
-  const handleSave = (event) => {
+  const openStatusConfirm = (teacher) => {
+    setSelectedTeacher(teacher);
+    setShowStatusModal(true);
+  };
+
+  const openDeleteConfirm = (teacher) => {
+    setSelectedTeacher(teacher);
+    setShowDeleteModal(true);
+  };
+
+  const submitAddTeacher = (event) => {
     event.preventDefault();
-    if (!form.name || !form.email) {
-      setToast({ type: "error", message: "Fill required fields." });
-      return;
-    }
-    setSaving(true);
-    setTimeout(() => {
-      setSaving(false);
-      if (form.id) {
-        setTeachers((prev) =>
-          prev.map((teacher) =>
-            teacher.id === form.id ? { ...teacher, ...form } : teacher
-          )
-        );
-        setToast({ type: "success", message: "Teacher updated." });
-      } else {
-        setTeachers((prev) => [
-          {
-            ...form,
-            id: Date.now(),
-            courses: form.courses,
-            classes: ["Class XI"],
-            students: 0,
-            rating: 4.5,
-            revenue: 0,
-          },
-          ...prev,
-        ]);
-        setToast({ type: "success", message: "Teacher added." });
+    setAddTouched({
+      fullName: true,
+      email: true,
+      password: true,
+      phone: true,
+      subject: true,
+      bio: true,
+    });
+
+    if (Object.keys(addErrors).length > 0) return;
+
+    createTeacherMutation.mutate({
+      name: addForm.fullName.trim(),
+      email: addForm.email.trim(),
+      password: addForm.password,
+      phone: addForm.phone.trim(),
+      role: "teacher",
+      subject: addForm.subject.trim(),
+      bio: addForm.bio.trim(),
+    });
+  };
+
+  const submitEditTeacher = (event) => {
+    event.preventDefault();
+    setEditTouched({
+      fullName: true,
+      phone: true,
+      subject: true,
+      bio: true,
+    });
+
+    if (Object.keys(editErrors).length > 0) return;
+
+    updateTeacherMutation.mutate({
+      uid: editForm.uid,
+      data: {
+        name: editForm.fullName.trim(),
+        phone: editForm.phone.trim(),
+        subject: editForm.subject.trim(),
+        bio: editForm.bio.trim(),
+      },
+    });
+  };
+
+  const exportTeachersPdf = () => {
+    const doc = new jsPDF();
+    const generatedAt = new Date().toLocaleDateString("en-PK", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    });
+
+    doc.setFillColor(74, 99, 245);
+    doc.rect(0, 0, 210, 24, "F");
+    doc.setTextColor(255, 255, 255);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(18);
+    doc.text("SUM Academy", 14, 15);
+
+    doc.setTextColor(31, 41, 55);
+    doc.setFontSize(11);
+    doc.text("Teachers Export", 14, 34);
+    doc.text(`Generated: ${generatedAt}`, 14, 41);
+
+    let y = 54;
+    filteredTeachers.forEach((teacher, index) => {
+      if (y > 270) {
+        doc.addPage();
+        y = 20;
       }
-      setShowModal(false);
-    }, 900);
-  };
 
-  const handleDeactivate = () => {
-    setTeachers((prev) =>
-      prev.map((teacher) =>
-        teacher.id === showDeactivate.id
-          ? {
-              ...teacher,
-              status: teacher.status === "Active" ? "Inactive" : "Active",
-            }
-          : teacher
-      )
-    );
-    setToast({ type: "success", message: "Status updated." });
-    setShowDeactivate(null);
-  };
+      doc.setDrawColor(226, 232, 240);
+      doc.roundedRect(10, y - 6, 190, 22, 3, 3);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(11);
+      doc.text(`${index + 1}. ${teacher.fullName}`, 14, y);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(10);
+      doc.text(teacher.email || "N/A", 14, y + 6);
+      doc.text(teacher.subject || "N/A", 108, y);
+      doc.text(teacher.isActive ? "Active" : "Inactive", 148, y);
+      doc.text(teacher.joinedDate, 170, y);
+      y += 28;
+    });
 
-  const toggleCourseSelection = (course) => {
-    setForm((prev) => ({
-      ...prev,
-      courses: prev.courses.includes(course)
-        ? prev.courses.filter((item) => item !== course)
-        : [...prev.courses, course],
-    }));
+    doc.save(`sum-academy-teachers-${Date.now()}.pdf`);
+    toast.success("Teachers PDF exported.");
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 font-sans">
+      <Toaster
+        position="top-left"
+        toastOptions={{
+          duration: 3500,
+          style: {
+            fontFamily: "DM Sans, sans-serif",
+            borderRadius: "16px",
+          },
+        }}
+      />
+
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h2 className="font-heading text-3xl text-slate-900">Teachers</h2>
           <p className="text-sm text-slate-500">
-            Manage teacher profiles and assignments.
+            Manage teacher profiles with real backend data.
           </p>
         </div>
-        <button className="btn-primary" onClick={openAdd}>
-          Add Teacher
-        </button>
+        <div className="flex gap-3">
+          <button
+            type="button"
+            onClick={exportTeachersPdf}
+            disabled={!filteredTeachers.length}
+            className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Export PDF
+          </button>
+          <button type="button" onClick={openAdd} className="btn-primary">
+            Add Teacher
+          </button>
+        </div>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-3">
-        {loading
-          ? Array.from({ length: 3 }).map((_, index) => (
-              <div key={`stat-${index}`} className="glass-card space-y-2">
-                <div className="skeleton h-4 w-1/3" />
-                <div className="skeleton h-6 w-1/2" />
-              </div>
-            ))
-          : [
-              { label: "Total Teachers", value: stats.total },
-              { label: "Active Teachers", value: stats.active },
-              { label: "Total Courses", value: stats.courses },
-            ].map((item) => (
-              <div key={item.label} className="glass-card">
-                <p className="text-sm text-slate-500">{item.label}</p>
-                <p className="mt-2 text-2xl font-semibold text-slate-900">
-                  {item.value}
-                </p>
-              </div>
-            ))}
+        {[
+          { label: "Total Teachers", value: stats.total },
+          { label: "Active Teachers", value: stats.active },
+          { label: "Inactive Teachers", value: stats.inactive },
+        ].map((item) => (
+          <div key={item.label} className="glass-card">
+            <p className="text-sm text-slate-500">{item.label}</p>
+            <p className="mt-2 text-2xl font-semibold text-slate-900">{item.value}</p>
+          </div>
+        ))}
       </div>
 
-      <div className="flex flex-wrap items-center gap-3">
-        <input
-          type="text"
-          placeholder="Search teacher..."
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-          className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 shadow-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
-        />
-        <select
-          value={subjectFilter}
-          onChange={(event) => setSubjectFilter(event.target.value)}
-          className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700"
-        >
-          <option value="All">Subject: All</option>
-          {subjects.map((subject) => (
-            <option key={subject} value={subject}>
-              {subject}
-            </option>
-          ))}
-        </select>
+      <div className="flex flex-wrap items-center gap-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="relative flex-1 min-w-[240px]">
+          <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
+            <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
+              <path d="M10 4a6 6 0 1 0 3.9 10.6l4.7 4.7 1.4-1.4-4.7-4.7A6 6 0 0 0 10 4zm0 2a4 4 0 1 1 0 8 4 4 0 0 1 0-8z" />
+            </svg>
+          </span>
+          <input
+            type="text"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search by name or subject"
+            className="w-full rounded-full border border-slate-200 bg-white py-3 pl-11 pr-4 text-sm text-slate-700 shadow-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/10"
+          />
+        </div>
         <select
           value={statusFilter}
           onChange={(event) => setStatusFilter(event.target.value)}
-          className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700"
+          className="rounded-full border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none"
         >
-          <option value="All">Status: All</option>
-          <option value="Active">Active</option>
-          <option value="Inactive">Inactive</option>
+          <option value="all">All</option>
+          <option value="active">Active</option>
+          <option value="inactive">Inactive</option>
         </select>
       </div>
 
-      {loading ? (
-        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+      {teachersQuery.isLoading ? (
+        <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
           {Array.from({ length: 6 }).map((_, index) => (
-            <div key={`teacher-skeleton-${index}`} className="glass-card space-y-3">
-              <div className="skeleton h-24 w-full" />
-              <div className="skeleton h-4 w-1/2" />
-              <div className="skeleton h-4 w-3/4" />
+            <div key={`teacher-skeleton-${index}`} className="glass-card space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="skeleton h-14 w-14 rounded-full" />
+                <div className="flex-1 space-y-2">
+                  <div className="skeleton h-4 w-3/4" />
+                  <div className="skeleton h-4 w-2/3" />
+                </div>
+              </div>
+              <div className="skeleton h-6 w-24 rounded-full" />
+              <div className="skeleton h-12 w-full" />
+              <div className="skeleton h-10 w-full rounded-2xl" />
             </div>
           ))}
         </div>
       ) : filteredTeachers.length === 0 ? (
-        <div className="rounded-3xl border border-dashed border-slate-200 bg-white p-10 text-center text-sm text-slate-500">
-          No teachers found.
+        <div className="glass-card flex min-h-[320px] flex-col items-center justify-center text-center">
+          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-blue-100 text-blue-700">
+            <svg viewBox="0 0 24 24" className="h-8 w-8" fill="currentColor">
+              <path d="M12 12a4 4 0 1 1 0-8 4 4 0 0 1 0 8zm-7 8a7 7 0 1 1 14 0H5z" />
+            </svg>
+          </div>
+          <h3 className="mt-4 text-xl font-semibold text-slate-900">
+            {teachers.length === 0 ? "No teachers added yet" : "No teachers found"}
+          </h3>
+          <p className="mt-2 text-sm text-slate-500">
+            {teachers.length === 0
+              ? "Create teacher accounts to start assigning subjects and classes."
+              : "Try changing the search or status filter."}
+          </p>
+          {teachers.length === 0 ? (
+            <button type="button" onClick={openAdd} className="btn-primary mt-5">
+              Add your first teacher
+            </button>
+          ) : null}
         </div>
       ) : (
-        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-          {filteredTeachers.map((teacher) => {
-            const initials = teacher.name
-              .split(" ")
-              .slice(0, 2)
-              .map((word) => word[0])
-              .join("");
-            return (
-              <div key={teacher.id} className="glass-card card-hover flex flex-col gap-4">
-                <div className="flex items-center gap-3">
-                  <div className="relative flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
-                    {initials}
-                    <span
-                      className={`absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white ${
-                        teacher.status === "Active" ? "bg-emerald-400" : "bg-slate-300"
-                      }`}
-                    />
-                  </div>
-                  <div>
-                    <h3 className="font-heading text-lg text-slate-900">
-                      {teacher.name}
-                    </h3>
-                    <span className="inline-flex rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
-                      {teacher.subject}
-                    </span>
-                  </div>
+        <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
+          {filteredTeachers.map((teacher) => (
+            <div key={teacher.uid} className="glass-card card-hover flex flex-col gap-4">
+              <div className="flex items-start gap-3">
+                <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-blue-100 text-base font-bold text-blue-700">
+                  {teacher.initials}
                 </div>
-                <div className="flex flex-wrap items-center gap-4 text-sm text-slate-600">
-                  <span>{teacher.courses.length} Courses</span>
-                  <span>{teacher.students} Students</span>
-                  <span>⭐ {teacher.rating}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span
-                    className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                      teacher.status === "Active"
-                        ? "bg-emerald-50 text-emerald-600"
-                        : "bg-slate-100 text-slate-500"
-                    }`}
-                  >
-                    {teacher.status}
-                  </span>
-                  <div className="flex gap-2">
-                    <button
-                      className="rounded-full border border-slate-200 px-3 py-1 text-xs"
-                      onClick={() => openEdit(teacher)}
-                    >
-                      Edit
-                    </button>
-                    <button
-                      className="rounded-full border border-slate-200 px-3 py-1 text-xs"
-                      onClick={() => setDetailTeacher(teacher)}
-                    >
-                      View Courses
-                    </button>
-                    <button
-                      className="rounded-full border border-slate-200 px-3 py-1 text-xs text-slate-600"
-                      onClick={() => setShowDeactivate(teacher)}
-                    >
-                      {teacher.status === "Active" ? "Deactivate" : "Activate"}
-                    </button>
-                  </div>
+                <div className="min-w-0 flex-1">
+                  <h3 className="truncate text-lg font-semibold text-slate-900">
+                    {teacher.fullName}
+                  </h3>
+                  <p className="truncate text-sm text-slate-500">{teacher.email}</p>
                 </div>
               </div>
-            );
-          })}
-        </div>
-      )}
 
-      {showModal && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center px-4">
-          <button
-            type="button"
-            className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
-            onClick={() => setShowModal(false)}
-          />
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="relative w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl"
-          >
-            <h3 className="font-heading text-2xl text-slate-900">
-              {form.id ? "Edit Teacher" : "Add Teacher"}
-            </h3>
-            <form onSubmit={handleSave} className="mt-5 space-y-4">
-              <input
-                type="text"
-                placeholder="Full Name"
-                value={form.name}
-                onChange={(event) => setForm({ ...form, name: event.target.value })}
-                className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm"
-              />
-              <input
-                type="email"
-                placeholder="Email"
-                value={form.email}
-                onChange={(event) => setForm({ ...form, email: event.target.value })}
-                className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm"
-              />
-              {!form.id && (
-                <input
-                  type="password"
-                  placeholder="Password"
-                  value={form.password}
-                  onChange={(event) =>
-                    setForm({ ...form, password: event.target.value })
-                  }
-                  className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm"
-                />
-              )}
-              <input
-                type="text"
-                placeholder="Subject / Expertise"
-                value={form.subject}
-                onChange={(event) => setForm({ ...form, subject: event.target.value })}
-                className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm"
-              />
-              <textarea
-                rows={3}
-                placeholder="Bio"
-                value={form.bio}
-                onChange={(event) => setForm({ ...form, bio: event.target.value })}
-                className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm"
-              />
-              <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-6 text-center text-sm text-slate-500">
-                Profile photo upload placeholder
-              </div>
-              <div className="space-y-2">
-                <p className="text-sm font-semibold text-slate-700">Assigned Courses</p>
-                <div className="grid gap-2 sm:grid-cols-2">
-                  {allCourses.map((course) => (
-                    <label key={course} className="flex items-center gap-2 text-sm text-slate-600">
-                      <input
-                        type="checkbox"
-                        checked={form.courses.includes(course)}
-                        onChange={() => toggleCourseSelection(course)}
-                      />
-                      {course}
-                    </label>
-                  ))}
-                </div>
-              </div>
-              <select
-                value={form.status}
-                onChange={(event) => setForm({ ...form, status: event.target.value })}
-                className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm"
-              >
-                <option value="Active">Active</option>
-                <option value="Inactive">Inactive</option>
-              </select>
-              <button type="submit" className="btn-primary w-full" disabled={saving}>
-                {saving ? "Saving..." : "Save Teacher"}
-              </button>
-            </form>
-          </motion.div>
-        </div>
-      )}
-
-      {showDeactivate && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center px-4">
-          <button
-            type="button"
-            className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
-            onClick={() => setShowDeactivate(null)}
-          />
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="relative w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl"
-          >
-            <h3 className="font-heading text-2xl text-slate-900">
-              {showDeactivate.status === "Active" ? "Deactivate" : "Activate"} teacher?
-            </h3>
-            <p className="mt-2 text-sm text-slate-600">
-              Are you sure you want to{" "}
-              {showDeactivate.status === "Active" ? "deactivate" : "activate"}{" "}
-              <span className="font-semibold text-slate-900">{showDeactivate.name}</span>?
-            </p>
-            <div className="mt-6 flex justify-end gap-3">
-              <button
-                className="rounded-full border border-slate-200 px-4 py-2 text-sm"
-                onClick={() => setShowDeactivate(null)}
-              >
-                Cancel
-              </button>
-              <button className="btn-primary" onClick={handleDeactivate}>
-                Confirm
-              </button>
-            </div>
-          </motion.div>
-        </div>
-      )}
-
-      {detailTeacher && (
-        <div className="fixed inset-0 z-[60] flex items-start justify-end">
-          <button
-            type="button"
-            className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
-            onClick={() => setDetailTeacher(null)}
-          />
-          <motion.aside
-            initial={{ x: 320, opacity: 0 }}
-            animate={{ x: 0, opacity: 1 }}
-            className="relative h-full w-full max-w-md bg-white p-6 shadow-2xl"
-          >
-            <div className="flex items-center justify-between">
-              <h3 className="font-heading text-2xl text-slate-900">Teacher Profile</h3>
-              <button
-                className="rounded-full border border-slate-200 p-2 text-slate-500"
-                onClick={() => setDetailTeacher(null)}
-              >
-                x
-              </button>
-            </div>
-            <div className="mt-4 space-y-2">
-              <p className="font-semibold text-slate-900">{detailTeacher.name}</p>
-              <p className="text-sm text-slate-600">{detailTeacher.subject}</p>
-              <p className="text-sm text-slate-500">{detailTeacher.bio}</p>
-            </div>
-            <div className="mt-6 space-y-4">
-              <div>
-                <p className="text-xs uppercase text-slate-400">Courses</p>
-                <div className="mt-2 space-y-2">
-                  {detailTeacher.courses.map((course) => (
-                    <div key={course} className="rounded-xl border border-slate-200 px-3 py-2 text-sm">
-                      {course}
-                      <span className="ml-2 rounded-full bg-emerald-50 px-2 py-1 text-xs text-emerald-600">
-                        Published
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <p className="text-xs uppercase text-slate-400">Classes</p>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {detailTeacher.classes.map((item) => (
-                    <span key={item} className="rounded-full bg-slate-100 px-3 py-1 text-xs">
-                      {item}
-                    </span>
-                  ))}
-                </div>
-              </div>
-              <div className="flex items-center justify-between text-sm text-slate-600">
-                <span>Total Students</span>
-                <span className="font-semibold text-slate-900">{detailTeacher.students}</span>
-              </div>
-              <div className="flex items-center justify-between text-sm text-slate-600">
-                <span>Revenue Generated</span>
-                <span className="font-semibold text-slate-900">
-                  PKR {detailTeacher.revenue.toLocaleString()}
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="inline-flex rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
+                  {teacher.subject}
+                </span>
+                <span
+                  className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
+                    teacher.isActive
+                      ? "bg-emerald-50 text-emerald-600"
+                      : "bg-rose-50 text-rose-600"
+                  }`}
+                >
+                  {teacher.isActive ? "Active" : "Inactive"}
                 </span>
               </div>
+
+              <p className="line-clamp-2 min-h-[40px] text-sm text-slate-600">
+                {teacher.bio || "No bio added yet."}
+              </p>
+
+              <div className="text-xs text-slate-500">Joined: {teacher.joinedDate}</div>
+
+              <div className="mt-auto flex items-center justify-between gap-2">
+                <button
+                  type="button"
+                  onClick={() => openEdit(teacher)}
+                  className="rounded-full border border-slate-200 p-2 text-slate-500 transition hover:text-primary"
+                  aria-label="Edit teacher"
+                >
+                  <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
+                    <path d="M3 17.2V21h3.8l11-11-3.8-3.8-11 11zm17.7-10.5a1 1 0 0 0 0-1.4l-2-2a1 1 0 0 0-1.4 0l-1.6 1.6 3.8 3.8 1.2-1z" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openStatusConfirm(teacher)}
+                  className={`rounded-full px-4 py-2 text-xs font-semibold ${
+                    teacher.isActive
+                      ? "bg-rose-50 text-rose-600"
+                      : "bg-emerald-50 text-emerald-600"
+                  }`}
+                >
+                  {teacher.isActive ? "Deactivate" : "Activate"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openDeleteConfirm(teacher)}
+                  className="rounded-full border border-slate-200 p-2 text-rose-500 transition hover:text-rose-600"
+                  aria-label="Delete teacher"
+                >
+                  <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
+                    <path d="M6 7h12l-1 14H7L6 7zm3-3h6l1 2H8l1-2z" />
+                  </svg>
+                </button>
+              </div>
             </div>
-          </motion.aside>
+          ))}
         </div>
       )}
 
-      {toast && (
-        <div
-          className={`fixed right-6 top-6 z-50 rounded-2xl px-4 py-3 text-sm font-semibold text-white shadow-xl ${
-            toast.type === "success" ? "bg-emerald-500" : "bg-rose-500"
-          }`}
-        >
-          {toast.message}
+      <ModalShell
+        open={showAddModal}
+        title="Add Teacher"
+        onClose={() => {
+          if (createTeacherMutation.isPending) return;
+          setShowAddModal(false);
+        }}
+        maxWidth="max-w-2xl"
+      >
+        <form onSubmit={submitAddTeacher} className="mt-6 space-y-5">
+          <div className="grid gap-5 md:grid-cols-2">
+            <div>
+              <label className="text-sm font-semibold text-slate-700">Full Name</label>
+              <input
+                type="text"
+                value={addForm.fullName}
+                onChange={(event) => handleAddChange("fullName", event.target.value)}
+                onBlur={() => markAddTouched("fullName")}
+                className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/10"
+                placeholder="Teacher full name"
+              />
+              <FieldError message={addTouched.fullName ? addErrors.fullName : ""} />
+            </div>
+
+            <div>
+              <label className="text-sm font-semibold text-slate-700">Email</label>
+              <input
+                type="email"
+                value={addForm.email}
+                onChange={(event) => handleAddChange("email", event.target.value)}
+                onBlur={() => markAddTouched("email")}
+                className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/10"
+                placeholder="teacher@example.com"
+              />
+              <FieldError
+                message={(addTouched.email ? addErrors.email : "") || emailFieldError}
+              />
+            </div>
+
+            <div>
+              <label className="text-sm font-semibold text-slate-700">Password</label>
+              <div className="relative mt-2">
+                <input
+                  type={showPassword ? "text" : "password"}
+                  value={addForm.password}
+                  onChange={(event) => handleAddChange("password", event.target.value)}
+                  onBlur={() => markAddTouched("password")}
+                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 pr-12 text-sm text-slate-700 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/10"
+                  placeholder="Create password"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((current) => !current)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full p-1 text-slate-400 transition hover:text-slate-700"
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                >
+                  {showPassword ? (
+                    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
+                      <path d="M12 5c5.5 0 9.5 5.5 9.7 5.8l.3.4-.3.4c-.1.2-1.5 2-3.8 3.6l-1.4-1.4a12.4 12.4 0 0 0 2.8-2.6C18 9.8 15.3 7 12 7c-.8 0-1.6.2-2.3.5L8.1 5.9A8.2 8.2 0 0 1 12 5zm-9.7.2L4.9 7.8l2 2A13.5 13.5 0 0 0 2 11.2c.6.9 3.8 5.8 10 5.8 1.4 0 2.7-.2 3.8-.7l2.3 2.3 1.4-1.4L3.7 3.8 2.3 5.2zm8.4 8.4 2 2c-.2.1-.5.1-.7.1a4 4 0 0 1-4-4c0-.2 0-.5.1-.7l2 2a2 2 0 0 0 2.6 2.6zm4.4-.2-5-5a4 4 0 0 1 5 5z" />
+                    </svg>
+                  ) : (
+                    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
+                      <path d="M12 5c5.5 0 9.5 5.5 9.7 5.8l.3.4-.3.4C21.5 12 17.5 17 12 17S2.5 12 2.3 11.6l-.3-.4.3-.4C2.5 10.5 6.5 5 12 5zm0 2C8.7 7 6 9.8 4.7 11.2 6 12.6 8.7 15 12 15s6-2.4 7.3-3.8C18 9.8 15.3 7 12 7zm0 1.5a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5z" />
+                    </svg>
+                  )}
+                </button>
+              </div>
+              <FieldError message={addTouched.password ? addErrors.password : ""} />
+            </div>
+
+            <div>
+              <label className="text-sm font-semibold text-slate-700">Phone</label>
+              <input
+                type="text"
+                value={addForm.phone}
+                onChange={(event) =>
+                  handleAddChange("phone", sanitizePhone(event.target.value))
+                }
+                onBlur={() => markAddTouched("phone")}
+                className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/10"
+                placeholder="+923001234567"
+              />
+              <FieldError message={addTouched.phone ? addErrors.phone : ""} />
+            </div>
+
+            <div className="md:col-span-2">
+              <label className="text-sm font-semibold text-slate-700">Subject</label>
+              <input
+                type="text"
+                value={addForm.subject}
+                onChange={(event) => handleAddChange("subject", event.target.value)}
+                onBlur={() => markAddTouched("subject")}
+                className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/10"
+                placeholder="Biology"
+              />
+              <FieldError message={addTouched.subject ? addErrors.subject : ""} />
+            </div>
+
+            <div className="md:col-span-2">
+              <div className="flex items-center justify-between gap-3">
+                <label className="text-sm font-semibold text-slate-700">Bio</label>
+                <span className="text-xs text-slate-400">{addForm.bio.length}/300</span>
+              </div>
+              <textarea
+                value={addForm.bio}
+                onChange={(event) =>
+                  handleAddChange("bio", event.target.value.slice(0, 300))
+                }
+                onBlur={() => markAddTouched("bio")}
+                rows={4}
+                className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/10"
+                placeholder="Short teacher bio"
+              />
+              <FieldError message={addTouched.bio ? addErrors.bio : ""} />
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-3 border-t border-slate-100 pt-5">
+            <button
+              type="button"
+              onClick={() => setShowAddModal(false)}
+              disabled={createTeacherMutation.isPending}
+              className="rounded-full border border-slate-200 px-5 py-2.5 text-sm font-semibold text-slate-600 transition hover:border-slate-300 hover:text-slate-900"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={createTeacherMutation.isPending}
+              className="inline-flex min-w-[140px] items-center justify-center rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-white transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-70"
+            >
+              {createTeacherMutation.isPending ? (
+                <span className="inline-flex items-center gap-2">
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                  Creating...
+                </span>
+              ) : (
+                "Create Teacher"
+              )}
+            </button>
+          </div>
+        </form>
+      </ModalShell>
+
+      <ModalShell
+        open={showEditModal}
+        title="Edit Teacher"
+        onClose={() => {
+          if (updateTeacherMutation.isPending) return;
+          setShowEditModal(false);
+        }}
+        maxWidth="max-w-2xl"
+      >
+        <form onSubmit={submitEditTeacher} className="mt-6 space-y-5">
+          <div className="grid gap-5 md:grid-cols-2">
+            <div>
+              <label className="text-sm font-semibold text-slate-700">Full Name</label>
+              <input
+                type="text"
+                value={editForm.fullName}
+                onChange={(event) => handleEditChange("fullName", event.target.value)}
+                onBlur={() => markEditTouched("fullName")}
+                className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/10"
+                placeholder="Teacher full name"
+              />
+              <FieldError message={editTouched.fullName ? editErrors.fullName : ""} />
+            </div>
+
+            <div>
+              <label className="text-sm font-semibold text-slate-700">Phone</label>
+              <input
+                type="text"
+                value={editForm.phone}
+                onChange={(event) =>
+                  handleEditChange("phone", sanitizePhone(event.target.value))
+                }
+                onBlur={() => markEditTouched("phone")}
+                className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/10"
+                placeholder="+923001234567"
+              />
+              <FieldError message={editTouched.phone ? editErrors.phone : ""} />
+            </div>
+
+            <div className="md:col-span-2">
+              <label className="text-sm font-semibold text-slate-700">Subject</label>
+              <input
+                type="text"
+                value={editForm.subject}
+                onChange={(event) => handleEditChange("subject", event.target.value)}
+                onBlur={() => markEditTouched("subject")}
+                className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/10"
+                placeholder="Biology"
+              />
+              <FieldError message={editTouched.subject ? editErrors.subject : ""} />
+            </div>
+
+            <div className="md:col-span-2">
+              <div className="flex items-center justify-between gap-3">
+                <label className="text-sm font-semibold text-slate-700">Bio</label>
+                <span className="text-xs text-slate-400">{editForm.bio.length}/300</span>
+              </div>
+              <textarea
+                value={editForm.bio}
+                onChange={(event) =>
+                  handleEditChange("bio", event.target.value.slice(0, 300))
+                }
+                onBlur={() => markEditTouched("bio")}
+                rows={4}
+                className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/10"
+                placeholder="Short teacher bio"
+              />
+              <FieldError message={editTouched.bio ? editErrors.bio : ""} />
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-3 border-t border-slate-100 pt-5">
+            <button
+              type="button"
+              onClick={() => setShowEditModal(false)}
+              disabled={updateTeacherMutation.isPending}
+              className="rounded-full border border-slate-200 px-5 py-2.5 text-sm font-semibold text-slate-600 transition hover:border-slate-300 hover:text-slate-900"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={updateTeacherMutation.isPending}
+              className="inline-flex min-w-[140px] items-center justify-center rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-white transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-70"
+            >
+              {updateTeacherMutation.isPending ? (
+                <span className="inline-flex items-center gap-2">
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                  Saving...
+                </span>
+              ) : (
+                "Save Changes"
+              )}
+            </button>
+          </div>
+        </form>
+      </ModalShell>
+
+      <ModalShell
+        open={showStatusModal && Boolean(selectedTeacher)}
+        title={selectedTeacher?.isActive ? "Deactivate Teacher" : "Activate Teacher"}
+        onClose={() => {
+          if (statusMutation.isPending) return;
+          setShowStatusModal(false);
+          setSelectedTeacher(null);
+        }}
+      >
+        <div className="mt-6 space-y-5">
+          <p className="text-sm leading-6 text-slate-600">
+            {selectedTeacher?.isActive
+              ? `Are you sure you want to deactivate ${selectedTeacher?.fullName}? Teacher will lose access immediately.`
+              : `Activate ${selectedTeacher?.fullName}? Teacher will regain access.`}
+          </p>
+
+          <div className="flex justify-end gap-3 border-t border-slate-100 pt-5">
+            <button
+              type="button"
+              onClick={() => {
+                setShowStatusModal(false);
+                setSelectedTeacher(null);
+              }}
+              disabled={statusMutation.isPending}
+              className="rounded-full border border-slate-200 px-5 py-2.5 text-sm font-semibold text-slate-600 transition hover:border-slate-300 hover:text-slate-900"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={statusMutation.isPending || !selectedTeacher}
+              onClick={() =>
+                selectedTeacher &&
+                statusMutation.mutate({
+                  uid: selectedTeacher.uid,
+                  isActive: !selectedTeacher.isActive,
+                })
+              }
+              className={`inline-flex min-w-[140px] items-center justify-center rounded-full px-5 py-2.5 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-70 ${
+                selectedTeacher?.isActive
+                  ? "bg-rose-500 hover:bg-rose-600"
+                  : "bg-emerald-500 hover:bg-emerald-600"
+              }`}
+            >
+              {statusMutation.isPending ? (
+                <span className="inline-flex items-center gap-2">
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                  Updating...
+                </span>
+              ) : selectedTeacher?.isActive ? (
+                "Deactivate"
+              ) : (
+                "Activate"
+              )}
+            </button>
+          </div>
         </div>
-      )}
+      </ModalShell>
+
+      <ModalShell
+        open={showDeleteModal && Boolean(selectedTeacher)}
+        title="Delete Teacher"
+        onClose={() => {
+          if (deleteTeacherMutation.isPending) return;
+          setShowDeleteModal(false);
+          setSelectedTeacher(null);
+        }}
+      >
+        <div className="mt-6 space-y-4">
+          <p className="text-sm leading-6 text-slate-600">
+            Delete <span className="font-semibold text-slate-900">{selectedTeacher?.fullName}</span>? This cannot be undone.
+          </p>
+          <div className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-500">
+            {selectedTeacher?.email}
+          </div>
+
+          <div className="flex justify-end gap-3 border-t border-slate-100 pt-5">
+            <button
+              type="button"
+              onClick={() => {
+                setShowDeleteModal(false);
+                setSelectedTeacher(null);
+              }}
+              disabled={deleteTeacherMutation.isPending}
+              className="rounded-full border border-slate-200 px-5 py-2.5 text-sm font-semibold text-slate-600 transition hover:border-slate-300 hover:text-slate-900"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={deleteTeacherMutation.isPending || !selectedTeacher}
+              onClick={() => selectedTeacher && deleteTeacherMutation.mutate(selectedTeacher.uid)}
+              className="inline-flex min-w-[120px] items-center justify-center rounded-full bg-rose-500 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-rose-600 disabled:cursor-not-allowed disabled:opacity-70"
+            >
+              {deleteTeacherMutation.isPending ? (
+                <span className="inline-flex items-center gap-2">
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                  Deleting...
+                </span>
+              ) : (
+                "Delete"
+              )}
+            </button>
+          </div>
+        </div>
+      </ModalShell>
     </div>
   );
 }

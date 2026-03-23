@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { Link } from "react-router-dom";
 import { Skeleton, SkeletonCard } from "../../components/Skeleton.jsx";
+import { useAuth } from "../../hooks/useAuth.js";
 
 const fadeUp = {
   initial: { opacity: 0, y: 16 },
@@ -189,6 +190,7 @@ const statusStyles = {
 };
 
 function StudentDashboard() {
+  const { userProfile } = useAuth();
   const [loading, setLoading] = useState(true);
   const [quote, setQuote] = useState(quotes[0]);
 
@@ -208,12 +210,18 @@ function StudentDashboard() {
       }),
     []
   );
+  const displayName =
+    userProfile?.name ||
+    userProfile?.fullName ||
+    userProfile?.email ||
+    "Student";
+  const firstName = displayName.split(" ")[0] || displayName;
 
   return (
     <div className="space-y-6">
       <motion.section {...fadeUp} className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
         <h2 className="font-heading text-2xl text-slate-900">
-          Welcome back, Sana!
+          Welcome back, {firstName}!
         </h2>
         <p className="mt-2 text-sm text-slate-500">{quote}</p>
         <div className="mt-4 flex flex-wrap items-center gap-3 text-sm text-slate-500">

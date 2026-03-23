@@ -1,138 +1,198 @@
 import api from "../api/axios.js";
 
-export const getDashboardStats = async () => {
-  const response = await api.get("/admin/dashboard/stats");
-  return response.data;
-};
+export const getDashboardStats = () =>
+  api.get("/admin/stats").then((r) => r.data.data);
 
-export const getRecentEnrollments = async () => {
-  const response = await api.get("/admin/dashboard/enrollments");
-  return response.data;
-};
+export const getRevenueChart = (days = 7) =>
+  api.get(`/admin/revenue-chart?days=${days}`).then((r) => r.data.data);
 
-export const getTopCourses = async () => {
-  const response = await api.get("/admin/dashboard/top-courses");
-  return response.data;
-};
+export const getRecentEnrollments = () =>
+  api.get("/admin/recent-enrollments").then((r) => r.data.data);
 
-export const getRecentActivity = async () => {
-  const response = await api.get("/admin/dashboard/activity");
-  return response.data;
-};
+export const getTopCourses = () =>
+  api.get("/admin/top-courses").then((r) => r.data.data);
 
-export const getRevenueChart = async (days = 7) => {
-  const response = await api.get(
-    `/admin/dashboard/revenue-chart?days=${days}`
-  );
-  return response.data;
-};
+export const getRecentActivity = () =>
+  api.get("/admin/recent-activity").then((r) => r.data.data);
 
-export const getUsers = async (params) => {
-  const response = await api.get("/admin/users", { params });
-  return response.data;
-};
+export const getAnalyticsReport = (days = 30) =>
+  api.get(`/admin/analytics-report?days=${days}`).then((r) => r.data.data);
 
-export const createUser = async (data) => {
-  const response = await api.post("/admin/users", data);
-  return response.data;
-};
+export const getUsers = (params) =>
+  api.get("/admin/users", { params }).then((r) => r.data.data);
 
-export const updateUser = async (uid, data) => {
-  const response = await api.put(`/admin/users/${uid}`, data);
-  return response.data;
-};
+export const createUser = (data) =>
+  api.post("/admin/users", data).then((r) => r.data);
 
-export const resetUserDevice = async (uid, data) => {
-  const response = await api.patch(`/admin/users/${uid}/reset-device`, data);
-  return response.data;
-};
+export const updateUser = (uid, data) =>
+  api.put(`/admin/users/${uid}`, data).then((r) => r.data);
 
-export const deleteUser = async (uid) => {
-  const response = await api.delete(`/admin/users/${uid}`);
-  return response.data;
-};
+export const deleteUser = (uid) =>
+  api.delete(`/admin/users/${uid}`).then((r) => r.data);
 
-export const setUserRole = async (uid, role) => {
-  const response = await api.patch(`/admin/users/${uid}/role`, { role });
-  return response.data;
-};
+export const setUserRole = (uid, role) =>
+  api.patch(`/admin/users/${uid}/role`, { role }).then((r) => r.data);
 
-export const getTeachers = async () => {
-  const response = await api.get("/admin/teachers");
-  return response.data;
-};
+export const resetUserDevice = (uid, data) =>
+  api.patch(`/admin/users/${uid}/reset-device`, data).then((r) => r.data);
 
-export const createTeacher = async (data) => {
-  const response = await api.post("/admin/teachers", data);
-  return response.data;
-};
+export const resetDevice = resetUserDevice;
 
-export const getStudents = async () => {
-  const response = await api.get("/admin/students");
-  return response.data;
-};
+export const getTeachers = () =>
+  api.get("/admin/teachers").then((r) => r.data.data);
 
-export const getCourses = async () => {
-  const response = await api.get("/admin/courses");
-  return response.data;
-};
+export const getStudents = () =>
+  api.get("/admin/students").then((r) => r.data.data);
 
-export const createCourse = async (data) => {
-  const response = await api.post("/admin/courses", data);
-  return response.data;
-};
+export const getCourses = () =>
+  api.get("/admin/courses").then((r) => r.data.data);
 
-export const updateCourse = async (id, data) => {
-  const response = await api.put(`/admin/courses/${id}`, data);
-  return response.data;
-};
+export const createCourse = (data) =>
+  api.post("/admin/courses", data).then((r) => r.data);
 
-export const deleteCourse = async (id) => {
-  const response = await api.delete(`/admin/courses/${id}`);
-  return response.data;
-};
+export const updateCourse = (id, data) =>
+  api.put(`/admin/courses/${id}`, data).then((r) => r.data);
 
-export const getClasses = async () => {
-  const response = await api.get("/admin/classes");
-  return response.data;
-};
+export const patchCourse = (id, data) =>
+  api.patch(`/admin/courses/${id}`, data).then((r) => r.data);
 
-export const createClass = async (data) => {
-  const response = await api.post("/admin/classes", data);
-  return response.data;
-};
+export const deleteCourse = (id) =>
+  api.delete(`/admin/courses/${id}`).then((r) => r.data);
 
-export const getPayments = async (params) => {
-  const response = await api.get("/admin/payments", { params });
-  return response.data;
-};
+export const addCourseSubject = (courseId, data) =>
+  api.post(`/admin/courses/${courseId}/subjects`, data).then((r) => r.data);
 
-export const verifyBankTransfer = async (id, action) => {
-  const response = await api.patch(`/admin/payments/${id}/verify`, { action });
-  return response.data;
-};
+export const removeCourseSubject = (courseId, subjectId) =>
+  api
+    .delete(`/admin/courses/${courseId}/subjects/${subjectId}`)
+    .then((r) => r.data);
 
-export const getPromoCodes = async () => {
-  const response = await api.get("/admin/promo-codes");
-  return response.data;
-};
+export const addCourseContent = (courseId, subjectId, data) =>
+  api
+    .post(`/admin/courses/${courseId}/subjects/${subjectId}/content`, data)
+    .then((r) => r.data);
 
-export const createPromoCode = async (data) => {
-  const response = await api.post("/admin/promo-codes", data);
-  return response.data;
-};
+export const getCourseContent = (courseId) =>
+  api.get(`/admin/courses/${courseId}/content`).then((r) => r.data.data);
 
-export const getCertificates = async () => {
-  const response = await api.get("/admin/certificates");
-  return response.data;
-};
+export const deleteCourseContent = (courseId, contentId) =>
+  api
+    .delete(`/admin/courses/${courseId}/content/${contentId}`)
+    .then((r) => r.data);
 
-export const getAnnouncements = async () => {
-  const response = await api.get("/admin/announcements");
-  return response.data;
-};
+export const getClasses = () =>
+  api.get("/admin/classes").then((r) => r.data.data);
 
-export const createAnnouncement = async (data) => {
-  const response = await api.post("/admin/announcements", data);
-  return response.data;
-};
+export const createClass = (data) =>
+  api.post("/admin/classes", data).then((r) => r.data);
+
+export const updateClass = (id, data) =>
+  api.put(`/admin/classes/${id}`, data).then((r) => r.data);
+
+export const deleteClass = (id) =>
+  api.delete(`/admin/classes/${id}`).then((r) => r.data);
+
+export const addClassCourse = (classId, courseId) =>
+  api
+    .post(`/admin/classes/${classId}/courses`, { courseId })
+    .then((r) => r.data);
+
+export const removeClassCourse = (classId, courseId) =>
+  api
+    .delete(`/admin/classes/${classId}/courses/${courseId}`)
+    .then((r) => r.data);
+
+export const addClassShift = (classId, data) =>
+  api
+    .post(`/admin/classes/${classId}/shifts`, data)
+    .then((r) => r.data);
+
+export const updateClassShift = (classId, shiftId, data) =>
+  api
+    .put(`/admin/classes/${classId}/shifts/${shiftId}`, data)
+    .then((r) => r.data);
+
+export const deleteClassShift = (classId, shiftId) =>
+  api
+    .delete(`/admin/classes/${classId}/shifts/${shiftId}`)
+    .then((r) => r.data);
+
+export const addStudentToClass = (classId, data) =>
+  api
+    .post(`/admin/classes/${classId}/students`, data)
+    .then((r) => r.data);
+
+export const getClassStudents = (classId) =>
+  api
+    .get(`/admin/classes/${classId}/students`)
+    .then((r) => r.data.data);
+
+export const removeStudentFromClass = (classId, studentId) =>
+  api
+    .delete(`/admin/classes/${classId}/students/${studentId}`)
+    .then((r) => r.data);
+
+export const getAvailableClasses = (courseId) =>
+  api
+    .get("/classes/available", { params: { courseId } })
+    .then((r) => r.data.data);
+
+export const enrollInClass = (classId, studentId) =>
+  addStudentToClass(classId, { studentId });
+
+export const removeFromClass = (classId, studentId) =>
+  removeStudentFromClass(classId, studentId);
+
+export const getPayments = (params) =>
+  api.get("/admin/payments", { params }).then((r) => r.data.data);
+
+export const verifyBankTransfer = (id, action) =>
+  api.patch(`/admin/payments/${id}/verify`, { action }).then((r) => r.data);
+
+export const getInstallments = () =>
+  api.get("/admin/installments").then((r) => r.data.data);
+
+export const createInstallmentPlan = (data) =>
+  api.post("/admin/installments", data).then((r) => r.data);
+
+export const markInstallmentPaid = (planId, number) =>
+  api.patch(`/admin/installments/${planId}/${number}/pay`).then((r) => r.data);
+
+export const getPromoCodes = () =>
+  api.get("/admin/promo-codes").then((r) => r.data.data);
+
+export const createPromoCode = (data) =>
+  api.post("/admin/promo-codes", data).then((r) => r.data);
+
+export const updatePromoCode = (id, data) =>
+  api.put(`/admin/promo-codes/${id}`, data).then((r) => r.data);
+
+export const deletePromoCode = (id) =>
+  api.delete(`/admin/promo-codes/${id}`).then((r) => r.data);
+
+export const validatePromoCode = (code, courseId) =>
+  api.post("/admin/promo-codes/validate", { code, courseId }).then((r) => r.data);
+
+export const getCertificates = () =>
+  api.get("/admin/certificates").then((r) => r.data.data);
+
+export const generateCertificate = (data) =>
+  api.post("/admin/certificates", data).then((r) => r.data);
+
+export const getAnnouncements = () =>
+  api.get("/admin/announcements").then((r) => r.data.data);
+
+export const createAnnouncement = (data) =>
+  api.post("/admin/announcements", data).then((r) => r.data);
+
+export const updateAnnouncement = (id, data) =>
+  api.put(`/admin/announcements/${id}`, data).then((r) => r.data);
+
+export const deleteAnnouncement = (id) =>
+  api.delete(`/admin/announcements/${id}`).then((r) => r.data);
+
+export const getSiteSettings = () =>
+  api.get("/admin/settings").then((r) => r.data.data);
+
+export const updateSiteSettings = (data) =>
+  api.put("/admin/settings", data).then((r) => r.data);

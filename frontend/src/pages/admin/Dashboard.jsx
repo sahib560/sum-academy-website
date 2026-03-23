@@ -269,6 +269,8 @@ function Dashboard() {
     [revenueRaw]
   );
 
+  const hasRevenueData = revenueData.some((item) => Number(item.amount || 0) > 0);
+
   const enrollments = useMemo(() => {
     const data = enrollmentsResponse?.data ?? enrollmentsResponse ?? [];
     return Array.isArray(data) ? data : [];
@@ -392,7 +394,7 @@ function Dashboard() {
                 </button>
               </div>
             </div>
-          ) : revenueData.length === 0 ? (
+          ) : revenueData.length === 0 || !hasRevenueData ? (
             <div className="flex h-48 items-center justify-center text-sm text-slate-500">
               No revenue data yet
             </div>
@@ -457,7 +459,9 @@ function Dashboard() {
                 Failed to load enrollments.
               </div>
             ) : enrollments.length === 0 ? (
-              <div className="text-sm text-slate-500">No enrollments yet.</div>
+              <div className="flex h-32 items-center justify-center text-sm text-slate-500">
+                No enrollments yet
+              </div>
             ) : (
               <>
                 <div className="space-y-3 sm:hidden">

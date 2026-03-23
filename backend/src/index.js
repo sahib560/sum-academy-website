@@ -9,6 +9,9 @@ import dotenv       from "dotenv";
 import { db }       from "./config/firebase.js";
 import authRoutes   from "./routes/auth.routes.js";
 import adminRoutes  from "./routes/admin.routes.js";
+import classesPublicRoutes from "./routes/classes.routes.js";
+import { verifyToken } from "./middlewares/auth.middleware.js";
+import { validatePromoCode } from "./controllers/admin.controller.js";
 
 dotenv.config();
 
@@ -45,6 +48,8 @@ if (process.env.NODE_ENV === "development") {
 // ── Routes ────────────────────────────────────────────────────
 app.use("/api/auth", authRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/classes", classesPublicRoutes);
+app.post("/api/promo-codes/validate", verifyToken, validatePromoCode);
 
 app.get("/api/health", (req, res) => {
   res.json({

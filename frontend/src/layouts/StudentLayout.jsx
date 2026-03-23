@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { logout } from "../services/auth.service.js";
+import { useAuth } from "../hooks/useAuth.js";
 
 const navItems = [
   { label: "Dashboard", to: "/student/dashboard", icon: "grid" },
@@ -84,6 +85,7 @@ const iconMap = {
 function StudentLayout() {
   const location = useLocation();
   const navigate = useNavigate();
+  const { userProfile } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
 
@@ -122,6 +124,20 @@ function StudentLayout() {
       navigate("/login");
     }
   };
+
+  const displayName =
+    userProfile?.name ||
+    userProfile?.fullName ||
+    userProfile?.email ||
+    "Student";
+  const initials = displayName
+    .split(" ")
+    .filter(Boolean)
+    .map((part) => part[0])
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
+  const enrolledCount = userProfile?.enrolledCourses?.length ?? 0;
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
@@ -184,13 +200,13 @@ function StudentLayout() {
         <div className="border-t border-slate-200 px-6 py-4">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
-              SA
+              {initials || "S"}
             </div>
             <div className="flex-1">
-              <p className="text-sm font-semibold text-slate-900">
-                Sana Ahmed
-              </p>
-              <span className="text-xs text-slate-500">3 Courses</span>
+              <p className="text-sm font-semibold text-slate-900">{displayName}</p>
+              <span className="text-xs text-slate-500">
+                {enrolledCount} Courses
+              </span>
             </div>
             <button
               className="rounded-full border border-slate-200 p-2 text-slate-500"
@@ -223,9 +239,9 @@ function StudentLayout() {
           <div className="relative group">
             <button className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm">
               <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-primary">
-                S
+                {initials || "S"}
               </span>
-              <span className="hidden sm:inline">Student</span>
+              <span className="hidden sm:inline">{displayName}</span>
             </button>
             <div className="pointer-events-none absolute right-0 mt-3 w-40 rounded-2xl border border-slate-200 bg-white p-2 text-sm text-slate-600 opacity-0 shadow-xl transition group-hover:pointer-events-auto group-hover:opacity-100">
               <Link
