@@ -16,7 +16,7 @@ import {
 const router = Router();
 
 router.post("/register", verifyFirebaseToken, detectDevice, registerUser);
-router.post("/login", verifyToken, detectDevice, loginUser);
+router.post("/login", verifyFirebaseToken, detectDevice, loginUser);
 router.post("/logout", verifyToken, logoutUser);
 router.get("/me", verifyToken, getMe);
 router.patch(

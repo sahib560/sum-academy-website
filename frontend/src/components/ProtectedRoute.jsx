@@ -1,6 +1,8 @@
 import { useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth.js";
+import { firebaseAuth } from "../config/firebase.js";
+import SplashScreen from "./SplashScreen.jsx";
 
 function ProtectedRoute({ allowedRoles = [], children }) {
   const { isAuthenticated, role, loading } = useAuth();
@@ -10,6 +12,8 @@ function ProtectedRoute({ allowedRoles = [], children }) {
   useEffect(() => {
     if (loading) return;
     if (!isAuthenticated) {
+      // Wait for Firebase auth state to finish syncing into context.
+      if (firebaseAuth.currentUser) return;
       navigate("/login", { state: { from: location.pathname }, replace: true });
       return;
     }
@@ -20,9 +24,10 @@ function ProtectedRoute({ allowedRoles = [], children }) {
 
   if (loading || (isAuthenticated && allowedRoles.length > 0 && !role)) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
-        <div className="h-10 w-10 animate-spin rounded-full border-4 border-primary/30 border-t-primary" />
-      </div>
+      <SplashScreen
+        message="Verifying access..."
+        subMessage="Applying role permissions for your dashboard"
+      />
     );
   }
 

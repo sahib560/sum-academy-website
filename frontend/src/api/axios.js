@@ -28,7 +28,9 @@ api.interceptors.response.use(
     if (error?.response?.status === 401) {
       const url = error?.config?.url || "";
       const isAuthBootstrap =
-        url.includes("/auth/me") || url.includes("/auth/register");
+        url.includes("/auth/me") ||
+        url.includes("/auth/register") ||
+        url.includes("/auth/login");
 
       if (!isAuthBootstrap) {
         try {

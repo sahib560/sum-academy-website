@@ -16,9 +16,18 @@ const serviceAccount = JSON.parse(
   )
 );
 
+if (typeof serviceAccount.private_key === "string") {
+  serviceAccount.private_key = serviceAccount.private_key.replace(
+    /\\n/g,
+    "\n"
+  );
+}
+
 if (!admin.apps.length) {
   admin.initializeApp({
     credential: admin.credential.cert(serviceAccount),
+    projectId:
+      process.env.FIREBASE_PROJECT_ID || serviceAccount.project_id,
     storageBucket:
       process.env.FIREBASE_STORAGE_BUCKET ||
       `${serviceAccount.project_id}.appspot.com`,

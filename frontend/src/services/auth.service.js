@@ -9,6 +9,17 @@ import {
 import api from "../api/axios.js";
 import { firebaseAuth, googleProvider } from "../config/firebase.js";
 
+const AUTH_OVERLAY_EVENT = "sumacademy:auth-overlay";
+
+const emitAuthOverlay = (show, message = "", subMessage = "") => {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent(AUTH_OVERLAY_EVENT, {
+      detail: { show, message, subMessage },
+    })
+  );
+};
+
 const registerWithEmail = async (
   fullName,
   email,
@@ -57,21 +68,26 @@ const loginWithEmail = async (email, password) => {
     password
   );
 
-  const token = await user.getIdToken();
-  const response = await api.post(
-    "/auth/login",
-    { token },
-    {
-      headers: { Authorization: `Bearer ${token}` },
-    }
-  );
+  try {
+    const token = await user.getIdToken();
+    const response = await api.post(
+      "/auth/login",
+      { token },
+      {
+        headers: { Authorization: `Bearer ${token}` },
+      }
+    );
 
-  return (
-    response.data?.data?.user ||
-    response.data?.user ||
-    response.data?.data ||
-    response.data
-  );
+    return (
+      response.data?.data?.user ||
+      response.data?.user ||
+      response.data?.data ||
+      response.data
+    );
+  } catch (error) {
+    await signOut(firebaseAuth);
+    throw error;
+  }
 };
 
 const loginWithGoogle = async () => {
@@ -108,11 +124,17 @@ const loginWithGoogle = async () => {
 
     console.log("Step 5: Calling backend login...");
 
-    const loginResponse = await api.post(
-      "/auth/login",
-      { token: idToken },
-      { headers: { Authorization: `Bearer ${idToken}` } }
-    );
+    let loginResponse;
+    try {
+      loginResponse = await api.post(
+        "/auth/login",
+        { token: idToken },
+        { headers: { Authorization: `Bearer ${idToken}` } }
+      );
+    } catch (loginError) {
+      await signOut(firebaseAuth);
+      throw loginError;
+    }
 
     console.log("Step 6: Login complete:", loginResponse.data);
 
@@ -131,21 +153,37 @@ const loginWithGoogle = async () => {
 };
 
 const logout = async () => {
+  const startedAt = Date.now();
+  emitAuthOverlay(
+    true,
+    "Signing you out...",
+    "Securing your account and ending this session"
+  );
+
   const user = firebaseAuth.currentUser;
 
-  if (user) {
-    const token = await user.getIdToken();
-    await api.post(
-      "/auth/logout",
-      { token },
-      {
-        headers: { Authorization: `Bearer ${token}` },
-      }
-    );
-  }
+  try {
+    if (user) {
+      const token = await user.getIdToken();
+      await api.post(
+        "/auth/logout",
+        { token },
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+    }
 
-  await signOut(firebaseAuth);
-  localStorage.clear();
+    await signOut(firebaseAuth);
+    localStorage.clear();
+  } finally {
+    const elapsed = Date.now() - startedAt;
+    const remaining = Math.max(0, 1000 - elapsed);
+    if (remaining > 0) {
+      await new Promise((resolve) => setTimeout(resolve, remaining));
+    }
+    emitAuthOverlay(false);
+  }
 };
 
 const getCurrentUser = () => firebaseAuth.currentUser;

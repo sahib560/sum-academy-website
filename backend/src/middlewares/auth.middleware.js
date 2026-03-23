@@ -9,6 +9,17 @@ const getTokenFromHeader = (req) => {
   return null;
 };
 
+const isFirebaseCredentialError = (error) => {
+  const code = error?.code;
+  const msg = String(error?.message || "").toLowerCase();
+  return (
+    code === 16 ||
+    code === "16" ||
+    msg.includes("unauthenticated") ||
+    msg.includes("invalid authentication credentials")
+  );
+};
+
 const verifyFirebaseToken = async (req, res, next) => {
   const token = getTokenFromHeader(req);
   if (!token) {
@@ -41,8 +52,16 @@ const verifyToken = async (req, res, next) => {
       .json({ success: false, message: "No token provided" });
   }
 
+  let decoded;
   try {
-    const decoded = await admin.auth().verifyIdToken(token);
+    decoded = await admin.auth().verifyIdToken(token);
+  } catch (error) {
+    return res
+      .status(401)
+      .json({ success: false, message: "Invalid or expired token" });
+  }
+
+  try {
     const userRef = db.collection("users").doc(decoded.uid);
     const userSnap = await userRef.get();
 
@@ -94,9 +113,19 @@ const verifyToken = async (req, res, next) => {
 
     return next();
   } catch (error) {
+    if (isFirebaseCredentialError(error)) {
+      return res.status(500).json({
+        success: false,
+        message:
+          "Server Firebase credentials are invalid. Please contact admin.",
+        code: "FIREBASE_CREDENTIALS_ERROR",
+      });
+    }
+
+    console.error("verifyToken DB error:", error);
     return res
-      .status(401)
-      .json({ success: false, message: "Invalid or expired token" });
+      .status(500)
+      .json({ success: false, message: "Failed to verify user profile" });
   }
 };
 

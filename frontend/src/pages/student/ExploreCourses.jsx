@@ -1,6 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
-import { motion } from "framer-motion";
+import { motion as Motion, AnimatePresence } from "framer-motion";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { Toaster, toast } from "react-hot-toast";
 import { SkeletonCard } from "../../components/Skeleton.jsx";
+import {
+  addStudentToClass,
+  getAvailableClasses,
+} from "../../services/admin.service.js";
+import { useAuth } from "../../hooks/useAuth.js";
 
 const fadeUp = {
   initial: { opacity: 0, y: 16 },
@@ -34,8 +41,8 @@ const sortOptions = [
 
 const courses = [
   {
-    id: 1,
-    title: "Advanced Biology MCQs",
+    id: "class-xi-pre-medical",
+    title: "Class XI - Pre-Medical",
     category: "Biology",
     teacher: "Mr. Sikander Ali Qureshi",
     rating: 4.8,
@@ -47,17 +54,12 @@ const courses = [
     originalPrice: 3200,
     discount: 20,
     level: "Advanced",
-    enrolled: true,
-    bio: "Associate Professor of Chemistry with 10+ years of teaching experience.",
-    chapters: [
-      "Foundations of Biology",
-      "Genetics Deep Dive",
-      "Physiology Mastery",
-      "Mock Tests",
-    ],
+    enrolled: false,
+    bio: "Board-focused full stream for Biology, Chemistry and Physics.",
+    chapters: ["Biology", "Chemistry", "Physics", "Mock Tests"],
   },
   {
-    id: 2,
+    id: "organic-chemistry-drill",
     title: "Organic Chemistry Drill",
     category: "Chemistry",
     teacher: "Mr. Mansoor Ahmed Mangi",
@@ -71,11 +73,11 @@ const courses = [
     discount: 0,
     level: "Intermediate",
     enrolled: false,
-    bio: "Lecturer Chemistry focusing on practical exam strategies.",
+    bio: "Concept-to-MCQs chemistry track for board and entry tests.",
     chapters: ["Basics", "Reactions", "Mechanisms", "Practice Sets"],
   },
   {
-    id: 3,
+    id: "physics-numericals",
     title: "Physics Numericals",
     category: "Physics",
     teacher: "Mr. Muhammad Idress Mahar",
@@ -89,11 +91,11 @@ const courses = [
     discount: 25,
     level: "Intermediate",
     enrolled: false,
-    bio: "Physics mentor known for problem-solving techniques.",
+    bio: "Problem-solving heavy course with weekly performance checks.",
     chapters: ["Kinematics", "Dynamics", "Waves", "Mock Tests"],
   },
   {
-    id: 4,
+    id: "english-grammar-bootcamp",
     title: "English Grammar Bootcamp",
     category: "English",
     teacher: "Mr. Waseem Ahmed Soomro",
@@ -106,45 +108,9 @@ const courses = [
     originalPrice: 1800,
     discount: 0,
     level: "Beginner",
-    enrolled: true,
-    bio: "English lecturer specializing in grammar and composition.",
+    enrolled: false,
+    bio: "Grammar and writing confidence with live practice sheets.",
     chapters: ["Grammar", "Writing", "Practice", "Final Quiz"],
-  },
-  {
-    id: 5,
-    title: "Math Problem Solving",
-    category: "Math",
-    teacher: "Ms. Hira Fatima",
-    rating: 4.4,
-    reviews: 52,
-    students: 160,
-    lectures: 18,
-    duration: "8h 15m",
-    price: 1500,
-    originalPrice: 2000,
-    discount: 25,
-    level: "Beginner",
-    enrolled: false,
-    bio: "Math instructor focused on concept clarity.",
-    chapters: ["Algebra", "Geometry", "Practice Sets", "Review"],
-  },
-  {
-    id: 6,
-    title: "Computer Science Basics",
-    category: "Computer Science",
-    teacher: "Mr. Ali Raza",
-    rating: 4.3,
-    reviews: 40,
-    students: 140,
-    lectures: 16,
-    duration: "7h 10m",
-    price: 0,
-    originalPrice: 0,
-    discount: 0,
-    level: "Beginner",
-    enrolled: false,
-    bio: "CS lecturer teaching fundamentals for beginners.",
-    chapters: ["Intro", "Programming Basics", "Practice", "Wrap-up"],
   },
 ];
 
@@ -160,7 +126,19 @@ const categoryStyles = {
   "Islamic Studies": "from-amber-400/70 to-amber-100",
 };
 
+const formatTime = (value = "") => {
+  if (!/^\d{2}:\d{2}$/.test(value)) return value || "N/A";
+  const [h, m] = value.split(":").map(Number);
+  const suffix = h >= 12 ? "PM" : "AM";
+  const hour = h % 12 || 12;
+  return `${hour}:${String(m).padStart(2, "0")} ${suffix}`;
+};
+
+const shortDay = (day = "") => day.slice(0, 3);
+
 function StudentExploreCourses() {
+  const { user, userProfile } = useAuth();
+
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("All");
@@ -171,8 +149,14 @@ function StudentExploreCourses() {
   const [showCount, setShowCount] = useState(6);
   const [selectedCourse, setSelectedCourse] = useState(null);
 
+  const [enrollStep, setEnrollStep] = useState(1);
+  const [selectedClass, setSelectedClass] = useState(null);
+  const [selectedShift, setSelectedShift] = useState(null);
+  const [paymentMethod, setPaymentMethod] = useState("bank_transfer");
+  const [promoCode, setPromoCode] = useState("");
+
   useEffect(() => {
-    const timer = setTimeout(() => setLoading(false), 1200);
+    const timer = setTimeout(() => setLoading(false), 900);
     return () => clearTimeout(timer);
   }, []);
 
@@ -209,9 +193,9 @@ function StudentExploreCourses() {
     });
 
     if (sort === "Price Low-High") {
-      list = list.sort((a, b) => a.price - b.price);
+      list = [...list].sort((a, b) => a.price - b.price);
     } else if (sort === "Price High-Low") {
-      list = list.sort((a, b) => b.price - a.price);
+      list = [...list].sort((a, b) => b.price - a.price);
     }
 
     return list;
@@ -228,9 +212,62 @@ function StudentExploreCourses() {
     setSort("Most Popular");
   };
 
+  const availableClassesQuery = useQuery({
+    queryKey: ["available-classes", selectedCourse?.id],
+    queryFn: () => getAvailableClasses(selectedCourse.id),
+    enabled: Boolean(selectedCourse?.id),
+    staleTime: 10000,
+  });
+
+  const enrollMutation = useMutation({
+    mutationFn: ({ classId, data }) => addStudentToClass(classId, data),
+    onSuccess: () => {
+      toast.success("Enrollment request submitted successfully.");
+      setSelectedCourse(null);
+      setSelectedClass(null);
+      setSelectedShift(null);
+      setEnrollStep(1);
+      setPromoCode("");
+      setPaymentMethod("bank_transfer");
+    },
+    onError: (error) => {
+      toast.error(error?.response?.data?.error || "Enrollment failed.");
+    },
+  });
+
+  const onClickEnroll = (course) => {
+    setSelectedCourse(course);
+    setSelectedClass(null);
+    setSelectedShift(null);
+    setEnrollStep(1);
+  };
+
+  const closeEnroll = () => {
+    setSelectedCourse(null);
+    setSelectedClass(null);
+    setSelectedShift(null);
+    setEnrollStep(1);
+    setPromoCode("");
+    setPaymentMethod("bank_transfer");
+  };
+
+  const availableClasses = useMemo(
+    () => availableClassesQuery.data || [],
+    [availableClassesQuery.data]
+  );
+
+  const selectedClassShifts = useMemo(
+    () => selectedClass?.shifts || [],
+    [selectedClass]
+  );
+
+  const totalFee = Number(selectedCourse?.price || 0);
+
   return (
     <div className="space-y-6">
-      <motion.section {...fadeUp} className="text-center">
+      <Toaster position="top-left" />
+
+      <Motion.section {...fadeUp} className="text-center">
         <h1 className="font-heading text-3xl text-slate-900">Explore Courses</h1>
         <div className="mt-4 flex justify-center">
           <div className="relative w-full max-w-2xl">
@@ -244,19 +281,19 @@ function StudentExploreCourses() {
             <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
               🔍
             </span>
-            {search && (
+            {search ? (
               <button
                 className="absolute right-4 top-1/2 -translate-y-1/2 text-xs text-slate-400"
                 onClick={() => setSearch("")}
               >
                 Clear
               </button>
-            )}
+            ) : null}
           </div>
         </div>
-      </motion.section>
+      </Motion.section>
 
-      <motion.section {...fadeUp} className="flex gap-2 overflow-x-auto pb-2">
+      <Motion.section {...fadeUp} className="flex gap-2 overflow-x-auto pb-2">
         {categories.map((item) => (
           <button
             key={item}
@@ -270,9 +307,9 @@ function StudentExploreCourses() {
             {item}
           </button>
         ))}
-      </motion.section>
+      </Motion.section>
 
-      <motion.section {...fadeUp} className="flex flex-wrap items-center gap-3">
+      <Motion.section {...fadeUp} className="flex flex-wrap items-center gap-3">
         <select
           value={level}
           onChange={(event) => setLevel(event.target.value)}
@@ -317,27 +354,26 @@ function StudentExploreCourses() {
             </option>
           ))}
         </select>
-        {hasFilters && (
+        {hasFilters ? (
           <button className="text-xs text-primary" onClick={clearFilters}>
             Clear Filters
           </button>
-        )}
-      </motion.section>
+        ) : null}
+      </Motion.section>
 
-      <motion.section {...fadeUp} className="text-sm text-slate-500">
+      <Motion.section {...fadeUp} className="text-sm text-slate-500">
         Showing {filteredCourses.length} courses
-      </motion.section>
+      </Motion.section>
 
-      <motion.section {...fadeUp} className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+      <Motion.section {...fadeUp} className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {loading
           ? Array.from({ length: 6 }).map((_, index) => (
               <SkeletonCard key={`course-skel-${index}`} />
             ))
           : visibleCourses.map((course) => (
-              <button
+              <article
                 key={course.id}
-                className="text-left rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"
-                onClick={() => setSelectedCourse(course)}
+                className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"
               >
                 <div
                   className={`h-24 rounded-2xl bg-gradient-to-br ${
@@ -358,16 +394,7 @@ function StudentExploreCourses() {
                 >
                   {course.title}
                 </h3>
-                <div className="mt-2 flex items-center gap-2 text-xs text-slate-500">
-                  <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-primary">
-                    {course.teacher
-                      .split(" ")
-                      .slice(0, 2)
-                      .map((part) => part[0])
-                      .join("")}
-                  </span>
-                  {course.teacher}
-                </div>
+                <p className="mt-2 text-xs text-slate-500">{course.teacher}</p>
                 <div className="mt-3 flex items-center gap-2 text-xs text-slate-500">
                   <span>⭐ {course.rating}</span>
                   <span>({course.reviews})</span>
@@ -380,40 +407,35 @@ function StudentExploreCourses() {
                   <span className="text-lg font-semibold text-slate-900">
                     {course.price === 0 ? "Free" : `PKR ${course.price}`}
                   </span>
-                  {course.originalPrice > course.price && (
+                  {course.originalPrice > course.price ? (
                     <span className="text-xs text-slate-400 line-through">
                       PKR {course.originalPrice}
                     </span>
-                  )}
-                  {course.discount > 0 && (
-                    <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs text-emerald-600">
-                      {course.discount}% OFF
-                    </span>
-                  )}
+                  ) : null}
                 </div>
                 <button
-                  className={`mt-4 w-full rounded-full px-3 py-2 text-xs font-semibold ${
-                    course.enrolled
-                      ? "bg-emerald-500 text-white"
-                      : "bg-primary text-white"
-                  }`}
+                  className="btn-primary mt-4 w-full"
+                  onClick={() => onClickEnroll(course)}
                 >
-                  {course.enrolled ? "Continue Learning" : "Enroll Now"}
+                  Enroll Now
                 </button>
-              </button>
+              </article>
             ))}
-      </motion.section>
+      </Motion.section>
 
-      {!loading && filteredCourses.length === 0 && (
-        <motion.section {...fadeUp} className="rounded-3xl border border-dashed border-slate-200 bg-white p-10 text-center text-sm text-slate-500">
+      {!loading && filteredCourses.length === 0 ? (
+        <Motion.section
+          {...fadeUp}
+          className="rounded-3xl border border-dashed border-slate-200 bg-white p-10 text-center text-sm text-slate-500"
+        >
           <p>No courses found.</p>
           <button className="btn-outline mt-4" onClick={clearFilters}>
             Clear Filters
           </button>
-        </motion.section>
-      )}
+        </Motion.section>
+      ) : null}
 
-      {!loading && filteredCourses.length > visibleCourses.length && (
+      {!loading && filteredCourses.length > visibleCourses.length ? (
         <div className="flex justify-center">
           <button
             className="btn-outline"
@@ -422,93 +444,216 @@ function StudentExploreCourses() {
             Load More
           </button>
         </div>
-      )}
+      ) : null}
 
-      {selectedCourse && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center px-4">
-          <button
-            type="button"
-            className="absolute inset-0 bg-slate-900/40"
-            onClick={() => setSelectedCourse(null)}
-            aria-label="Close"
-          />
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="relative w-full max-w-3xl rounded-3xl bg-white p-6 shadow-2xl"
-          >
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h2 className="font-heading text-2xl text-slate-900">
-                  {selectedCourse.title}
-                </h2>
-                <p className="text-sm text-slate-500">
-                  {selectedCourse.category} · {selectedCourse.level}
-                </p>
-              </div>
-              <button
-                className="rounded-full border border-slate-200 px-3 py-1 text-xs"
-                onClick={() => setSelectedCourse(null)}
-              >
-                Close
-              </button>
-            </div>
-            <div className="mt-4 grid gap-4 md:grid-cols-[2fr_1fr]">
-              <div className="space-y-4">
-                <p className="text-sm text-slate-500">
-                  Chapter preview
-                </p>
-                <div className="space-y-2 text-sm text-slate-600">
-                  {selectedCourse.chapters.map((chapter, index) => (
-                    <div
-                      key={chapter}
-                      className={`rounded-2xl border border-slate-200 px-3 py-2 ${
-                        index > 2 ? "text-slate-400" : "bg-slate-50"
-                      }`}
-                    >
-                      {index > 2 ? "🔒 " : ""}
-                      {chapter}
-                    </div>
-                  ))}
-                </div>
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm">
-                  <p className="font-semibold text-slate-900">Teacher</p>
-                  <p className="text-slate-500">{selectedCourse.teacher}</p>
-                  <p className="mt-2 text-xs text-slate-500">
-                    {selectedCourse.bio}
+      <AnimatePresence>
+        {selectedCourse ? (
+          <div className="fixed inset-0 z-[80] flex items-center justify-center px-4 py-6">
+            <button
+              type="button"
+              className="absolute inset-0 bg-slate-900/40"
+              onClick={closeEnroll}
+            />
+            <Motion.div
+              initial={{ opacity: 0, scale: 0.96, y: 12 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.96, y: 12 }}
+              className="relative z-10 flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-3xl bg-white p-6 shadow-2xl"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="font-heading text-2xl text-slate-900">{selectedCourse.title}</h3>
+                  <p className="text-sm text-slate-500">
+                    Step {enrollStep} of 3
                   </p>
                 </div>
-                <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm">
-                  <p className="font-semibold text-slate-900">Student Reviews</p>
-                  <div className="mt-2 space-y-2 text-xs text-slate-500">
-                    <p>Great explanations and pacing.</p>
-                    <p>Helped me score higher in mock tests.</p>
-                    <p>Clear concepts and supportive instructor.</p>
-                  </div>
-                </div>
-              </div>
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                <p className="text-sm text-slate-500">Price</p>
-                <p className="mt-2 text-2xl font-semibold text-slate-900">
-                  {selectedCourse.price === 0
-                    ? "Free"
-                    : `PKR ${selectedCourse.price}`}
-                </p>
-                {selectedCourse.originalPrice > selectedCourse.price && (
-                  <p className="text-xs text-slate-400 line-through">
-                    PKR {selectedCourse.originalPrice}
-                  </p>
-                )}
-                <button className="btn-primary mt-4 w-full">
-                  Enroll Now
+                <button
+                  type="button"
+                  onClick={closeEnroll}
+                  className="rounded-full border border-slate-200 px-3 py-1 text-xs"
+                >
+                  Close
                 </button>
               </div>
-            </div>
-          </motion.div>
-        </div>
-      )}
+
+              <div className="mt-4 overflow-y-auto pr-1">
+                {enrollStep === 1 ? (
+                  <div className="space-y-4">
+                    <h4 className="text-lg font-semibold text-slate-900">Select Class</h4>
+                    {availableClassesQuery.isLoading ? (
+                      <div className="space-y-2">
+                        {Array.from({ length: 3 }).map((_, index) => (
+                          <div key={`class-select-skel-${index}`} className="skeleton h-24 rounded-2xl" />
+                        ))}
+                      </div>
+                    ) : availableClasses.length < 1 ? (
+                      <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-10 text-center text-sm text-slate-500">
+                        No available classes found for this course yet.
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {availableClasses.map((classItem) => (
+                          <button
+                            key={classItem.id}
+                            type="button"
+                            onClick={() => {
+                              setSelectedClass(classItem);
+                              setSelectedShift(null);
+                              setEnrollStep(2);
+                            }}
+                            className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-left transition hover:border-primary/40 hover:bg-primary/5"
+                          >
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <p className="font-semibold text-slate-900">
+                                {classItem.name} ({classItem.batchCode || "No Batch"})
+                              </p>
+                              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-600">
+                                {classItem.status}
+                              </span>
+                            </div>
+                            <p className="mt-1 text-xs text-slate-500">
+                              {classItem.enrolledCount}/{classItem.capacity} enrolled ·{" "}
+                              {classItem.availableSpots} seats left
+                            </p>
+                            <p className="mt-2 text-xs text-slate-500">
+                              Shifts: {(classItem.shifts || []).length}
+                            </p>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ) : null}
+
+                {enrollStep === 2 ? (
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-lg font-semibold text-slate-900">Select Shift</h4>
+                      <button
+                        type="button"
+                        className="text-xs text-primary"
+                        onClick={() => setEnrollStep(1)}
+                      >
+                        Back to classes
+                      </button>
+                    </div>
+                    {selectedClassShifts.length < 1 ? (
+                      <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-10 text-center text-sm text-slate-500">
+                        No shifts found for selected class.
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {selectedClassShifts.map((shift) => (
+                          <button
+                            key={shift.id}
+                            type="button"
+                            onClick={() => {
+                              setSelectedShift(shift);
+                              setEnrollStep(3);
+                            }}
+                            className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-left transition hover:border-primary/40 hover:bg-primary/5"
+                          >
+                            <p className="font-semibold text-slate-900">{shift.name}</p>
+                            <p className="mt-1 text-xs text-slate-500">
+                              {(shift.days || []).map((day) => shortDay(day)).join(", ")} ·{" "}
+                              {formatTime(shift.startTime)} to {formatTime(shift.endTime)}
+                            </p>
+                            <p className="mt-1 text-xs text-slate-500">
+                              Teacher: {shift.teacherName || "N/A"}
+                            </p>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ) : null}
+
+                {enrollStep === 3 ? (
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-lg font-semibold text-slate-900">Payment</h4>
+                      <button
+                        type="button"
+                        className="text-xs text-primary"
+                        onClick={() => setEnrollStep(2)}
+                      >
+                        Back to shifts
+                      </button>
+                    </div>
+
+                    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm">
+                      <p className="font-semibold text-slate-900">{selectedCourse.title}</p>
+                      <p className="mt-1 text-xs text-slate-600">
+                        {selectedClass?.name} · {selectedShift?.name}
+                      </p>
+                      <p className="mt-2 text-sm font-semibold text-slate-900">
+                        Course Fee: {totalFee === 0 ? "Free" : `PKR ${totalFee}`}
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="text-sm font-semibold text-slate-700">Payment Method</label>
+                      <select
+                        value={paymentMethod}
+                        onChange={(event) => setPaymentMethod(event.target.value)}
+                        className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm"
+                      >
+                        <option value="bank_transfer">Bank Transfer</option>
+                        <option value="jazzcash">JazzCash</option>
+                        <option value="easypaisa">EasyPaisa</option>
+                        <option value="cash">Cash</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="text-sm font-semibold text-slate-700">Promo Code</label>
+                      <input
+                        type="text"
+                        value={promoCode}
+                        onChange={(event) => setPromoCode(event.target.value)}
+                        placeholder="Enter promo code (optional)"
+                        className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm"
+                      />
+                    </div>
+
+                    <button
+                      type="button"
+                      className="btn-primary w-full"
+                      disabled={enrollMutation.isPending}
+                      onClick={() => {
+                        if (!selectedClass || !selectedShift) {
+                          toast.error("Please select class and shift.");
+                          return;
+                        }
+                        if (!userProfile?.uid && !user?.uid) {
+                          toast.error("User session not found. Please login again.");
+                          return;
+                        }
+
+                        enrollMutation.mutate({
+                          classId: selectedClass.id,
+                          data: {
+                            studentId: userProfile?.uid || user?.uid,
+                            shiftId: selectedShift.id,
+                            courseId: selectedCourse.id,
+                            paymentMethod,
+                            promoCode: promoCode.trim(),
+                          },
+                        });
+                      }}
+                    >
+                      {enrollMutation.isPending ? "Submitting..." : "Confirm Enrollment"}
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            </Motion.div>
+          </div>
+        ) : null}
+      </AnimatePresence>
     </div>
   );
 }
 
 export default StudentExploreCourses;
+

@@ -1,6 +1,17 @@
 import { admin, db } from "../config/firebase.js";
 import { successResponse, errorResponse } from "../utils/response.utils.js";
 
+const isFirebaseCredentialError = (error) => {
+  const code = error?.code;
+  const msg = String(error?.message || "").toLowerCase();
+  return (
+    code === 16 ||
+    code === "16" ||
+    msg.includes("unauthenticated") ||
+    msg.includes("invalid authentication credentials")
+  );
+};
+
 const registerUser = async (req, res) => {
   try {
     const {
@@ -217,6 +228,14 @@ const loginUser = async (req, res) => {
     );
   } catch (error) {
     console.error("Login error:", error);
+    if (isFirebaseCredentialError(error)) {
+      return errorResponse(
+        res,
+        "Server Firebase credentials are invalid. Please contact admin.",
+        500,
+        { code: "FIREBASE_CREDENTIALS_ERROR" }
+      );
+    }
     return errorResponse(res, "Login failed", 500);
   }
 };

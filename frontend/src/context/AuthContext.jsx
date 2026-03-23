@@ -42,7 +42,7 @@ function AuthProvider({ children }) {
       } catch (error) {
         if (cancelled) return;
         const status = error?.response?.status;
-        if ((status === 401 || status === 404) && attempt < 8) {
+        if (status === 404 && attempt < 8) {
           retryTimer = setTimeout(
             () => fetchProfile(firebaseUser, attempt + 1),
             500

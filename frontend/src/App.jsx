@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import {
   BrowserRouter,
   Navigate,
@@ -52,29 +53,35 @@ import Classes from "./pages/admin/Classes.jsx";
 import { SiteSettingsProvider } from "./context/SiteSettingsContext.jsx";
 import { AuthProvider } from "./context/AuthContext.jsx";
 import { useAuth } from "./hooks/useAuth.js";
+import { useSiteSettings } from "./context/SiteSettingsContext.jsx";
 import Unauthorized from "./pages/Unauthorized.jsx";
 import NotFound from "./pages/NotFound.jsx";
+import SplashScreen from "./components/SplashScreen.jsx";
 
 const getDashboardPathByRole = (role) => {
   if (role === "admin") return "/admin/dashboard";
   if (role === "teacher") return "/teacher/dashboard";
-  return "/student/dashboard";
+  if (role === "student") return "/student/dashboard";
+  return null;
 };
 
 function AuthRedirectLoader() {
   return (
-    <div className="flex min-h-screen items-center justify-center">
-      <div className="h-10 w-10 animate-spin rounded-full border-4 border-primary/30 border-t-primary" />
-    </div>
+    <SplashScreen
+      message="Loading secure session..."
+      subMessage="Syncing your profile and dashboard access"
+    />
   );
 }
 
 function GuestRoute({ children }) {
   const { isAuthenticated, role, loading } = useAuth();
 
-  if (loading) return <AuthRedirectLoader />;
+  if (loading || (isAuthenticated && !role)) return <AuthRedirectLoader />;
   if (isAuthenticated) {
-    return <Navigate to={getDashboardPathByRole(role)} replace />;
+    const dashboardPath = getDashboardPathByRole(role);
+    if (!dashboardPath) return <AuthRedirectLoader />;
+    return <Navigate to={dashboardPath} replace />;
   }
 
   return children;
@@ -83,16 +90,61 @@ function GuestRoute({ children }) {
 function HomeRoute() {
   const { isAuthenticated, role, loading } = useAuth();
 
-  if (loading) return <AuthRedirectLoader />;
+  if (loading || (isAuthenticated && !role)) return <AuthRedirectLoader />;
   if (isAuthenticated) {
-    return <Navigate to={getDashboardPathByRole(role)} replace />;
+    const dashboardPath = getDashboardPathByRole(role);
+    if (!dashboardPath) return <AuthRedirectLoader />;
+    return <Navigate to={dashboardPath} replace />;
   }
 
   return <Home />;
 }
 
 function AppLayout() {
+  const { settings } = useSiteSettings();
+  const [showStartupSplash, setShowStartupSplash] = useState(true);
+  const [authOverlay, setAuthOverlay] = useState({
+    show: false,
+    message: "",
+    subMessage: "",
+  });
   const location = useLocation();
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setShowStartupSplash(false);
+    }, 2100);
+
+    return () => clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    const handler = (event) => {
+      const detail = event?.detail || {};
+      setAuthOverlay({
+        show: Boolean(detail.show),
+        message: detail.message || "",
+        subMessage: detail.subMessage || "",
+      });
+    };
+
+    window.addEventListener("sumacademy:auth-overlay", handler);
+    return () => {
+      window.removeEventListener("sumacademy:auth-overlay", handler);
+    };
+  }, []);
+
+  if (showStartupSplash) {
+    return (
+      <SplashScreen
+        message={`Welcome to ${
+          settings.general.siteName || "SUM Academy"
+        }. Preparing your experience...`}
+        subMessage="Initializing smart classroom modules"
+      />
+    );
+  }
+
   const publicRoutes = new Set([
     "/",
     "/courses",
@@ -122,6 +174,13 @@ function AppLayout() {
 
   return (
     <>
+      {authOverlay.show ? (
+        <SplashScreen
+          message={authOverlay.message || "Please wait..."}
+          subMessage={authOverlay.subMessage || "Processing your request"}
+        />
+      ) : null}
+
       {!hideLayout && <Navbar />}
       <Routes>
         <Route path="/" element={<HomeRoute />} />
