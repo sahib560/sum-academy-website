@@ -10,7 +10,7 @@ import { db }       from "./config/firebase.js";
 import authRoutes   from "./routes/auth.routes.js";
 import adminRoutes  from "./routes/admin.routes.js";
 import classesPublicRoutes from "./routes/classes.routes.js";
-import paymentRoutes from "./routes/payment.routes.js";
+import paymentRoutes, { adminPaymentRoutes } from "./routes/payment.routes.js";
 import certificateRoutes, { publicCertRoutes } from "./routes/certificate.routes.js";
 import adminAnnouncementRoutes, {
   userAnnouncementsRoutes,
@@ -59,6 +59,7 @@ app.use("/api/admin", adminAnnouncementRoutes);
 app.use("/api/admin", settingsRoutes);
 app.use("/api", publicSettingsRoutes);
 app.use("/api/payments", paymentRoutes);
+app.use("/api/admin", adminPaymentRoutes);
 app.use("/api/classes", classesPublicRoutes);
 app.use("/api", publicCertRoutes);
 app.use("/api", userAnnouncementsRoutes);

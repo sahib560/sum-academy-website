@@ -233,6 +233,11 @@ const sortStudents = (students, sortBy) => {
 
 function ModalShell({ open, title, onClose, children, maxWidth = "max-w-lg" }) {
   const dialogRef = useRef(null);
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -245,7 +250,7 @@ function ModalShell({ open, title, onClose, children, maxWidth = "max-w-lg" }) {
 
     const handleKeyDown = (event) => {
       if (event.key === "Escape") {
-        onClose();
+        onCloseRef.current?.();
         return;
       }
       if (event.key !== "Tab" || !dialog) return;
@@ -266,7 +271,7 @@ function ModalShell({ open, title, onClose, children, maxWidth = "max-w-lg" }) {
 
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [open, onClose]);
+  }, [open]);
 
   return (
     <AnimatePresence>

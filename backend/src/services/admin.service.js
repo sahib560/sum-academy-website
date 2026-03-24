@@ -141,19 +141,35 @@ export const getRecentActivity = async (limit = 10) => {
 };
 
 export const getAllUsers = async (filters = {}) => {
-  let query = db.collection(COLLECTIONS.USERS);
-  if (filters.role) query = query.where("role", "==", filters.role);
-  if (filters.isActive !== undefined)
-    query = query.where("isActive", "==", filters.isActive);
-
-  const snap = await query.orderBy("createdAt", "desc").get();
+  const snap = await db.collection(COLLECTIONS.USERS).get();
   let users = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+
+  if (filters.role) {
+    const normalizedRole = String(filters.role).toLowerCase();
+    users = users.filter(
+      (user) => String(user.role || "").toLowerCase() === normalizedRole
+    );
+  }
+  if (filters.isActive !== undefined) {
+    users = users.filter((user) => Boolean(user.isActive) === filters.isActive);
+  }
 
   if (filters.search) {
     const s = filters.search.toLowerCase();
     users = users.filter((u) => u.email?.toLowerCase().includes(s));
   }
-  return users;
+
+  return users.sort((a, b) => {
+    const aTime =
+      typeof a.createdAt?.toDate === "function"
+        ? a.createdAt.toDate().getTime()
+        : new Date(a.createdAt || 0).getTime() || 0;
+    const bTime =
+      typeof b.createdAt?.toDate === "function"
+        ? b.createdAt.toDate().getTime()
+        : new Date(b.createdAt || 0).getTime() || 0;
+    return bTime - aTime;
+  });
 };
 
 export const getAllTeachers = async () => {

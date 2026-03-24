@@ -26,8 +26,11 @@ export const getAdminPayments = (params = {}) =>
 export const verifyPayment = (paymentId, action) =>
   api.patch(`/admin/payments/${paymentId}/verify`, { action }).then((r) => r.data);
 
-export const getInstallmentsAdmin = () =>
-  api.get("/admin/installments").then((r) => r.data.data || []);
+export const getInstallmentsAdmin = (params = {}) =>
+  api.get("/admin/installments", { params }).then((r) => r.data.data || []);
+
+export const getInstallmentPlanById = (planId) =>
+  api.get(`/admin/installments/${planId}`).then((r) => r.data.data);
 
 export const createInstallmentPlan = (data) =>
   api.post("/admin/installments", data).then((r) => r.data);
@@ -37,6 +40,25 @@ export const markInstallmentPaid = (planId, number) =>
 
 export const sendInstallmentReminders = () =>
   api.post("/admin/installments/send-reminders").then((r) => r.data);
+
+export const sendInstallmentReminderToStudent = (studentId) =>
+  api.post("/admin/installments/send-reminders", { studentId }).then((r) => r.data);
+
+export const overrideInstallmentPlan = (planId, installments) =>
+  api.put(`/admin/installments/${planId}/override`, { installments }).then((r) => r.data);
+
+export const getAdminTransactions = (params = {}) =>
+  api.get("/admin/transactions", { params }).then((r) => r.data.data || []);
+
+export const getTransactionById = (id) =>
+  api.get(`/admin/transactions/${id}`).then((r) => r.data.data);
+
+export const exportTransactionsCSV = async () => {
+  const response = await api.get("/admin/transactions/export", {
+    responseType: "blob",
+  });
+  return response.data;
+};
 
 export const validatePromoCode = (code, courseId) =>
   api

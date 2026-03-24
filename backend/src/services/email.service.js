@@ -325,6 +325,103 @@ export const sendInstallmentReminder = async (
   }
 };
 
+export const sendInstallmentPaidEmail = async (
+  email,
+  name,
+  installmentNumber,
+  amount,
+  courseName,
+  remainingAmount,
+  nextDueDate
+) => {
+  try {
+    await transporter.sendMail({
+      from: process.env.EMAIL_FROM,
+      to: email,
+      subject: `Installment ${installmentNumber} confirmed - SUM Academy`,
+      html: `
+        <div style="font-family: sans-serif; max-width: 520px; margin: 0 auto; padding: 32px; background: #f8f9fe; border-radius: 16px;">
+          <h2 style="color: #16a34a;">Installment Confirmed</h2>
+          <p style="color: #64748b;">Hi ${name || "Student"}, we have received your installment payment.</p>
+          <div style="background: white; padding: 16px; border-radius: 12px; margin: 16px 0;">
+            <p style="margin: 0; color: #64748b;">Course</p>
+            <p style="margin: 4px 0 0; font-weight: bold; color: #1a1a2e;">${courseName || "-"}</p>
+            <p style="margin: 12px 0 0; color: #64748b;">Installment</p>
+            <p style="margin: 4px 0 0; color: #1a1a2e;">${installmentNumber}</p>
+            <p style="margin: 12px 0 0; color: #64748b;">Amount Paid</p>
+            <p style="margin: 4px 0 0; font-weight: bold; color: #16a34a;">PKR ${amount || 0}</p>
+            <p style="margin: 12px 0 0; color: #64748b;">Remaining</p>
+            <p style="margin: 4px 0 0; color: #1a1a2e;">PKR ${remainingAmount || 0}</p>
+            <p style="margin: 12px 0 0; color: #64748b;">Next Due Date</p>
+            <p style="margin: 4px 0 0; color: #1a1a2e;">${nextDueDate || "-"}</p>
+          </div>
+          <p style="color: #94a3b8; font-size: 12px; text-align: center;">Â© 2026 SUM Academy - Karachi, Pakistan</p>
+        </div>
+      `,
+    });
+  } catch (error) {
+    console.error("Installment paid email failed:", error.message);
+    throw error;
+  }
+};
+
+export const sendInstallmentReminderEmail = async (
+  email,
+  name,
+  courseName,
+  amount,
+  dueDate
+) =>
+  sendInstallmentReminder(email, name, courseName, amount, dueDate);
+
+export const sendInstallmentPlanCreatedEmail = async (
+  email,
+  name,
+  courseName,
+  installments = []
+) => {
+  try {
+    const scheduleRows = (Array.isArray(installments) ? installments : [])
+      .map(
+        (item) =>
+          `<tr>
+            <td style="padding: 6px 0; color: #1a1a2e;">${item.number}</td>
+            <td style="padding: 6px 0; color: #1a1a2e;">PKR ${item.amount || 0}</td>
+            <td style="padding: 6px 0; color: #1a1a2e;">${item.dueDate || "-"}</td>
+          </tr>`
+      )
+      .join("");
+
+    await transporter.sendMail({
+      from: process.env.EMAIL_FROM,
+      to: email,
+      subject: "Your installment plan - SUM Academy",
+      html: `
+        <div style="font-family: sans-serif; max-width: 520px; margin: 0 auto; padding: 32px; background: #f8f9fe; border-radius: 16px;">
+          <h2 style="color: #4a63f5;">Installment Plan Created</h2>
+          <p style="color: #64748b;">Hi ${name || "Student"}, your installment plan is now active for <strong>${courseName || "Course"}</strong>.</p>
+          <table style="width: 100%; background: white; border-radius: 12px; padding: 12px; margin-top: 12px;">
+            <thead>
+              <tr>
+                <th align="left" style="padding: 6px 0; color: #64748b;">#</th>
+                <th align="left" style="padding: 6px 0; color: #64748b;">Amount</th>
+                <th align="left" style="padding: 6px 0; color: #64748b;">Due Date</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${scheduleRows || "<tr><td colspan='3' style='padding: 8px 0; color:#64748b;'>Schedule will appear soon.</td></tr>"}
+            </tbody>
+          </table>
+          <p style="color: #94a3b8; font-size: 12px; text-align: center;">Â© 2026 SUM Academy - Karachi, Pakistan</p>
+        </div>
+      `,
+    });
+  } catch (error) {
+    console.error("Installment plan created email failed:", error.message);
+    throw error;
+  }
+};
+
 export const sendWelcomeEmail = async (email, name, role) => {
   try {
     await transporter.sendMail({

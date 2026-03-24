@@ -3,7 +3,7 @@ import { COLLECTIONS } from "../config/collections.js";
 import { errorResponse, successResponse } from "../utils/response.utils.js";
 import { sendAnnouncementEmail } from "../services/email.service.js";
 
-const TARGET_TYPES = new Set(["system", "class", "course"]);
+const TARGET_TYPES = new Set(["system", "class", "course", "single_user"]);
 const AUDIENCE_ROLES = new Set(["student", "teacher", "admin", "all"]);
 
 const toDate = (value) => {
@@ -79,21 +79,23 @@ const extractStudentIdsFromClass = (classData) => {
 };
 
 const getUsersByRole = async (role) => {
+  const usersSnap = await db.collection(COLLECTIONS.USERS).get();
   if (role === "all") {
-    const usersSnap = await db.collection(COLLECTIONS.USERS).get();
     return usersSnap.docs.map((doc) => doc.id);
   }
 
-  const usersSnap = await db
-    .collection(COLLECTIONS.USERS)
-    .where("role", "==", role)
-    .get();
-  return usersSnap.docs.map((doc) => doc.id);
+  const normalizedRole = String(role || "").toLowerCase();
+  return usersSnap.docs
+    .filter(
+      (doc) => String(doc.data()?.role || "").toLowerCase() === normalizedRole
+    )
+    .map((doc) => doc.id);
 };
 
 const getTargetedRecipientIds = async ({ targetType, targetId, audienceRole }) => {
   let targetName = "All Users";
   let recipientIds = [];
+  let resolvedAudienceRole = audienceRole;
 
   if (targetType === "system") {
     recipientIds = await getUsersByRole(audienceRole);
@@ -101,7 +103,7 @@ const getTargetedRecipientIds = async ({ targetType, targetId, audienceRole }) =
     if (audienceRole === "teacher") targetName = "All Teachers";
     if (audienceRole === "admin") targetName = "All Admins";
     if (audienceRole === "all") targetName = "All Users";
-    return { targetName, recipientIds };
+    return { targetName, recipientIds, resolvedAudienceRole };
   }
 
   if (targetType === "class") {
@@ -111,7 +113,7 @@ const getTargetedRecipientIds = async ({ targetType, targetId, audienceRole }) =
     }
     targetName = classSnap.data()?.name || "Class";
     recipientIds = extractStudentIdsFromClass(classSnap.data() || {});
-    return { targetName, recipientIds };
+    return { targetName, recipientIds, resolvedAudienceRole };
   }
 
   if (targetType === "course") {
@@ -133,10 +135,28 @@ const getTargetedRecipientIds = async ({ targetType, targetId, audienceRole }) =
           .filter(Boolean)
       ),
     ];
-    return { targetName, recipientIds };
+    return { targetName, recipientIds, resolvedAudienceRole };
   }
 
-  return { targetName, recipientIds };
+  if (targetType === "single_user") {
+    const normalizedUserId = String(targetId || "").trim();
+    if (!normalizedUserId) {
+      throw new Error("USER_ID_REQUIRED");
+    }
+
+    const profile = await getUserProfile(normalizedUserId);
+    if (!profile) {
+      throw new Error("USER_NOT_FOUND");
+    }
+
+    targetName = profile.fullName || profile.email || "User";
+    recipientIds = [profile.uid];
+    resolvedAudienceRole = profile.role || "all";
+
+    return { targetName, recipientIds, resolvedAudienceRole };
+  }
+
+  return { targetName, recipientIds, resolvedAudienceRole };
 };
 
 const sendAnnouncementEmails = async ({
@@ -187,6 +207,11 @@ const resolveTargetName = async (targetType, targetId, fallbackTargetName = "") 
     return courseSnap.exists ? courseSnap.data()?.title || "Course" : "Course";
   }
 
+  if (targetType === "single_user") {
+    const profile = await getUserProfile(targetId);
+    return profile?.fullName || profile?.email || "User";
+  }
+
   return "All Users";
 };
 
@@ -213,6 +238,58 @@ const getStudentCourseIds = async (studentId) => {
         .filter(Boolean)
     ),
   ];
+};
+
+const getViewerContext = async (uid, role) => {
+  let classIds = [];
+  let courseIds = [];
+
+  if (role === "student") {
+    [classIds, courseIds] = await Promise.all([
+      getStudentClassIds(uid),
+      getStudentCourseIds(uid),
+    ]);
+  }
+
+  return { uid, role, classIds, courseIds };
+};
+
+const isAnnouncementVisibleToUser = (announcement, context) => {
+  const { uid, role, classIds, courseIds } = context;
+  const isSingleUserTarget = announcement.targetType === "single_user";
+  const audienceRole = String(announcement.audienceRole || "student").toLowerCase();
+  const isAudienceMatch =
+    isSingleUserTarget || audienceRole === "all" || audienceRole === role;
+  if (!isAudienceMatch) return false;
+
+  if (isSingleUserTarget) {
+    const recipientIds = Array.isArray(announcement.recipientIds)
+      ? announcement.recipientIds
+      : [];
+    return announcement.targetId === uid || recipientIds.includes(uid);
+  }
+
+  if (role !== "student") {
+    return announcement.targetType === "system";
+  }
+
+  if (announcement.targetType === "system") return true;
+  if (announcement.targetType === "class") {
+    return classIds.includes(announcement.targetId);
+  }
+  if (announcement.targetType === "course") {
+    return courseIds.includes(announcement.targetId);
+  }
+
+  return false;
+};
+
+const withReadState = (announcement, uid) => {
+  const readBy = Array.isArray(announcement.readBy) ? announcement.readBy : [];
+  return {
+    ...announcement,
+    isRead: readBy.includes(uid),
+  };
 };
 
 export const getAnnouncements = async (req, res) => {
@@ -276,7 +353,11 @@ export const createAnnouncement = async (req, res) => {
       return errorResponse(res, "Message must be at least 10 characters", 400);
     }
     if (!TARGET_TYPES.has(normalizedTargetType)) {
-      return errorResponse(res, "targetType must be system, class, or course", 400);
+      return errorResponse(
+        res,
+        "targetType must be system, class, course, or single_user",
+        400
+      );
     }
     if (!AUDIENCE_ROLES.has(normalizedAudienceRole)) {
       return errorResponse(
@@ -287,10 +368,16 @@ export const createAnnouncement = async (req, res) => {
     }
 
     if (
-      (normalizedTargetType === "class" || normalizedTargetType === "course") &&
+      (normalizedTargetType === "class" ||
+        normalizedTargetType === "course" ||
+        normalizedTargetType === "single_user") &&
       !targetId
     ) {
-      return errorResponse(res, "targetId is required for class/course target", 400);
+      return errorResponse(
+        res,
+        "targetId is required for class/course/single_user target",
+        400
+      );
     }
 
     if (
@@ -304,7 +391,7 @@ export const createAnnouncement = async (req, res) => {
       );
     }
 
-    const { targetName, recipientIds } = await getTargetedRecipientIds({
+    const { targetName, recipientIds, resolvedAudienceRole } = await getTargetedRecipientIds({
       targetType: normalizedTargetType,
       targetId,
       audienceRole: normalizedAudienceRole,
@@ -317,7 +404,7 @@ export const createAnnouncement = async (req, res) => {
       targetType: normalizedTargetType,
       targetId: targetId || null,
       targetName,
-      audienceRole: normalizedAudienceRole,
+      audienceRole: resolvedAudienceRole || normalizedAudienceRole,
       postedBy: req.user.uid,
       postedByName,
       sendEmail: Boolean(sendEmail),
@@ -357,6 +444,12 @@ export const createAnnouncement = async (req, res) => {
     }
     if (error.message === "COURSE_NOT_FOUND") {
       return errorResponse(res, "Course not found", 404);
+    }
+    if (error.message === "USER_ID_REQUIRED") {
+      return errorResponse(res, "User is required", 400);
+    }
+    if (error.message === "USER_NOT_FOUND") {
+      return errorResponse(res, "Selected user not found", 404);
     }
     return errorResponse(res, "Failed to post announcement", 500);
   }
@@ -460,41 +553,18 @@ export const getStudentAnnouncements = async (req, res) => {
       return errorResponse(res, "Unauthorized", 401);
     }
 
+    const viewerContext = await getViewerContext(uid, role);
     const snap = await db
       .collection(COLLECTIONS.ANNOUNCEMENTS)
       .orderBy("createdAt", "desc")
       .get();
 
-    let classIds = [];
-    let courseIds = [];
-    if (role === "student") {
-      [classIds, courseIds] = await Promise.all([
-        getStudentClassIds(uid),
-        getStudentCourseIds(uid),
-      ]);
-    }
-
     const docs = snap.docs
       .map((doc) => normalizeAnnouncementDoc(doc))
-      .filter((announcement) => {
-        const audienceRole = String(announcement.audienceRole || "student").toLowerCase();
-        const isAudienceMatch =
-          audienceRole === "all" || audienceRole === role;
-        if (!isAudienceMatch) return false;
-
-        if (role !== "student") {
-          return announcement.targetType === "system";
-        }
-
-        if (announcement.targetType === "system") return true;
-        if (announcement.targetType === "class") {
-          return classIds.includes(announcement.targetId);
-        }
-        if (announcement.targetType === "course") {
-          return courseIds.includes(announcement.targetId);
-        }
-        return false;
-      })
+      .filter((announcement) =>
+        isAnnouncementVisibleToUser(announcement, viewerContext)
+      )
+      .map((announcement) => withReadState(announcement, uid))
       .sort((a, b) => {
         if (Boolean(a.isPinned) !== Boolean(b.isPinned)) {
           return a.isPinned ? -1 : 1;
@@ -510,3 +580,91 @@ export const getStudentAnnouncements = async (req, res) => {
   }
 };
 
+export const markAnnouncementRead = async (req, res) => {
+  try {
+    const uid = req.user?.uid || "";
+    const role = String(req.user?.role || "").toLowerCase();
+    const announcementId = String(req.params.id || "").trim();
+
+    if (!uid || !role) {
+      return errorResponse(res, "Unauthorized", 401);
+    }
+    if (!announcementId) {
+      return errorResponse(res, "Announcement id is required", 400);
+    }
+
+    const ref = db.collection(COLLECTIONS.ANNOUNCEMENTS).doc(announcementId);
+    const snap = await ref.get();
+    if (!snap.exists) {
+      return errorResponse(res, "Announcement not found", 404);
+    }
+
+    const announcement = normalizeAnnouncementDoc(snap);
+    const viewerContext = await getViewerContext(uid, role);
+    if (!isAnnouncementVisibleToUser(announcement, viewerContext)) {
+      return errorResponse(res, "Announcement not found", 404);
+    }
+
+    const readBy = Array.isArray(announcement.readBy) ? announcement.readBy : [];
+    if (!readBy.includes(uid)) {
+      await ref.update({
+        readBy: admin.firestore.FieldValue.arrayUnion(uid),
+      });
+    }
+
+    return successResponse(
+      res,
+      { id: announcementId, isRead: true },
+      "Announcement marked as read"
+    );
+  } catch (error) {
+    return errorResponse(res, "Failed to mark announcement as read", 500);
+  }
+};
+
+export const markAllAnnouncementsRead = async (req, res) => {
+  try {
+    const uid = req.user?.uid || "";
+    const role = String(req.user?.role || "").toLowerCase();
+
+    if (!uid || !role) {
+      return errorResponse(res, "Unauthorized", 401);
+    }
+
+    const viewerContext = await getViewerContext(uid, role);
+    const snap = await db
+      .collection(COLLECTIONS.ANNOUNCEMENTS)
+      .orderBy("createdAt", "desc")
+      .get();
+
+    const batch = db.batch();
+    let updated = 0;
+
+    snap.docs.forEach((doc) => {
+      const announcement = normalizeAnnouncementDoc(doc);
+      if (!isAnnouncementVisibleToUser(announcement, viewerContext)) return;
+
+      const readBy = Array.isArray(announcement.readBy) ? announcement.readBy : [];
+      if (readBy.includes(uid)) return;
+
+      batch.update(doc.ref, {
+        readBy: admin.firestore.FieldValue.arrayUnion(uid),
+      });
+      updated += 1;
+    });
+
+    if (updated > 0) {
+      await batch.commit();
+    }
+
+    return successResponse(
+      res,
+      { updated },
+      updated > 0
+        ? "All notifications marked as read"
+        : "No unread notifications found"
+    );
+  } catch (error) {
+    return errorResponse(res, "Failed to mark all announcements as read", 500);
+  }
+};

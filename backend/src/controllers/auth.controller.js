@@ -305,11 +305,23 @@ const getMe = async (req, res) => {
       if (roleSnap.exists) roleData = roleSnap.data();
     }
 
+    const fallbackName = userData.email
+      ? String(userData.email).split("@")[0]
+      : "User";
+    const resolvedName =
+      roleData.fullName ||
+      roleData.name ||
+      userData.fullName ||
+      userData.name ||
+      userData.displayName ||
+      fallbackName;
+
     const fullProfile = {
       ...userData,
       ...roleData,
       uid,
-      name: roleData.fullName || userData.email,
+      name: resolvedName,
+      fullName: resolvedName,
     };
 
     delete fullProfile.assignedWebDevice;

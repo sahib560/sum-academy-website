@@ -7,6 +7,8 @@ import { useAuth } from "../hooks/useAuth.js";
 import { getMyAnnouncements } from "../services/admin.service.js";
 import { useSettings } from "../hooks/useSettings.js";
 
+const MotionDiv = motion.div;
+
 const navItems = [
   { label: "Dashboard", to: "/student/dashboard", icon: "grid" },
   { label: "My Courses", to: "/student/courses", icon: "book" },
@@ -92,7 +94,6 @@ function StudentLayout() {
   const { userProfile } = useAuth();
   const { settings } = useSettings();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [unreadCount, setUnreadCount] = useState(0);
   const [notifOpen, setNotifOpen] = useState(false);
 
   useEffect(() => {
@@ -107,10 +108,7 @@ function StudentLayout() {
     enabled: Boolean(userProfile?.uid),
   });
   const notifications = announcementsQuery.data || [];
-
-  useEffect(() => {
-    setUnreadCount(notifications.length);
-  }, [notifications.length]);
+  const unreadCount = notifications.filter((item) => !item.isRead).length;
 
   const pageTitle = useMemo(() => {
     const match = navItems.find((item) =>
@@ -127,10 +125,14 @@ function StudentLayout() {
     }
   };
 
+  const emailPrefix = userProfile?.email
+    ? String(userProfile.email).split("@")[0]
+    : "";
   const displayName =
     userProfile?.name ||
     userProfile?.fullName ||
-    userProfile?.email ||
+    userProfile?.displayName ||
+    emailPrefix ||
     "Student";
   const initials = displayName
     .split(" ")
@@ -176,8 +178,8 @@ function StudentLayout() {
                 className={({ isActive }) =>
                   `group flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-semibold transition ${
                     isActive
-                      ? "bg-primary text-white shadow-lg shadow-primary/30"
-                      : "text-slate-500 hover:bg-primary hover:text-white"
+                      ? "bg-slate-900 text-white shadow-lg shadow-slate-900/20"
+                      : "text-slate-700 hover:bg-slate-900 hover:text-white"
                   }`
                 }
               >
@@ -243,33 +245,47 @@ function StudentLayout() {
               className="relative rounded-full border border-slate-200 bg-white p-2 shadow-sm"
               onClick={() => setNotifOpen((prev) => !prev)}
             >
-              <span className="absolute -right-1 -top-1 flex min-h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[10px] text-white">
-                {unreadCount}
-              </span>
+              {unreadCount > 0 ? (
+                <span className="absolute -right-1 -top-1 flex min-h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[10px] text-white">
+                  {unreadCount}
+                </span>
+              ) : null}
               {iconMap.bell}
             </button>
             <AnimatePresence>
               {notifOpen ? (
-                <motion.div
+                <MotionDiv
                   initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: 6 }}
                   className="absolute right-0 z-20 mt-2 w-80 rounded-2xl border border-slate-200 bg-white p-3 shadow-xl"
                 >
                   <p className="mb-2 text-sm font-semibold text-slate-900">Notifications</p>
-                  {unreadCount === 0 ? (
+                  {notifications.length === 0 ? (
                     <p className="text-xs text-slate-500">No announcements yet.</p>
                   ) : (
                     <div className="max-h-72 space-y-2 overflow-auto">
                       {notifications.slice(0, 8).map((item) => (
-                        <div key={item.id} className="rounded-xl border border-slate-100 p-2">
+                        <div
+                          key={item.id}
+                          className={`rounded-xl border p-2 ${
+                            item.isRead
+                              ? "border-slate-100 bg-white"
+                              : "border-primary/20 bg-primary/5"
+                          }`}
+                        >
                           <p className="text-sm font-semibold text-slate-800">{item.title}</p>
                           <p className="line-clamp-2 text-xs text-slate-500">{item.message}</p>
                         </div>
                       ))}
                     </div>
                   )}
-                </motion.div>
+                  <div className="mt-3 border-t border-slate-200 pt-2 text-xs font-semibold">
+                    <Link className="text-primary hover:underline" to="/student/notifications">
+                      See all announcements
+                    </Link>
+                  </div>
+                </MotionDiv>
               ) : null}
             </AnimatePresence>
           </div>

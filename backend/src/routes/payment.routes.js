@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { verifyToken } from "../middlewares/auth.middleware.js";
+import { verifyToken, requireRole } from "../middlewares/auth.middleware.js";
 import {
   initiatePayment,
   uploadPaymentReceipt,
@@ -7,17 +7,55 @@ import {
   getMyPayments,
   getMyInstallments,
   getPaymentMethodsConfig,
+  getAdminPayments,
+  verifyBankTransfer,
+  getTransactions,
+  getTransactionById,
+  exportTransactionsCSV,
+  getInstallments,
+  getInstallmentById,
+  createInstallmentPlan,
+  markInstallmentPaid,
+  sendInstallmentReminders,
+  overrideInstallment,
 } from "../controllers/payment.controller.js";
 import { validatePromoCode } from "../controllers/admin.controller.js";
 
-const router = Router();
+const studentPaymentRoutes = Router();
+const adminPaymentRoutes = Router();
 
-router.post("/initiate", verifyToken, initiatePayment);
-router.post("/validate-promo", verifyToken, validatePromoCode);
-router.get("/config", verifyToken, getPaymentMethodsConfig);
-router.post("/:id/receipt", verifyToken, uploadPaymentReceipt);
-router.get("/:id/status", verifyToken, getPaymentStatus);
-router.get("/my-payments", verifyToken, getMyPayments);
-router.get("/my-installments", verifyToken, getMyInstallments);
+const adminOnly = [verifyToken, requireRole("admin")];
 
-export default router;
+studentPaymentRoutes.post("/initiate", verifyToken, initiatePayment);
+studentPaymentRoutes.post("/validate-promo", verifyToken, validatePromoCode);
+studentPaymentRoutes.get("/config", verifyToken, getPaymentMethodsConfig);
+studentPaymentRoutes.post("/:id/receipt", verifyToken, uploadPaymentReceipt);
+studentPaymentRoutes.get("/:id/status", verifyToken, getPaymentStatus);
+studentPaymentRoutes.get("/my-payments", verifyToken, getMyPayments);
+studentPaymentRoutes.get("/my-installments", verifyToken, getMyInstallments);
+
+adminPaymentRoutes.get("/payments", adminOnly, getAdminPayments);
+adminPaymentRoutes.patch("/payments/:id/verify", adminOnly, verifyBankTransfer);
+
+adminPaymentRoutes.get("/transactions", adminOnly, getTransactions);
+adminPaymentRoutes.get("/transactions/export", adminOnly, exportTransactionsCSV);
+adminPaymentRoutes.get("/transactions/:id", adminOnly, getTransactionById);
+
+adminPaymentRoutes.get("/installments", adminOnly, getInstallments);
+adminPaymentRoutes.get("/installments/:planId", adminOnly, getInstallmentById);
+adminPaymentRoutes.patch(
+  "/installments/:planId/:number/pay",
+  adminOnly,
+  markInstallmentPaid
+);
+adminPaymentRoutes.post(
+  "/installments/send-reminders",
+  adminOnly,
+  sendInstallmentReminders
+);
+adminPaymentRoutes.put("/installments/:planId/override", adminOnly, overrideInstallment);
+adminPaymentRoutes.post("/installments", adminOnly, createInstallmentPlan);
+
+export { adminPaymentRoutes };
+export default studentPaymentRoutes;
+

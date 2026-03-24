@@ -99,6 +99,9 @@ const isEmail = (value) =>
 const isHex = (value) =>
   /^#([A-Fa-f0-9]{6})$/.test(String(value || "").trim());
 
+const fieldLabelClass =
+  "text-xs font-semibold uppercase tracking-[0.18em] text-slate-500";
+
 function SiteSettings() {
   const queryClient = useQueryClient();
   const { refetchSettings } = useSettings();
@@ -326,67 +329,95 @@ function SiteSettings() {
     if (activeTab === "General") {
       return (
         <>
-          <input
-            className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-            placeholder="Site Name"
-            value={draft.general.siteName}
-            onChange={(e) => updateSection("general", { siteName: e.target.value })}
-          />
-          <input
-            className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-            placeholder="Tagline"
-            value={draft.general.tagline}
-            onChange={(e) => updateSection("general", { tagline: e.target.value })}
-          />
-          <textarea
-            className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-            rows={3}
-            placeholder="Description"
-            value={draft.general.description}
-            onChange={(e) =>
-              updateSection("general", { description: e.target.value })
-            }
-          />
-          <div className="grid gap-3 md:grid-cols-2">
+          <div className="space-y-1">
+            <p className={fieldLabelClass}>Site Name</p>
             <input
-              className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
-              placeholder="Contact Email"
-              value={draft.general.contactEmail}
+              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+              placeholder="Site Name"
+              value={draft.general.siteName}
               onChange={(e) =>
-                updateSection("general", { contactEmail: e.target.value })
-              }
-            />
-            <input
-              className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
-              placeholder="Contact Phone"
-              value={draft.general.contactPhone}
-              onChange={(e) =>
-                updateSection("general", { contactPhone: e.target.value })
+                updateSection("general", { siteName: e.target.value })
               }
             />
           </div>
-          <textarea
-            className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-            rows={2}
-            placeholder="Address"
-            value={draft.general.address}
-            onChange={(e) => updateSection("general", { address: e.target.value })}
-          />
-          <div className="grid gap-3 md:grid-cols-2">
+          <div className="space-y-1">
+            <p className={fieldLabelClass}>Tagline</p>
             <input
-              className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
-              placeholder="Logo URL"
-              value={draft.general.logoUrl || ""}
-              onChange={(e) => updateSection("general", { logoUrl: e.target.value })}
+              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+              placeholder="Tagline"
+              value={draft.general.tagline}
+              onChange={(e) => updateSection("general", { tagline: e.target.value })}
             />
-            <input
-              className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
-              placeholder="Favicon URL"
-              value={draft.general.faviconUrl || ""}
+          </div>
+          <div className="space-y-1">
+            <p className={fieldLabelClass}>Description</p>
+            <textarea
+              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+              rows={3}
+              placeholder="Description"
+              value={draft.general.description}
               onChange={(e) =>
-                updateSection("general", { faviconUrl: e.target.value })
+                updateSection("general", { description: e.target.value })
               }
             />
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="space-y-1">
+              <p className={fieldLabelClass}>Contact Email</p>
+              <input
+                className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                placeholder="Contact Email"
+                value={draft.general.contactEmail}
+                onChange={(e) =>
+                  updateSection("general", { contactEmail: e.target.value })
+                }
+              />
+            </div>
+            <div className="space-y-1">
+              <p className={fieldLabelClass}>Contact Phone</p>
+              <input
+                className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                placeholder="Contact Phone"
+                value={draft.general.contactPhone}
+                onChange={(e) =>
+                  updateSection("general", { contactPhone: e.target.value })
+                }
+              />
+            </div>
+          </div>
+          <div className="space-y-1">
+            <p className={fieldLabelClass}>Address</p>
+            <textarea
+              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+              rows={2}
+              placeholder="Address"
+              value={draft.general.address}
+              onChange={(e) => updateSection("general", { address: e.target.value })}
+            />
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="space-y-1">
+              <p className={fieldLabelClass}>Logo URL</p>
+              <input
+                className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                placeholder="Logo URL"
+                value={draft.general.logoUrl || ""}
+                onChange={(e) =>
+                  updateSection("general", { logoUrl: e.target.value })
+                }
+              />
+            </div>
+            <div className="space-y-1">
+              <p className={fieldLabelClass}>Favicon URL</p>
+              <input
+                className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                placeholder="Favicon URL"
+                value={draft.general.faviconUrl || ""}
+                onChange={(e) =>
+                  updateSection("general", { faviconUrl: e.target.value })
+                }
+              />
+            </div>
           </div>
           <div className="grid gap-3 rounded-2xl border border-slate-200 p-3 md:grid-cols-2">
             <label className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700">
@@ -415,58 +446,70 @@ function SiteSettings() {
             </label>
           </div>
           <div className="grid gap-3 md:grid-cols-2">
-            <input
-              className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
-              placeholder="Facebook URL"
-              value={draft.general.socialLinks?.facebook || ""}
-              onChange={(e) =>
-                updateSection("general", {
-                  socialLinks: {
-                    ...draft.general.socialLinks,
-                    facebook: e.target.value,
-                  },
-                })
-              }
-            />
-            <input
-              className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
-              placeholder="Instagram URL"
-              value={draft.general.socialLinks?.instagram || ""}
-              onChange={(e) =>
-                updateSection("general", {
-                  socialLinks: {
-                    ...draft.general.socialLinks,
-                    instagram: e.target.value,
-                  },
-                })
-              }
-            />
-            <input
-              className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
-              placeholder="YouTube URL"
-              value={draft.general.socialLinks?.youtube || ""}
-              onChange={(e) =>
-                updateSection("general", {
-                  socialLinks: {
-                    ...draft.general.socialLinks,
-                    youtube: e.target.value,
-                  },
-                })
-              }
-            />
-            <input
-              className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
-              placeholder="WhatsApp URL"
-              value={draft.general.socialLinks?.whatsapp || ""}
-              onChange={(e) =>
-                updateSection("general", {
-                  socialLinks: {
-                    ...draft.general.socialLinks,
-                    whatsapp: e.target.value,
-                  },
-                })
-              }
-            />
+            <div className="space-y-1">
+              <p className={fieldLabelClass}>Facebook URL</p>
+              <input
+                className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                placeholder="Facebook URL"
+                value={draft.general.socialLinks?.facebook || ""}
+                onChange={(e) =>
+                  updateSection("general", {
+                    socialLinks: {
+                      ...draft.general.socialLinks,
+                      facebook: e.target.value,
+                    },
+                  })
+                }
+              />
+            </div>
+            <div className="space-y-1">
+              <p className={fieldLabelClass}>Instagram URL</p>
+              <input
+                className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                placeholder="Instagram URL"
+                value={draft.general.socialLinks?.instagram || ""}
+                onChange={(e) =>
+                  updateSection("general", {
+                    socialLinks: {
+                      ...draft.general.socialLinks,
+                      instagram: e.target.value,
+                    },
+                  })
+                }
+              />
+            </div>
+            <div className="space-y-1">
+              <p className={fieldLabelClass}>YouTube URL</p>
+              <input
+                className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                placeholder="YouTube URL"
+                value={draft.general.socialLinks?.youtube || ""}
+                onChange={(e) =>
+                  updateSection("general", {
+                    socialLinks: {
+                      ...draft.general.socialLinks,
+                      youtube: e.target.value,
+                    },
+                  })
+                }
+              />
+            </div>
+            <div className="space-y-1">
+              <p className={fieldLabelClass}>WhatsApp URL</p>
+              <input
+                className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                placeholder="WhatsApp URL"
+                value={draft.general.socialLinks?.whatsapp || ""}
+                onChange={(e) =>
+                  updateSection("general", {
+                    socialLinks: {
+                      ...draft.general.socialLinks,
+                      whatsapp: e.target.value,
+                    },
+                  })
+                }
+              />
+            </div>
           </div>
         </>
       );
@@ -475,25 +518,40 @@ function SiteSettings() {
     if (activeTab === "Hero") {
       return (
         <>
-          <input
-            className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-            placeholder="Heading"
-            value={draft.hero.heading}
-            onChange={(e) => updateSection("hero", { heading: e.target.value })}
-          />
-          <textarea
-            className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-            rows={3}
-            placeholder="Subheading"
-            value={draft.hero.subheading}
-            onChange={(e) =>
-              updateSection("hero", { subheading: e.target.value })
-            }
-          />
+          <div className="space-y-1">
+            <p className={fieldLabelClass}>Hero Heading</p>
+            <input
+              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+              placeholder="Heading"
+              value={draft.hero.heading}
+              onChange={(e) => updateSection("hero", { heading: e.target.value })}
+            />
+          </div>
+          <div className="space-y-1">
+            <p className={fieldLabelClass}>Hero Subheading</p>
+            <textarea
+              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+              rows={3}
+              placeholder="Subheading"
+              value={draft.hero.subheading}
+              onChange={(e) =>
+                updateSection("hero", { subheading: e.target.value })
+              }
+            />
+          </div>
           <div className="grid gap-3 md:grid-cols-3">
-            <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Primary CTA" value={draft.hero.ctaPrimary} onChange={(e) => updateSection("hero", { ctaPrimary: e.target.value })} />
-            <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Secondary CTA" value={draft.hero.ctaSecondary} onChange={(e) => updateSection("hero", { ctaSecondary: e.target.value })} />
-            <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Badge" value={draft.hero.badge} onChange={(e) => updateSection("hero", { badge: e.target.value })} />
+            <div className="space-y-1">
+              <p className={fieldLabelClass}>Primary CTA</p>
+              <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Primary CTA" value={draft.hero.ctaPrimary} onChange={(e) => updateSection("hero", { ctaPrimary: e.target.value })} />
+            </div>
+            <div className="space-y-1">
+              <p className={fieldLabelClass}>Secondary CTA</p>
+              <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Secondary CTA" value={draft.hero.ctaSecondary} onChange={(e) => updateSection("hero", { ctaSecondary: e.target.value })} />
+            </div>
+            <div className="space-y-1">
+              <p className={fieldLabelClass}>Hero Badge</p>
+              <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Badge" value={draft.hero.badge} onChange={(e) => updateSection("hero", { badge: e.target.value })} />
+            </div>
           </div>
           <div className="rounded-2xl border border-slate-200 p-3">
             <div className="mb-2 flex items-center justify-between">
@@ -508,8 +566,14 @@ function SiteSettings() {
             </div>
             {(draft.hero.stats || []).map((item, index) => (
               <div key={`hero-stat-${index}`} className="mb-2 grid gap-2 md:grid-cols-[1fr_1fr_auto]">
-                <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Label" value={item.label} onChange={(e) => updateArrayItem("hero", "stats", index, { label: e.target.value })} />
-                <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Value" value={item.value} onChange={(e) => updateArrayItem("hero", "stats", index, { value: e.target.value })} />
+                <div className="space-y-1">
+                  <p className={fieldLabelClass}>Stat Label</p>
+                  <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Label" value={item.label} onChange={(e) => updateArrayItem("hero", "stats", index, { label: e.target.value })} />
+                </div>
+                <div className="space-y-1">
+                  <p className={fieldLabelClass}>Stat Value</p>
+                  <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Value" value={item.value} onChange={(e) => updateArrayItem("hero", "stats", index, { value: e.target.value })} />
+                </div>
                 <button type="button" className="rounded-xl border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-600" onClick={() => removeArrayItem("hero", "stats", index)}>Remove</button>
               </div>
             ))}
@@ -521,11 +585,20 @@ function SiteSettings() {
     if (activeTab === "How It Works") {
       return (
         <>
-          <input className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Heading" value={draft.howItWorks.heading} onChange={(e) => updateSection("howItWorks", { heading: e.target.value })} />
+          <div className="space-y-1">
+            <p className={fieldLabelClass}>Section Heading</p>
+            <input className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Heading" value={draft.howItWorks.heading} onChange={(e) => updateSection("howItWorks", { heading: e.target.value })} />
+          </div>
           {(draft.howItWorks.steps || []).map((step, index) => (
             <div key={`step-${index}`} className="rounded-2xl border border-slate-200 p-3">
-              <input className="mb-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Step Title" value={step.title} onChange={(e) => updateArrayItem("howItWorks", "steps", index, { title: e.target.value, number: index + 1 })} />
-              <textarea className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" rows={2} placeholder="Step Description" value={step.description} onChange={(e) => updateArrayItem("howItWorks", "steps", index, { description: e.target.value, number: index + 1 })} />
+              <div className="mb-2 space-y-1">
+                <p className={fieldLabelClass}>Step {index + 1} Title</p>
+                <input className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Step Title" value={step.title} onChange={(e) => updateArrayItem("howItWorks", "steps", index, { title: e.target.value, number: index + 1 })} />
+              </div>
+              <div className="space-y-1">
+                <p className={fieldLabelClass}>Step {index + 1} Description</p>
+                <textarea className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" rows={2} placeholder="Step Description" value={step.description} onChange={(e) => updateArrayItem("howItWorks", "steps", index, { description: e.target.value, number: index + 1 })} />
+              </div>
             </div>
           ))}
           <button type="button" className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700" onClick={() => addArrayItem("howItWorks", "steps", { number: (draft.howItWorks.steps?.length || 0) + 1, title: "", description: "" })}>Add Step</button>
@@ -536,14 +609,26 @@ function SiteSettings() {
     if (activeTab === "Features") {
       return (
         <>
-          <input className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Heading" value={draft.features.heading} onChange={(e) => updateSection("features", { heading: e.target.value })} />
+          <div className="space-y-1">
+            <p className={fieldLabelClass}>Section Heading</p>
+            <input className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Heading" value={draft.features.heading} onChange={(e) => updateSection("features", { heading: e.target.value })} />
+          </div>
           {(draft.features.items || []).map((item, index) => (
             <div key={`feature-${index}`} className="rounded-2xl border border-slate-200 p-3">
               <div className="grid gap-2 md:grid-cols-2">
-                <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Icon" value={item.icon} onChange={(e) => updateArrayItem("features", "items", index, { icon: e.target.value })} />
-                <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Title" value={item.title} onChange={(e) => updateArrayItem("features", "items", index, { title: e.target.value })} />
+                <div className="space-y-1">
+                  <p className={fieldLabelClass}>Feature Icon</p>
+                  <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Icon" value={item.icon} onChange={(e) => updateArrayItem("features", "items", index, { icon: e.target.value })} />
+                </div>
+                <div className="space-y-1">
+                  <p className={fieldLabelClass}>Feature Title</p>
+                  <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Title" value={item.title} onChange={(e) => updateArrayItem("features", "items", index, { title: e.target.value })} />
+                </div>
               </div>
-              <textarea className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" rows={2} placeholder="Description" value={item.description} onChange={(e) => updateArrayItem("features", "items", index, { description: e.target.value })} />
+              <div className="mt-2 space-y-1">
+                <p className={fieldLabelClass}>Feature Description</p>
+                <textarea className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" rows={2} placeholder="Description" value={item.description} onChange={(e) => updateArrayItem("features", "items", index, { description: e.target.value })} />
+              </div>
               <button type="button" className="mt-2 rounded-xl border border-rose-200 px-3 py-1 text-xs font-semibold text-rose-600" onClick={() => removeArrayItem("features", "items", index)}>Remove</button>
             </div>
           ))}
@@ -555,16 +640,34 @@ function SiteSettings() {
     if (activeTab === "Testimonials") {
       return (
         <>
-          <input className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Heading" value={draft.testimonials.heading} onChange={(e) => updateSection("testimonials", { heading: e.target.value })} />
+          <div className="space-y-1">
+            <p className={fieldLabelClass}>Section Heading</p>
+            <input className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Heading" value={draft.testimonials.heading} onChange={(e) => updateSection("testimonials", { heading: e.target.value })} />
+          </div>
           {(draft.testimonials.items || []).map((item, index) => (
             <div key={`testimonial-${index}`} className="rounded-2xl border border-slate-200 p-3">
               <div className="grid gap-2 md:grid-cols-2">
-                <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Name" value={item.name} onChange={(e) => updateArrayItem("testimonials", "items", index, { name: e.target.value })} />
-                <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Course" value={item.course} onChange={(e) => updateArrayItem("testimonials", "items", index, { course: e.target.value })} />
-                <input type="number" min="1" max="5" className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Rating" value={item.rating} onChange={(e) => updateArrayItem("testimonials", "items", index, { rating: Number(e.target.value) || 1 })} />
-                <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Avatar URL" value={item.avatar || ""} onChange={(e) => updateArrayItem("testimonials", "items", index, { avatar: e.target.value })} />
+                <div className="space-y-1">
+                  <p className={fieldLabelClass}>Student Name</p>
+                  <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Name" value={item.name} onChange={(e) => updateArrayItem("testimonials", "items", index, { name: e.target.value })} />
+                </div>
+                <div className="space-y-1">
+                  <p className={fieldLabelClass}>Course Name</p>
+                  <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Course" value={item.course} onChange={(e) => updateArrayItem("testimonials", "items", index, { course: e.target.value })} />
+                </div>
+                <div className="space-y-1">
+                  <p className={fieldLabelClass}>Rating (1-5)</p>
+                  <input type="number" min="1" max="5" className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Rating" value={item.rating} onChange={(e) => updateArrayItem("testimonials", "items", index, { rating: Number(e.target.value) || 1 })} />
+                </div>
+                <div className="space-y-1">
+                  <p className={fieldLabelClass}>Avatar URL</p>
+                  <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Avatar URL" value={item.avatar || ""} onChange={(e) => updateArrayItem("testimonials", "items", index, { avatar: e.target.value })} />
+                </div>
               </div>
-              <textarea className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" rows={2} placeholder="Review" value={item.review} onChange={(e) => updateArrayItem("testimonials", "items", index, { review: e.target.value })} />
+              <div className="mt-2 space-y-1">
+                <p className={fieldLabelClass}>Review Text</p>
+                <textarea className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" rows={2} placeholder="Review" value={item.review} onChange={(e) => updateArrayItem("testimonials", "items", index, { review: e.target.value })} />
+              </div>
               <button type="button" className="mt-2 rounded-xl border border-rose-200 px-3 py-1 text-xs font-semibold text-rose-600" onClick={() => removeArrayItem("testimonials", "items", index)}>Remove</button>
             </div>
           ))}
@@ -576,12 +679,30 @@ function SiteSettings() {
     if (activeTab === "About") {
       return (
         <>
-          <input className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Heading" value={draft.about.heading} onChange={(e) => updateSection("about", { heading: e.target.value })} />
-          <textarea className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" rows={2} placeholder="Mission" value={draft.about.mission} onChange={(e) => updateSection("about", { mission: e.target.value })} />
-          <textarea className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" rows={2} placeholder="Vision" value={draft.about.vision} onChange={(e) => updateSection("about", { vision: e.target.value })} />
-          <textarea className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" rows={3} placeholder="Story" value={draft.about.story} onChange={(e) => updateSection("about", { story: e.target.value })} />
-          <input className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Founded Year" value={draft.about.foundedYear} onChange={(e) => updateSection("about", { foundedYear: e.target.value })} />
-          <input className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Team Heading" value={draft.about.teamHeading} onChange={(e) => updateSection("about", { teamHeading: e.target.value })} />
+          <div className="space-y-1">
+            <p className={fieldLabelClass}>About Heading</p>
+            <input className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Heading" value={draft.about.heading} onChange={(e) => updateSection("about", { heading: e.target.value })} />
+          </div>
+          <div className="space-y-1">
+            <p className={fieldLabelClass}>Mission Statement</p>
+            <textarea className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" rows={2} placeholder="Mission" value={draft.about.mission} onChange={(e) => updateSection("about", { mission: e.target.value })} />
+          </div>
+          <div className="space-y-1">
+            <p className={fieldLabelClass}>Vision Statement</p>
+            <textarea className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" rows={2} placeholder="Vision" value={draft.about.vision} onChange={(e) => updateSection("about", { vision: e.target.value })} />
+          </div>
+          <div className="space-y-1">
+            <p className={fieldLabelClass}>Story</p>
+            <textarea className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" rows={3} placeholder="Story" value={draft.about.story} onChange={(e) => updateSection("about", { story: e.target.value })} />
+          </div>
+          <div className="space-y-1">
+            <p className={fieldLabelClass}>Founded Year</p>
+            <input className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Founded Year" value={draft.about.foundedYear} onChange={(e) => updateSection("about", { foundedYear: e.target.value })} />
+          </div>
+          <div className="space-y-1">
+            <p className={fieldLabelClass}>Team Section Heading</p>
+            <input className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Team Heading" value={draft.about.teamHeading} onChange={(e) => updateSection("about", { teamHeading: e.target.value })} />
+          </div>
         </>
       );
     }
@@ -590,15 +711,39 @@ function SiteSettings() {
       return (
         <>
           <div className="grid gap-3 md:grid-cols-2">
-            <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Heading" value={draft.contact.heading} onChange={(e) => updateSection("contact", { heading: e.target.value })} />
-            <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Subheading" value={draft.contact.subheading} onChange={(e) => updateSection("contact", { subheading: e.target.value })} />
-            <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Email" value={draft.contact.email} onChange={(e) => updateSection("contact", { email: e.target.value })} />
-            <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Phone" value={draft.contact.phone} onChange={(e) => updateSection("contact", { phone: e.target.value })} />
-            <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="WhatsApp" value={draft.contact.whatsapp} onChange={(e) => updateSection("contact", { whatsapp: e.target.value })} />
-            <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Office Hours" value={draft.contact.officeHours} onChange={(e) => updateSection("contact", { officeHours: e.target.value })} />
+            <div className="space-y-1">
+              <p className={fieldLabelClass}>Contact Heading</p>
+              <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Heading" value={draft.contact.heading} onChange={(e) => updateSection("contact", { heading: e.target.value })} />
+            </div>
+            <div className="space-y-1">
+              <p className={fieldLabelClass}>Contact Subheading</p>
+              <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Subheading" value={draft.contact.subheading} onChange={(e) => updateSection("contact", { subheading: e.target.value })} />
+            </div>
+            <div className="space-y-1">
+              <p className={fieldLabelClass}>Support Email</p>
+              <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Email" value={draft.contact.email} onChange={(e) => updateSection("contact", { email: e.target.value })} />
+            </div>
+            <div className="space-y-1">
+              <p className={fieldLabelClass}>Support Phone</p>
+              <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Phone" value={draft.contact.phone} onChange={(e) => updateSection("contact", { phone: e.target.value })} />
+            </div>
+            <div className="space-y-1">
+              <p className={fieldLabelClass}>WhatsApp Number</p>
+              <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="WhatsApp" value={draft.contact.whatsapp} onChange={(e) => updateSection("contact", { whatsapp: e.target.value })} />
+            </div>
+            <div className="space-y-1">
+              <p className={fieldLabelClass}>Office Hours</p>
+              <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Office Hours" value={draft.contact.officeHours} onChange={(e) => updateSection("contact", { officeHours: e.target.value })} />
+            </div>
           </div>
-          <textarea className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" rows={2} placeholder="Address" value={draft.contact.address} onChange={(e) => updateSection("contact", { address: e.target.value })} />
-          <input className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Map Embed URL" value={draft.contact.mapEmbedUrl} onChange={(e) => updateSection("contact", { mapEmbedUrl: e.target.value })} />
+          <div className="space-y-1">
+            <p className={fieldLabelClass}>Address</p>
+            <textarea className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" rows={2} placeholder="Address" value={draft.contact.address} onChange={(e) => updateSection("contact", { address: e.target.value })} />
+          </div>
+          <div className="space-y-1">
+            <p className={fieldLabelClass}>Map Embed URL</p>
+            <input className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Map Embed URL" value={draft.contact.mapEmbedUrl} onChange={(e) => updateSection("contact", { mapEmbedUrl: e.target.value })} />
+          </div>
         </>
       );
     }
@@ -606,8 +751,14 @@ function SiteSettings() {
     if (activeTab === "Footer") {
       return (
         <>
-          <textarea className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" rows={2} placeholder="Description" value={draft.footer.description} onChange={(e) => updateSection("footer", { description: e.target.value })} />
-          <input className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Copyright" value={draft.footer.copyright} onChange={(e) => updateSection("footer", { copyright: e.target.value })} />
+          <div className="space-y-1">
+            <p className={fieldLabelClass}>Footer Description</p>
+            <textarea className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" rows={2} placeholder="Description" value={draft.footer.description} onChange={(e) => updateSection("footer", { description: e.target.value })} />
+          </div>
+          <div className="space-y-1">
+            <p className={fieldLabelClass}>Copyright Text</p>
+            <input className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Copyright" value={draft.footer.copyright} onChange={(e) => updateSection("footer", { copyright: e.target.value })} />
+          </div>
         </>
       );
     }
@@ -616,16 +767,25 @@ function SiteSettings() {
       return (
         <>
           <div className="grid gap-3 md:grid-cols-2">
-            <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="#4a63f5" value={draft.appearance.primaryColor} onChange={(e) => updateSection("appearance", { primaryColor: e.target.value })} />
-            <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="#ff6f0f" value={draft.appearance.accentColor} onChange={(e) => updateSection("appearance", { accentColor: e.target.value })} />
+            <div className="space-y-1">
+              <p className={fieldLabelClass}>Primary Color</p>
+              <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="#4a63f5" value={draft.appearance.primaryColor} onChange={(e) => updateSection("appearance", { primaryColor: e.target.value })} />
+            </div>
+            <div className="space-y-1">
+              <p className={fieldLabelClass}>Accent Color</p>
+              <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="#ff6f0f" value={draft.appearance.accentColor} onChange={(e) => updateSection("appearance", { accentColor: e.target.value })} />
+            </div>
           </div>
-          <select className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" value={draft.appearance.fontFamily} onChange={(e) => updateSection("appearance", { fontFamily: e.target.value })}>
-            {["DM Sans", "Inter", "Poppins", "Plus Jakarta Sans"].map((font) => (
-              <option key={font} value={font}>
-                {font}
-              </option>
-            ))}
-          </select>
+          <div className="space-y-1">
+            <p className={fieldLabelClass}>Font Family</p>
+            <select className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" value={draft.appearance.fontFamily} onChange={(e) => updateSection("appearance", { fontFamily: e.target.value })}>
+              {["DM Sans", "Inter", "Poppins", "Plus Jakarta Sans"].map((font) => (
+                <option key={font} value={font}>
+                  {font}
+                </option>
+              ))}
+            </select>
+          </div>
           <label className="flex items-center justify-between rounded-xl border border-slate-200 px-3 py-2 text-sm">
             Dark Mode Default
             <input type="checkbox" checked={Boolean(draft.appearance.darkModeDefault)} onChange={(e) => updateSection("appearance", { darkModeDefault: e.target.checked })} />
@@ -641,7 +801,10 @@ function SiteSettings() {
             Maintenance Mode
             <input type="checkbox" checked={Boolean(draft.maintenance.enabled)} onChange={(e) => updateSection("maintenance", { enabled: e.target.checked })} />
           </label>
-          <textarea className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" rows={3} placeholder="Maintenance Message" value={draft.maintenance.message} onChange={(e) => updateSection("maintenance", { message: e.target.value })} />
+          <div className="space-y-1">
+            <p className={fieldLabelClass}>Maintenance Message</p>
+            <textarea className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" rows={3} placeholder="Maintenance Message" value={draft.maintenance.message} onChange={(e) => updateSection("maintenance", { message: e.target.value })} />
+          </div>
         </>
       );
     }
@@ -650,14 +813,32 @@ function SiteSettings() {
       return (
         <>
           <div className="grid gap-3 md:grid-cols-2">
-            <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="SMTP Host" value={draft.email.smtpHost} onChange={(e) => updateSection("email", { smtpHost: e.target.value })} />
-            <input type="number" className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="SMTP Port" value={draft.email.smtpPort} onChange={(e) => updateSection("email", { smtpPort: Number(e.target.value) || 587 })} />
-            <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="SMTP Email" value={draft.email.smtpEmail} onChange={(e) => updateSection("email", { smtpEmail: e.target.value })} />
-            <input type="password" className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="SMTP Password" value={draft.email.smtpPassword} onChange={(e) => updateSection("email", { smtpPassword: e.target.value })} />
+            <div className="space-y-1">
+              <p className={fieldLabelClass}>SMTP Host</p>
+              <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="SMTP Host" value={draft.email.smtpHost} onChange={(e) => updateSection("email", { smtpHost: e.target.value })} />
+            </div>
+            <div className="space-y-1">
+              <p className={fieldLabelClass}>SMTP Port</p>
+              <input type="number" className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="SMTP Port" value={draft.email.smtpPort} onChange={(e) => updateSection("email", { smtpPort: Number(e.target.value) || 587 })} />
+            </div>
+            <div className="space-y-1">
+              <p className={fieldLabelClass}>SMTP Email</p>
+              <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="SMTP Email" value={draft.email.smtpEmail} onChange={(e) => updateSection("email", { smtpEmail: e.target.value })} />
+            </div>
+            <div className="space-y-1">
+              <p className={fieldLabelClass}>SMTP Password</p>
+              <input type="password" className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="SMTP Password" value={draft.email.smtpPassword} onChange={(e) => updateSection("email", { smtpPassword: e.target.value })} />
+            </div>
           </div>
-          <input className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="From Name" value={draft.email.fromName} onChange={(e) => updateSection("email", { fromName: e.target.value })} />
+          <div className="space-y-1">
+            <p className={fieldLabelClass}>From Name</p>
+            <input className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="From Name" value={draft.email.fromName} onChange={(e) => updateSection("email", { fromName: e.target.value })} />
+          </div>
           <div className="grid gap-2 md:grid-cols-[1fr_auto]">
-            <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="test@example.com" value={testEmail} onChange={(e) => setTestEmail(e.target.value)} />
+            <div className="space-y-1">
+              <p className={fieldLabelClass}>Test Email Address</p>
+              <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="test@example.com" value={testEmail} onChange={(e) => setTestEmail(e.target.value)} />
+            </div>
             <button type="button" className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700" onClick={() => testEmailMutation.mutate(testEmail)} disabled={testEmailMutation.isPending}>
               {testEmailMutation.isPending ? "Sending..." : "Send Test Email"}
             </button>
@@ -670,18 +851,48 @@ function SiteSettings() {
       return (
         <>
           <p className="text-sm font-semibold text-slate-700">JazzCash</p>
-          <input className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Merchant ID" value={draft.payment.jazzcash.merchantId} onChange={(e) => updateSection("payment", { jazzcash: { ...draft.payment.jazzcash, merchantId: e.target.value } })} />
-          <input type="password" className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Password" value={draft.payment.jazzcash.password} onChange={(e) => updateSection("payment", { jazzcash: { ...draft.payment.jazzcash, password: e.target.value } })} />
-          <input type="password" className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Integrity Salt" value={draft.payment.jazzcash.integritySalt} onChange={(e) => updateSection("payment", { jazzcash: { ...draft.payment.jazzcash, integritySalt: e.target.value } })} />
+          <div className="space-y-1">
+            <p className={fieldLabelClass}>Merchant ID</p>
+            <input className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Merchant ID" value={draft.payment.jazzcash.merchantId} onChange={(e) => updateSection("payment", { jazzcash: { ...draft.payment.jazzcash, merchantId: e.target.value } })} />
+          </div>
+          <div className="space-y-1">
+            <p className={fieldLabelClass}>JazzCash Password</p>
+            <input type="password" className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Password" value={draft.payment.jazzcash.password} onChange={(e) => updateSection("payment", { jazzcash: { ...draft.payment.jazzcash, password: e.target.value } })} />
+          </div>
+          <div className="space-y-1">
+            <p className={fieldLabelClass}>Integrity Salt</p>
+            <input type="password" className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Integrity Salt" value={draft.payment.jazzcash.integritySalt} onChange={(e) => updateSection("payment", { jazzcash: { ...draft.payment.jazzcash, integritySalt: e.target.value } })} />
+          </div>
           <p className="text-sm font-semibold text-slate-700">EasyPaisa</p>
-          <input className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Account Number" value={draft.payment.easypaisa.accountNumber} onChange={(e) => updateSection("payment", { easypaisa: { ...draft.payment.easypaisa, accountNumber: e.target.value } })} />
-          <input className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Username" value={draft.payment.easypaisa.username} onChange={(e) => updateSection("payment", { easypaisa: { ...draft.payment.easypaisa, username: e.target.value } })} />
-          <input type="password" className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Password" value={draft.payment.easypaisa.password} onChange={(e) => updateSection("payment", { easypaisa: { ...draft.payment.easypaisa, password: e.target.value } })} />
+          <div className="space-y-1">
+            <p className={fieldLabelClass}>Account Number</p>
+            <input className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Account Number" value={draft.payment.easypaisa.accountNumber} onChange={(e) => updateSection("payment", { easypaisa: { ...draft.payment.easypaisa, accountNumber: e.target.value } })} />
+          </div>
+          <div className="space-y-1">
+            <p className={fieldLabelClass}>EasyPaisa Username</p>
+            <input className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Username" value={draft.payment.easypaisa.username} onChange={(e) => updateSection("payment", { easypaisa: { ...draft.payment.easypaisa, username: e.target.value } })} />
+          </div>
+          <div className="space-y-1">
+            <p className={fieldLabelClass}>EasyPaisa Password</p>
+            <input type="password" className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Password" value={draft.payment.easypaisa.password} onChange={(e) => updateSection("payment", { easypaisa: { ...draft.payment.easypaisa, password: e.target.value } })} />
+          </div>
           <p className="text-sm font-semibold text-slate-700">Bank Transfer</p>
-          <input className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Bank Name" value={draft.payment.bankTransfer.bankName} onChange={(e) => updateSection("payment", { bankTransfer: { ...draft.payment.bankTransfer, bankName: e.target.value } })} />
-          <input className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Account Title" value={draft.payment.bankTransfer.accountTitle} onChange={(e) => updateSection("payment", { bankTransfer: { ...draft.payment.bankTransfer, accountTitle: e.target.value } })} />
-          <input className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Account Number" value={draft.payment.bankTransfer.accountNumber} onChange={(e) => updateSection("payment", { bankTransfer: { ...draft.payment.bankTransfer, accountNumber: e.target.value } })} />
-          <input className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="IBAN" value={draft.payment.bankTransfer.iban} onChange={(e) => updateSection("payment", { bankTransfer: { ...draft.payment.bankTransfer, iban: e.target.value } })} />
+          <div className="space-y-1">
+            <p className={fieldLabelClass}>Bank Name</p>
+            <input className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Bank Name" value={draft.payment.bankTransfer.bankName} onChange={(e) => updateSection("payment", { bankTransfer: { ...draft.payment.bankTransfer, bankName: e.target.value } })} />
+          </div>
+          <div className="space-y-1">
+            <p className={fieldLabelClass}>Account Title</p>
+            <input className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Account Title" value={draft.payment.bankTransfer.accountTitle} onChange={(e) => updateSection("payment", { bankTransfer: { ...draft.payment.bankTransfer, accountTitle: e.target.value } })} />
+          </div>
+          <div className="space-y-1">
+            <p className={fieldLabelClass}>Account Number</p>
+            <input className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Account Number" value={draft.payment.bankTransfer.accountNumber} onChange={(e) => updateSection("payment", { bankTransfer: { ...draft.payment.bankTransfer, accountNumber: e.target.value } })} />
+          </div>
+          <div className="space-y-1">
+            <p className={fieldLabelClass}>IBAN</p>
+            <input className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="IBAN" value={draft.payment.bankTransfer.iban} onChange={(e) => updateSection("payment", { bankTransfer: { ...draft.payment.bankTransfer, iban: e.target.value } })} />
+          </div>
         </>
       );
     }
@@ -689,9 +900,18 @@ function SiteSettings() {
     if (activeTab === "Security") {
       return (
         <>
-          <input type="number" className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Max Login Attempts" value={draft.security.maxLoginAttempts} onChange={(e) => updateSection("security", { maxLoginAttempts: Number(e.target.value) || 5 })} />
-          <input type="number" className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Lockout Duration" value={draft.security.lockoutDuration} onChange={(e) => updateSection("security", { lockoutDuration: Number(e.target.value) || 30 })} />
-          <input type="number" className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Session Timeout" value={draft.security.sessionTimeout} onChange={(e) => updateSection("security", { sessionTimeout: Number(e.target.value) || 60 })} />
+          <div className="space-y-1">
+            <p className={fieldLabelClass}>Max Login Attempts</p>
+            <input type="number" className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Max Login Attempts" value={draft.security.maxLoginAttempts} onChange={(e) => updateSection("security", { maxLoginAttempts: Number(e.target.value) || 5 })} />
+          </div>
+          <div className="space-y-1">
+            <p className={fieldLabelClass}>Lockout Duration (minutes)</p>
+            <input type="number" className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Lockout Duration" value={draft.security.lockoutDuration} onChange={(e) => updateSection("security", { lockoutDuration: Number(e.target.value) || 30 })} />
+          </div>
+          <div className="space-y-1">
+            <p className={fieldLabelClass}>Session Timeout (minutes)</p>
+            <input type="number" className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Session Timeout" value={draft.security.sessionTimeout} onChange={(e) => updateSection("security", { sessionTimeout: Number(e.target.value) || 60 })} />
+          </div>
           <label className="flex items-center justify-between rounded-xl border border-slate-200 px-3 py-2 text-sm">
             Maintenance Mode
             <input type="checkbox" checked={Boolean(draft.security.maintenanceMode)} onChange={(e) => updateSection("security", { maintenanceMode: e.target.checked })} />
@@ -702,46 +922,55 @@ function SiteSettings() {
 
     return (
       <>
-        <select className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" value={templateName} onChange={(e) => setTemplateName(e.target.value)}>
-          {templateOptions.map((option) => (
-            <option key={option} value={option}>
-              {option}
-            </option>
-          ))}
-        </select>
-        <input
-          className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-          placeholder="Template Subject"
-          value={currentTemplate.subject}
-          onChange={(e) =>
-            updateSection("emailTemplates", {
-              templates: {
-                ...draft.emailTemplates.templates,
-                [templateName]: {
-                  ...currentTemplate,
-                  subject: e.target.value,
+        <div className="space-y-1">
+          <p className={fieldLabelClass}>Template Type</p>
+          <select className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" value={templateName} onChange={(e) => setTemplateName(e.target.value)}>
+            {templateOptions.map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="space-y-1">
+          <p className={fieldLabelClass}>Template Subject</p>
+          <input
+            className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+            placeholder="Template Subject"
+            value={currentTemplate.subject}
+            onChange={(e) =>
+              updateSection("emailTemplates", {
+                templates: {
+                  ...draft.emailTemplates.templates,
+                  [templateName]: {
+                    ...currentTemplate,
+                    subject: e.target.value,
+                  },
                 },
-              },
-            })
-          }
-        />
-        <textarea
-          className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 font-mono text-sm"
-          rows={10}
-          placeholder="Template Body"
-          value={currentTemplate.body}
-          onChange={(e) =>
-            updateSection("emailTemplates", {
-              templates: {
-                ...draft.emailTemplates.templates,
-                [templateName]: {
-                  ...currentTemplate,
-                  body: e.target.value,
+              })
+            }
+          />
+        </div>
+        <div className="space-y-1">
+          <p className={fieldLabelClass}>Template Body</p>
+          <textarea
+            className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 font-mono text-sm"
+            rows={10}
+            placeholder="Template Body"
+            value={currentTemplate.body}
+            onChange={(e) =>
+              updateSection("emailTemplates", {
+                templates: {
+                  ...draft.emailTemplates.templates,
+                  [templateName]: {
+                    ...currentTemplate,
+                    body: e.target.value,
+                  },
                 },
-              },
-            })
-          }
-        />
+              })
+            }
+          />
+        </div>
       </>
     );
   };

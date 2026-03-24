@@ -445,12 +445,16 @@ function ShiftFormFields({
   index,
   courses,
   teacherOptions,
+  lockCourseSelection = false,
   onChange,
   onRemove,
   errors,
   removeDisabled = false,
 }) {
   const prefix = `shift-${index}`;
+  const selectedCourseName =
+    courses.find((course) => course.courseId === shift.courseId)?.courseName ||
+    "Assigned Course";
 
   const toggleDay = (day) => {
     const nextDays = shift.days.includes(day)
@@ -510,18 +514,24 @@ function ShiftFormFields({
           <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
             Course
           </label>
-          <select
-            value={shift.courseId}
-            onChange={(event) => onChange(index, "courseId", event.target.value)}
-            className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
-          >
-            <option value="">Select course</option>
-            {courses.map((course) => (
-              <option key={course.courseId} value={course.courseId}>
-                {course.courseName || "Untitled Course"}
-              </option>
-            ))}
-          </select>
+          {lockCourseSelection ? (
+            <div className="mt-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700">
+              {selectedCourseName}
+            </div>
+          ) : (
+            <select
+              value={shift.courseId}
+              onChange={(event) => onChange(index, "courseId", event.target.value)}
+              className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+            >
+              <option value="">Select course</option>
+              {courses.map((course) => (
+                <option key={course.courseId} value={course.courseId}>
+                  {course.courseName || "Untitled Course"}
+                </option>
+              ))}
+            </select>
+          )}
           <FieldError message={errors[`${prefix}-courseId`]} />
         </div>
 
@@ -629,6 +639,7 @@ function Classes() {
   const [deleteClassTarget, setDeleteClassTarget] = useState(null);
   const [deleteShiftTarget, setDeleteShiftTarget] = useState(null);
   const [removeStudentTarget, setRemoveStudentTarget] = useState(null);
+  const classSaveIntentRef = useRef(false);
 
   const classesQuery = useQuery({
     queryKey: ["admin", "classes"],
@@ -673,6 +684,43 @@ function Classes() {
         id: teacher.id || teacher.uid || "",
       })),
     [teachersQuery.data]
+  );
+  const activeTeachers = useMemo(
+    () => teachers.filter((teacher) => teacher.isActive !== false),
+    [teachers]
+  );
+  const activeTeachersById = useMemo(
+    () =>
+      activeTeachers.reduce((acc, teacher) => {
+        const key = teacher.id || teacher.teacherId || "";
+        if (key) acc[key] = teacher;
+        return acc;
+      }, {}),
+    [activeTeachers]
+  );
+  const selectableCourseIdsForClass = useMemo(() => {
+    const selectable = new Set();
+    courses.forEach((course) => {
+      const subjects = Array.isArray(course?.subjects) ? course.subjects : [];
+      if (subjects.length < 1) {
+        if (activeTeachers.length > 0) {
+          selectable.add(course.id);
+        }
+        return;
+      }
+      const hasActiveSubjectTeacher = subjects.some((subject) => {
+        const teacherId = String(subject?.teacherId || "").trim();
+        return Boolean(teacherId && activeTeachersById[teacherId]);
+      });
+      if (hasActiveSubjectTeacher) {
+        selectable.add(course.id);
+      }
+    });
+    return selectable;
+  }, [courses, activeTeachers, activeTeachersById]);
+  const selectableCoursesForClass = useMemo(
+    () => courses.filter((course) => selectableCourseIdsForClass.has(course.id)),
+    [courses, selectableCourseIdsForClass]
   );
   const students = useMemo(
     () =>
@@ -889,16 +937,25 @@ function Classes() {
   const getTeacherOptionsForCourse = (courseId) => {
     if (!courseId) return [];
     const course = courses.find((item) => item.id === courseId);
-    const fromSubjects = Array.isArray(course?.subjects)
-      ? course.subjects
-          .map((subject) => ({
-            id: subject.teacherId || "",
-            fullName: subject.teacherName || "",
-          }))
-          .filter((teacher) => teacher.id && teacher.fullName)
-      : [];
+    const subjects = Array.isArray(course?.subjects) ? course.subjects : [];
+    const fromSubjects = subjects
+      .map((subject) => {
+        const teacherId = String(subject?.teacherId || "").trim();
+        if (!teacherId) return null;
+        const activeTeacher = activeTeachersById[teacherId];
+        if (!activeTeacher) return null;
+        return {
+          id: teacherId,
+          fullName:
+            activeTeacher.fullName ||
+            activeTeacher.teacherName ||
+            String(subject?.teacherName || "").trim(),
+        };
+      })
+      .filter((teacher) => teacher?.id && teacher?.fullName);
 
-    if (fromSubjects.length > 0) {
+    if (subjects.length > 0) {
+      if (fromSubjects.length < 1) return [];
       const unique = [];
       const seen = new Set();
       fromSubjects.forEach((teacher) => {
@@ -910,10 +967,29 @@ function Classes() {
       return unique;
     }
 
-    return teachers;
+    return activeTeachers;
   };
 
+  useEffect(() => {
+    if (classForm.assignedCourses.length !== 1) return;
+    const onlyCourseId = classForm.assignedCourses[0].courseId;
+    setClassForm((prev) => {
+      const nextShifts = prev.shifts.map((shift) => {
+        if (shift.courseId === onlyCourseId) return shift;
+        return {
+          ...shift,
+          courseId: onlyCourseId,
+          teacherId: "",
+        };
+      });
+      const changed = nextShifts.some((shift, index) => shift !== prev.shifts[index]);
+      if (!changed) return prev;
+      return { ...prev, shifts: nextShifts };
+    });
+  }, [classForm.assignedCourses]);
+
   const openCreateClassModal = () => {
+    classSaveIntentRef.current = false;
     setClassModalMode("create");
     setEditingClassId("");
     setClassModalStep(1);
@@ -951,6 +1027,7 @@ function Classes() {
           : [emptyShift()],
     };
 
+    classSaveIntentRef.current = false;
     setClassModalMode("edit");
     setEditingClassId(classItem.id);
     setClassModalStep(1);
@@ -984,6 +1061,10 @@ function Classes() {
 
   const handleAddCourseToForm = () => {
     if (!courseSelectForForm) return;
+    if (!selectableCourseIdsForClass.has(courseSelectForForm)) {
+      toast.error("This course has no active teacher available.");
+      return;
+    }
     if (classForm.assignedCourses.some((course) => course.courseId === courseSelectForForm)) {
       toast.error("Course already added.");
       return;
@@ -1056,6 +1137,8 @@ function Classes() {
 
   const handleSubmitClassForm = (event) => {
     event.preventDefault();
+    if (!classSaveIntentRef.current) return;
+    classSaveIntentRef.current = false;
     const basicValid = validateStep(1);
     const coursesValid = validateStep(2);
     const shiftsValid = validateStep(3);
@@ -1111,11 +1194,14 @@ function Classes() {
 
   const openCreateShiftModal = () => {
     if (!activeClass) return;
+    const assignedCourses = activeClass.assignedCourses || [];
+    const defaultCourseId =
+      assignedCourses.length === 1 ? assignedCourses[0].courseId || "" : "";
     setShiftModalMode("create");
     setEditingShiftId("");
     setShiftForm({
       ...emptyShift(),
-      courseId: activeClass.assignedCourses?.[0]?.courseId || "",
+      courseId: defaultCourseId,
     });
     setShiftErrors({});
     setIsShiftModalOpen(true);
@@ -1214,8 +1300,28 @@ function Classes() {
   const remainingSeats = activeClass
     ? Math.max(Number(activeClass.capacity || 0) - Number(activeClass.enrolledCount || 0), 0)
     : 0;
+  const drawerAssignedCourses = activeClass?.assignedCourses || [];
+  const isSingleDrawerCourse = drawerAssignedCourses.length === 1;
+  const singleDrawerCourseId = isSingleDrawerCourse
+    ? drawerAssignedCourses[0].courseId
+    : "";
+  const singleDrawerCourseName = isSingleDrawerCourse
+    ? drawerAssignedCourses[0].courseName || "Assigned Course"
+    : "";
 
   const teacherOptionsForShiftModal = getTeacherOptionsForCourse(shiftForm.courseId);
+
+  useEffect(() => {
+    if (!isShiftModalOpen || !singleDrawerCourseId) return;
+    setShiftForm((prev) => {
+      if (prev.courseId === singleDrawerCourseId) return prev;
+      return {
+        ...prev,
+        courseId: singleDrawerCourseId,
+        teacherId: "",
+      };
+    });
+  }, [isShiftModalOpen, singleDrawerCourseId]);
 
   const classCards = (
     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -1567,7 +1673,7 @@ function Classes() {
                   className="min-w-[220px] flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
                 >
                   <option value="">Select course</option>
-                  {courses.map((course) => (
+                  {selectableCoursesForClass.map((course) => (
                     <option key={course.id} value={course.id}>
                       {course.title || "Untitled Course"}
                     </option>
@@ -1581,6 +1687,12 @@ function Classes() {
                   Add Course
                 </button>
               </div>
+              {selectableCoursesForClass.length < 1 ? (
+                <p className="text-xs text-amber-600">
+                  No course can be assigned right now. Please activate at least one teacher
+                  in courses first.
+                </p>
+              ) : null}
               <FieldError message={classErrors.assignedCourses} />
 
               {classForm.assignedCourses.length < 1 ? (
@@ -1634,6 +1746,7 @@ function Classes() {
                   index={index}
                   courses={classForm.assignedCourses}
                   teacherOptions={getTeacherOptionsForCourse(shift.courseId)}
+                  lockCourseSelection={classForm.assignedCourses.length === 1}
                   onChange={updateShiftInForm}
                   onRemove={removeShiftFromForm}
                   errors={classErrors}
@@ -1668,6 +1781,9 @@ function Classes() {
               ) : (
                 <button
                   type="submit"
+                  onClick={() => {
+                    classSaveIntentRef.current = true;
+                  }}
                   className="btn-primary min-w-[150px]"
                   disabled={
                     createClassMutation.isPending || updateClassMutation.isPending
@@ -1821,7 +1937,7 @@ function Classes() {
                       className="min-w-[220px] flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
                     >
                       <option value="">Select course to add</option>
-                      {courses
+                      {selectableCoursesForClass
                         .filter(
                           (course) =>
                             !activeClass.assignedCourses.some(
@@ -1839,6 +1955,10 @@ function Classes() {
                       onClick={() => {
                         if (!drawerCourseId) {
                           toast.error("Select a course first.");
+                          return;
+                        }
+                        if (!selectableCourseIdsForClass.has(drawerCourseId)) {
+                          toast.error("This course has no active teacher available.");
                           return;
                         }
                         addClassCourseMutation.mutate({
@@ -2257,24 +2377,30 @@ function Classes() {
           <div className="grid gap-3 md:grid-cols-2">
             <div>
               <label className="text-sm font-semibold text-slate-700">Course</label>
-              <select
-                value={shiftForm.courseId}
-                onChange={(event) =>
-                  setShiftForm((prev) => ({
-                    ...prev,
-                    courseId: event.target.value,
-                    teacherId: "",
-                  }))
-                }
-                className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm"
-              >
-                <option value="">Select course</option>
-                {(activeClass?.assignedCourses || []).map((course) => (
-                  <option key={course.courseId} value={course.courseId}>
-                    {course.courseName || "Untitled Course"}
-                  </option>
-                ))}
-              </select>
+              {isSingleDrawerCourse ? (
+                <div className="mt-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700">
+                  {singleDrawerCourseName}
+                </div>
+              ) : (
+                <select
+                  value={shiftForm.courseId}
+                  onChange={(event) =>
+                    setShiftForm((prev) => ({
+                      ...prev,
+                      courseId: event.target.value,
+                      teacherId: "",
+                    }))
+                  }
+                  className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm"
+                >
+                  <option value="">Select course</option>
+                  {(activeClass?.assignedCourses || []).map((course) => (
+                    <option key={course.courseId} value={course.courseId}>
+                      {course.courseName || "Untitled Course"}
+                    </option>
+                  ))}
+                </select>
+              )}
               <FieldError message={shiftErrors.courseId} />
             </div>
             <div>

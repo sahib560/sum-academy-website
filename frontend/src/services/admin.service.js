@@ -212,6 +212,12 @@ export const toggleAnnouncementPin = (id, isPinned) =>
 export const getMyAnnouncements = () =>
   api.get("/announcements/my").then((r) => r.data.data);
 
+export const markAnnouncementRead = (id) =>
+  api.patch(`/announcements/${id}/read`).then((r) => r.data);
+
+export const markAllAnnouncementsRead = () =>
+  api.patch("/announcements/read-all").then((r) => r.data);
+
 export const getSiteSettings = () =>
   api.get("/admin/settings").then((r) => r.data.data);
 

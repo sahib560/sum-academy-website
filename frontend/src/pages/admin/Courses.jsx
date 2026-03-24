@@ -271,6 +271,8 @@ function Courses() {
   const [uploadRootId, setUploadRootId] = useState(makeId());
 
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [pendingArchiveId, setPendingArchiveId] = useState("");
+  const [pendingDeleteContentId, setPendingDeleteContentId] = useState("");
 
   const [drawerCourseId, setDrawerCourseId] = useState(null);
   const [activeSubjectId, setActiveSubjectId] = useState("");
@@ -479,11 +481,17 @@ function Courses() {
 
   const archiveMutation = useMutation({
     mutationFn: ({ id, status }) => patchCourse(id, { status }),
+    onMutate: ({ id }) => {
+      setPendingArchiveId(id);
+    },
     onSuccess: async (_res, vars) => {
       await invalidateCourses();
       toast.success(
         vars.status === "archived" ? "Course archived." : "Course published."
       );
+    },
+    onSettled: () => {
+      setPendingArchiveId("");
     },
     onError: (err) =>
       toast.error(err?.response?.data?.error || "Failed to update status."),
@@ -548,9 +556,15 @@ function Courses() {
       }
       return deleteCourseContent(courseId, item.id);
     },
+    onMutate: ({ item }) => {
+      setPendingDeleteContentId(item?.id || "");
+    },
     onSuccess: async () => {
       await invalidateContent(drawerCourseId);
       toast.success("Content deleted.");
+    },
+    onSettled: () => {
+      setPendingDeleteContentId("");
     },
     onError: (err) =>
       toast.error(err?.response?.data?.error || "Failed to delete content."),
@@ -845,6 +859,12 @@ function Courses() {
     }
   };
 
+  const pageActionBusy =
+    createMutation.isPending ||
+    updateMutation.isPending ||
+    archiveMutation.isPending ||
+    deleteMutation.isPending;
+
   return (
     <div className="space-y-6 font-sans">
       <Toaster
@@ -862,7 +882,12 @@ function Courses() {
             Manage courses, subjects, and content.
           </p>
         </div>
-        <button type="button" onClick={openAdd} className="btn-primary">
+        <button
+          type="button"
+          onClick={openAdd}
+          disabled={pageActionBusy}
+          className="btn-primary disabled:cursor-not-allowed disabled:opacity-60"
+        >
           Add Course
         </button>
       </div>
@@ -936,7 +961,12 @@ function Courses() {
       ) : filtered.length === 0 ? (
         <div className="rounded-3xl border border-dashed border-slate-200 bg-white py-16 text-center">
           <p className="text-lg font-semibold text-slate-900">No courses yet</p>
-          <button type="button" onClick={openAdd} className="btn-primary mt-4">
+          <button
+            type="button"
+            onClick={openAdd}
+            disabled={pageActionBusy}
+            className="btn-primary mt-4 disabled:cursor-not-allowed disabled:opacity-60"
+          >
             Add Course
           </button>
         </div>
@@ -1000,10 +1030,56 @@ function Courses() {
                     )}
                   </div>
                   <div className="grid grid-cols-2 gap-2 text-xs">
-                    <button type="button" onClick={() => openEdit(c)} className="rounded-full border border-slate-200 px-3 py-2 font-semibold text-slate-700">Edit</button>
-                    <button type="button" onClick={() => { setDrawerCourseId(c.id); setActiveSubjectId(c.subjects[0]?.id || ""); }} className="rounded-full border border-slate-200 px-3 py-2 font-semibold text-slate-700">Manage Content</button>
-                    <button type="button" onClick={() => archiveMutation.mutate({ id: c.id, status: c.status === "archived" ? "published" : "archived" })} className="rounded-full border border-slate-200 px-3 py-2 font-semibold text-slate-700">{c.status === "archived" ? "Publish" : "Archive"}</button>
-                    <button type="button" onClick={() => setDeleteTarget(c)} className="rounded-full border border-rose-200 px-3 py-2 font-semibold text-rose-600">Delete</button>
+                    <button
+                      type="button"
+                      onClick={() => openEdit(c)}
+                      disabled={archiveMutation.isPending || deleteMutation.isPending}
+                      className="rounded-full border border-slate-200 px-3 py-2 font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDrawerCourseId(c.id);
+                        setActiveSubjectId(c.subjects[0]?.id || "");
+                      }}
+                      disabled={archiveMutation.isPending || deleteMutation.isPending}
+                      className="rounded-full border border-slate-200 px-3 py-2 font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Manage Content
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        archiveMutation.mutate({
+                          id: c.id,
+                          status: c.status === "archived" ? "published" : "archived",
+                        })
+                      }
+                      disabled={
+                        archiveMutation.isPending ||
+                        deleteMutation.isPending ||
+                        (pendingArchiveId && pendingArchiveId !== c.id)
+                      }
+                      className="rounded-full border border-slate-200 px-3 py-2 font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {archiveMutation.isPending && pendingArchiveId === c.id
+                        ? c.status === "archived"
+                          ? "Publishing..."
+                          : "Archiving..."
+                        : c.status === "archived"
+                        ? "Publish"
+                        : "Archive"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDeleteTarget(c)}
+                      disabled={archiveMutation.isPending || deleteMutation.isPending}
+                      className="rounded-full border border-rose-200 px-3 py-2 font-semibold text-rose-600 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Delete
+                    </button>
                   </div>
                 </div>
               </article>
@@ -1380,14 +1456,16 @@ function Courses() {
             <button
               type="button"
               onClick={() => setDeleteTarget(null)}
-              className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600"
+              disabled={deleteMutation.isPending}
+              className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 disabled:cursor-not-allowed disabled:opacity-60"
             >
               Cancel
             </button>
             <button
               type="button"
               onClick={() => deleteTarget && deleteMutation.mutate(deleteTarget.id)}
-              className="rounded-full bg-rose-500 px-4 py-2 text-sm font-semibold text-white"
+              disabled={deleteMutation.isPending}
+              className="rounded-full bg-rose-500 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
             >
               {deleteMutation.isPending ? "Deleting..." : "Delete"}
             </button>
@@ -1479,7 +1557,12 @@ function Courses() {
                       ))}
                     </select>
                     <FieldError message={newSubjectError} />
-                    <button type="button" onClick={submitNewSubject} className="btn-primary mt-2 w-full">
+                    <button
+                      type="button"
+                      onClick={submitNewSubject}
+                      disabled={addSubjectMutation.isPending}
+                      className="btn-primary mt-2 w-full disabled:cursor-not-allowed disabled:opacity-60"
+                    >
                       {addSubjectMutation.isPending ? "Adding..." : "Add Subject"}
                     </button>
                   </div>
@@ -1514,8 +1597,30 @@ function Courses() {
                               <option key={t.id} value={t.id}>{t.fullName}</option>
                             ))}
                           </select>
-                          <button type="button" onClick={updateActiveSubject} className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700">Save Subject</button>
-                          <button type="button" onClick={() => removeSubjectMutation.mutate({ courseId: drawerCourse.id, subjectId: activeSubject.id })} disabled={drawerCourse.subjects.length <= 1} className="rounded-xl border border-rose-200 px-4 py-2 text-sm font-semibold text-rose-600 disabled:opacity-50">Remove</button>
+                          <button
+                            type="button"
+                            onClick={updateActiveSubject}
+                            disabled={updateMutation.isPending}
+                            className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {updateMutation.isPending ? "Saving..." : "Save Subject"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              removeSubjectMutation.mutate({
+                                courseId: drawerCourse.id,
+                                subjectId: activeSubject.id,
+                              })
+                            }
+                            disabled={
+                              drawerCourse.subjects.length <= 1 ||
+                              removeSubjectMutation.isPending
+                            }
+                            className="rounded-xl border border-rose-200 px-4 py-2 text-sm font-semibold text-rose-600 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {removeSubjectMutation.isPending ? "Removing..." : "Remove"}
+                          </button>
                         </div>
                       </div>
 
@@ -1533,7 +1638,25 @@ function Courses() {
                                 <p className="text-sm font-semibold text-slate-900">{item.title}</p>
                                 <p className="text-xs text-slate-500">{bytes(item.size)} - {formatDate(item.createdAt)}</p>
                               </div>
-                              <button type="button" onClick={() => deleteContentMutation.mutate({ courseId: drawerCourse.id, item })} className="rounded-full border border-rose-200 px-3 py-1 text-xs font-semibold text-rose-600">Delete</button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  deleteContentMutation.mutate({
+                                    courseId: drawerCourse.id,
+                                    item,
+                                  })
+                                }
+                                disabled={
+                                  deleteContentMutation.isPending &&
+                                  pendingDeleteContentId === item.id
+                                }
+                                className="rounded-full border border-rose-200 px-3 py-1 text-xs font-semibold text-rose-600 disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                {deleteContentMutation.isPending &&
+                                pendingDeleteContentId === item.id
+                                  ? "Deleting..."
+                                  : "Delete"}
+                              </button>
                             </div>
                           ))
                         )}
@@ -1553,7 +1676,25 @@ function Courses() {
                                 <p className="text-sm font-semibold text-slate-900">{item.title}</p>
                                 <p className="text-xs text-slate-500">{cap(String(item.noteType || "notes").replaceAll("_", " "))} - {bytes(item.size)}</p>
                               </div>
-                              <button type="button" onClick={() => deleteContentMutation.mutate({ courseId: drawerCourse.id, item })} className="rounded-full border border-rose-200 px-3 py-1 text-xs font-semibold text-rose-600">Delete</button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  deleteContentMutation.mutate({
+                                    courseId: drawerCourse.id,
+                                    item,
+                                  })
+                                }
+                                disabled={
+                                  deleteContentMutation.isPending &&
+                                  pendingDeleteContentId === item.id
+                                }
+                                className="rounded-full border border-rose-200 px-3 py-1 text-xs font-semibold text-rose-600 disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                {deleteContentMutation.isPending &&
+                                pendingDeleteContentId === item.id
+                                  ? "Deleting..."
+                                  : "Delete"}
+                              </button>
                             </div>
                           ))
                         )}
@@ -1573,7 +1714,25 @@ function Courses() {
                                 <p className="text-sm font-semibold text-slate-900">{item.title}</p>
                                 <p className="text-xs text-slate-500">Book - {bytes(item.size)}</p>
                               </div>
-                              <button type="button" onClick={() => deleteContentMutation.mutate({ courseId: drawerCourse.id, item })} className="rounded-full border border-rose-200 px-3 py-1 text-xs font-semibold text-rose-600">Delete</button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  deleteContentMutation.mutate({
+                                    courseId: drawerCourse.id,
+                                    item,
+                                  })
+                                }
+                                disabled={
+                                  deleteContentMutation.isPending &&
+                                  pendingDeleteContentId === item.id
+                                }
+                                className="rounded-full border border-rose-200 px-3 py-1 text-xs font-semibold text-rose-600 disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                {deleteContentMutation.isPending &&
+                                pendingDeleteContentId === item.id
+                                  ? "Deleting..."
+                                  : "Delete"}
+                              </button>
                             </div>
                           ))
                         )}
@@ -1641,7 +1800,14 @@ function Courses() {
             </div>
           ) : null}
           <div className="flex justify-end gap-3">
-            <button type="button" onClick={() => setShowVideoModal(false)} className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600">Cancel</button>
+            <button
+              type="button"
+              onClick={() => setShowVideoModal(false)}
+              disabled={videoState.status === "uploading" || videoState.status === "processing"}
+              className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Cancel
+            </button>
             <button type="button" onClick={uploadVideoNow} disabled={videoState.status === "uploading" || videoState.status === "processing"} className="btn-primary min-w-[130px]">
               {videoState.status === "uploading" || videoState.status === "processing" ? "Uploading..." : "Save"}
             </button>
@@ -1708,7 +1874,14 @@ function Courses() {
             </div>
           ) : null}
           <div className="flex justify-end gap-3">
-            <button type="button" onClick={() => setShowPdfModal(false)} className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600">Cancel</button>
+            <button
+              type="button"
+              onClick={() => setShowPdfModal(false)}
+              disabled={pdfState.status === "uploading" || pdfState.status === "processing"}
+              className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Cancel
+            </button>
             <button type="button" onClick={uploadPdfNow} disabled={pdfState.status === "uploading" || pdfState.status === "processing"} className="btn-primary min-w-[130px]">
               {pdfState.status === "uploading" || pdfState.status === "processing" ? "Uploading..." : "Save"}
             </button>

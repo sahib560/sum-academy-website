@@ -8,7 +8,7 @@ import {
   getAnnouncements,
   getClasses,
   getCourses,
-  getStudents,
+  getUsers,
   toggleAnnouncementPin,
   updateAnnouncement,
 } from "../../services/admin.service.js";
@@ -18,6 +18,7 @@ const filterTabs = [
   { key: "system", label: "System" },
   { key: "class", label: "Class" },
   { key: "course", label: "Course" },
+  { key: "single_user", label: "Single User" },
 ];
 
 const typeMeta = {
@@ -35,6 +36,11 @@ const typeMeta = {
     label: "Course",
     border: "border-l-4 border-l-orange-500",
     badge: "bg-orange-100 text-orange-700",
+  },
+  single_user: {
+    label: "Single User",
+    border: "border-l-4 border-l-emerald-500",
+    badge: "bg-emerald-100 text-emerald-700",
   },
 };
 
@@ -75,6 +81,16 @@ const getRelativeTime = (value) => {
   return `${diffMonths} months ago`;
 };
 
+const getUserDisplayLabel = (user) => {
+  const fullName = String(user?.fullName || user?.name || "").trim();
+  const email = String(user?.email || "").trim();
+  const role = String(user?.role || "user").toLowerCase();
+
+  if (fullName) return `${fullName} (${role})`;
+  if (email) return `${email} (${role})`;
+  return `User (${role})`;
+};
+
 function Announcements() {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState("all");
@@ -107,15 +123,38 @@ function Announcements() {
     queryKey: ["admin-courses-for-announcements"],
     queryFn: getCourses,
   });
-  const studentsQuery = useQuery({
-    queryKey: ["admin-students-for-announcements"],
-    queryFn: getStudents,
+  const usersQuery = useQuery({
+    queryKey: ["admin-users-for-announcements"],
+    queryFn: () => getUsers(),
   });
 
   const announcements = announcementsQuery.data || [];
   const classes = classesQuery.data || [];
   const courses = coursesQuery.data || [];
-  const students = studentsQuery.data || [];
+  const users = usersQuery.data || [];
+  const usersById = useMemo(
+    () =>
+      users.reduce((acc, user) => {
+        acc[user.id] = user;
+        return acc;
+      }, {}),
+    [users]
+  );
+  const userCounts = useMemo(
+    () =>
+      users.reduce(
+        (acc, user) => {
+          const role = String(user.role || "").toLowerCase();
+          if (role === "student") acc.student += 1;
+          if (role === "teacher") acc.teacher += 1;
+          if (role === "admin") acc.admin += 1;
+          acc.all += 1;
+          return acc;
+        },
+        { all: 0, student: 0, teacher: 0, admin: 0 }
+      ),
+    [users]
+  );
 
   const countsByTab = useMemo(() => {
     return {
@@ -123,6 +162,7 @@ function Announcements() {
       system: announcements.filter((item) => item.targetType === "system").length,
       class: announcements.filter((item) => item.targetType === "class").length,
       course: announcements.filter((item) => item.targetType === "course").length,
+      single_user: announcements.filter((item) => item.targetType === "single_user").length,
     };
   }, [announcements]);
 
@@ -162,25 +202,32 @@ function Announcements() {
 
   const studentReachPreview = useMemo(() => {
     if (form.targetType === "system") {
-      if (form.audienceRole === "all") return students.length;
-      if (form.audienceRole === "student") return students.length;
-      if (form.audienceRole === "teacher") return 0;
-      if (form.audienceRole === "admin") return 0;
-      return students.length;
+      if (form.audienceRole === "all") return userCounts.all;
+      if (form.audienceRole === "student") return userCounts.student;
+      if (form.audienceRole === "teacher") return userCounts.teacher;
+      if (form.audienceRole === "admin") return userCounts.admin;
+      return userCounts.student;
     }
     if (form.targetType === "class") {
       const selectedClass = classes.find((item) => item.id === form.targetId);
       const classStudents = Array.isArray(selectedClass?.students)
         ? selectedClass.students
         : [];
-      return classStudents.length;
+      return new Set(
+        classStudents
+          .map((entry) => (typeof entry === "string" ? entry : entry?.studentId))
+          .filter(Boolean)
+      ).size;
     }
     if (form.targetType === "course") {
       const selectedCourse = courses.find((item) => item.id === form.targetId);
       return Number(selectedCourse?.enrollmentCount || 0);
     }
+    if (form.targetType === "single_user") {
+      return form.targetId ? 1 : 0;
+    }
     return 0;
-  }, [classes, courses, form.audienceRole, form.targetId, form.targetType, students.length]);
+  }, [classes, courses, form.audienceRole, form.targetId, form.targetType, userCounts]);
 
   const resetFormState = () => {
     setForm(initialForm);
@@ -195,10 +242,16 @@ function Announcements() {
     if (title.length < 5) nextErrors.title = "Title must be at least 5 characters";
     if (title.length > 100) nextErrors.title = "Title must be at most 100 characters";
     if (message.length < 10) nextErrors.message = "Message must be at least 10 characters";
-    if (!["system", "class", "course"].includes(form.targetType)) {
+    if (!["system", "class", "course", "single_user"].includes(form.targetType)) {
       nextErrors.targetType = "Invalid target type";
     }
-    if (!isEdit && (form.targetType === "class" || form.targetType === "course") && !form.targetId) {
+    if (
+      !isEdit &&
+      (form.targetType === "class" ||
+        form.targetType === "course" ||
+        form.targetType === "single_user") &&
+      !form.targetId
+    ) {
       nextErrors.targetId = "Please select a target";
     }
 
@@ -291,6 +344,8 @@ function Announcements() {
       audienceRole:
         form.targetType === "system"
           ? form.audienceRole
+          : form.targetType === "single_user"
+          ? String(usersById[form.targetId]?.role || "all").toLowerCase()
           : "student",
     });
   };
@@ -327,7 +382,10 @@ function Announcements() {
   };
 
   const isLoading =
-    announcementsQuery.isLoading || classesQuery.isLoading || coursesQuery.isLoading;
+    announcementsQuery.isLoading ||
+    classesQuery.isLoading ||
+    coursesQuery.isLoading ||
+    usersQuery.isLoading;
 
   return (
     <div className="space-y-6">
@@ -335,7 +393,7 @@ function Announcements() {
         <div>
           <h2 className="font-heading text-3xl text-slate-900">Announcements</h2>
           <p className="text-sm text-slate-500">
-            Broadcast updates by system, class, or course with pin and email control.
+            Broadcast updates by system, class, course, or single user with pin and email control.
           </p>
         </div>
         <button className="btn-primary" onClick={openCreateModal}>
@@ -568,11 +626,12 @@ function Announcements() {
                   <>
                     <div>
                       <label className="text-xs font-semibold uppercase text-slate-500">Target Type</label>
-                      <div className="mt-2 grid grid-cols-3 gap-2">
+                      <div className="mt-2 grid grid-cols-2 gap-2 md:grid-cols-4">
                         {[
                           { key: "system", label: "System-wide" },
                           { key: "class", label: "Class" },
                           { key: "course", label: "Course" },
+                          { key: "single_user", label: "Single User" },
                         ].map((item) => (
                           <button
                             key={item.key}
@@ -624,7 +683,11 @@ function Announcements() {
                     {form.targetType !== "system" ? (
                       <div>
                         <label className="text-xs font-semibold uppercase text-slate-500">
-                          {form.targetType === "class" ? "Class" : "Course"}
+                          {form.targetType === "class"
+                            ? "Class"
+                            : form.targetType === "course"
+                            ? "Course"
+                            : "User"}
                         </label>
                         <select
                           value={form.targetId}
@@ -634,11 +697,23 @@ function Announcements() {
                           className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
                         >
                           <option value="">Select target</option>
-                          {(form.targetType === "class" ? classes : courses).map((item) => (
-                            <option key={item.id} value={item.id}>
-                              {form.targetType === "class" ? item.name : item.title}
-                            </option>
-                          ))}
+                          {form.targetType === "class"
+                            ? classes.map((item) => (
+                                <option key={item.id} value={item.id}>
+                                  {item.name}
+                                </option>
+                              ))
+                            : form.targetType === "course"
+                            ? courses.map((item) => (
+                                <option key={item.id} value={item.id}>
+                                  {item.title}
+                                </option>
+                              ))
+                            : users.map((item) => (
+                                <option key={item.id} value={item.id}>
+                                  {getUserDisplayLabel(item)}
+                                </option>
+                              ))}
                         </select>
                         <p className="mt-1 text-xs text-rose-500">{errors.targetId || ""}</p>
                       </div>
@@ -775,4 +850,3 @@ function Announcements() {
 }
 
 export default Announcements;
-

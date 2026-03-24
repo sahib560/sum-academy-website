@@ -7,6 +7,9 @@ import {
   sendPaymentRejected,
   sendInstallmentReminder,
   sendBankTransferInitiated,
+  sendInstallmentPaidEmail,
+  sendInstallmentPlanCreatedEmail,
+  sendInstallmentReminderEmail,
 } from "../services/email.service.js";
 
 const { FieldValue } = admin.firestore;
@@ -37,6 +40,54 @@ const normalizePromoCode = (value = "") =>
     .toUpperCase();
 
 const isPromoCodeFormatValid = (value = "") => /^[A-Z0-9]+$/.test(value);
+
+const escapeCsv = (value = "") =>
+  `"${String(value ?? "").replace(/"/g, '""')}"`;
+
+const addDays = (date, days) => {
+  const clone = new Date(date);
+  clone.setDate(clone.getDate() + days);
+  return clone;
+};
+
+const startOfDay = (date) => {
+  const clone = new Date(date);
+  clone.setHours(0, 0, 0, 0);
+  return clone;
+};
+
+const getDateOnlyISO = (date) => {
+  if (!date) return null;
+  return date.toISOString().split("T")[0];
+};
+
+const getDocMap = async (collectionName, ids = []) => {
+  const uniqueIds = [...new Set(ids.filter(Boolean))];
+  if (uniqueIds.length < 1) return {};
+
+  const snaps = await Promise.all(
+    uniqueIds.map((id) => db.collection(collectionName).doc(id).get())
+  );
+
+  return snaps.reduce((acc, snap) => {
+    if (snap.exists) acc[snap.id] = snap.data() || {};
+    return acc;
+  }, {});
+};
+
+const normalizePaymentMethod = (value = "") => String(value || "").toLowerCase();
+
+const formatPaymentMethodLabel = (value = "") => {
+  const method = normalizePaymentMethod(value);
+  if (method === "bank_transfer") return "Bank Transfer";
+  if (method === "jazzcash") return "JazzCash";
+  if (method === "easypaisa") return "EasyPaisa";
+  return method || "-";
+};
+
+const sortByCreatedAtDesc = (a, b) =>
+  (parseDate(b.createdAt)?.getTime() || 0) -
+  (parseDate(a.createdAt)?.getTime() || 0);
 
 const buildInstallmentSchedule = (amount, installments, startDate = null) => {
   const count = Number(installments || 1);
@@ -104,6 +155,119 @@ const getClassById = async (classId) => {
   const classSnap = await db.collection(COLLECTIONS.CLASSES).doc(classId).get();
   if (!classSnap.exists) return null;
   return { id: classSnap.id, ...(classSnap.data() || {}) };
+};
+
+const fetchMergedPayments = async () => {
+  const paymentsSnap = await db.collection(COLLECTIONS.PAYMENTS).get();
+  const payments = paymentsSnap.docs.map((doc) => ({ id: doc.id, ...(doc.data() || {}) }));
+
+  const studentIds = payments.map((item) => item.studentId).filter(Boolean);
+  const courseIds = payments.map((item) => item.courseId).filter(Boolean);
+  const classIds = payments.map((item) => item.classId).filter(Boolean);
+
+  const [studentMap, userMap, courseMap, classMap] = await Promise.all([
+    getDocMap(COLLECTIONS.STUDENTS, studentIds),
+    getDocMap(COLLECTIONS.USERS, studentIds),
+    getDocMap(COLLECTIONS.COURSES, courseIds),
+    getDocMap(COLLECTIONS.CLASSES, classIds),
+  ]);
+
+  return payments.map((item) => {
+    const student = studentMap[item.studentId] || {};
+    const user = userMap[item.studentId] || {};
+    const course = courseMap[item.courseId] || {};
+    const classInfo = classMap[item.classId] || {};
+
+    const studentName =
+      student.fullName ||
+      item.studentName ||
+      (user.email ? String(user.email).split("@")[0] : "Student");
+
+    const className = item.className || classInfo.name || "";
+
+    return {
+      id: item.id,
+      studentId: item.studentId || null,
+      studentName,
+      studentEmail: user.email || "",
+      courseId: item.courseId || null,
+      courseName: item.courseName || course.title || "",
+      classId: item.classId || null,
+      className,
+      shiftId: item.shiftId || null,
+      method: normalizePaymentMethod(item.method),
+      amount: toNumber(item.amount),
+      originalAmount: toNumber(item.originalAmount, toNumber(item.amount)),
+      discount: toNumber(item.discount),
+      status: String(item.status || "").toLowerCase() || "pending",
+      receiptUrl: item.receiptUrl || null,
+      reference: item.reference || "",
+      promoCode: item.promoCode || null,
+      isInstallment: Boolean(item.isInstallment),
+      numberOfInstallments: toNumber(item.numberOfInstallments),
+      installments: Array.isArray(item.installments) ? item.installments : null,
+      createdAt: serializeTimestamp(item.createdAt),
+      updatedAt: serializeTimestamp(item.updatedAt),
+      verifiedAt: serializeTimestamp(item.verifiedAt),
+      receiptUploadedAt: serializeTimestamp(item.receiptUploadedAt),
+    };
+  });
+};
+
+const calculateInstallmentComputedFields = (plan = {}) => {
+  const today = startOfDay(new Date());
+  const rows = Array.isArray(plan.installments) ? plan.installments : [];
+
+  const normalizedRows = rows.map((row, index) => {
+    const dueDate = parseDate(row.dueDate);
+    const dueDay = dueDate ? startOfDay(dueDate) : null;
+    const isPaid = String(row.status || "").toLowerCase() === "paid";
+    const isOverdue = Boolean(!isPaid && dueDay && dueDay < today);
+    return {
+      number: Number(row.number || index + 1),
+      amount: toNumber(row.amount),
+      dueDate: row.dueDate || getDateOnlyISO(dueDate),
+      status: isPaid ? "paid" : isOverdue ? "overdue" : "pending",
+      paidAt: row.paidAt || null,
+      paymentId: row.paymentId || null,
+      isOverdue,
+    };
+  });
+
+  const paidRows = normalizedRows.filter((row) => row.status === "paid");
+  const unpaidRows = normalizedRows.filter((row) => row.status !== "paid");
+  const overdueRows = normalizedRows.filter((row) => row.isOverdue);
+
+  const paidAmount = paidRows.reduce((sum, row) => sum + toNumber(row.amount), 0);
+  const totalAmount = toNumber(plan.totalAmount);
+  const remainingAmount = Number(Math.max(totalAmount - paidAmount, 0).toFixed(2));
+
+  const nextDueRow = unpaidRows
+    .filter((row) => parseDate(row.dueDate))
+    .sort(
+      (a, b) =>
+        (parseDate(a.dueDate)?.getTime() || 0) -
+        (parseDate(b.dueDate)?.getTime() || 0)
+    )[0];
+
+  const paidCount = paidRows.length;
+  const numberOfInstallments =
+    toNumber(plan.numberOfInstallments) || normalizedRows.length;
+  const completed =
+    numberOfInstallments > 0 && paidCount >= numberOfInstallments;
+
+  return {
+    ...plan,
+    installments: normalizedRows,
+    numberOfInstallments,
+    paidCount,
+    paidAmount: Number(paidAmount.toFixed(2)),
+    remainingAmount,
+    nextDueDate: nextDueRow?.dueDate || null,
+    isOverdue: overdueRows.length > 0,
+    overdueCount: overdueRows.length,
+    status: completed ? "completed" : overdueRows.length > 0 ? "overdue" : "active",
+  };
 };
 
 const getCurrentPaymentSettings = async () => {
@@ -549,95 +713,228 @@ export const getMyInstallments = async (req, res) => {
   }
 };
 
-export const getAdminPayments = async (req, res) => {
+export const getTransactions = async (req, res) => {
   try {
-    const { method, status, dateRange, from, to } = req.query;
-    const snap = await db.collection(COLLECTIONS.PAYMENTS).get();
+    const { method = "", status = "", search = "", startDate = "", endDate = "" } =
+      req.query || {};
+    const normalizedMethod = normalizePaymentMethod(method);
+    const normalizedStatus = String(status || "").toLowerCase();
+    const normalizedSearch = String(search || "").trim().toLowerCase();
 
-    const now = new Date();
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    let rows = await fetchMergedPayments();
 
-    let data = snap.docs.map((doc) => ({ id: doc.id, ...(doc.data() || {}) }));
-    if (method) data = data.filter((item) => item.method === method);
-    if (status) data = data.filter((item) => item.status === status);
+    if (normalizedMethod && normalizedMethod !== "all") {
+      rows = rows.filter((item) => item.method === normalizedMethod);
+    }
+    if (normalizedStatus && normalizedStatus !== "all") {
+      rows = rows.filter((item) => item.status === normalizedStatus);
+    }
 
-    if (dateRange === "this_month") {
-      data = data.filter((item) => {
-        const createdAt = parseDate(item.createdAt);
-        return createdAt && createdAt >= monthStart;
+    if (normalizedSearch) {
+      rows = rows.filter((item) => {
+        const studentName = String(item.studentName || "").toLowerCase();
+        const courseName = String(item.courseName || "").toLowerCase();
+        const className = String(item.className || "").toLowerCase();
+        return (
+          studentName.includes(normalizedSearch) ||
+          courseName.includes(normalizedSearch) ||
+          className.includes(normalizedSearch) ||
+          item.id.toLowerCase().includes(normalizedSearch)
+        );
       });
-    } else if (dateRange === "last_30_days") {
-      const start = new Date();
-      start.setDate(start.getDate() - 30);
-      data = data.filter((item) => {
-        const createdAt = parseDate(item.createdAt);
-        return createdAt && createdAt >= start;
-      });
-    } else if (from || to) {
-      const fromDate = parseDate(from);
-      const toDate = parseDate(to);
-      data = data.filter((item) => {
+    }
+
+    const start = parseDate(startDate);
+    const end = parseDate(endDate);
+    const endDay = end ? startOfDay(addDays(end, 1)) : null;
+
+    if (start || endDay) {
+      rows = rows.filter((item) => {
         const createdAt = parseDate(item.createdAt);
         if (!createdAt) return false;
-        if (fromDate && createdAt < fromDate) return false;
-        if (toDate && createdAt > toDate) return false;
+        if (start && createdAt < startOfDay(start)) return false;
+        if (endDay && createdAt >= endDay) return false;
         return true;
       });
     }
 
-    const uniqueStudentIds = [...new Set(data.map((item) => item.studentId).filter(Boolean))];
-    const uniqueClassIds = [...new Set(data.map((item) => item.classId).filter(Boolean))];
+    rows.sort(sortByCreatedAtDesc);
+    return successResponse(res, rows, "Transactions fetched");
+  } catch (error) {
+    console.error("getTransactions error:", error);
+    return errorResponse(res, "Failed to fetch transactions", 500);
+  }
+};
 
-    const [userSnaps, classSnaps] = await Promise.all([
-      Promise.all(
-        uniqueStudentIds.map((studentId) =>
-          db.collection(COLLECTIONS.USERS).doc(studentId).get()
-        )
-      ),
-      Promise.all(
-        uniqueClassIds.map((classId) =>
-          db.collection(COLLECTIONS.CLASSES).doc(classId).get()
-        )
-      ),
+export const getTransactionById = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const paymentSnap = await db.collection(COLLECTIONS.PAYMENTS).doc(id).get();
+    if (!paymentSnap.exists) return errorResponse(res, "Transaction not found", 404);
+
+    const payment = { id: paymentSnap.id, ...(paymentSnap.data() || {}) };
+
+    const [studentSnap, userSnap, courseSnap, classSnap] = await Promise.all([
+      payment.studentId
+        ? db.collection(COLLECTIONS.STUDENTS).doc(payment.studentId).get()
+        : Promise.resolve(null),
+      payment.studentId
+        ? db.collection(COLLECTIONS.USERS).doc(payment.studentId).get()
+        : Promise.resolve(null),
+      payment.courseId
+        ? db.collection(COLLECTIONS.COURSES).doc(payment.courseId).get()
+        : Promise.resolve(null),
+      payment.classId
+        ? db.collection(COLLECTIONS.CLASSES).doc(payment.classId).get()
+        : Promise.resolve(null),
     ]);
 
-    const userEmailMap = {};
-    userSnaps.forEach((snap) => {
-      if (snap.exists) {
-        userEmailMap[snap.id] = snap.data()?.email || "";
-      }
-    });
-    const classMap = {};
-    classSnaps.forEach((snap) => {
-      if (snap.exists) {
-        classMap[snap.id] = snap.data() || {};
-      }
-    });
+    const studentData = studentSnap?.exists ? studentSnap.data() || {} : {};
+    const userData = userSnap?.exists ? userSnap.data() || {} : {};
+    const courseData = courseSnap?.exists ? courseSnap.data() || {} : {};
+    const classData = classSnap?.exists ? classSnap.data() || {} : {};
 
-    data = data.map((item) => {
-      const classData = item.classId ? classMap[item.classId] : null;
-      const shift = Array.isArray(classData?.shifts)
-        ? classData.shifts.find((row) => row.id === item.shiftId)
-        : null;
+    const shift = Array.isArray(classData.shifts)
+      ? classData.shifts.find((row) => row.id === payment.shiftId)
+      : null;
 
-      return {
-        ...item,
-        studentEmail: userEmailMap[item.studentId] || "",
-        className: item.className || classData?.name || "",
-        shiftName: shift?.name || "",
-        createdAt: serializeTimestamp(item.createdAt),
-        updatedAt: serializeTimestamp(item.updatedAt),
-        verifiedAt: serializeTimestamp(item.verifiedAt),
-        receiptUploadedAt: serializeTimestamp(item.receiptUploadedAt),
-      };
-    });
+    const studentName =
+      studentData.fullName ||
+      payment.studentName ||
+      (userData.email ? String(userData.email).split("@")[0] : "Student");
 
-    data.sort(
-      (a, b) =>
-        (parseDate(b.createdAt)?.getTime() || 0) -
-        (parseDate(a.createdAt)?.getTime() || 0)
+    const merged = {
+      id: payment.id,
+      studentId: payment.studentId || null,
+      studentName,
+      studentEmail: userData.email || "",
+      studentPhone: studentData.phoneNumber || userData.phoneNumber || "",
+      studentProfile: {
+        uid: payment.studentId || null,
+        fullName: studentName,
+        email: userData.email || "",
+        phoneNumber: studentData.phoneNumber || userData.phoneNumber || "",
+        isActive: userData.isActive ?? true,
+      },
+      courseId: payment.courseId || null,
+      courseName: payment.courseName || courseData.title || "",
+      courseDetails: courseSnap?.exists
+        ? {
+            id: courseSnap.id,
+            title: courseData.title || "",
+            category: courseData.category || "",
+            level: courseData.level || "",
+            price: toNumber(courseData.price),
+          }
+        : null,
+      classId: payment.classId || null,
+      className: payment.className || classData.name || "",
+      classDetails: classSnap?.exists
+        ? {
+            id: classSnap.id,
+            name: classData.name || "",
+            batchCode: classData.batchCode || "",
+            startDate: classData.startDate || null,
+            endDate: classData.endDate || null,
+          }
+        : null,
+      shiftId: payment.shiftId || null,
+      shiftDetails: shift
+        ? {
+            id: shift.id,
+            name: shift.name || "",
+            days: Array.isArray(shift.days) ? shift.days : [],
+            startTime: shift.startTime || "",
+            endTime: shift.endTime || "",
+            teacherId: shift.teacherId || "",
+            teacherName: shift.teacherName || "",
+            room: shift.room || "",
+          }
+        : null,
+      method: normalizePaymentMethod(payment.method),
+      methodLabel: formatPaymentMethodLabel(payment.method),
+      amount: toNumber(payment.amount),
+      originalAmount: toNumber(payment.originalAmount, toNumber(payment.amount)),
+      discount: toNumber(payment.discount),
+      status: String(payment.status || "").toLowerCase() || "pending",
+      reference: payment.reference || "",
+      promoCode: payment.promoCode || null,
+      receiptUrl: payment.receiptUrl || null,
+      isInstallment: Boolean(payment.isInstallment),
+      numberOfInstallments: toNumber(payment.numberOfInstallments),
+      installments: Array.isArray(payment.installments) ? payment.installments : null,
+      createdAt: serializeTimestamp(payment.createdAt),
+      updatedAt: serializeTimestamp(payment.updatedAt),
+      verifiedAt: serializeTimestamp(payment.verifiedAt),
+      receiptUploadedAt: serializeTimestamp(payment.receiptUploadedAt),
+    };
+
+    return successResponse(res, merged, "Transaction details fetched");
+  } catch (error) {
+    console.error("getTransactionById error:", error);
+    return errorResponse(res, "Failed to fetch transaction details", 500);
+  }
+};
+
+export const exportTransactionsCSV = async (req, res) => {
+  try {
+    const rows = await fetchMergedPayments();
+    rows.sort(sortByCreatedAtDesc);
+
+    const headers = [
+      "ID",
+      "Student",
+      "Email",
+      "Course",
+      "Class",
+      "Method",
+      "Amount",
+      "Discount",
+      "PromoCode",
+      "Date",
+      "Status",
+    ];
+
+    const csvRows = rows.map((item) =>
+      [
+        item.id,
+        item.studentName || "",
+        item.studentEmail || "",
+        item.courseName || "",
+        item.className || "",
+        formatPaymentMethodLabel(item.method),
+        toNumber(item.amount),
+        toNumber(item.discount),
+        item.promoCode || "",
+        item.createdAt || "",
+        item.status || "",
+      ]
+        .map((entry) => escapeCsv(entry))
+        .join(",")
     );
-    return successResponse(res, data, "Admin payments fetched");
+
+    const csvString = [headers.map((item) => escapeCsv(item)).join(","), ...csvRows].join(
+      "\n"
+    );
+
+    res.setHeader("Content-Type", "text/csv");
+    res.setHeader(
+      "Content-Disposition",
+      "attachment; filename=transactions.csv"
+    );
+
+    return res.status(200).send(csvString);
+  } catch (error) {
+    console.error("exportTransactionsCSV error:", error);
+    return errorResponse(res, "Failed to export transactions", 500);
+  }
+};
+
+export const getAdminPayments = async (req, res) => {
+  try {
+    const rows = await fetchMergedPayments();
+    rows.sort(sortByCreatedAtDesc);
+    return successResponse(res, rows, "Admin payments fetched");
   } catch (error) {
     console.error("getAdminPayments error:", error);
     return errorResponse(res, "Failed to fetch admin payments", 500);
@@ -869,6 +1166,17 @@ export const createInstallmentPlan = async (req, res) => {
       updatedAt: FieldValue.serverTimestamp(),
     });
 
+    try {
+      await sendInstallmentPlanCreatedEmail(
+        student.email || "",
+        student.fullName || "Student",
+        course.title || "Course",
+        Array.isArray(schedule) ? schedule : []
+      );
+    } catch (emailError) {
+      console.error("sendInstallmentPlanCreatedEmail error:", emailError.message);
+    }
+
     return successResponse(res, { id: planRef.id }, "Installment plan created", 201);
   } catch (error) {
     console.error("createInstallmentPlan error:", error);
@@ -890,17 +1198,31 @@ export const markInstallmentPaid = async (req, res) => {
 
     const planData = planSnap.data() || {};
     const installments = Array.isArray(planData.installments) ? planData.installments : [];
+    const target = installments.find((item) => Number(item.number) === installmentNumber);
+    if (!target) {
+      return errorResponse(res, "Installment not found in this plan", 404);
+    }
+    if (String(target.status || "").toLowerCase() === "paid") {
+      return errorResponse(res, "Installment already marked as paid", 400);
+    }
+
+    const paidAtISO = new Date().toISOString();
     const updatedInstallments = installments.map((item) => {
       if (Number(item.number) !== installmentNumber) return item;
       return {
         ...item,
         status: "paid",
-        paidAt: new Date().toISOString(),
+        paidAt: paidAtISO,
       };
     });
 
-    const paidCount = updatedInstallments.filter((item) => item.status === "paid").length;
-    const completed = paidCount >= updatedInstallments.length && updatedInstallments.length > 0;
+    const paidCount = updatedInstallments.filter(
+      (item) => String(item.status || "").toLowerCase() === "paid"
+    ).length;
+    const numberOfInstallments =
+      toNumber(planData.numberOfInstallments) || updatedInstallments.length;
+    const completed =
+      numberOfInstallments > 0 && paidCount >= numberOfInstallments;
 
     await planRef.update({
       installments: updatedInstallments,
@@ -909,11 +1231,34 @@ export const markInstallmentPaid = async (req, res) => {
       updatedAt: FieldValue.serverTimestamp(),
     });
 
-    return successResponse(
-      res,
-      { planId, installmentNumber, status: completed ? "completed" : "active" },
-      "Installment marked paid"
-    );
+    const refreshedSnap = await planRef.get();
+    const refreshedPlan = calculateInstallmentComputedFields({
+      id: refreshedSnap.id,
+      ...(refreshedSnap.data() || {}),
+    });
+
+    const userSnap = refreshedPlan.studentId
+      ? await db.collection(COLLECTIONS.USERS).doc(refreshedPlan.studentId).get()
+      : null;
+    const email = userSnap?.exists ? userSnap.data()?.email || "" : "";
+
+    const nextDueDate = refreshedPlan.nextDueDate || null;
+
+    try {
+      await sendInstallmentPaidEmail(
+        email,
+        refreshedPlan.studentName || "Student",
+        installmentNumber,
+        toNumber(target.amount),
+        refreshedPlan.courseName || "Course",
+        refreshedPlan.remainingAmount || 0,
+        nextDueDate
+      );
+    } catch (emailError) {
+      console.error("sendInstallmentPaidEmail error:", emailError.message);
+    }
+
+    return successResponse(res, refreshedPlan, "Installment marked paid");
   } catch (error) {
     console.error("markInstallmentPaid error:", error);
     return errorResponse(res, "Failed to mark installment paid", 500);
@@ -922,109 +1267,40 @@ export const markInstallmentPaid = async (req, res) => {
 
 export const getInstallments = async (req, res) => {
   try {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const { status = "", search = "" } = req.query || {};
+    const normalizedStatus = String(status || "").toLowerCase();
+    const normalizedSearch = String(search || "").trim().toLowerCase();
 
     const snap = await db.collection(COLLECTIONS.INSTALLMENTS).get();
-    let data = snap.docs.map((doc) => {
-      const plan = { id: doc.id, ...(doc.data() || {}) };
-      const installments = Array.isArray(plan.installments) ? plan.installments : [];
+    let rows = snap.docs.map((doc) =>
+      calculateInstallmentComputedFields({ id: doc.id, ...(doc.data() || {}) })
+    );
 
-      const normalizedInstallments = installments.map((item) => {
-        const dueDate = parseDate(item.dueDate);
-        const isOverdue =
-          item.status !== "paid" && dueDate && dueDate < today;
+    const studentIds = rows.map((item) => item.studentId).filter(Boolean);
+    const courseIds = rows.map((item) => item.courseId).filter(Boolean);
+    const classIds = rows.map((item) => item.classId).filter(Boolean);
 
-        return {
-          ...item,
-          status: isOverdue ? "overdue" : item.status || "pending",
-          isOverdue,
-        };
-      });
-
-      const overdueCount = normalizedInstallments.filter((item) => item.isOverdue).length;
-      const paidCount = normalizedInstallments.filter((item) => item.status === "paid").length;
-      const totalCount = normalizedInstallments.length;
-
-      return {
-        ...plan,
-        installments: normalizedInstallments,
-        overdueCount,
-        paidCount,
-        status:
-          plan.status === "completed"
-            ? "completed"
-            : overdueCount > 0
-              ? "overdue"
-              : "active",
-        remainingInstallments: Math.max(totalCount - paidCount, 0),
-      };
-    });
-
-    const uniqueStudentIds = [...new Set(data.map((item) => item.studentId).filter(Boolean))];
-    const uniqueCourseIds = [...new Set(data.map((item) => item.courseId).filter(Boolean))];
-    const uniqueClassIds = [...new Set(data.map((item) => item.classId).filter(Boolean))];
-
-    const [studentSnaps, userSnaps, courseSnaps, classSnaps] = await Promise.all([
-      Promise.all(
-        uniqueStudentIds.map((studentId) =>
-          db.collection(COLLECTIONS.STUDENTS).doc(studentId).get()
-        )
-      ),
-      Promise.all(
-        uniqueStudentIds.map((studentId) =>
-          db.collection(COLLECTIONS.USERS).doc(studentId).get()
-        )
-      ),
-      Promise.all(
-        uniqueCourseIds.map((courseId) =>
-          db.collection(COLLECTIONS.COURSES).doc(courseId).get()
-        )
-      ),
-      Promise.all(
-        uniqueClassIds.map((classId) =>
-          db.collection(COLLECTIONS.CLASSES).doc(classId).get()
-        )
-      ),
+    const [studentMap, userMap, courseMap, classMap] = await Promise.all([
+      getDocMap(COLLECTIONS.STUDENTS, studentIds),
+      getDocMap(COLLECTIONS.USERS, studentIds),
+      getDocMap(COLLECTIONS.COURSES, courseIds),
+      getDocMap(COLLECTIONS.CLASSES, classIds),
     ]);
 
-    const studentMap = {};
-    studentSnaps.forEach((snap) => {
-      if (snap.exists) {
-        studentMap[snap.id] = snap.data() || {};
-      }
-    });
-    const userMap = {};
-    userSnaps.forEach((snap) => {
-      if (snap.exists) {
-        userMap[snap.id] = snap.data() || {};
-      }
-    });
-    const courseMap = {};
-    courseSnaps.forEach((snap) => {
-      if (snap.exists) {
-        courseMap[snap.id] = snap.data() || {};
-      }
-    });
-    const classMap = {};
-    classSnaps.forEach((snap) => {
-      if (snap.exists) {
-        classMap[snap.id] = snap.data() || {};
-      }
-    });
+    rows = rows.map((item) => {
+      const studentData = studentMap[item.studentId] || {};
+      const userData = userMap[item.studentId] || {};
+      const courseData = courseMap[item.courseId] || {};
+      const classData = classMap[item.classId] || {};
 
-    data = data.map((item) => {
-      const studentData = item.studentId ? studentMap[item.studentId] || {} : {};
-      const userData = item.studentId ? userMap[item.studentId] || {} : {};
-      const courseData = item.courseId ? courseMap[item.courseId] || {} : {};
-      const classData = item.classId ? classMap[item.classId] || {} : {};
+      const studentName =
+        studentData.fullName ||
+        item.studentName ||
+        (userData.email ? String(userData.email).split("@")[0] : "Student");
 
       return {
         ...item,
-        studentName:
-          item.studentName ||
-          studentData.fullName ||
-          (userData.email ? String(userData.email).split("@")[0] : "Student"),
+        studentName,
         studentEmail: userData.email || "",
         courseName: item.courseName || courseData.title || "",
         className: item.className || classData.name || "",
@@ -1033,68 +1309,269 @@ export const getInstallments = async (req, res) => {
       };
     });
 
-    data.sort((a, b) => (parseDate(b.createdAt)?.getTime() || 0) - (parseDate(a.createdAt)?.getTime() || 0));
-    return successResponse(res, data, "Installments fetched");
+    if (normalizedStatus && normalizedStatus !== "all") {
+      rows = rows.filter((item) => item.status === normalizedStatus);
+    }
+
+    if (normalizedSearch) {
+      rows = rows.filter((item) => {
+        const studentName = String(item.studentName || "").toLowerCase();
+        const courseName = String(item.courseName || "").toLowerCase();
+        return (
+          studentName.includes(normalizedSearch) ||
+          courseName.includes(normalizedSearch) ||
+          item.id.toLowerCase().includes(normalizedSearch)
+        );
+      });
+    }
+
+    rows.sort(sortByCreatedAtDesc);
+    return successResponse(res, rows, "Installments fetched");
   } catch (error) {
     console.error("getInstallments error:", error);
     return errorResponse(res, "Failed to fetch installments", 500);
   }
 };
 
+export const getInstallmentById = async (req, res) => {
+  try {
+    const { planId } = req.params;
+    const planSnap = await db.collection(COLLECTIONS.INSTALLMENTS).doc(planId).get();
+    if (!planSnap.exists) return errorResponse(res, "Installment plan not found", 404);
+
+    const plan = calculateInstallmentComputedFields({
+      id: planSnap.id,
+      ...(planSnap.data() || {}),
+    });
+
+    const [studentSnap, userSnap, courseSnap, classSnap] = await Promise.all([
+      plan.studentId
+        ? db.collection(COLLECTIONS.STUDENTS).doc(plan.studentId).get()
+        : Promise.resolve(null),
+      plan.studentId
+        ? db.collection(COLLECTIONS.USERS).doc(plan.studentId).get()
+        : Promise.resolve(null),
+      plan.courseId
+        ? db.collection(COLLECTIONS.COURSES).doc(plan.courseId).get()
+        : Promise.resolve(null),
+      plan.classId
+        ? db.collection(COLLECTIONS.CLASSES).doc(plan.classId).get()
+        : Promise.resolve(null),
+    ]);
+
+    const studentData = studentSnap?.exists ? studentSnap.data() || {} : {};
+    const userData = userSnap?.exists ? userSnap.data() || {} : {};
+    const courseData = courseSnap?.exists ? courseSnap.data() || {} : {};
+    const classData = classSnap?.exists ? classSnap.data() || {} : {};
+
+    const merged = {
+      ...plan,
+      studentName:
+        studentData.fullName ||
+        plan.studentName ||
+        (userData.email ? String(userData.email).split("@")[0] : "Student"),
+      studentEmail: userData.email || "",
+      studentPhone: studentData.phoneNumber || userData.phoneNumber || "",
+      courseName: plan.courseName || courseData.title || "",
+      className: plan.className || classData.name || "",
+      createdAt: serializeTimestamp(plan.createdAt),
+      updatedAt: serializeTimestamp(plan.updatedAt),
+    };
+
+    return successResponse(res, merged, "Installment plan fetched");
+  } catch (error) {
+    console.error("getInstallmentById error:", error);
+    return errorResponse(res, "Failed to fetch installment plan", 500);
+  }
+};
+
+export const overrideInstallment = async (req, res) => {
+  try {
+    const { planId } = req.params;
+    const { installments } = req.body || {};
+
+    if (!Array.isArray(installments) || installments.length < 1) {
+      return errorResponse(res, "installments array is required", 400);
+    }
+
+    const planRef = db.collection(COLLECTIONS.INSTALLMENTS).doc(planId);
+    const planSnap = await planRef.get();
+    if (!planSnap.exists) return errorResponse(res, "Installment plan not found", 404);
+
+    const currentPlan = planSnap.data() || {};
+    const currentRows = Array.isArray(currentPlan.installments)
+      ? currentPlan.installments
+      : [];
+
+    const today = startOfDay(new Date());
+    const overriddenRows = installments.map((incoming, index) => {
+      const current = currentRows.find(
+        (row) => Number(row.number) === Number(incoming.number || index + 1)
+      );
+
+      const amount = toNumber(incoming.amount, toNumber(current?.amount));
+      if (amount <= 0) throw new Error("INVALID_INSTALLMENT_AMOUNT");
+
+      const dueDate =
+        incoming.dueDate || current?.dueDate || getDateOnlyISO(addDays(today, 30 * index));
+      const parsedDueDate = parseDate(dueDate);
+      if (!parsedDueDate) throw new Error("INVALID_INSTALLMENT_DUE_DATE");
+      if (startOfDay(parsedDueDate) < today && String(current?.status || "").toLowerCase() !== "paid") {
+        throw new Error("INSTALLMENT_DUE_DATE_MUST_BE_FUTURE");
+      }
+
+      const isPaid = String(current?.status || "").toLowerCase() === "paid";
+      return {
+        number: Number(incoming.number || current?.number || index + 1),
+        amount,
+        dueDate: getDateOnlyISO(parsedDueDate),
+        status: isPaid ? "paid" : "pending",
+        paidAt: isPaid ? current?.paidAt || null : null,
+        paymentId: current?.paymentId || null,
+      };
+    });
+
+    const paidCount = overriddenRows.filter(
+      (row) => String(row.status || "").toLowerCase() === "paid"
+    ).length;
+    const numberOfInstallments =
+      toNumber(currentPlan.numberOfInstallments) || overriddenRows.length;
+    const isCompleted =
+      numberOfInstallments > 0 && paidCount >= numberOfInstallments;
+
+    await planRef.update({
+      installments: overriddenRows,
+      paidCount,
+      status: isCompleted ? "completed" : "active",
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    const refreshedSnap = await planRef.get();
+    const refreshedPlan = calculateInstallmentComputedFields({
+      id: refreshedSnap.id,
+      ...(refreshedSnap.data() || {}),
+    });
+
+    return successResponse(res, refreshedPlan, "Installment schedule updated");
+  } catch (error) {
+    if (error.message === "INVALID_INSTALLMENT_AMOUNT") {
+      return errorResponse(res, "Each installment amount must be a positive number", 400);
+    }
+    if (error.message === "INVALID_INSTALLMENT_DUE_DATE") {
+      return errorResponse(res, "Each installment dueDate must be valid", 400);
+    }
+    if (error.message === "INSTALLMENT_DUE_DATE_MUST_BE_FUTURE") {
+      return errorResponse(
+        res,
+        "Unpaid installment due dates must be today or future",
+        400
+      );
+    }
+    console.error("overrideInstallment error:", error);
+    return errorResponse(res, "Failed to override installment schedule", 500);
+  }
+};
+
 export const sendInstallmentReminders = async (req, res) => {
   try {
-    const now = new Date();
-    now.setHours(0, 0, 0, 0);
-    const inThreeDays = new Date(now);
-    inThreeDays.setDate(inThreeDays.getDate() + 3);
+    const now = startOfDay(new Date());
+    const inThreeDays = addDays(now, 3);
+
+    const { studentId = "" } = req.body || {};
 
     const plansSnap = await db.collection(COLLECTIONS.INSTALLMENTS).get();
-    let remindersSent = 0;
+    let plans = plansSnap.docs.map((doc) => ({ id: doc.id, ...(doc.data() || {}) }));
+    plans = plans.filter((plan) => String(plan.status || "").toLowerCase() !== "completed");
+    if (studentId) {
+      plans = plans.filter((plan) => plan.studentId === studentId);
+    }
 
-    for (const doc of plansSnap.docs) {
-      const plan = doc.data() || {};
-      const installments = Array.isArray(plan.installments) ? plan.installments : [];
-      const pendingSoon = installments.filter((item) => {
+    const targetPlans = plans
+      .map((plan) => calculateInstallmentComputedFields(plan))
+      .filter((plan) => plan.installments.some((item) => {
         if (item.status === "paid") return false;
         const dueDate = parseDate(item.dueDate);
         if (!dueDate) return false;
-        dueDate.setHours(0, 0, 0, 0);
-        return dueDate >= now && dueDate <= inThreeDays;
-      });
+        const due = startOfDay(dueDate);
+        return due >= now && due <= inThreeDays;
+      }));
 
-      if (pendingSoon.length < 1) continue;
+    const studentIds = targetPlans.map((plan) => plan.studentId).filter(Boolean);
+    const courseIds = targetPlans.map((plan) => plan.courseId).filter(Boolean);
+    const [studentMap, userMap, courseMap] = await Promise.all([
+      getDocMap(COLLECTIONS.STUDENTS, studentIds),
+      getDocMap(COLLECTIONS.USERS, studentIds),
+      getDocMap(COLLECTIONS.COURSES, courseIds),
+    ]);
 
-      const userSnap = await db.collection(COLLECTIONS.USERS).doc(plan.studentId).get();
-      const studentSnap = await db.collection(COLLECTIONS.STUDENTS).doc(plan.studentId).get();
-      const courseSnap = await db.collection(COLLECTIONS.COURSES).doc(plan.courseId).get();
+    let sent = 0;
+    const remindedStudents = new Set();
 
-      if (!userSnap.exists) continue;
-      const email = userSnap.data()?.email || "";
+    for (const plan of targetPlans) {
+      const user = userMap[plan.studentId] || {};
+      const student = studentMap[plan.studentId] || {};
+      const course = courseMap[plan.courseId] || {};
+      const email = user.email || "";
+      if (!email) continue;
+
       const studentName =
-        (studentSnap.exists ? studentSnap.data()?.fullName : "") ||
-        (email ? email.split("@")[0] : "Student");
-      const courseName = courseSnap.exists ? courseSnap.data()?.title || "Course" : "Course";
+        student.fullName ||
+        plan.studentName ||
+        (email ? String(email).split("@")[0] : "Student");
+      const courseName = plan.courseName || course.title || "Course";
 
-      for (const installment of pendingSoon) {
+      const dueSoonRows = plan.installments
+        .filter((item) => {
+          if (item.status === "paid") return false;
+          const dueDate = parseDate(item.dueDate);
+          if (!dueDate) return false;
+          const due = startOfDay(dueDate);
+          return due >= now && due <= inThreeDays;
+        })
+        .sort(
+          (a, b) =>
+            (parseDate(a.dueDate)?.getTime() || 0) -
+            (parseDate(b.dueDate)?.getTime() || 0)
+        );
+
+      if (dueSoonRows.length < 1) continue;
+
+      const nextDue = dueSoonRows[0];
+
+      try {
+        await sendInstallmentReminderEmail(
+          email,
+          studentName,
+          courseName,
+          nextDue.amount || 0,
+          nextDue.dueDate || ""
+        );
+      } catch (primaryEmailError) {
         try {
           await sendInstallmentReminder(
             email,
             studentName,
             courseName,
-            installment.amount || 0,
-            installment.dueDate || ""
+            nextDue.amount || 0,
+            nextDue.dueDate || ""
           );
-          remindersSent += 1;
-        } catch (emailError) {
-          console.error("sendInstallmentReminder error:", emailError.message);
+        } catch (fallbackEmailError) {
+          console.error(
+            "sendInstallmentReminders email error:",
+            primaryEmailError.message || fallbackEmailError.message
+          );
+          continue;
         }
       }
+
+      remindedStudents.add(plan.studentId);
+      sent += 1;
     }
 
     return successResponse(
       res,
-      { remindersSent },
-      `Reminders sent to ${remindersSent} installments`
+      { sent, remindersSent: sent, students: remindedStudents.size },
+      `Reminders sent to ${sent} students`
     );
   } catch (error) {
     console.error("sendInstallmentReminders error:", error);

@@ -199,8 +199,23 @@ const buildAssignedCourses = async (input = []) => {
 };
 
 const ensureTeacher = async (teacherId) => {
-  const teacherSnap = await db.collection(COLLECTIONS.TEACHERS).doc(teacherId).get();
-  if (!teacherSnap.exists) return null;
+  const [teacherSnap, userSnap] = await Promise.all([
+    db.collection(COLLECTIONS.TEACHERS).doc(teacherId).get(),
+    db.collection(COLLECTIONS.USERS).doc(teacherId).get(),
+  ]);
+
+  if (!teacherSnap.exists || !userSnap.exists) {
+    return { error: "Shift teacher not found" };
+  }
+
+  const userData = userSnap.data() || {};
+  if (userData.role !== "teacher") {
+    return { error: "Shift teacher not found" };
+  }
+  if (userData.isActive === false) {
+    return { error: "Selected teacher is inactive. Activate teacher first." };
+  }
+
   return {
     teacherId,
     teacherName: teacherSnap.data()?.fullName || "",
@@ -242,8 +257,8 @@ const buildShiftPayload = async (shiftInput, assignedCourses) => {
   }
 
   const teacherMeta = await ensureTeacher(teacherId);
-  if (!teacherMeta) {
-    return { error: "Shift teacher not found" };
+  if (teacherMeta?.error) {
+    return { error: teacherMeta.error };
   }
 
   return {

@@ -56,6 +56,7 @@ import Unauthorized from "./pages/Unauthorized.jsx";
 import NotFound from "./pages/NotFound.jsx";
 import SplashScreen from "./components/SplashScreen.jsx";
 import VerifyCertificate from "./pages/public/VerifyCertificate.jsx";
+import NotificationsPage from "./pages/shared/Notifications.jsx";
 
 const getDashboardPathByRole = (role) => {
   if (role === "admin") return "/admin/dashboard";
@@ -283,6 +284,7 @@ function AppLayout() {
           <Route path="promo-codes" element={<PromoCodes />} />
           <Route path="certificates" element={<Certificates />} />
           <Route path="announcements" element={<Announcements />} />
+          <Route path="notifications" element={<NotificationsPage />} />
           <Route path="settings" element={<SiteSettings />} />
           <Route path="analytics" element={<Analytics />} />
         </Route>
@@ -300,6 +302,7 @@ function AppLayout() {
           <Route path="students" element={<TeacherStudents />} />
           <Route path="sessions" element={<TeacherSessions />} />
           <Route path="announcements" element={<TeacherAnnouncements />} />
+          <Route path="notifications" element={<NotificationsPage />} />
           <Route path="settings" element={<TeacherSettings />} />
         </Route>
         <Route
@@ -319,6 +322,7 @@ function AppLayout() {
           <Route path="quizzes" element={<StudentQuizzes />} />
           <Route path="payments" element={<StudentPayments />} />
           <Route path="announcements" element={<StudentAnnouncements />} />
+          <Route path="notifications" element={<NotificationsPage />} />
           <Route path="attendance" element={<StudentAttendance />} />
           <Route path="help" element={<StudentHelpSupport />} />
           <Route path="settings" element={<StudentSettings />} />
