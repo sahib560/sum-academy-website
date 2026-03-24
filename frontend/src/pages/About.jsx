@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
-import { useSiteSettings } from "../context/SiteSettingsContext.jsx";
+import { useSettings } from "../hooks/useSettings.js";
 
 const fadeUp = {
   hidden: { opacity: 0, y: 24 },
@@ -91,9 +91,23 @@ const founders = [
 ];
 
 function About() {
-  const { settings } = useSiteSettings();
-  const content = settings.content || {};
+  const { settings } = useSettings();
+  const about = settings.about || {};
+  const featuresSection = settings.features || {};
   const siteName = settings.general.siteName || "SUM Academy";
+  const aboutValues = about.values?.length ? about.values : values;
+  const leadership = about.team?.length ? about.team : founders;
+  const whyChooseItems = featuresSection.items?.length
+    ? featuresSection.items.map((item) => ({
+        title: item.title,
+        description: item.description,
+        icon: (
+          <svg viewBox="0 0 24 24" className="h-6 w-6" fill="currentColor">
+            <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-1 14-4-4 1.4-1.4L11 13.2l4.6-4.6L17 10l-6 6z" />
+          </svg>
+        ),
+      }))
+    : features;
   return (
     <main className="pt-24">
       <motion.section
@@ -112,10 +126,10 @@ function About() {
             {siteName}
           </p>
           <h1 className="mt-4 font-heading text-4xl text-slate-900 dark:text-white sm:text-5xl">
-            {content.aboutHeroTitle || `About ${siteName}`}
+            {about.heading || `About ${siteName}`}
           </h1>
           <p className="mt-4 max-w-2xl text-base text-slate-600 dark:text-slate-200 sm:text-lg">
-            {content.aboutMission ||
+            {about.mission ||
               "Our mission is to deliver a modern, student-first learning experience for Pakistani academies with powerful tools and trusted educators."}
           </p>
         </div>
@@ -131,19 +145,19 @@ function About() {
         <div className="mx-auto grid max-w-7xl gap-8 lg:grid-cols-[1.2fr_0.8fr]">
           <div className="glass-card flex flex-col gap-4">
             <h2 className="font-heading text-3xl text-slate-900 dark:text-white">
-              {content.aboutStoryTitle || "Our Story"}
+              Our Story
             </h2>
             <p className="text-sm text-slate-600 dark:text-slate-200">
-              {content.aboutStoryBody ||
+              {about.story ||
                 "SUM Academy was founded to make high-quality education accessible across Pakistan. We combine structured curricula with technology to keep students engaged and confident."}
             </p>
             <p className="text-sm text-slate-600 dark:text-slate-200">
-              Our vision is to empower academies with data-driven insights,
-              personalized learning, and a community of committed educators.
+              {about.vision ||
+                "Our vision is to empower academies with data-driven insights, personalized learning, and a community of committed educators."}
             </p>
             <p className="text-sm text-slate-600 dark:text-slate-200">
-              Our mission is to deliver measurable academic outcomes while
-              building lifelong learning habits.
+              {about.mission ||
+                "Our mission is to deliver measurable academic outcomes while building lifelong learning habits."}
             </p>
           </div>
           <div className="glass-card">
@@ -186,7 +200,7 @@ function About() {
             </h2>
           </div>
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-            {features.map((feature) => (
+            {whyChooseItems.map((feature) => (
               <div key={feature.title} className="glass-card card-hover">
                 <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
                   {feature.icon}
@@ -220,7 +234,7 @@ function About() {
             </h2>
           </div>
           <div className="grid gap-6 md:grid-cols-3">
-            {values.map((value) => (
+            {aboutValues.map((value) => (
               <div key={value.title} className="glass-card card-hover">
                 <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
                   {value.icon}
@@ -318,11 +332,11 @@ function About() {
               Leadership
             </p>
             <h2 className="mt-3 font-heading text-3xl text-slate-900 dark:text-white">
-              Meet the founders
+              {about.teamHeading || "Meet the founders"}
             </h2>
           </div>
           <div className="grid gap-6 md:grid-cols-3">
-            {founders.map((leader) => {
+            {leadership.map((leader) => {
               const initials = leader.name
                 .split(" ")
                 .slice(0, 2)

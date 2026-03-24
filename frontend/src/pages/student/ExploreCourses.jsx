@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion as Motion, AnimatePresence } from "framer-motion";
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
 import { Toaster, toast } from "react-hot-toast";
 import { SkeletonCard } from "../../components/Skeleton.jsx";
 import {
   addStudentToClass,
   getAvailableClasses,
+  getCourseCatalog,
 } from "../../services/admin.service.js";
 import { useAuth } from "../../hooks/useAuth.js";
 
@@ -137,6 +139,7 @@ const formatTime = (value = "") => {
 const shortDay = (day = "") => day.slice(0, 3);
 
 function StudentExploreCourses() {
+  const navigate = useNavigate();
   const { user, userProfile } = useAuth();
 
   const [loading, setLoading] = useState(true);
@@ -160,6 +163,41 @@ function StudentExploreCourses() {
     return () => clearTimeout(timer);
   }, []);
 
+  const courseCatalogQuery = useQuery({
+    queryKey: ["public-course-catalog"],
+    queryFn: getCourseCatalog,
+    staleTime: 30000,
+  });
+
+  const coursesData = useMemo(() => {
+    const remoteCourses = Array.isArray(courseCatalogQuery.data)
+      ? courseCatalogQuery.data
+      : [];
+    if (remoteCourses.length > 0) {
+      return remoteCourses.map((course) => ({
+        id: course.id,
+        title: course.title || "Untitled Course",
+        category: course.category || "General",
+        teacher: course.teacher || "SUM Academy Faculty",
+        rating: Number(course.rating || 0),
+        reviews: Number(course.reviews || 0),
+        students: Number(course.students || 0),
+        lectures: Number(course.lectures || 0),
+        duration: course.duration || "Self paced",
+        price: Number(course.price || 0),
+        originalPrice: Number(course.originalPrice || course.price || 0),
+        discount: Number(course.discount || 0),
+        level:
+          String(course.level || "Beginner").charAt(0).toUpperCase() +
+          String(course.level || "Beginner").slice(1),
+        enrolled: false,
+        bio: course.description || "No description available.",
+        chapters: Array.isArray(course.chapters) ? course.chapters : [],
+      }));
+    }
+    return courses;
+  }, [courseCatalogQuery.data]);
+
   const hasFilters =
     search ||
     category !== "All" ||
@@ -170,7 +208,7 @@ function StudentExploreCourses() {
 
   const filteredCourses = useMemo(() => {
     const query = search.trim().toLowerCase();
-    let list = courses.filter((course) => {
+    let list = coursesData.filter((course) => {
       const matchesSearch =
         !query ||
         course.title.toLowerCase().includes(query) ||
@@ -199,7 +237,7 @@ function StudentExploreCourses() {
     }
 
     return list;
-  }, [category, level, price, rating, search, sort]);
+  }, [category, coursesData, level, price, rating, search, sort]);
 
   const visibleCourses = filteredCourses.slice(0, showCount);
 
@@ -236,10 +274,17 @@ function StudentExploreCourses() {
   });
 
   const onClickEnroll = (course) => {
-    setSelectedCourse(course);
-    setSelectedClass(null);
-    setSelectedShift(null);
-    setEnrollStep(1);
+    navigate("/student/checkout", {
+      state: {
+        course: {
+          id: course.id,
+          title: course.title,
+          price: course.price,
+          category: course.category || "",
+          level: course.level || "Beginner",
+        },
+      },
+    });
   };
 
   const closeEnroll = () => {

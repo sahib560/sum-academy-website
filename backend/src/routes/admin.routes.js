@@ -2,9 +2,9 @@ import { Router } from "express";
 import {
   verifyToken,
   requireRole,
-  detectDevice,
 } from "../middlewares/auth.middleware.js";
 import * as adminController from "../controllers/admin.controller.js";
+import * as paymentController from "../controllers/payment.controller.js";
 
 const router = Router();
 const adminOnly = [verifyToken, requireRole("admin")];
@@ -152,23 +152,28 @@ router.delete(
   adminController.removeStudentFromClass
 );
 
-router.get("/payments", adminOnly, adminController.getPayments);
+router.get("/payments", adminOnly, paymentController.getAdminPayments);
 router.patch(
   "/payments/:paymentId/verify",
   adminOnly,
-  adminController.verifyBankTransfer
+  paymentController.verifyBankTransfer
 );
 
-router.get("/installments", adminOnly, adminController.getInstallments);
+router.get("/installments", adminOnly, paymentController.getInstallments);
 router.post(
   "/installments",
   adminOnly,
-  adminController.createInstallmentPlan
+  paymentController.createInstallmentPlan
+);
+router.post(
+  "/installments/send-reminders",
+  adminOnly,
+  paymentController.sendInstallmentReminders
 );
 router.patch(
-  "/installments/:planId/:installmentNumber/pay",
+  "/installments/:planId/:number/pay",
   adminOnly,
-  adminController.markInstallmentPaid
+  paymentController.markInstallmentPaid
 );
 
 router.get("/promo-codes", adminOnly, adminController.getPromoCodes);
@@ -187,41 +192,15 @@ router.delete(
   adminOnly,
   adminController.deletePromoCode
 );
+router.patch(
+  "/promo-codes/:codeId/toggle",
+  adminOnly,
+  adminController.togglePromoCode
+);
 router.post(
   "/promo-codes/validate",
   adminOnly,
   adminController.validatePromoCode
 );
-
-router.get("/certificates", adminOnly, adminController.getCertificates);
-router.post(
-  "/certificates",
-  adminOnly,
-  adminController.generateCertificate
-);
-
-router.get(
-  "/announcements",
-  adminOnly,
-  adminController.getAnnouncements
-);
-router.post(
-  "/announcements",
-  adminOnly,
-  adminController.createAnnouncement
-);
-router.put(
-  "/announcements/:announcementId",
-  adminOnly,
-  adminController.updateAnnouncement
-);
-router.delete(
-  "/announcements/:announcementId",
-  adminOnly,
-  adminController.deleteAnnouncement
-);
-
-router.get("/settings", adminOnly, adminController.getSiteSettings);
-router.put("/settings", adminOnly, adminController.updateSiteSettings);
 
 export default router;

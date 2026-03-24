@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, NavLink } from "react-router-dom";
 import logo from "../assets/logo.jpeg";
-import { useSiteSettings } from "../context/SiteSettingsContext.jsx";
+import { useSettings } from "../hooks/useSettings.js";
 
 const navLinks = [
   { label: "Home", to: "/" },
@@ -12,7 +12,7 @@ const navLinks = [
 ];
 
 function Navbar() {
-  const { settings } = useSiteSettings();
+  const { settings } = useSettings();
   const [isScrolled, setIsScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [theme, setTheme] = useState("light");
@@ -74,9 +74,13 @@ function Navbar() {
   ].join(" ");
 
   const closeMenu = () => setMenuOpen(false);
-  const logoSrc = settings.general.logoPreview || logo;
+  const logoSrc = settings.general.logoUrl || logo;
   const siteName = settings.general.siteName || "SUM Academy";
-  const navbarLabels = settings.content || {};
+  const navbarLabels = {
+    navbarLmsLabel: "LMS Login",
+    navbarSignInLabel: "Sign In",
+    navbarGetStartedLabel: "Get Started",
+  };
 
   return (
     <header className={headerClasses}>
@@ -189,10 +193,10 @@ function Navbar() {
             >
               {theme === "dark" ? "Light" : "Dark"}
             </button>
-            <Link to="/signin" className="btn-outline" onClick={closeMenu}>
+            <Link to="/login" className="btn-outline" onClick={closeMenu}>
               {navbarLabels.navbarSignInLabel || "Sign In"}
             </Link>
-            <Link to="/get-started" className="btn-primary" onClick={closeMenu}>
+            <Link to="/register" className="btn-primary" onClick={closeMenu}>
               {navbarLabels.navbarGetStartedLabel || "Get Started"}
             </Link>
           </div>

@@ -13,10 +13,12 @@ const VIDEO_TYPES = [
 ];
 const PDF_TYPES = ["application/pdf"];
 const THUMBNAIL_TYPES = ["image/jpeg", "image/png", "image/webp"];
+const RECEIPT_TYPES = ["image/jpeg", "image/png", "image/jpg"];
 
 const MAX_VIDEO_SIZE = 2 * 1024 * 1024 * 1024;
 const MAX_PDF_SIZE = 50 * 1024 * 1024;
 const MAX_THUMBNAIL_SIZE = 5 * 1024 * 1024;
+const MAX_RECEIPT_SIZE = 5 * 1024 * 1024;
 
 const sanitizeFilename = (name = "file") =>
   name.replace(/[^a-zA-Z0-9._-]/g, "_");
@@ -117,6 +119,24 @@ export const uploadThumbnail = async (file, courseId, onProgress) => {
   };
 };
 
+export const uploadReceipt = async (file, paymentId, onProgress) => {
+  if (!RECEIPT_TYPES.includes(file?.type)) {
+    throw new Error("Only JPG and PNG receipt files are allowed.");
+  }
+  if (file.size > MAX_RECEIPT_SIZE) {
+    throw new Error("Receipt size must be less than 5MB.");
+  }
+
+  const filename = `${Date.now()}-${sanitizeFilename(file.name)}`;
+  const path = `payments/${paymentId}/receipts/${filename}`;
+  const uploaded = await uploadFile(file, path, onProgress);
+
+  return {
+    ...uploaded,
+    type: "receipt",
+  };
+};
+
 export const deleteFile = async (url) => {
   if (!url) return;
   const fileRef = ref(storage, url);
@@ -127,4 +147,5 @@ export const FILE_LIMITS = {
   MAX_VIDEO_SIZE,
   MAX_PDF_SIZE,
   MAX_THUMBNAIL_SIZE,
+  MAX_RECEIPT_SIZE,
 };

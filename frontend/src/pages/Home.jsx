@@ -5,20 +5,20 @@ import {
   SkeletonCard,
   SkeletonTeacherCard,
 } from "../components/Skeleton.jsx";
-import { useSiteSettings } from "../context/SiteSettingsContext.jsx";
+import { useSettings } from "../hooks/useSettings.js";
 
 const fadeUp = {
   hidden: { opacity: 0, y: 24 },
   visible: { opacity: 1, y: 0, transition: { duration: 0.6 } },
 };
 
-const heroBadges = [
+const defaultHeroBadges = [
   { label: "500+ Students" },
   { label: "50+ Courses" },
   { label: "20+ Teachers" },
 ];
 
-const stats = [
+const defaultStats = [
   { label: "Total Students", value: 12500, suffix: "+" },
   { label: "Courses", value: 320, suffix: "+" },
   { label: "Teachers", value: 85, suffix: "+" },
@@ -86,7 +86,7 @@ const teacherData = [
   },
 ];
 
-const testimonials = [
+const defaultTestimonials = [
   {
     name: "Hassan Khan",
     course: "ECAT Physics Prep",
@@ -104,6 +104,24 @@ const testimonials = [
     course: "ICS Programming Bootcamp",
     review:
       "The LMS tracking kept me consistent. I finally built the projects I wanted.",
+  },
+];
+
+const defaultSettingsSteps = [
+  {
+    number: 1,
+    title: "Browse Courses",
+    description: "Explore curated paths for every board and test prep goal.",
+  },
+  {
+    number: 2,
+    title: "Enroll & Pay",
+    description: "Secure payments and flexible plans built for Pakistani academies.",
+  },
+  {
+    number: 3,
+    title: "Learn & Certify",
+    description: "Track progress, take assessments, and earn verified certificates.",
   },
 ];
 
@@ -220,9 +238,29 @@ function StarRow() {
 }
 
 function Home() {
-  const { settings } = useSiteSettings();
-  const heroContent = settings.content || {};
+  const { settings } = useSettings();
+  const hero = settings.hero || {};
+  const howItWorks = settings.howItWorks || {};
+  const features = settings.features || {};
+  const testimonials = settings.testimonials || {};
   const siteName = settings.general.siteName || "SUM Academy";
+  const heroBadges = (hero.stats || []).map((item) => ({
+    label: `${item.value} ${item.label}`.trim(),
+  }));
+  const stats =
+    (hero.stats || []).map((item) => {
+      const numeric = Number(String(item.value || "").replace(/[^\d]/g, ""));
+      const suffix = String(item.value || "").replace(/[\d\s]/g, "");
+      return {
+        label: item.label,
+        value: Number.isFinite(numeric) && numeric > 0 ? numeric : 0,
+        suffix,
+      };
+    }) || [];
+  const safeHeroBadges = heroBadges.length ? heroBadges : defaultHeroBadges;
+  const safeStats = stats.length ? stats : defaultStats;
+  const safeTestimonials =
+    testimonials.items?.length > 0 ? testimonials.items : defaultTestimonials;
   const [coursesLoading, setCoursesLoading] = useState(true);
   const [teachersLoading, setTeachersLoading] = useState(true);
   const [selectedCourse, setSelectedCourse] = useState(null);
@@ -297,35 +335,32 @@ function Home() {
         <div className="mx-auto flex max-w-7xl flex-col gap-12 lg:flex-row lg:items-center lg:justify-between">
           <div className="relative z-10 max-w-2xl">
             <p className="text-sm font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-200">
-              {heroContent.heroBadge || "SUM Academy Pakistan"}
+              {hero.badge || "SUM Academy Pakistan"}
             </p>
             <h1 className="mt-4 font-heading text-4xl leading-tight text-slate-900 dark:text-white sm:text-5xl lg:text-6xl">
               <span className="gradient-text">
-                {heroContent.heroTitle || "Learn Without Limits"}
+                {hero.heading || "Learn Without Limits"}
               </span>
             </h1>
             <p className="mt-4 text-base text-slate-600 dark:text-slate-100 sm:text-lg">
-              {heroContent.heroSubtitle ||
+              {hero.subheading ||
                 "Empowering Pakistani academies with a premium LMS experience, personalized learning paths, and real-time performance insights."}
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-4">
               <Link
-                to={heroContent.heroPrimaryLink || "/courses"}
+                to="/courses"
                 className="btn-primary"
               >
-                {heroContent.heroPrimaryLabel || "Browse Courses"}
+                {hero.ctaPrimary || "Browse Courses"}
               </Link>
-              <Link
-                to={heroContent.heroSecondaryLink || "/demo"}
-                className="btn-outline"
-              >
-                {heroContent.heroSecondaryLabel || "Watch Demo"}
+              <Link to="/" className="btn-outline">
+                {hero.ctaSecondary || "Watch Demo"}
               </Link>
             </div>
           </div>
 
           <div className="relative z-10 grid gap-4 sm:grid-cols-2 lg:w-[420px]">
-            {heroBadges.map((badge, index) => (
+            {safeHeroBadges.map((badge, index) => (
               <div
                 key={badge.label}
                 className={`glass-card card-hover flex items-center justify-center px-5 py-4 text-sm font-semibold text-slate-700 shadow-lg shadow-slate-200/60 dark:text-slate-100 dark:shadow-black/50 ${
@@ -348,7 +383,7 @@ function Home() {
       >
         <div className="mx-auto max-w-7xl rounded-3xl border border-slate-200/70 bg-gradient-to-r from-white via-slate-50 to-white p-1 shadow-2xl shadow-slate-200/60 backdrop-blur dark:border-white/10 dark:bg-none dark:bg-white/5 dark:shadow-black/60">
           <div className="grid gap-6 rounded-[1.4rem] bg-white/80 p-6 backdrop-blur sm:grid-cols-2 lg:grid-cols-4 dark:bg-white/5">
-            {stats.map((stat, index) => (
+            {safeStats.map((stat, index) => (
               <div
                 key={stat.label}
                 className={`relative overflow-hidden rounded-2xl border border-slate-200/70 bg-white/70 p-5 shadow-lg shadow-slate-200/40 transition hover:-translate-y-1 dark:border-white/15 dark:bg-slate-900/70 dark:shadow-black/70 ${
@@ -421,41 +456,50 @@ function Home() {
         <div className="mx-auto max-w-7xl">
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.3em] text-slate-500">
-              How It Works
+              {howItWorks.heading || "How It Works"}
             </p>
             <h2 className="mt-3 font-heading text-3xl text-slate-900">
-              Learn smarter in three simple steps
+              Learn smarter in simple steps
             </h2>
           </div>
 
           <div className="mt-8 grid gap-6 md:grid-cols-3">
-            <StepCard
-              title="Browse Courses"
-              description="Explore curated paths for every board and test prep goal."
-              icon={
-                <svg viewBox="0 0 24 24" className="h-6 w-6" fill="currentColor">
-                  <path d="M4 6.5C4 5.1 5.1 4 6.5 4h11C18.9 4 20 5.1 20 6.5V18c0 1.1-.9 2-2 2H7.5C5.6 20 4 18.4 4 16.5V6.5zm3 .5v10c0 .6.4 1 1 1h10V7H7z" />
-                </svg>
-              }
-            />
-            <StepCard
-              title="Enroll & Pay"
-              description="Secure payments and flexible plans built for Pakistani academies."
-              icon={
-                <svg viewBox="0 0 24 24" className="h-6 w-6" fill="currentColor">
-                  <path d="M3 7a3 3 0 0 1 3-3h12a3 3 0 0 1 3 3v10a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V7zm3-1a1 1 0 0 0-1 1v2h16V7a1 1 0 0 0-1-1H6z" />
-                </svg>
-              }
-            />
-            <StepCard
-              title="Learn & Certify"
-              description="Track progress, take assessments, and earn verified certificates."
-              icon={
-                <svg viewBox="0 0 24 24" className="h-6 w-6" fill="currentColor">
-                  <path d="M6 4h12a2 2 0 0 1 2 2v7a7 7 0 1 1-14 0V6a2 2 0 0 1 2-2zm6 10a4 4 0 0 0 4-4H8a4 4 0 0 0 4 4z" />
-                </svg>
-              }
-            />
+            {(howItWorks.steps?.length ? howItWorks.steps : defaultSettingsSteps).map(
+              (step, index) => (
+                <StepCard
+                  key={`${step.title}-${index}`}
+                  title={step.title}
+                  description={step.description}
+                  icon={
+                    <span className="text-base font-bold">{step.number || index + 1}</span>
+                  }
+                />
+              )
+            )}
+          </div>
+        </div>
+      </motion.section>
+
+      <motion.section
+        className="section pt-0"
+        initial="hidden"
+        whileInView="visible"
+        viewport={{ once: true, amount: 0.3 }}
+        variants={fadeUp}
+      >
+        <div className="mx-auto max-w-7xl">
+          <div>
+            <p className="text-sm font-semibold uppercase tracking-[0.3em] text-slate-500">
+              {features.heading || "Why Choose SUM Academy"}
+            </p>
+          </div>
+          <div className="mt-8 grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+            {(features.items || []).map((item, index) => (
+              <div key={`${item.title}-${index}`} className="glass-card card-hover">
+                <h3 className="font-heading text-xl text-slate-900">{item.title}</h3>
+                <p className="mt-2 text-sm text-slate-600">{item.description}</p>
+              </div>
+            ))}
           </div>
         </div>
       </motion.section>
@@ -514,14 +558,14 @@ function Home() {
         <div className="mx-auto max-w-7xl">
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.3em] text-slate-500">
-              Testimonials
+              {testimonials.heading || "Testimonials"}
             </p>
             <h2 className="mt-3 font-heading text-3xl text-slate-900">
               Students love learning with {siteName}
             </h2>
           </div>
           <div className="mt-8 grid gap-6 md:grid-cols-3">
-            {testimonials.map((item) => (
+            {safeTestimonials.map((item) => (
               <div key={item.name} className="glass-card card-hover">
                 <div className="flex items-center gap-3">
                   <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
@@ -564,10 +608,10 @@ function Home() {
                     Start Now
                   </p>
                   <h2 className="mt-3 font-heading text-3xl text-slate-900 dark:text-white sm:text-4xl">
-                    {heroContent.footerCtaTitle || "Start Your Journey Today"}
+                    Start Your Journey Today
                   </h2>
                   <p className="mt-3 text-sm text-slate-600 dark:text-slate-200 sm:text-base">
-                    {heroContent.footerCtaSubtitle ||
+                    {settings.footer?.description ||
                       `Join ${siteName} and unlock personalized learning paths built for Pakistan's top boards.`}
                   </p>
                 </div>
@@ -575,7 +619,7 @@ function Home() {
                   to="/register"  
                   className="inline-flex items-center justify-center rounded-full bg-gradient-to-r from-primary to-accent px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-primary/30 transition hover:-translate-y-0.5"
                 >
-                  {heroContent.footerCtaButton || "Enroll for Free"}
+                  Enroll for Free
                 </Link>
               </div>
             </div>

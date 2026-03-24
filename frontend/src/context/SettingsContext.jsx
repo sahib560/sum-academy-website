@@ -1,0 +1,375 @@
+import { createContext, useEffect, useMemo, useState } from "react";
+import api from "../api/axios.js";
+
+export const defaultSettings = {
+  general: {
+    siteName: "SUM Academy",
+    tagline: "Learn Without Limits",
+    description:
+      "Pakistan's most modern learning platform built for academies",
+    contactEmail: "info@sumacademy.com",
+    contactPhone: "+92 300 0000000",
+    address: "Karachi, Pakistan",
+    logoUrl: null,
+    faviconUrl: null,
+    socialLinks: {
+      facebook: "",
+      instagram: "",
+      youtube: "",
+      whatsapp: "",
+    },
+  },
+  hero: {
+    heading: "Learn Without Limits",
+    subheading: "Join thousands of students growing with SUM Academy",
+    ctaPrimary: "Browse Courses",
+    ctaSecondary: "Watch Demo",
+    badge: "Pakistan's #1 Academy Platform",
+    stats: [
+      { label: "Students", value: "500+" },
+      { label: "Courses", value: "50+" },
+      { label: "Teachers", value: "20+" },
+      { label: "Certificates", value: "200+" },
+    ],
+  },
+  howItWorks: {
+    heading: "How It Works",
+    steps: [
+      {
+        number: 1,
+        title: "Browse Courses",
+        description: "Explore our wide range of courses",
+      },
+      {
+        number: 2,
+        title: "Enroll and Pay",
+        description: "Easy enrollment with Pakistani payment methods",
+      },
+      {
+        number: 3,
+        title: "Learn and Certify",
+        description: "Complete courses and earn certificates",
+      },
+    ],
+  },
+  features: {
+    heading: "Why Choose SUM Academy",
+    items: [
+      {
+        icon: "shield",
+        title: "Secure Platform",
+        description: "Enterprise grade security",
+      },
+      {
+        icon: "certificate",
+        title: "Get Certified",
+        description: "Industry recognized certificates",
+      },
+      {
+        icon: "mobile",
+        title: "Mobile App",
+        description: "Learn anywhere on Android",
+      },
+      {
+        icon: "payment",
+        title: "Easy Payments",
+        description: "JazzCash EasyPaisa Bank Transfer",
+      },
+    ],
+  },
+  testimonials: {
+    heading: "What Students Say",
+    items: [
+      {
+        name: "Ahmad Ali",
+        course: "Computer Science",
+        rating: 5,
+        review: "SUM Academy changed my career path",
+        avatar: "",
+      },
+      {
+        name: "Fatima Khan",
+        course: "Mathematics",
+        rating: 5,
+        review: "Best online learning platform in Pakistan",
+        avatar: "",
+      },
+      {
+        name: "Usman Raza",
+        course: "English",
+        rating: 5,
+        review: "Teachers are very helpful and professional",
+        avatar: "",
+      },
+    ],
+  },
+  about: {
+    heading: "About SUM Academy",
+    mission:
+      "To provide quality education to every student in Pakistan regardless of location",
+    vision: "Become Pakistan's leading digital learning platform",
+    story:
+      "SUM Academy was founded with a simple mission: make quality education accessible to all students across Pakistan",
+    foundedYear: "2024",
+    teamHeading: "Our Leadership",
+    team: [
+      {
+        name: "SUM Founder",
+        role: "Founder & CEO",
+        avatar: "",
+      },
+    ],
+    values: [
+      {
+        title: "Excellence",
+        description: "We deliver the highest quality education",
+      },
+      {
+        title: "Accessibility",
+        description: "Education for every student in Pakistan",
+      },
+      {
+        title: "Innovation",
+        description: "Modern technology for better learning",
+      },
+    ],
+  },
+  contact: {
+    heading: "Get In Touch",
+    subheading: "We are here to help you",
+    email: "support@sumacademy.com",
+    phone: "+92 300 0000000",
+    whatsapp: "+92 300 0000000",
+    address: "Karachi, Pakistan",
+    officeHours: "Monday to Saturday 9AM to 6PM PKT",
+    mapEmbedUrl: "",
+    faq: [
+      {
+        question: "How do I enroll in a course?",
+        answer: "Browse courses and click Enroll Now",
+      },
+      {
+        question: "What payment methods are accepted?",
+        answer: "JazzCash EasyPaisa and Bank Transfer",
+      },
+      {
+        question: "Can I access courses on mobile?",
+        answer: "Yes download our Android app",
+      },
+      {
+        question: "How do I get my certificate?",
+        answer: "Complete 100% of the course",
+      },
+      {
+        question: "What is the refund policy?",
+        answer: "Contact admin within 7 days of enrollment",
+      },
+    ],
+  },
+  footer: {
+    description: "Pakistan's most modern learning platform",
+    copyright: "2026 SUM Academy. All rights reserved.",
+    links: {
+      learn: [
+        { label: "All Courses", url: "/courses" },
+        { label: "Our Teachers", url: "/teachers" },
+        { label: "Certificates", url: "/about" },
+        { label: "Live Classes", url: "/courses" },
+      ],
+      company: [
+        { label: "About Us", url: "/about" },
+        { label: "Contact", url: "/contact" },
+        { label: "Careers", url: "/contact" },
+      ],
+      support: [
+        { label: "Help Center", url: "/contact" },
+        { label: "Privacy Policy", url: "/contact" },
+        { label: "Terms of Use", url: "/contact" },
+      ],
+    },
+  },
+  appearance: {
+    primaryColor: "#4a63f5",
+    accentColor: "#ff6f0f",
+    darkModeDefault: false,
+    fontFamily: "DM Sans",
+  },
+  maintenance: {
+    enabled: false,
+    message: "We are updating SUM Academy. Back soon!",
+  },
+  email: {
+    smtpHost: "",
+    smtpPort: 587,
+    smtpEmail: "",
+    smtpPassword: "",
+    fromName: "SUM Academy",
+  },
+  payment: {
+    jazzcash: {
+      merchantId: "",
+      password: "",
+      integritySalt: "",
+      enabled: false,
+    },
+    easypaisa: {
+      accountNumber: "",
+      username: "",
+      password: "",
+      enabled: false,
+    },
+    bankTransfer: {
+      bankName: "Meezan Bank",
+      accountTitle: "SUM Academy",
+      accountNumber: "",
+      iban: "",
+      enabled: true,
+    },
+  },
+  security: {
+    maxLoginAttempts: 5,
+    lockoutDuration: 30,
+    sessionTimeout: 60,
+    maintenanceMode: false,
+  },
+  emailTemplates: {
+    templates: {},
+  },
+};
+
+const SettingsContext = createContext({
+  settings: defaultSettings,
+  loading: true,
+  refetchSettings: async () => {},
+});
+
+const mergeDeep = (target, source) => {
+  const output = { ...target };
+  Object.keys(source || {}).forEach((key) => {
+    const sourceValue = source[key];
+    const targetValue = target?.[key];
+    if (
+      sourceValue &&
+      typeof sourceValue === "object" &&
+      !Array.isArray(sourceValue) &&
+      targetValue &&
+      typeof targetValue === "object" &&
+      !Array.isArray(targetValue)
+    ) {
+      output[key] = mergeDeep(targetValue, sourceValue);
+    } else {
+      output[key] = sourceValue;
+    }
+  });
+  return output;
+};
+
+const applySettingsToDom = (settings) => {
+  const root = document.documentElement;
+  const appearance = settings.appearance || defaultSettings.appearance;
+  root.style.setProperty(
+    "--brand-primary",
+    appearance.primaryColor || defaultSettings.appearance.primaryColor
+  );
+  root.style.setProperty(
+    "--brand-accent",
+    appearance.accentColor || defaultSettings.appearance.accentColor
+  );
+  root.style.setProperty(
+    "--font-body",
+    appearance.fontFamily || defaultSettings.appearance.fontFamily
+  );
+  root.style.setProperty(
+    "--brand-font",
+    appearance.fontFamily || defaultSettings.appearance.fontFamily
+  );
+
+  const siteName =
+    settings.general?.siteName || defaultSettings.general.siteName;
+  document.title = siteName;
+
+  const faviconUrl = settings.general?.faviconUrl;
+  if (!faviconUrl) return;
+  const icon =
+    document.querySelector("link[rel='icon']") ||
+    document.querySelector("link[rel='shortcut icon']");
+  if (icon) icon.setAttribute("href", faviconUrl);
+};
+
+const withCompatibility = (settings) => {
+  const next = mergeDeep(defaultSettings, settings || {});
+  const general = next.general || defaultSettings.general;
+  const hero = next.hero || defaultSettings.hero;
+  const about = next.about || defaultSettings.about;
+  const contact = next.contact || defaultSettings.contact;
+  const footer = next.footer || defaultSettings.footer;
+
+  // Backward compatibility for existing screens still reading legacy keys.
+  next.general = {
+    ...general,
+    logoPreview: general.logoUrl || "",
+    faviconPreview: general.faviconUrl || "",
+  };
+  next.content = {
+    heroBadge: hero.badge,
+    heroTitle: hero.heading,
+    heroSubtitle: hero.subheading,
+    heroPrimaryLabel: hero.ctaPrimary,
+    heroPrimaryLink: "/courses",
+    heroSecondaryLabel: hero.ctaSecondary,
+    heroSecondaryLink: "/",
+    aboutHeroTitle: about.heading,
+    aboutMission: about.mission,
+    aboutStoryTitle: "Our Story",
+    aboutStoryBody: about.story,
+    contactHeroTitle: contact.heading,
+    contactHeroSubtitle: contact.subheading,
+    officeHours: contact.officeHours,
+    footerDescription: footer.description,
+    footerCopyright: footer.copyright,
+    facebookUrl: general.socialLinks?.facebook || "",
+    whatsappUrl: general.socialLinks?.whatsapp || "",
+    tiktokUrl: general.socialLinks?.youtube || "",
+  };
+  return next;
+};
+
+export function SettingsProvider({ children }) {
+  const [settings, setSettings] = useState(withCompatibility(defaultSettings));
+  const [loading, setLoading] = useState(true);
+
+  const refetchSettings = async () => {
+    try {
+      const response = await api.get("/settings");
+      const payload = response.data?.data || {};
+      const merged = withCompatibility(payload);
+      setSettings(merged);
+      applySettingsToDom(merged);
+    } catch {
+      const fallback = withCompatibility(defaultSettings);
+      setSettings(fallback);
+      applySettingsToDom(fallback);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    refetchSettings();
+  }, []);
+
+  useEffect(() => {
+    applySettingsToDom(settings);
+  }, [settings]);
+
+  const value = useMemo(
+    () => ({ settings, loading, refetchSettings }),
+    [settings, loading]
+  );
+
+  return (
+    <SettingsContext.Provider value={value}>{children}</SettingsContext.Provider>
+  );
+}
+
+export default SettingsContext;

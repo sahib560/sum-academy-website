@@ -137,6 +137,9 @@ export const getAvailableClasses = (courseId) =>
     .get("/classes/available", { params: { courseId } })
     .then((r) => r.data.data);
 
+export const getCourseCatalog = () =>
+  api.get("/classes/catalog").then((r) => r.data.data || []);
+
 export const enrollInClass = (classId, studentId) =>
   addStudentToClass(classId, { studentId });
 
@@ -158,6 +161,9 @@ export const createInstallmentPlan = (data) =>
 export const markInstallmentPaid = (planId, number) =>
   api.patch(`/admin/installments/${planId}/${number}/pay`).then((r) => r.data);
 
+export const sendInstallmentReminders = () =>
+  api.post("/admin/installments/send-reminders").then((r) => r.data);
+
 export const getPromoCodes = () =>
   api.get("/admin/promo-codes").then((r) => r.data.data);
 
@@ -170,6 +176,9 @@ export const updatePromoCode = (id, data) =>
 export const deletePromoCode = (id) =>
   api.delete(`/admin/promo-codes/${id}`).then((r) => r.data);
 
+export const togglePromoCode = (id, isActive) =>
+  api.patch(`/admin/promo-codes/${id}/toggle`, { isActive }).then((r) => r.data);
+
 export const validatePromoCode = (code, courseId) =>
   api.post("/admin/promo-codes/validate", { code, courseId }).then((r) => r.data);
 
@@ -178,6 +187,12 @@ export const getCertificates = () =>
 
 export const generateCertificate = (data) =>
   api.post("/admin/certificates", data).then((r) => r.data);
+
+export const revokeCertificate = (certId) =>
+  api.patch(`/admin/certificates/${certId}/revoke`).then((r) => r.data);
+
+export const verifyCertificatePublic = (certId) =>
+  api.get(`/verify/${certId}`).then((r) => r.data.data);
 
 export const getAnnouncements = () =>
   api.get("/admin/announcements").then((r) => r.data.data);
@@ -191,8 +206,73 @@ export const updateAnnouncement = (id, data) =>
 export const deleteAnnouncement = (id) =>
   api.delete(`/admin/announcements/${id}`).then((r) => r.data);
 
+export const toggleAnnouncementPin = (id, isPinned) =>
+  api.patch(`/admin/announcements/${id}/pin`, { isPinned }).then((r) => r.data);
+
+export const getMyAnnouncements = () =>
+  api.get("/announcements/my").then((r) => r.data.data);
+
 export const getSiteSettings = () =>
   api.get("/admin/settings").then((r) => r.data.data);
 
-export const updateSiteSettings = (data) =>
-  api.put("/admin/settings", data).then((r) => r.data);
+export const getPublicSettings = () =>
+  api.get("/settings").then((r) => r.data.data);
+
+export const updateGeneralSettings = (data) =>
+  api.put("/admin/settings/general", data).then((r) => r.data);
+
+export const updateHeroSettings = (data) =>
+  api.put("/admin/settings/hero", data).then((r) => r.data);
+
+export const updateHowItWorksSettings = (data) =>
+  api.put("/admin/settings/how-it-works", data).then((r) => r.data);
+
+export const updateFeaturesSettings = (data) =>
+  api.put("/admin/settings/features", data).then((r) => r.data);
+
+export const updateTestimonialsSettings = (data) =>
+  api.put("/admin/settings/testimonials", data).then((r) => r.data);
+
+export const updateAboutSettings = (data) =>
+  api.put("/admin/settings/about", data).then((r) => r.data);
+
+export const updateContactSettings = (data) =>
+  api.put("/admin/settings/contact", data).then((r) => r.data);
+
+export const updateFooterSettings = (data) =>
+  api.put("/admin/settings/footer", data).then((r) => r.data);
+
+export const updateEmailSettings = (data) =>
+  api.put("/admin/settings/email", data).then((r) => r.data);
+
+export const testEmailSettings = (testEmail) =>
+  api.post("/admin/settings/email/test", { testEmail }).then((r) => r.data);
+
+export const updatePaymentSettings = (data) =>
+  api.put("/admin/settings/payment", data).then((r) => r.data);
+
+export const updateSecuritySettings = (data) =>
+  api.put("/admin/settings/security", data).then((r) => r.data);
+
+export const updateAppearanceSettings = (data) =>
+  api.put("/admin/settings/appearance", data).then((r) => r.data);
+
+export const updateMaintenanceSettings = (data) =>
+  api.put("/admin/settings/maintenance", data).then((r) => r.data);
+
+export const getEmailTemplates = () =>
+  api.get("/admin/settings/templates").then((r) => r.data.data);
+
+export const updateEmailTemplate = (data) =>
+  api.put("/admin/settings/templates", data).then((r) => r.data);
+
+export const updateSiteSettings = (data) => {
+  if (data?.general) return updateGeneralSettings(data.general);
+  if (data?.email) return updateEmailSettings(data.email);
+  if (data?.payment || data?.paymentSettings) {
+    return updatePaymentSettings(data.payment || data.paymentSettings);
+  }
+  if (data?.security) return updateSecuritySettings(data.security);
+  if (data?.appearance) return updateAppearanceSettings(data.appearance);
+  return updateGeneralSettings(data);
+};

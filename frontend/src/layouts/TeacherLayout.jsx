@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { AnimatePresence, motion } from "framer-motion";
+import { useQuery } from "@tanstack/react-query";
 import { logout } from "../services/auth.service.js";
 import { useAuth } from "../hooks/useAuth.js";
+import { getMyAnnouncements } from "../services/admin.service.js";
+import { useSettings } from "../hooks/useSettings.js";
 
 const navItems = [
   { label: "Dashboard", to: "/teacher/dashboard", icon: "grid" },
@@ -49,11 +53,23 @@ function TeacherLayout() {
   const location = useLocation();
   const navigate = useNavigate();
   const { userProfile } = useAuth();
+  const { settings } = useSettings();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [notifOpen, setNotifOpen] = useState(false);
 
   useEffect(() => {
     setSidebarOpen(false);
+    setNotifOpen(false);
   }, [location.pathname]);
+
+  const announcementsQuery = useQuery({
+    queryKey: ["my-announcements", "teacher", userProfile?.uid],
+    queryFn: getMyAnnouncements,
+    staleTime: 60 * 1000,
+    enabled: Boolean(userProfile?.uid),
+  });
+  const notifications = announcementsQuery.data || [];
+  const notificationCount = notifications.length;
 
   const pageTitle = useMemo(() => {
     const match = navItems.find((item) =>
@@ -82,6 +98,8 @@ function TeacherLayout() {
     .slice(0, 2)
     .join("")
     .toUpperCase();
+  const siteName = settings.general?.siteName || "SUM Academy";
+  const logoUrl = settings.general?.logoUrl || "";
 
   return (
     <div className="min-h-screen overflow-x-hidden bg-slate-50 text-slate-900">
@@ -99,11 +117,15 @@ function TeacherLayout() {
         }`}
       >
         <div className="flex items-center gap-3 px-6 py-6">
-          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary text-lg font-semibold text-white shadow-lg shadow-primary/30">
-            S
+          <div className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-2xl bg-primary text-lg font-semibold text-white shadow-lg shadow-primary/30">
+            {logoUrl ? (
+              <img src={logoUrl} alt={`${siteName} logo`} className="h-full w-full object-cover" />
+            ) : (
+              "S"
+            )}
           </div>
           <div>
-            <p className="font-heading text-base text-slate-900">SUM Academy</p>
+            <p className="font-heading text-base text-slate-900">{siteName}</p>
             <span className="mt-1 inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[10px] uppercase tracking-[0.3em] text-slate-500">
               Teacher
             </span>
@@ -177,7 +199,7 @@ function TeacherLayout() {
         <header className="sticky top-0 z-20 flex items-center justify-between gap-4 border-b border-slate-200 bg-white px-6 py-4">
           <div>
             <p className="text-xs uppercase tracking-[0.3em] text-slate-400">
-              Teacher
+              {siteName}
             </p>
             <h1 className="font-heading text-2xl text-slate-900">
               {pageTitle}
@@ -191,12 +213,41 @@ function TeacherLayout() {
                 className="w-full rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 shadow-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
               />
             </div>
-            <button className="relative rounded-full border border-slate-200 bg-white p-2 shadow-sm">
-              <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-accent text-[10px] text-white">
-                3
-              </span>
-              {iconMap.bell}
-            </button>
+            <div className="relative">
+              <button
+                className="relative rounded-full border border-slate-200 bg-white p-2 shadow-sm"
+                onClick={() => setNotifOpen((prev) => !prev)}
+              >
+                <span className="absolute -right-1 -top-1 flex min-h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[10px] text-white">
+                  {notificationCount}
+                </span>
+                {iconMap.bell}
+              </button>
+              <AnimatePresence>
+                {notifOpen ? (
+                  <motion.div
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 6 }}
+                    className="absolute right-0 z-20 mt-2 w-80 rounded-2xl border border-slate-200 bg-white p-3 shadow-xl"
+                  >
+                    <p className="mb-2 text-sm font-semibold text-slate-900">Notifications</p>
+                    {notificationCount === 0 ? (
+                      <p className="text-xs text-slate-500">No announcements yet.</p>
+                    ) : (
+                      <div className="max-h-72 space-y-2 overflow-auto">
+                        {notifications.slice(0, 8).map((item) => (
+                          <div key={item.id} className="rounded-xl border border-slate-100 p-2">
+                            <p className="text-sm font-semibold text-slate-800">{item.title}</p>
+                            <p className="line-clamp-2 text-xs text-slate-500">{item.message}</p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </motion.div>
+                ) : null}
+              </AnimatePresence>
+            </div>
             <div className="relative group">
               <button className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm">
                 <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-primary">

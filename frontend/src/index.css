@@ -11,6 +11,7 @@
     --brand-accent: #ff6f0f;
     --brand-accent-rgb: 255 111 15;
     --brand-dark: #0d0f1a;
+    --font-body: "DM Sans";
     --brand-font: "DM Sans";
     --brand-heading-font: "Playfair Display";
     color-scheme: light;
@@ -22,7 +23,7 @@
 
   body {
     @apply m-0 min-h-screen bg-white text-slate-900 antialiased dark:bg-dark dark:text-slate-100;
-    font-family: var(--brand-font), system-ui, sans-serif;
+    font-family: var(--font-body), var(--brand-font), system-ui, sans-serif;
   }
 
   h1,

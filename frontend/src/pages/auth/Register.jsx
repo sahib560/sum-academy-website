@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import logo from "../../assets/logo.jpeg";
-import { useSiteSettings } from "../../context/SiteSettingsContext.jsx";
+import { useSettings } from "../../hooks/useSettings.js";
 import {
   registerWithEmail,
   loginWithGoogle,
@@ -44,7 +44,7 @@ const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MIN_SPLASH_MS = 1200;
 
 function Register() {
-  const { settings } = useSiteSettings();
+  const { settings } = useSettings();
   const navigate = useNavigate();
   const [form, setForm] = useState(initialForm);
   const [errors, setErrors] = useState({});
@@ -54,7 +54,7 @@ function Register() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [toastState, setToastState] = useState(null);
-  const logoSrc = settings.general.logoPreview || logo;
+  const logoSrc = settings.general.logoUrl || logo;
   const siteName = settings.general.siteName || "SUM Academy";
   const toast = {
     success: (message) => setToastState({ type: "success", message }),

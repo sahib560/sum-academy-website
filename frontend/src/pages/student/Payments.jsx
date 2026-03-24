@@ -1,556 +1,298 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { Skeleton } from "../../components/Skeleton.jsx";
+import { useQuery } from "@tanstack/react-query";
+import { jsPDF } from "jspdf";
+import toast, { Toaster } from "react-hot-toast";
+import {
+  getMyPayments,
+  getMyInstallments,
+} from "../../services/payment.service.js";
 
-const fadeUp = {
-  initial: { opacity: 0, y: 16 },
-  whileInView: { opacity: 1, y: 0 },
-  viewport: { once: true, amount: 0.2 },
-  transition: { duration: 0.45 },
+const tabs = ["Transaction History", "Installment Plans", "Invoices"];
+
+const formatPKR = (value) => `PKR ${Number(value || 0).toLocaleString("en-PK")}`;
+
+const parseDate = (value) => {
+  if (!value) return null;
+  if (value?.toDate) return value.toDate();
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
 };
 
-const transactions = [
-  {
-    id: "TXN-1023",
-    course: "Biology Masterclass XI",
-    method: "JazzCash",
-    amount: 1200,
-    date: "Mar 12, 2026 09:20 AM",
-    status: "Paid",
-  },
-  {
-    id: "TXN-1024",
-    course: "Chemistry Quick Revision",
-    method: "EasyPaisa",
-    amount: 1500,
-    date: "Mar 10, 2026 02:45 PM",
-    status: "Pending",
-  },
-  {
-    id: "TXN-1025",
-    course: "Physics Practice Lab",
-    method: "Bank Transfer",
-    amount: 900,
-    date: "Mar 08, 2026 05:00 PM",
-    status: "Failed",
-  },
-];
-
-const plans = [
-  {
-    id: 1,
-    course: "Biology Masterclass XI",
-    teacher: "Mr. Sikander Ali Qureshi",
-    total: 6000,
-    perInstallment: 1000,
-    paid: 3000,
-    progress: 50,
-    installments: [
-      { id: 1, amount: 1000, due: "Feb 15, 2026", paid: "Feb 14, 2026", status: "Paid" },
-      { id: 2, amount: 1000, due: "Mar 15, 2026", paid: "-", status: "Overdue" },
-      { id: 3, amount: 1000, due: "Apr 15, 2026", paid: "-", status: "Upcoming" },
-    ],
-  },
-];
-
-const invoices = [
-  {
-    id: "INV-2026-001",
-    course: "Biology Masterclass XI",
-    date: "Mar 12, 2026",
-    amount: 1200,
-    method: "JazzCash",
-    status: "Paid",
-  },
-];
-
-const methodStyles = {
-  JazzCash: "bg-rose-500",
-  EasyPaisa: "bg-emerald-500",
-  "Bank Transfer": "bg-blue-500",
+const formatDate = (value) => {
+  const date = parseDate(value);
+  if (!date) return "-";
+  return date.toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
 };
 
 function StudentPayments() {
-  const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState("Transaction History");
-  const [expandedPlan, setExpandedPlan] = useState(null);
-  const [toast, setToast] = useState(null);
-  const [activeTx, setActiveTx] = useState(null);
-  const [activeInvoice, setActiveInvoice] = useState(null);
+  const [activeTab, setActiveTab] = useState("Transaction History");
+  const [expandedPlanId, setExpandedPlanId] = useState(null);
 
-  useEffect(() => {
-    const timer = setTimeout(() => setLoading(false), 1200);
-    return () => clearTimeout(timer);
-  }, []);
+  const { data: payments = [], isLoading: paymentsLoading } = useQuery({
+    queryKey: ["student-payments"],
+    queryFn: getMyPayments,
+  });
 
-  useEffect(() => {
-    if (!toast) return;
-    const timer = setTimeout(() => setToast(null), 1800);
-    return () => clearTimeout(timer);
-  }, [toast]);
+  const { data: installmentPlans = [], isLoading: installmentsLoading } = useQuery({
+    queryKey: ["student-installments"],
+    queryFn: getMyInstallments,
+  });
 
-  const stats = useMemo(() => {
-    return {
-      totalPaid: 4200,
-      plans: plans.length,
-      nextDue: 1000,
-    };
-  }, []);
-
-  const overduePlan = plans.find((plan) =>
-    plan.installments.some((item) => item.status === "Overdue")
+  const paidInvoices = useMemo(
+    () => payments.filter((payment) => String(payment.status || "").toLowerCase() === "paid"),
+    [payments]
   );
+
+  const downloadInvoice = (payment) => {
+    const pdf = new jsPDF();
+    pdf.setFontSize(16);
+    pdf.text("SUM Academy - Invoice", 14, 16);
+    pdf.setFontSize(11);
+    pdf.text(`Reference: ${payment.reference || "-"}`, 14, 24);
+    pdf.text(`Student: ${payment.studentName || "-"}`, 14, 31);
+    pdf.text(`Course: ${payment.courseName || "-"}`, 14, 38);
+    pdf.text(`Class: ${payment.className || "-"}`, 14, 45);
+    pdf.text(`Amount: ${formatPKR(payment.amount)}`, 14, 52);
+    pdf.text(`Method: ${payment.method || "-"}`, 14, 59);
+    pdf.text(`Date: ${formatDate(payment.createdAt)}`, 14, 66);
+    pdf.save(`invoice-${payment.reference || payment.id}.pdf`);
+    toast.success("Invoice downloaded");
+  };
 
   return (
     <div className="space-y-6">
-      <motion.section {...fadeUp}>
-        <h1 className="font-heading text-3xl text-slate-900">Payments & Billing</h1>
+      <Toaster position="top-left" />
+
+      <motion.section
+        initial={{ opacity: 0, y: 14 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="space-y-2"
+      >
+        <h1 className="font-heading text-3xl text-slate-900">Payments</h1>
+        <p className="text-sm text-slate-500">
+          Track your transactions, installments, and invoices
+        </p>
       </motion.section>
 
-      <motion.section {...fadeUp} className="grid gap-4 md:grid-cols-3">
-        {loading
-          ? Array.from({ length: 3 }).map((_, index) => (
-              <div key={`stat-${index}`} className="glass-card border border-slate-200">
-                <Skeleton className="h-4 w-1/3" />
-                <Skeleton className="mt-4 h-8 w-1/2" />
-              </div>
-            ))
-          : [
-              { label: "Total Paid PKR", value: stats.totalPaid },
-              { label: "Active Installment Plans", value: stats.plans },
-              { label: "Next Due Amount PKR", value: stats.nextDue },
-            ].map((card) => (
-              <div key={card.label} className="glass-card border border-slate-200">
-                <p className="text-sm text-slate-500">{card.label}</p>
-                <p className="mt-3 text-2xl font-semibold text-slate-900">
-                  {card.value}
-                </p>
-              </div>
-            ))}
-      </motion.section>
-
-      {overduePlan && (
-        <motion.section
-          {...fadeUp}
-          className="rounded-3xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-600"
-        >
-          You have an overdue installment of PKR{" "}
-          {overduePlan.installments.find((i) => i.status === "Overdue")?.amount} for{" "}
-          {overduePlan.course}
-          <button className="btn-primary ml-4">Pay Now</button>
-        </motion.section>
-      )}
-
-      <motion.section {...fadeUp} className="flex flex-wrap items-center gap-3">
-        {["Transaction History", "Installment Plans", "Invoices"].map((item) => (
+      <div className="flex flex-wrap items-center gap-2">
+        {tabs.map((tab) => (
           <button
-            key={item}
+            key={tab}
+            onClick={() => setActiveTab(tab)}
             className={`rounded-full px-4 py-2 text-xs font-semibold ${
-              tab === item
+              activeTab === tab
                 ? "bg-primary text-white"
-                : "border border-slate-200 text-slate-600"
+                : "border border-slate-200 bg-white text-slate-600"
             }`}
-            onClick={() => setTab(item)}
           >
-            {item}
+            {tab}
           </button>
         ))}
-      </motion.section>
+      </div>
 
-      {tab === "Transaction History" && (
-        <motion.section {...fadeUp} className="space-y-4">
-          <div className="flex flex-wrap items-center gap-3">
-            <input
-              type="text"
-              placeholder="Search transactions..."
-              className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700"
-            />
-            <select className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700">
-              <option>All Methods</option>
-              <option>JazzCash</option>
-              <option>EasyPaisa</option>
-              <option>Bank Transfer</option>
-            </select>
-            <input
-              type="date"
-              className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700"
-            />
-          </div>
-
-          {loading ? (
-            <Skeleton className="h-24 w-full" />
-          ) : transactions.length === 0 ? (
-            <div className="rounded-3xl border border-dashed border-slate-200 bg-white p-10 text-center text-sm text-slate-500">
-              No transactions yet.
-            </div>
-          ) : (
-            transactions.map((tx) => (
-              <div
-                key={tx.id}
-                className="flex flex-wrap items-center justify-between gap-4 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"
-              >
-                <div className="flex items-center gap-3">
-                  <span className={`h-10 w-10 rounded-full ${methodStyles[tx.method]}`} />
-                  <div>
-                    <p className="font-semibold text-slate-900">{tx.course}</p>
-                    <p className="text-xs text-slate-400 font-mono">{tx.id}</p>
-                    <p className="text-xs text-slate-500">{tx.date}</p>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <p className="text-lg font-semibold text-slate-900">PKR {tx.amount}</p>
-                  <span
-                    className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                      tx.status === "Paid"
-                        ? "bg-emerald-50 text-emerald-600"
-                        : tx.status === "Pending"
-                          ? "bg-amber-50 text-amber-600"
-                          : "bg-rose-50 text-rose-600"
-                    }`}
-                  >
-                    {tx.status}
-                  </span>
-                </div>
-                <button
-                  className="rounded-full border border-slate-200 px-3 py-1 text-xs text-slate-600"
-                  onClick={() => setToast({ message: "Invoice downloaded" })}
-                >
-                  Download Invoice
-                </button>
-                <button
-                  className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600 lg:hidden"
-                  onClick={() => setActiveTx(tx)}
-                >
-                  View Details
-                </button>
-              </div>
+      {activeTab === "Transaction History" ? (
+        <section className="space-y-3">
+          {paymentsLoading ? (
+            Array.from({ length: 4 }).map((_, idx) => (
+              <div key={idx} className="skeleton h-24 rounded-2xl" />
             ))
-          )}
-        </motion.section>
-      )}
-
-      {tab === "Installment Plans" && (
-        <motion.section {...fadeUp} className="space-y-4">
-          {loading ? (
-            <Skeleton className="h-24 w-full" />
-          ) : plans.length === 0 ? (
-            <div className="rounded-3xl border border-dashed border-slate-200 bg-white p-10 text-center text-sm text-slate-500">
-              No installment plans available.
+          ) : payments.length < 1 ? (
+            <div className="rounded-2xl border border-dashed border-slate-200 bg-white px-4 py-8 text-center text-sm text-slate-500">
+              No payments yet
             </div>
           ) : (
-            plans.map((plan) => (
-              <div
-                key={plan.id}
-                className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"
-              >
-                <div
-                  className="flex flex-wrap items-center justify-between gap-3"
-                  onClick={() =>
-                    setExpandedPlan(expandedPlan === plan.id ? null : plan.id)
-                  }
-                >
+            payments.map((payment) => (
+              <div key={payment.id} className="rounded-2xl border border-slate-200 bg-white p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <p className="font-semibold text-slate-900">{plan.course}</p>
-                    <p className="text-sm text-slate-500">{plan.teacher}</p>
+                    <p className="font-semibold text-slate-900">{payment.courseName || "-"}</p>
                     <p className="text-xs text-slate-500">
-                      Installment Plan — {plan.paid / plan.perInstallment} of{" "}
-                      {plan.total / plan.perInstallment} paid
+                      {payment.method || "-"} · {formatDate(payment.createdAt)}
                     </p>
                   </div>
-                  <div className="text-sm text-slate-500">
-                    PKR {plan.total} · PKR {plan.perInstallment}/installment
+                  <div className="text-right">
+                    <p className="font-semibold text-slate-900">{formatPKR(payment.amount)}</p>
+                    <span
+                      className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                        String(payment.status || "").toLowerCase() === "paid"
+                          ? "bg-emerald-50 text-emerald-600"
+                          : String(payment.status || "").toLowerCase() === "pending_verification"
+                            ? "bg-orange-50 text-orange-600"
+                            : String(payment.status || "").toLowerCase() === "rejected"
+                              ? "bg-rose-50 text-rose-600"
+                              : "bg-amber-50 text-amber-700"
+                      }`}
+                    >
+                      {String(payment.status || "").replace(/_/g, " ") || "pending"}
+                    </span>
                   </div>
                 </div>
-                <div className="mt-3 h-2 w-full rounded-full bg-slate-100">
-                  <div
-                    className="h-2 rounded-full bg-primary"
-                    style={{ width: `${plan.progress}%` }}
-                  />
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    className="rounded-full border border-slate-200 px-3 py-1 text-xs"
+                    onClick={() => downloadInvoice(payment)}
+                  >
+                    Download Invoice
+                  </button>
                 </div>
-                {expandedPlan === plan.id && (
-                  <div className="mt-4 space-y-2">
-                    {plan.installments.map((item, index) => (
-                      <div
-                        key={item.id}
-                        className={`flex flex-wrap items-center justify-between rounded-2xl border px-4 py-2 text-sm ${
-                          item.status === "Overdue"
-                            ? "border-rose-200 bg-rose-50 text-rose-600"
-                            : "border-slate-200 bg-slate-50 text-slate-600"
-                        }`}
-                      >
-                        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs">
-                          #{index + 1}
-                        </span>
-                        <span>PKR {item.amount}</span>
-                        <span>Due {item.due}</span>
-                        <span>{item.paid !== "-" ? `Paid ${item.paid}` : "-"}</span>
-                        <span className="rounded-full bg-white px-3 py-1 text-xs">
-                          {item.status}
-                        </span>
-                        {item.status !== "Paid" && (
-                          <button className="btn-primary px-3 py-1 text-xs">
-                            Pay Now
-                          </button>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
               </div>
             ))
           )}
-        </motion.section>
-      )}
+        </section>
+      ) : null}
 
-      {tab === "Invoices" && (
-        <motion.section {...fadeUp}>
-          {loading ? (
-            <Skeleton className="h-24 w-full" />
-          ) : invoices.length === 0 ? (
-            <div className="rounded-3xl border border-dashed border-slate-200 bg-white p-10 text-center text-sm text-slate-500">
-              No invoices found.
+      {activeTab === "Installment Plans" ? (
+        <section className="space-y-3">
+          {installmentsLoading ? (
+            Array.from({ length: 3 }).map((_, idx) => (
+              <div key={idx} className="skeleton h-28 rounded-2xl" />
+            ))
+          ) : installmentPlans.length < 1 ? (
+            <div className="rounded-2xl border border-dashed border-slate-200 bg-white px-4 py-8 text-center text-sm text-slate-500">
+              No installment plans found
             </div>
           ) : (
-            <>
-              <div className="space-y-3 lg:hidden">
-                {invoices.map((invoice) => (
-                  <div
-                    key={invoice.id}
-                    className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
-                          Invoice #
-                        </p>
-                        <p className="mt-1 font-mono text-xs text-slate-500">
-                          {invoice.id}
-                        </p>
-                      </div>
-                      <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-600">
-                        {invoice.status}
-                      </span>
+            installmentPlans.map((plan) => {
+              const rows = Array.isArray(plan.installments) ? plan.installments : [];
+              const paidCount = rows.filter(
+                (row) => String(row.status || "").toLowerCase() === "paid"
+              ).length;
+              const nextDue = rows.find(
+                (row) => String(row.status || "").toLowerCase() !== "paid"
+              );
+              const overdue = rows.some(
+                (row) => String(row.status || "").toLowerCase() === "overdue"
+              );
+              const progress = rows.length > 0 ? (paidCount / rows.length) * 100 : 0;
+
+              return (
+                <div key={plan.id} className="rounded-2xl border border-slate-200 bg-white p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="font-semibold text-slate-900">{plan.courseName || "-"}</p>
+                      <p className="text-xs text-slate-500">
+                        {paidCount} of {rows.length} paid
+                      </p>
                     </div>
-                  <div className="mt-3 space-y-2 text-sm text-slate-600">
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="text-slate-500">Course</span>
-                        <span className="text-right font-medium text-slate-900">
-                          {invoice.course}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="text-slate-500">Date</span>
-                        <span>{invoice.date}</span>
-                      </div>
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="text-slate-500">Amount</span>
-                        <span className="font-semibold text-slate-900">
-                          PKR {invoice.amount}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="text-slate-500">Method</span>
-                        <span>{invoice.method}</span>
-                      </div>
-                    </div>
-                    <button
-                      className="mt-4 w-full rounded-full border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600"
-                      onClick={() => setActiveInvoice(invoice)}
+                    <span
+                      className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                        overdue ? "bg-rose-50 text-rose-600" : "bg-blue-50 text-blue-600"
+                      }`}
                     >
-                      View Details
+                      {overdue ? "Overdue" : "Active"}
+                    </span>
+                  </div>
+
+                  <div className="mt-3 h-2 w-full rounded-full bg-slate-100">
+                    <div
+                      className="h-2 rounded-full bg-primary"
+                      style={{ width: `${progress}%` }}
+                    />
+                  </div>
+
+                  <p className="mt-3 text-sm text-slate-600">
+                    Next due:{" "}
+                    <span className={overdue ? "font-semibold text-rose-600" : "font-semibold"}>
+                      {formatDate(nextDue?.dueDate)}
+                    </span>
+                  </p>
+                  <p className="mt-1 text-sm text-slate-600">
+                    Per installment: {formatPKR(plan.perInstallmentAmount)}
+                  </p>
+
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      className="rounded-full border border-slate-200 px-3 py-1 text-xs"
+                      onClick={() =>
+                        setExpandedPlanId((prev) => (prev === plan.id ? null : plan.id))
+                      }
+                    >
+                      {expandedPlanId === plan.id ? "Hide Schedule" : "View Schedule"}
+                    </button>
+                    <button
+                      className="rounded-full border border-slate-200 px-3 py-1 text-xs text-slate-400"
+                      disabled
+                    >
+                      Pay Next Installment (Coming Soon)
                     </button>
                   </div>
-                ))}
-              </div>
-              <div className="hidden overflow-x-auto rounded-3xl border border-slate-200 bg-white p-5 shadow-sm lg:block">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-left text-xs uppercase tracking-[0.2em] text-slate-400">
-                      <th className="py-2">Invoice #</th>
-                      <th className="py-2">Course</th>
-                      <th className="py-2">Date</th>
-                      <th className="py-2">Amount</th>
-                      <th className="py-2">Method</th>
-                      <th className="py-2">Status</th>
-                      <th className="py-2">Download</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {invoices.map((invoice) => (
-                      <tr key={invoice.id} className="border-t border-slate-100">
-                        <td className="py-3 font-mono text-xs">{invoice.id}</td>
-                        <td className="py-3">{invoice.course}</td>
-                        <td className="py-3 text-slate-500">{invoice.date}</td>
-                        <td className="py-3">PKR {invoice.amount}</td>
-                        <td className="py-3">{invoice.method}</td>
-                        <td className="py-3">{invoice.status}</td>
-                        <td className="py-3">
-                          <button
-                            className="rounded-full border border-slate-200 px-3 py-1 text-xs text-slate-600"
-                            onClick={() =>
-                              setToast({ message: "Invoice downloaded" })
-                            }
+
+                  {expandedPlanId === plan.id ? (
+                    <div className="mt-4 space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                      {rows.map((row) => (
+                        <div
+                          key={row.number}
+                          className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600"
+                        >
+                          <span>#{row.number}</span>
+                          <span>{formatPKR(row.amount)}</span>
+                          <span>Due: {formatDate(row.dueDate)}</span>
+                          <span
+                            className={`rounded-full px-2 py-1 text-[10px] font-semibold ${
+                              String(row.status || "").toLowerCase() === "paid"
+                                ? "bg-emerald-50 text-emerald-600"
+                                : String(row.status || "").toLowerCase() === "overdue"
+                                  ? "bg-rose-50 text-rose-600"
+                                  : "bg-slate-100 text-slate-600"
+                            }`}
                           >
-                            PDF
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </>
+                            {row.status}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })
           )}
-        </motion.section>
-      )}
+        </section>
+      ) : null}
 
-      {activeTx && (
-        <div
-          className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/40 p-4"
-          onClick={() => setActiveTx(null)}
-        >
-          <div
-            className="w-full max-w-md rounded-3xl bg-white p-6 shadow-xl"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
-                  Transaction
-                </p>
-                <h3 className="mt-1 text-lg font-semibold text-slate-900">
-                  {activeTx.course}
-                </h3>
-              </div>
-              <button
-                className="rounded-full border border-slate-200 px-3 py-1 text-xs text-slate-500"
-                onClick={() => setActiveTx(null)}
+      {activeTab === "Invoices" ? (
+        <section className="space-y-3">
+          {paymentsLoading ? (
+            Array.from({ length: 4 }).map((_, idx) => (
+              <div key={idx} className="skeleton h-20 rounded-2xl" />
+            ))
+          ) : paidInvoices.length < 1 ? (
+            <div className="rounded-2xl border border-dashed border-slate-200 bg-white px-4 py-8 text-center text-sm text-slate-500">
+              No invoices yet
+            </div>
+          ) : (
+            paidInvoices.map((invoice) => (
+              <div
+                key={invoice.id}
+                className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-4"
               >
-                Close
-              </button>
-            </div>
-            <div className="mt-4 space-y-3 text-sm text-slate-600">
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-slate-500">Transaction ID</span>
-                <span className="font-mono text-xs text-slate-500">
-                  {activeTx.id}
-                </span>
+                <div>
+                  <p className="font-semibold text-slate-900">{invoice.courseName || "-"}</p>
+                  <p className="text-xs text-slate-500">
+                    {invoice.reference || "-"} · {formatDate(invoice.createdAt)}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="font-semibold text-slate-900">{formatPKR(invoice.amount)}</p>
+                  <button
+                    className="mt-1 rounded-full border border-slate-200 px-3 py-1 text-xs"
+                    onClick={() => downloadInvoice(invoice)}
+                  >
+                    Download PDF
+                  </button>
+                </div>
               </div>
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-slate-500">Method</span>
-                <span>{activeTx.method}</span>
-              </div>
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-slate-500">Date</span>
-                <span>{activeTx.date}</span>
-              </div>
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-slate-500">Amount</span>
-                <span className="font-semibold text-slate-900">
-                  PKR {activeTx.amount}
-                </span>
-              </div>
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-slate-500">Status</span>
-                <span
-                  className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                    activeTx.status === "Paid"
-                      ? "bg-emerald-50 text-emerald-600"
-                      : activeTx.status === "Pending"
-                        ? "bg-amber-50 text-amber-600"
-                        : "bg-rose-50 text-rose-600"
-                  }`}
-                >
-                  {activeTx.status}
-                </span>
-              </div>
-            </div>
-            <button
-              className="btn-outline mt-5 w-full"
-              onClick={() => {
-                setToast({ message: "Invoice downloaded" });
-                setActiveTx(null);
-              }}
-            >
-              Download Invoice
-            </button>
-          </div>
-        </div>
-      )}
-
-      {activeInvoice && (
-        <div
-          className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/40 p-4"
-          onClick={() => setActiveInvoice(null)}
-        >
-          <div
-            className="w-full max-w-md rounded-3xl bg-white p-6 shadow-xl"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
-                  Invoice
-                </p>
-                <h3 className="mt-1 text-lg font-semibold text-slate-900">
-                  {activeInvoice.course}
-                </h3>
-              </div>
-              <button
-                className="rounded-full border border-slate-200 px-3 py-1 text-xs text-slate-500"
-                onClick={() => setActiveInvoice(null)}
-              >
-                Close
-              </button>
-            </div>
-            <div className="mt-4 space-y-3 text-sm text-slate-600">
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-slate-500">Invoice ID</span>
-                <span className="font-mono text-xs text-slate-500">
-                  {activeInvoice.id}
-                </span>
-              </div>
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-slate-500">Date</span>
-                <span>{activeInvoice.date}</span>
-              </div>
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-slate-500">Amount</span>
-                <span className="font-semibold text-slate-900">
-                  PKR {activeInvoice.amount}
-                </span>
-              </div>
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-slate-500">Method</span>
-                <span>{activeInvoice.method}</span>
-              </div>
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-slate-500">Status</span>
-                <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-600">
-                  {activeInvoice.status}
-                </span>
-              </div>
-            </div>
-            <button
-              className="btn-outline mt-5 w-full"
-              onClick={() => {
-                setToast({ message: "Invoice downloaded" });
-                setActiveInvoice(null);
-              }}
-            >
-              Download PDF
-            </button>
-          </div>
-        </div>
-      )}
-
-      {toast && (
-        <div className="fixed right-6 top-6 z-[70] rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-semibold text-white shadow-xl">
-          {toast.message}
-        </div>
-      )}
+            ))
+          )}
+        </section>
+      ) : null}
     </div>
   );
 }
 
 export default StudentPayments;
+

@@ -1834,7 +1834,16 @@ export const markInstallmentPaid = async (req, res) => {
 
 export const getPromoCodes = async (req, res) => {
   try {
-    const data = await adminService.getAllPromoCodes();
+    const snap = await db
+      .collection(COLLECTIONS.PROMO_CODES)
+      .orderBy("createdAt", "desc")
+      .get();
+
+    const data = snap.docs.map((doc) => ({
+      id: doc.id,
+      ...(doc.data() || {}),
+    }));
+
     return successResponse(res, data, "Promo codes fetched");
   } catch (e) {
     return errorResponse(res, "Failed to fetch promo codes", 500);
@@ -1850,37 +1859,96 @@ export const createPromoCode = async (req, res) => {
       courseId,
       usageLimit,
       expiresAt,
+      isSingleUse,
+      isActive,
     } = req.body;
 
-    if (!code || !discountType || !discountValue) {
-      return errorResponse(res, "Code, type and value required", 400);
+    const normalizedCode = String(code || "")
+      .toUpperCase()
+      .trim();
+    if (!normalizedCode || normalizedCode.length < 4) {
+      return errorResponse(res, "Code must be at least 4 characters", 400);
+    }
+    if (!/^[A-Z0-9]+$/.test(normalizedCode)) {
+      return errorResponse(res, "Code must be alphanumeric only", 400);
+    }
+    if (!["percentage", "fixed"].includes(discountType)) {
+      return errorResponse(
+        res,
+        "discountType must be percentage or fixed",
+        400
+      );
     }
 
-    const upperCode = code.toUpperCase().trim();
+    const parsedDiscountValue = Number(discountValue);
+    if (!Number.isFinite(parsedDiscountValue) || parsedDiscountValue <= 0) {
+      return errorResponse(res, "discountValue must be a positive number", 400);
+    }
+    if (discountType === "percentage" && (parsedDiscountValue < 1 || parsedDiscountValue > 100)) {
+      return errorResponse(res, "Percentage discount must be between 1 and 100", 400);
+    }
+
+    const parsedUsageLimit = Number(usageLimit ?? 0);
+    if (!Number.isFinite(parsedUsageLimit) || parsedUsageLimit < 0) {
+      return errorResponse(res, "usageLimit must be 0 or a positive number", 400);
+    }
+
+    let expiresAtIso = null;
+    if (expiresAt) {
+      const expiryDate = new Date(expiresAt);
+      if (Number.isNaN(expiryDate.getTime())) {
+        return errorResponse(res, "Invalid expiresAt date", 400);
+      }
+      if (expiryDate <= new Date()) {
+        return errorResponse(res, "expiresAt must be a future date", 400);
+      }
+      expiresAtIso = expiryDate.toISOString();
+    }
+
+    let resolvedCourseId = null;
+    let courseName = null;
+    if (courseId) {
+      const courseSnap = await db.collection(COLLECTIONS.COURSES).doc(courseId).get();
+      if (!courseSnap.exists) {
+        return errorResponse(res, "Course not found", 404);
+      }
+      resolvedCourseId = courseId;
+      courseName = courseSnap.data()?.title || null;
+    }
 
     const existing = await db
       .collection(COLLECTIONS.PROMO_CODES)
-      .where("code", "==", upperCode)
+      .where("code", "==", normalizedCode)
       .get();
     if (!existing.empty) {
       return errorResponse(res, "Code already exists", 409);
     }
 
-    const ref = await db.collection(COLLECTIONS.PROMO_CODES).add({
-      code: upperCode,
+    const payload = {
+      code: normalizedCode,
       discountType,
-      discountValue: Number(discountValue),
-      courseId: courseId || null,
-      usageLimit: Number(usageLimit) || 0,
+      discountValue: parsedDiscountValue,
+      courseId: resolvedCourseId,
+      courseName,
+      usageLimit: parsedUsageLimit,
       usageCount: 0,
-      expiresAt: expiresAt || null,
-      isActive: true,
+      isSingleUse: Boolean(isSingleUse),
+      isActive: isActive !== undefined ? Boolean(isActive) : true,
+      expiresAt: expiresAtIso,
+      createdBy: req.user.uid,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
+    };
+
+    const ref = await db.collection(COLLECTIONS.PROMO_CODES).add(payload);
+    const createdSnap = await ref.get();
+    const created = createdSnap.data() || payload;
 
     return successResponse(
       res,
-      { id: ref.id, code: upperCode },
+      {
+        id: ref.id,
+        ...created,
+      },
       "Promo code created",
       201
     );
@@ -1892,8 +1960,112 @@ export const createPromoCode = async (req, res) => {
 export const updatePromoCode = async (req, res) => {
   try {
     const { codeId } = req.params;
-    await db.collection(COLLECTIONS.PROMO_CODES).doc(codeId).update(req.body);
-    return successResponse(res, {}, "Promo code updated");
+    const codeRef = db.collection(COLLECTIONS.PROMO_CODES).doc(codeId);
+    const codeSnap = await codeRef.get();
+    if (!codeSnap.exists) {
+      return errorResponse(res, "Promo code not found", 404);
+    }
+
+    const existing = codeSnap.data() || {};
+    const {
+      discountValue,
+      usageLimit,
+      isActive,
+      expiresAt,
+      isSingleUse,
+      code,
+      usageCount,
+      createdAt,
+      ...restIgnored
+    } = req.body || {};
+
+    if (
+      code !== undefined ||
+      usageCount !== undefined ||
+      createdAt !== undefined
+    ) {
+      return errorResponse(
+        res,
+        "Cannot update code, usageCount, or createdAt fields",
+        400
+      );
+    }
+    if (Object.keys(restIgnored).length > 0) {
+      const supported = ["discountValue", "usageLimit", "isActive", "expiresAt", "isSingleUse"];
+      return errorResponse(
+        res,
+        `Only these fields can be updated: ${supported.join(", ")}`,
+        400
+      );
+    }
+
+    const updates = {};
+
+    if (discountValue !== undefined) {
+      const parsed = Number(discountValue);
+      if (!Number.isFinite(parsed) || parsed <= 0) {
+        return errorResponse(res, "discountValue must be positive", 400);
+      }
+      if (
+        existing.discountType === "percentage" &&
+        (parsed < 1 || parsed > 100)
+      ) {
+        return errorResponse(
+          res,
+          "Percentage discount must be between 1 and 100",
+          400
+        );
+      }
+      updates.discountValue = parsed;
+    }
+
+    if (usageLimit !== undefined) {
+      const parsed = Number(usageLimit);
+      if (!Number.isFinite(parsed) || parsed < 0) {
+        return errorResponse(res, "usageLimit must be 0 or positive", 400);
+      }
+      if (parsed > 0 && parsed < Number(existing.usageCount || 0)) {
+        return errorResponse(
+          res,
+          "usageLimit cannot be less than current usageCount",
+          400
+        );
+      }
+      updates.usageLimit = parsed;
+    }
+
+    if (isActive !== undefined) {
+      updates.isActive = Boolean(isActive);
+    }
+
+    if (isSingleUse !== undefined) {
+      updates.isSingleUse = Boolean(isSingleUse);
+    }
+
+    if (expiresAt !== undefined) {
+      if (expiresAt === null || expiresAt === "") {
+        updates.expiresAt = null;
+      } else {
+        const expiryDate = new Date(expiresAt);
+        if (Number.isNaN(expiryDate.getTime())) {
+          return errorResponse(res, "Invalid expiresAt date", 400);
+        }
+        if (expiryDate <= new Date()) {
+          return errorResponse(res, "expiresAt must be a future date", 400);
+        }
+        updates.expiresAt = expiryDate.toISOString();
+      }
+    }
+
+    updates.updatedAt = admin.firestore.FieldValue.serverTimestamp();
+    await codeRef.update(updates);
+    const updatedSnap = await codeRef.get();
+
+    return successResponse(
+      res,
+      { id: codeId, ...(updatedSnap.data() || {}) },
+      "Promo code updated"
+    );
   } catch (e) {
     return errorResponse(res, "Failed to update promo code", 500);
   }
@@ -1902,7 +2074,22 @@ export const updatePromoCode = async (req, res) => {
 export const deletePromoCode = async (req, res) => {
   try {
     const { codeId } = req.params;
-    await db.collection(COLLECTIONS.PROMO_CODES).doc(codeId).delete();
+    const codeRef = db.collection(COLLECTIONS.PROMO_CODES).doc(codeId);
+    const codeSnap = await codeRef.get();
+    if (!codeSnap.exists) {
+      return errorResponse(res, "Promo code not found", 404);
+    }
+
+    const codeData = codeSnap.data() || {};
+    if (Number(codeData.usageCount || 0) > 0) {
+      return errorResponse(
+        res,
+        "Cannot delete used promo code. Deactivate it instead.",
+        400
+      );
+    }
+
+    await codeRef.delete();
     return successResponse(res, {}, "Promo code deleted");
   } catch (e) {
     return errorResponse(res, "Failed to delete promo code", 500);
@@ -1911,12 +2098,19 @@ export const deletePromoCode = async (req, res) => {
 
 export const validatePromoCode = async (req, res) => {
   try {
-    const { code, courseId } = req.body;
+    const { code, courseId, studentId } = req.body || {};
+
+    const normalizedCode = String(code || "")
+      .toUpperCase()
+      .trim();
+    if (!normalizedCode) {
+      return errorResponse(res, "Promo code is required", 400);
+    }
 
     const snap = await db
       .collection(COLLECTIONS.PROMO_CODES)
-      .where("code", "==", code.toUpperCase())
-      .where("isActive", "==", true)
+      .where("code", "==", normalizedCode)
+      .limit(1)
       .get();
 
     if (snap.empty) {
@@ -1924,16 +2118,24 @@ export const validatePromoCode = async (req, res) => {
     }
 
     const promoData = snap.docs[0].data();
+    const requesterStudentId = studentId || req.user?.uid || "";
 
-    if (promoData.expiresAt && new Date(promoData.expiresAt) < new Date()) {
-      return errorResponse(res, "Promo code expired", 400);
+    if (!promoData.isActive) {
+      return errorResponse(res, "Promo code is inactive", 400);
     }
 
-    if (promoData.usageLimit > 0 && promoData.usageCount >= promoData.usageLimit) {
+    if (promoData.expiresAt && new Date(promoData.expiresAt) < new Date()) {
+      return errorResponse(res, "Promo code has expired", 400);
+    }
+
+    if (
+      Number(promoData.usageLimit || 0) > 0 &&
+      Number(promoData.usageCount || 0) >= Number(promoData.usageLimit || 0)
+    ) {
       return errorResponse(res, "Promo code usage limit reached", 400);
     }
 
-    if (promoData.courseId && promoData.courseId !== courseId) {
+    if (courseId && promoData.courseId && promoData.courseId !== courseId) {
       return errorResponse(
         res,
         "Promo code not valid for this course",
@@ -1941,12 +2143,52 @@ export const validatePromoCode = async (req, res) => {
       );
     }
 
+    if (promoData.isSingleUse && requesterStudentId) {
+      const studentPayments = await db
+        .collection(COLLECTIONS.PAYMENTS)
+        .where("studentId", "==", requesterStudentId)
+        .get();
+
+      const usedAlready = studentPayments.docs.some((doc) => {
+        const payment = doc.data() || {};
+        return (
+          String(payment.promoCode || "").toUpperCase() === normalizedCode &&
+          String(payment.status || "").toLowerCase() !== "rejected"
+        );
+      });
+
+      if (usedAlready) {
+        return errorResponse(res, "You have already used this promo code", 400);
+      }
+    }
+
+    let originalAmount = 0;
+    if (courseId) {
+      const courseSnap = await db.collection(COLLECTIONS.COURSES).doc(courseId).get();
+      if (courseSnap.exists) {
+        originalAmount = Number(courseSnap.data()?.price || 0);
+      }
+    }
+
+    const discountAmount =
+      promoData.discountType === "fixed"
+        ? Math.min(originalAmount, Number(promoData.discountValue || 0))
+        : Number(
+            (
+              (originalAmount * Number(promoData.discountValue || 0)) /
+              100
+            ).toFixed(2)
+          );
+    const finalAmount = Math.max(originalAmount - discountAmount, 0);
+
     return successResponse(
       res,
       {
         code: promoData.code,
         discountType: promoData.discountType,
         discountValue: promoData.discountValue,
+        discountAmount,
+        finalAmount,
       },
       "Promo code valid"
     );
@@ -1955,58 +2197,32 @@ export const validatePromoCode = async (req, res) => {
   }
 };
 
-export const getCertificates = async (req, res) => {
+export const togglePromoCode = async (req, res) => {
   try {
-    const data = await adminService.getAllCertificates();
-    return successResponse(res, data, "Certificates fetched");
-  } catch (e) {
-    return errorResponse(res, "Failed to fetch certificates", 500);
-  }
-};
-
-export const generateCertificate = async (req, res) => {
-  try {
-    const { studentId, courseId } = req.body;
-
-    const [studentSnap, courseSnap] = await Promise.all([
-      db.collection(COLLECTIONS.STUDENTS).doc(studentId).get(),
-      db.collection(COLLECTIONS.COURSES).doc(courseId).get(),
-    ]);
-
-    if (!studentSnap.exists || !courseSnap.exists) {
-      return errorResponse(res, "Student or course not found", 404);
+    const { codeId } = req.params;
+    const { isActive } = req.body || {};
+    if (typeof isActive !== "boolean") {
+      return errorResponse(res, "isActive boolean is required", 400);
     }
 
-    const certId = uuidv4().toUpperCase().substring(0, 12);
+    const codeRef = db.collection(COLLECTIONS.PROMO_CODES).doc(codeId);
+    const codeSnap = await codeRef.get();
+    if (!codeSnap.exists) {
+      return errorResponse(res, "Promo code not found", 404);
+    }
 
-    const ref = await db.collection(COLLECTIONS.CERTIFICATES).add({
-      studentId,
-      studentName: studentSnap.data().fullName,
-      courseId,
-      courseName: courseSnap.data().title,
-      certId,
-      qrCode: `https://sumacademy.com/verify/${certId}`,
-      issuedAt: admin.firestore.FieldValue.serverTimestamp(),
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
-
-    await db.collection(COLLECTIONS.STUDENTS).doc(studentId).update({
-      certificates: admin.firestore.FieldValue.arrayUnion({
-        certId,
-        courseId,
-        courseName: courseSnap.data().title,
-        issuedAt: new Date().toISOString(),
-      }),
+    await codeRef.update({
+      isActive,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
     return successResponse(
       res,
-      { id: ref.id, certId },
-      "Certificate generated",
-      201
+      { id: codeId, isActive },
+      `Promo code ${isActive ? "activated" : "deactivated"}`
     );
   } catch (e) {
-    return errorResponse(res, "Failed to generate certificate", 500);
+    return errorResponse(res, "Failed to toggle promo code", 500);
   }
 };
 

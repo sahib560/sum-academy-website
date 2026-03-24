@@ -5,6 +5,50 @@ import { successResponse, errorResponse } from "../utils/response.utils.js";
 
 const router = Router();
 
+router.get("/catalog", async (req, res) => {
+  try {
+    const coursesSnap = await db.collection(COLLECTIONS.COURSES).get();
+    const data = coursesSnap.docs
+      .map((doc) => ({ id: doc.id, ...(doc.data() || {}) }))
+      .filter((course) => String(course.status || "").toLowerCase() !== "archived")
+      .map((course) => {
+        const subjects = Array.isArray(course.subjects) ? course.subjects : [];
+        const firstSubject = subjects[0] || {};
+        const rawPrice = Number(course.price || 0);
+        const discountPercent = Number(course.discountPercent || 0);
+        const finalPrice = Math.max(
+          Number((rawPrice - (rawPrice * discountPercent) / 100).toFixed(2)),
+          0
+        );
+
+        return {
+          id: course.id,
+          title: course.title || "",
+          category: course.category || "General",
+          level: course.level || "Beginner",
+          price: finalPrice,
+          originalPrice: rawPrice,
+          discount: discountPercent,
+          rating: Number(course.rating || 0),
+          reviews: Number(course.ratingCount || 0),
+          students: Number(course.enrollmentCount || 0),
+          teacher:
+            firstSubject.teacherName ||
+            course.teacherName ||
+            "SUM Academy Faculty",
+          description:
+            course.shortDescription || course.description || "",
+          subjectsCount: subjects.length,
+        };
+      })
+      .sort((a, b) => a.title.localeCompare(b.title));
+
+    return successResponse(res, data, "Course catalog fetched");
+  } catch (error) {
+    return errorResponse(res, "Failed to fetch course catalog", 500);
+  }
+});
+
 router.get("/available", async (req, res) => {
   try {
     const courseId = String(req.query.courseId || "").trim();

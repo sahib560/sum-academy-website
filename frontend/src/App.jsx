@@ -6,7 +6,6 @@ import {
   Routes,
   useLocation,
 } from "react-router-dom";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import Navbar from "./components/Navbar.jsx";
 import Footer from "./components/Footer.jsx";
 import ProtectedRoute from "./components/ProtectedRoute.jsx";
@@ -46,17 +45,17 @@ import StudentAnnouncements from "./pages/student/Announcements.jsx";
 import StudentAttendance from "./pages/student/Attendance.jsx";
 import StudentHelpSupport from "./pages/student/HelpSupport.jsx";
 import StudentSettings from "./pages/student/Settings.jsx";
+import StudentCheckout from "./pages/student/Checkout.jsx";
 import Analytics from "./pages/admin/Analytics.jsx";
 import AdminTeachers from "./pages/admin/Teachers.jsx";
 import Students from "./pages/admin/Students.jsx";
 import Classes from "./pages/admin/Classes.jsx";
-import { SiteSettingsProvider } from "./context/SiteSettingsContext.jsx";
-import { AuthProvider } from "./context/AuthContext.jsx";
 import { useAuth } from "./hooks/useAuth.js";
-import { useSiteSettings } from "./context/SiteSettingsContext.jsx";
+import { useSettings } from "./hooks/useSettings.js";
 import Unauthorized from "./pages/Unauthorized.jsx";
 import NotFound from "./pages/NotFound.jsx";
 import SplashScreen from "./components/SplashScreen.jsx";
+import VerifyCertificate from "./pages/public/VerifyCertificate.jsx";
 
 const getDashboardPathByRole = (role) => {
   if (role === "admin") return "/admin/dashboard";
@@ -100,8 +99,33 @@ function HomeRoute() {
   return <Home />;
 }
 
+function MaintenanceScreen({ settings }) {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-slate-50 px-6">
+      <div className="w-full max-w-xl rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-2xl shadow-slate-200/70">
+        <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-primary text-2xl font-bold text-white">
+          S
+        </div>
+        <h1 className="mt-5 font-heading text-4xl text-slate-900">
+          Under Maintenance
+        </h1>
+        <p className="mt-4 text-slate-600">
+          {settings.maintenance?.message || "We are updating SUM Academy. Back soon!"}
+        </p>
+        <p className="mt-2 text-sm text-slate-500">We will be back soon.</p>
+        <div className="mt-6 flex items-center justify-center gap-2">
+          <span className="h-2 w-2 animate-bounce rounded-full bg-primary [animation-delay:-0.2s]" />
+          <span className="h-2 w-2 animate-bounce rounded-full bg-primary [animation-delay:-0.1s]" />
+          <span className="h-2 w-2 animate-bounce rounded-full bg-primary" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AppLayout() {
-  const { settings } = useSiteSettings();
+  const { settings, loading: settingsLoading } = useSettings();
+  const { isAdmin, loading: authLoading } = useAuth();
   const [showStartupSplash, setShowStartupSplash] = useState(true);
   const [authOverlay, setAuthOverlay] = useState({
     show: false,
@@ -172,6 +196,30 @@ function AppLayout() {
   const hideLayout =
     isDashboardRoute || noLayoutRoutes.has(location.pathname) || !isKnownPublic;
 
+  if (settingsLoading) {
+    return (
+      <SplashScreen
+        message="Loading SUM Academy settings..."
+        subMessage="Preparing your personalized experience"
+      />
+    );
+  }
+
+  const maintenanceEnabled = Boolean(settings.maintenance?.enabled);
+  const isLoginRoute =
+    location.pathname === "/login" || location.pathname === "/lms-login";
+  if (authLoading && maintenanceEnabled) {
+    return (
+      <SplashScreen
+        message="Checking access policy..."
+        subMessage="Verifying your role and maintenance access"
+      />
+    );
+  }
+  if (maintenanceEnabled && !isAdmin && !isLoginRoute) {
+    return <MaintenanceScreen settings={settings} />;
+  }
+
   return (
     <>
       {authOverlay.show ? (
@@ -212,6 +260,7 @@ function AppLayout() {
             </GuestRoute>
           }
         />
+        <Route path="/verify/:certId" element={<VerifyCertificate />} />
         <Route path="/unauthorized" element={<Unauthorized />} />
         <Route
           path="/admin"
@@ -265,6 +314,7 @@ function AppLayout() {
           <Route path="dashboard" element={<StudentDashboard />} />
           <Route path="courses" element={<StudentMyCourses />} />
           <Route path="explore" element={<StudentExploreCourses />} />
+          <Route path="checkout" element={<StudentCheckout />} />
           <Route path="certificates" element={<StudentCertificates />} />
           <Route path="quizzes" element={<StudentQuizzes />} />
           <Route path="payments" element={<StudentPayments />} />
@@ -280,18 +330,10 @@ function AppLayout() {
   );
 }
 
-const queryClient = new QueryClient();
-
 function App() {
   return (
     <BrowserRouter>
-      <QueryClientProvider client={queryClient}>
-        <SiteSettingsProvider>
-          <AuthProvider>
-            <AppLayout />
-          </AuthProvider>
-        </SiteSettingsProvider>
-      </QueryClientProvider>
+      <AppLayout />
     </BrowserRouter>
   );
 }

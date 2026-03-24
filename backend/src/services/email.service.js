@@ -206,6 +206,125 @@ export const sendCertificateIssued = async (email, name,
   }
 };
 
+export const sendBankTransferInitiated = async (
+  email,
+  name,
+  payment,
+  bankDetails
+) => {
+  try {
+    await transporter.sendMail({
+      from: process.env.EMAIL_FROM,
+      to: email,
+      subject: "Bank Transfer Initiated - SUM Academy",
+      html: `
+        <div style="font-family: sans-serif; max-width: 520px; margin: 0 auto; padding: 32px; background: #f8f9fe; border-radius: 16px;">
+          <h2 style="color: #1a1a2e;">Payment Initiated</h2>
+          <p style="color: #64748b;">Hi ${name || "Student"}, your bank transfer request has been created.</p>
+          <div style="background: white; padding: 16px; border-radius: 12px; margin: 16px 0;">
+            <p style="margin: 0; color: #64748b;">Reference</p>
+            <p style="margin: 4px 0 0; font-weight: bold; color: #1a1a2e;">${payment.reference || "-"}</p>
+            <p style="margin: 12px 0 0; color: #64748b;">Amount</p>
+            <p style="margin: 4px 0 0; font-weight: bold; color: #1a1a2e;">PKR ${payment.amount || 0}</p>
+            <p style="margin: 12px 0 0; color: #64748b;">Bank</p>
+            <p style="margin: 4px 0 0; color: #1a1a2e;">${bankDetails?.bankName || "-"}</p>
+            <p style="margin: 8px 0 0; color: #64748b;">Account Title: ${bankDetails?.accountTitle || "-"}</p>
+            <p style="margin: 4px 0 0; color: #64748b;">Account Number: ${bankDetails?.accountNumber || "-"}</p>
+            <p style="margin: 4px 0 0; color: #64748b;">IBAN: ${bankDetails?.iban || "-"}</p>
+          </div>
+          <p style="color: #64748b; font-size: 13px;">
+            Please transfer the amount and upload your receipt from your dashboard for verification.
+          </p>
+          <p style="color: #94a3b8; font-size: 12px; text-align: center;">
+            © 2026 SUM Academy - Karachi, Pakistan
+          </p>
+        </div>
+      `,
+    });
+  } catch (error) {
+    console.error("Bank transfer initiated email failed:", error.message);
+    throw error;
+  }
+};
+
+export const sendPaymentRejected = async (
+  email,
+  name,
+  courseName,
+  amount,
+  reference
+) => {
+  try {
+    await transporter.sendMail({
+      from: process.env.EMAIL_FROM,
+      to: email,
+      subject: "Payment Rejected - SUM Academy",
+      html: `
+        <div style="font-family: sans-serif; max-width: 520px; margin: 0 auto; padding: 32px; background: #f8f9fe; border-radius: 16px;">
+          <h2 style="color: #dc2626;">Payment Rejected</h2>
+          <p style="color: #64748b;">Hi ${name || "Student"}, your payment could not be verified.</p>
+          <div style="background: white; padding: 16px; border-radius: 12px; margin: 16px 0;">
+            <p style="margin: 0; color: #64748b;">Course</p>
+            <p style="margin: 4px 0 0; color: #1a1a2e; font-weight: bold;">${courseName || "-"}</p>
+            <p style="margin: 12px 0 0; color: #64748b;">Amount</p>
+            <p style="margin: 4px 0 0; color: #1a1a2e; font-weight: bold;">PKR ${amount || 0}</p>
+            <p style="margin: 12px 0 0; color: #64748b;">Reference</p>
+            <p style="margin: 4px 0 0; color: #1a1a2e;">${reference || "-"}</p>
+          </div>
+          <p style="color: #64748b; font-size: 13px;">
+            Please re-upload a clear receipt or contact support for assistance.
+          </p>
+          <p style="color: #94a3b8; font-size: 12px; text-align: center;">
+            © 2026 SUM Academy - Karachi, Pakistan
+          </p>
+        </div>
+      `,
+    });
+  } catch (error) {
+    console.error("Payment rejected email failed:", error.message);
+    throw error;
+  }
+};
+
+export const sendInstallmentReminder = async (
+  email,
+  name,
+  courseName,
+  amount,
+  dueDate
+) => {
+  try {
+    await transporter.sendMail({
+      from: process.env.EMAIL_FROM,
+      to: email,
+      subject: "Installment Reminder - SUM Academy",
+      html: `
+        <div style="font-family: sans-serif; max-width: 520px; margin: 0 auto; padding: 32px; background: #f8f9fe; border-radius: 16px;">
+          <h2 style="color: #1a1a2e;">Installment Due Soon</h2>
+          <p style="color: #64748b;">Hi ${name || "Student"}, your installment is due soon.</p>
+          <div style="background: white; padding: 16px; border-radius: 12px; margin: 16px 0;">
+            <p style="margin: 0; color: #64748b;">Course</p>
+            <p style="margin: 4px 0 0; color: #1a1a2e; font-weight: bold;">${courseName || "-"}</p>
+            <p style="margin: 12px 0 0; color: #64748b;">Amount Due</p>
+            <p style="margin: 4px 0 0; color: #1a1a2e; font-weight: bold;">PKR ${amount || 0}</p>
+            <p style="margin: 12px 0 0; color: #64748b;">Due Date</p>
+            <p style="margin: 4px 0 0; color: #1a1a2e;">${dueDate || "-"}</p>
+          </div>
+          <p style="color: #64748b; font-size: 13px;">
+            Please complete the payment before due date to avoid overdue status.
+          </p>
+          <p style="color: #94a3b8; font-size: 12px; text-align: center;">
+            © 2026 SUM Academy - Karachi, Pakistan
+          </p>
+        </div>
+      `,
+    });
+  } catch (error) {
+    console.error("Installment reminder email failed:", error.message);
+    throw error;
+  }
+};
+
 export const sendWelcomeEmail = async (email, name, role) => {
   try {
     await transporter.sendMail({
@@ -235,8 +354,28 @@ export const sendWelcomeEmail = async (email, name, role) => {
   }
 };
 
-export const sendAnnouncementEmail = async (email, title, message) => {
+export const sendAnnouncementEmail = async (
+  email,
+  studentName,
+  title,
+  message,
+  targetName
+) => {
   try {
+    const legacyMode = typeof targetName === "undefined";
+    const resolvedStudentName = legacyMode
+      ? "Student"
+      : String(studentName || "Student");
+    const resolvedTitle = legacyMode
+      ? String(studentName || "New Announcement")
+      : String(title || "New Announcement");
+    const resolvedMessage = legacyMode
+      ? String(title || "")
+      : String(message || "");
+    const resolvedTargetName = legacyMode
+      ? "SUM Academy"
+      : String(targetName || "SUM Academy");
+
     await transporter.sendMail({
       from: process.env.EMAIL_FROM,
       to: email,
@@ -245,8 +384,14 @@ export const sendAnnouncementEmail = async (email, title, message) => {
         <div style="font-family: sans-serif; max-width: 480px;
              margin: 0 auto; padding: 32px; background: #f8f9fe;
              border-radius: 16px;">
-          <h2 style="color: #1a1a2e;">${title || "New Announcement"}</h2>
-          <p style="color: #64748b; white-space: pre-line;">${message || ""}</p>
+          <h2 style="color: #1a1a2e;">SUM Academy Announcement</h2>
+          <p style="color: #64748b;">Hi ${resolvedStudentName},</p>
+          <p style="color: #64748b;">
+            New announcement from SUM Academy for
+            <strong>${resolvedTargetName}</strong>.
+          </p>
+          <h3 style="color: #1a1a2e; margin-top: 16px;">${resolvedTitle}</h3>
+          <p style="color: #64748b; white-space: pre-line;">${resolvedMessage}</p>
           <p style="color: #94a3b8; font-size: 12px; text-align: center;">
             © 2026 SUM Academy — Karachi, Pakistan
           </p>

@@ -1,611 +1,778 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { motion } from "framer-motion";
+import { useEffect, useMemo, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import toast from "react-hot-toast";
+import {
+  createAnnouncement,
+  deleteAnnouncement,
+  getAnnouncements,
+  getClasses,
+  getCourses,
+  getStudents,
+  toggleAnnouncementPin,
+  updateAnnouncement,
+} from "../../services/admin.service.js";
 
-const tabs = ["All", "System-wide", "Class-specific", "Course-specific"];
-
-const classOptions = ["Batch A", "Batch B", "Batch C"];
-const courseOptions = [
-  "Math 101",
-  "Physics Mastery",
-  "Biology Essentials",
-  "English Prep",
+const filterTabs = [
+  { key: "all", label: "All" },
+  { key: "system", label: "System" },
+  { key: "class", label: "Class" },
+  { key: "course", label: "Course" },
 ];
 
-const initialAnnouncements = [
-  {
-    id: 1,
-    title: "Midterm Schedule Released",
-    type: "Class-specific",
-    target: "Class: Batch A",
-    message:
-      "Midterm exams will start next Monday. Please review the schedule and reach out to your class coordinator if you have clashes.",
-    postedBy: "Admin User",
-    date: "Mar 12, 2026",
-    reached: 120,
-    pinned: true,
+const typeMeta = {
+  system: {
+    label: "All Students",
+    border: "border-l-4 border-l-violet-500",
+    badge: "bg-violet-100 text-violet-700",
   },
-  {
-    id: 2,
-    title: "New Course Materials Uploaded",
-    type: "Course-specific",
-    target: "Course: Biology Essentials",
-    message:
-      "Chapter 6 notes and practice quizzes are now available in the course resources section.",
-    postedBy: "Admin User",
-    date: "Mar 10, 2026",
-    reached: 86,
-    pinned: false,
+  class: {
+    label: "Class",
+    border: "border-l-4 border-l-blue-500",
+    badge: "bg-blue-100 text-blue-700",
   },
-  {
-    id: 3,
-    title: "System Maintenance Window",
-    type: "System-wide",
-    target: "All Students",
-    message:
-      "The LMS will be under maintenance on Saturday from 2 AM to 4 AM PKT. Please plan your study schedule accordingly.",
-    postedBy: "Admin User",
-    date: "Mar 09, 2026",
-    reached: 540,
-    pinned: false,
+  course: {
+    label: "Course",
+    border: "border-l-4 border-l-orange-500",
+    badge: "bg-orange-100 text-orange-700",
   },
-];
+};
+
+const initialForm = {
+  title: "",
+  message: "",
+  targetType: "system",
+  targetId: "",
+  sendEmail: false,
+  isPinned: false,
+  audienceRole: "student",
+};
+
+const formatDate = (value) => {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return date.toLocaleString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+};
+
+const getRelativeTime = (value) => {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const diffMs = Date.now() - date.getTime();
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  if (diffDays <= 0) return "Today";
+  if (diffDays === 1) return "1 day ago";
+  if (diffDays < 30) return `${diffDays} days ago`;
+  const diffMonths = Math.floor(diffDays / 30);
+  if (diffMonths === 1) return "1 month ago";
+  return `${diffMonths} months ago`;
+};
 
 function Announcements() {
-  const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState("All");
-  const [announcements, setAnnouncements] = useState(initialAnnouncements);
-  const [modalOpen, setModalOpen] = useState(false);
-  const [editing, setEditing] = useState(null);
-  const [deleteTarget, setDeleteTarget] = useState(null);
-  const [toast, setToast] = useState(null);
-  const [formData, setFormData] = useState({
-    title: "",
-    type: "System-wide",
-    target: "All Students",
-    message: "",
-    sendEmail: false,
-    pinned: false,
+  const queryClient = useQueryClient();
+  const [activeTab, setActiveTab] = useState("all");
+  const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [expanded, setExpanded] = useState({});
+
+  const [createOpen, setCreateOpen] = useState(false);
+  const [editItem, setEditItem] = useState(null);
+  const [deleteItem, setDeleteItem] = useState(null);
+  const [form, setForm] = useState(initialForm);
+  const [errors, setErrors] = useState({});
+
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      setDebouncedSearch(search.trim().toLowerCase());
+    }, 300);
+    return () => clearTimeout(timeout);
+  }, [search]);
+
+  const announcementsQuery = useQuery({
+    queryKey: ["admin-announcements"],
+    queryFn: getAnnouncements,
   });
-  const textAreaRef = useRef(null);
+  const classesQuery = useQuery({
+    queryKey: ["admin-classes-for-announcements"],
+    queryFn: getClasses,
+  });
+  const coursesQuery = useQuery({
+    queryKey: ["admin-courses-for-announcements"],
+    queryFn: getCourses,
+  });
+  const studentsQuery = useQuery({
+    queryKey: ["admin-students-for-announcements"],
+    queryFn: getStudents,
+  });
 
-  useEffect(() => {
-    const timer = setTimeout(() => setLoading(false), 1500);
-    return () => clearTimeout(timer);
-  }, []);
+  const announcements = announcementsQuery.data || [];
+  const classes = classesQuery.data || [];
+  const courses = coursesQuery.data || [];
+  const students = studentsQuery.data || [];
 
-  useEffect(() => {
-    if (!toast) return;
-    const timer = setTimeout(() => setToast(null), 2200);
-    return () => clearTimeout(timer);
-  }, [toast]);
+  const countsByTab = useMemo(() => {
+    return {
+      all: announcements.length,
+      system: announcements.filter((item) => item.targetType === "system").length,
+      class: announcements.filter((item) => item.targetType === "class").length,
+      course: announcements.filter((item) => item.targetType === "course").length,
+    };
+  }, [announcements]);
+
+  const stats = useMemo(() => {
+    const emailSent = announcements.filter((item) => item.sendEmail).length;
+    const pinned = announcements.filter((item) => item.isPinned).length;
+    return {
+      total: announcements.length,
+      pinned,
+      emailSent,
+    };
+  }, [announcements]);
 
   const filteredAnnouncements = useMemo(() => {
-    const items =
-      activeTab === "All"
+    const targetFiltered =
+      activeTab === "all"
         ? announcements
-        : announcements.filter((item) => item.type === activeTab);
-    const pinnedItems = items.filter((item) => item.pinned);
-    const regularItems = items.filter((item) => !item.pinned);
-    return [...pinnedItems, ...regularItems];
-  }, [activeTab, announcements]);
+        : announcements.filter((item) => item.targetType === activeTab);
 
-  const openModal = (announcement) => {
-    if (announcement) {
-      setEditing(announcement);
-      setFormData({
-        title: announcement.title,
-        type: announcement.type,
-        target: announcement.target,
-        message: announcement.message,
-        sendEmail: false,
-        pinned: announcement.pinned,
-      });
-    } else {
-      setEditing(null);
-      setFormData({
-        title: "",
-        type: "System-wide",
-        target: "All Students",
-        message: "",
-        sendEmail: false,
-        pinned: false,
-      });
+    const searched = debouncedSearch
+      ? targetFiltered.filter((item) => {
+          const title = String(item.title || "").toLowerCase();
+          const message = String(item.message || "").toLowerCase();
+          return title.includes(debouncedSearch) || message.includes(debouncedSearch);
+        })
+      : targetFiltered;
+
+    return [...searched].sort((a, b) => {
+      if (Boolean(a.isPinned) !== Boolean(b.isPinned)) {
+        return a.isPinned ? -1 : 1;
+      }
+      const aTime = new Date(a.createdAt || 0).getTime();
+      const bTime = new Date(b.createdAt || 0).getTime();
+      return bTime - aTime;
+    });
+  }, [activeTab, announcements, debouncedSearch]);
+
+  const studentReachPreview = useMemo(() => {
+    if (form.targetType === "system") {
+      if (form.audienceRole === "all") return students.length;
+      if (form.audienceRole === "student") return students.length;
+      if (form.audienceRole === "teacher") return 0;
+      if (form.audienceRole === "admin") return 0;
+      return students.length;
     }
-    setModalOpen(true);
+    if (form.targetType === "class") {
+      const selectedClass = classes.find((item) => item.id === form.targetId);
+      const classStudents = Array.isArray(selectedClass?.students)
+        ? selectedClass.students
+        : [];
+      return classStudents.length;
+    }
+    if (form.targetType === "course") {
+      const selectedCourse = courses.find((item) => item.id === form.targetId);
+      return Number(selectedCourse?.enrollmentCount || 0);
+    }
+    return 0;
+  }, [classes, courses, form.audienceRole, form.targetId, form.targetType, students.length]);
+
+  const resetFormState = () => {
+    setForm(initialForm);
+    setErrors({});
   };
 
-  const handleTypeChange = (value) => {
-    let target = "All Students";
-    if (value === "Class-specific") {
-      target = `Class: ${classOptions[0]}`;
+  const validateForm = (isEdit = false) => {
+    const nextErrors = {};
+    const title = String(form.title || "").trim();
+    const message = String(form.message || "").trim();
+
+    if (title.length < 5) nextErrors.title = "Title must be at least 5 characters";
+    if (title.length > 100) nextErrors.title = "Title must be at most 100 characters";
+    if (message.length < 10) nextErrors.message = "Message must be at least 10 characters";
+    if (!["system", "class", "course"].includes(form.targetType)) {
+      nextErrors.targetType = "Invalid target type";
     }
-    if (value === "Course-specific") {
-      target = `Course: ${courseOptions[0]}`;
+    if (!isEdit && (form.targetType === "class" || form.targetType === "course") && !form.targetId) {
+      nextErrors.targetId = "Please select a target";
     }
-    setFormData((prev) => ({ ...prev, type: value, target }));
+
+    setErrors(nextErrors);
+    return Object.keys(nextErrors).length === 0;
   };
 
-  const handleSave = () => {
-    if (!formData.title || !formData.message) {
-      setToast({ type: "error", message: "Title and message are required." });
-      return;
-    }
-    if (editing) {
-      setAnnouncements((prev) =>
-        prev.map((item) =>
-          item.id === editing.id
-            ? {
-                ...item,
-                title: formData.title,
-                type: formData.type,
-                target: formData.target,
-                message: formData.message,
-                pinned: formData.pinned,
-              }
-            : item
-        )
-      );
-      setToast({ type: "success", message: "Announcement updated." });
-    } else {
-      const newAnnouncement = {
-        id: Date.now(),
-        title: formData.title,
-        type: formData.type,
-        target: formData.target,
-        message: formData.message,
-        postedBy: "Admin User",
-        date: "Mar 13, 2026",
-        reached: 0,
-        pinned: formData.pinned,
-      };
-      setAnnouncements((prev) => [newAnnouncement, ...prev]);
-      setToast({ type: "success", message: "Announcement posted." });
-    }
-    if (formData.sendEmail) {
-      setToast({ type: "success", message: "Email notifications sent." });
-    }
-    setModalOpen(false);
+  const createMutation = useMutation({
+    mutationFn: createAnnouncement,
+    onSuccess: (response) => {
+      queryClient.invalidateQueries({ queryKey: ["admin-announcements"] });
+      const reached = response?.data?.studentsReached ?? studentReachPreview;
+      const emailsSent = response?.data?.emailsSent || 0;
+      toast.success(`Announcement posted! Reached ${reached} users`);
+      if (emailsSent > 0) {
+        toast.success(`Emails sent to ${emailsSent} users`);
+      }
+      setCreateOpen(false);
+      resetFormState();
+    },
+    onError: (error) => {
+      toast.error(error?.response?.data?.message || "Failed to post announcement");
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, payload }) => updateAnnouncement(id, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin-announcements"] });
+      toast.success("Announcement updated");
+      setEditItem(null);
+      resetFormState();
+    },
+    onError: (error) => {
+      toast.error(error?.response?.data?.message || "Failed to update announcement");
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id) => deleteAnnouncement(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin-announcements"] });
+      toast.success("Announcement deleted");
+      setDeleteItem(null);
+    },
+    onError: (error) => {
+      toast.error(error?.response?.data?.message || "Failed to delete announcement");
+    },
+  });
+
+  const pinMutation = useMutation({
+    mutationFn: ({ id, isPinned }) => toggleAnnouncementPin(id, isPinned),
+    onSuccess: (_, vars) => {
+      queryClient.invalidateQueries({ queryKey: ["admin-announcements"] });
+      toast.success(vars.isPinned ? "Announcement pinned" : "Announcement unpinned");
+    },
+    onError: (error) => {
+      toast.error(error?.response?.data?.message || "Failed to toggle pin");
+    },
+  });
+
+  const openCreateModal = () => {
+    resetFormState();
+    setCreateOpen(true);
   };
 
-  const handleDelete = () => {
-    if (!deleteTarget) return;
-    setAnnouncements((prev) =>
-      prev.filter((item) => item.id !== deleteTarget.id)
-    );
-    setToast({ type: "success", message: "Announcement deleted." });
-    setDeleteTarget(null);
+  const openEditModal = (item) => {
+    setForm({
+      title: item.title || "",
+      message: item.message || "",
+      targetType: item.targetType || "system",
+      targetId: item.targetId || "",
+      sendEmail: Boolean(item.sendEmail),
+      isPinned: Boolean(item.isPinned),
+      audienceRole: item.audienceRole || "student",
+    });
+    setErrors({});
+    setEditItem(item);
   };
 
-  const handlePinToggle = (announcement) => {
-    setAnnouncements((prev) =>
-      prev.map((item) =>
-        item.id === announcement.id ? { ...item, pinned: !item.pinned } : item
-      )
-    );
+  const submitCreate = () => {
+    if (!validateForm(false)) return;
+    createMutation.mutate({
+      title: form.title.trim(),
+      message: form.message.trim(),
+      targetType: form.targetType,
+      targetId: form.targetType === "system" ? null : form.targetId,
+      sendEmail: form.sendEmail,
+      isPinned: form.isPinned,
+      audienceRole:
+        form.targetType === "system"
+          ? form.audienceRole
+          : "student",
+    });
   };
 
-  const applyFormat = (type) => {
-    const textarea = textAreaRef.current;
+  const submitEdit = () => {
+    if (!validateForm(true)) return;
+    updateMutation.mutate({
+      id: editItem.id,
+      payload: {
+        title: form.title.trim(),
+        message: form.message.trim(),
+        isPinned: form.isPinned,
+      },
+    });
+  };
+
+  const applyFormatting = (type) => {
+    const textarea = document.getElementById("announcement-message");
     if (!textarea) return;
     const start = textarea.selectionStart || 0;
     const end = textarea.selectionEnd || 0;
-    const selected = formData.message.slice(start, end);
-    let nextValue = formData.message;
+    const selected = form.message.slice(start, end) || "";
+    let insert = selected;
 
-    if (type === "bold") {
-      nextValue =
-        formData.message.slice(0, start) +
-        `**${selected || "bold text"}**` +
-        formData.message.slice(end);
-    }
-    if (type === "italic") {
-      nextValue =
-        formData.message.slice(0, start) +
-        `*${selected || "italic text"}*` +
-        formData.message.slice(end);
-    }
+    if (type === "bold") insert = `**${selected || "bold text"}**`;
+    if (type === "italic") insert = `*${selected || "italic text"}*`;
     if (type === "bullet") {
-      const lines = (selected || "List item").split("\n");
-      const bulletLines = lines.map((line) => `- ${line}`);
-      nextValue =
-        formData.message.slice(0, start) +
-        bulletLines.join("\n") +
-        formData.message.slice(end);
+      const lines = (selected || "list item").split("\n");
+      insert = lines.map((line) => `- ${line}`).join("\n");
     }
-    setFormData((prev) => ({ ...prev, message: nextValue }));
-    setTimeout(() => textarea.focus(), 0);
+
+    const nextMessage = `${form.message.slice(0, start)}${insert}${form.message.slice(end)}`;
+    setForm((prev) => ({ ...prev, message: nextMessage }));
   };
+
+  const isLoading =
+    announcementsQuery.isLoading || classesQuery.isLoading || coursesQuery.isLoading;
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="font-heading text-3xl text-slate-900">
-            Announcements
-          </h2>
+          <h2 className="font-heading text-3xl text-slate-900">Announcements</h2>
           <p className="text-sm text-slate-500">
-            Share updates with classes, courses, or the entire academy.
+            Broadcast updates by system, class, or course with pin and email control.
           </p>
         </div>
-        <button className="btn-primary" onClick={() => openModal(null)}>
+        <button className="btn-primary" onClick={openCreateModal}>
           Post Announcement
         </button>
       </div>
 
-      <div className="flex flex-wrap items-center gap-3">
-        {tabs.map((tab) => (
-          <button
-            key={tab}
-            className={`rounded-full px-4 py-2 text-xs font-semibold ${
-              activeTab === tab
-                ? "bg-primary text-white"
-                : "border border-slate-200 text-slate-600"
-            }`}
-            onClick={() => setActiveTab(tab)}
-          >
-            {tab}
-          </button>
-        ))}
+      <div className="grid gap-3 md:grid-cols-3">
+        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-blue-500">
+            Total
+          </p>
+          <p className="mt-2 text-2xl font-bold text-slate-900">{stats.total}</p>
+        </div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-orange-500">
+            Pinned
+          </p>
+          <p className="mt-2 text-2xl font-bold text-slate-900">{stats.pinned}</p>
+        </div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-500">
+            Sent Via Email
+          </p>
+          <p className="mt-2 text-2xl font-bold text-slate-900">{stats.emailSent}</p>
+        </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2">
-        {loading
-          ? Array.from({ length: 4 }).map((_, index) => (
-              <div key={`skeleton-${index}`} className="glass-card space-y-3">
-                <div className="skeleton h-5 w-1/2" />
-                <div className="skeleton h-4 w-3/4" />
-                <div className="skeleton h-4 w-full" />
-                <div className="skeleton h-8 w-32" />
-              </div>
-            ))
-          : filteredAnnouncements.length === 0 ? (
-              <div className="col-span-full rounded-3xl border border-dashed border-slate-200 bg-white p-10 text-center text-slate-500">
-                No announcements yet.
-              </div>
-            )
-          : filteredAnnouncements.map((item) => (
-              <div
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          {filterTabs.map((tab) => (
+            <button
+              key={tab.key}
+              className={`rounded-full px-3 py-1.5 text-xs font-semibold ${
+                activeTab === tab.key
+                  ? "bg-primary text-white"
+                  : "border border-slate-200 bg-white text-slate-600"
+              }`}
+              onClick={() => setActiveTab(tab.key)}
+            >
+              {tab.label} ({countsByTab[tab.key] || 0})
+            </button>
+          ))}
+        </div>
+        <input
+          className="w-full max-w-sm rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+          placeholder="Search title or message..."
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+        />
+      </div>
+
+      <div className="grid gap-4">
+        {isLoading ? (
+          Array.from({ length: 4 }).map((_, index) => (
+            <div key={`announcement-skeleton-${index}`} className="rounded-2xl border border-slate-200 bg-white p-5">
+              <div className="skeleton h-5 w-1/3" />
+              <div className="skeleton mt-3 h-4 w-2/3" />
+              <div className="skeleton mt-2 h-4 w-full" />
+              <div className="skeleton mt-2 h-4 w-4/5" />
+            </div>
+          ))
+        ) : filteredAnnouncements.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-14 text-center">
+            <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-slate-100 text-slate-500">
+              <svg viewBox="0 0 24 24" className="h-7 w-7" fill="currentColor">
+                <path d="M12 22a2 2 0 0 0 2-2H10a2 2 0 0 0 2 2zm6-6V11a6 6 0 0 0-5-5.9V4a1 1 0 1 0-2 0v1.1A6 6 0 0 0 6 11v5l-2 2v1h16v-1l-2-2z" />
+              </svg>
+            </div>
+            <p className="text-lg font-semibold text-slate-700">No announcements yet</p>
+            <button className="btn-primary mt-4" onClick={openCreateModal}>
+              Post Announcement
+            </button>
+          </div>
+        ) : (
+          filteredAnnouncements.map((item) => {
+            const meta = typeMeta[item.targetType] || typeMeta.system;
+            const expandedKey = expanded[item.id];
+            const canExpand = String(item.message || "").length > 180;
+            return (
+              <motion.div
+                layout
                 key={item.id}
-                className={`glass-card flex flex-col gap-4 ${
-                  item.pinned ? "border border-primary/30" : ""
-                }`}
+                className={`rounded-2xl border border-slate-200 bg-white p-5 ${meta.border}`}
               >
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <div className="flex items-center gap-2">
-                      <h3 className="text-lg font-semibold text-slate-900">
-                        {item.title}
-                      </h3>
-                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600">
-                        {item.type.replace("-specific", "")}
+                    <div className="mb-2 flex flex-wrap items-center gap-2">
+                      <span className={`rounded-full px-2 py-1 text-xs font-semibold ${meta.badge}`}>
+                        {item.targetType === "system"
+                          ? item.targetName || "All Students"
+                          : item.targetName || meta.label}
                       </span>
-                      {item.pinned && (
-                        <span className="inline-flex items-center gap-1 text-xs font-semibold text-primary">
-                          <svg
-                            viewBox="0 0 24 24"
-                            className="h-3 w-3"
-                            fill="currentColor"
-                          >
-                            <path d="M14 2 9 7l-4 1 7 7 1-4 5-5-4-4zM5 19l5-5 1 1-5 5H5v-1z" />
-                          </svg>
+                      {item.isPinned ? (
+                        <span className="rounded-full bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-700">
                           Pinned
                         </span>
-                      )}
+                      ) : null}
+                      {item.sendEmail ? (
+                        <span className="rounded-full bg-emerald-100 px-2 py-1 text-xs font-semibold text-emerald-700">
+                          Email sent
+                        </span>
+                      ) : null}
                     </div>
-                    <p className="text-sm text-slate-500">{item.target}</p>
+                    <h3 className="text-xl font-bold text-slate-900">{item.title}</h3>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      className="rounded-full border border-slate-200 p-2 text-slate-500 hover:text-primary"
+                      onClick={() =>
+                        pinMutation.mutate({
+                          id: item.id,
+                          isPinned: !Boolean(item.isPinned),
+                        })
+                      }
+                      title={item.isPinned ? "Unpin" : "Pin"}
+                    >
+                      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
+                        <path d="M14 2 9 7l-4 1 7 7 1-4 5-5-4-4zM5 19l5-5 1 1-5 5H5v-1z" />
+                      </svg>
+                    </button>
+                    <button
+                      className="rounded-full border border-slate-200 p-2 text-slate-500 hover:text-primary"
+                      onClick={() => openEditModal(item)}
+                      title="Edit"
+                    >
+                      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
+                        <path d="m3 17.3 10-10 3.7 3.7-10 10H3v-3.7zM14.4 5.8l1.4-1.4a2 2 0 0 1 2.8 0l1 1a2 2 0 0 1 0 2.8L18.2 9l-3.8-3.2z" />
+                      </svg>
+                    </button>
+                    <button
+                      className="rounded-full border border-slate-200 p-2 text-slate-500 hover:text-rose-500"
+                      onClick={() => setDeleteItem(item)}
+                      title="Delete"
+                    >
+                      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
+                        <path d="M7 4h10l1 2h4v2H2V6h4l1-2zm1 6h2v8H8v-8zm6 0h2v8h-2v-8z" />
+                      </svg>
+                    </button>
                   </div>
                 </div>
-                <p
-                  className="text-sm text-slate-600"
-                  style={{
-                    display: "-webkit-box",
-                    WebkitLineClamp: 2,
-                    WebkitBoxOrient: "vertical",
-                    overflow: "hidden",
-                  }}
-                >
+
+                <p className={`mt-3 text-sm text-slate-600 ${expandedKey ? "" : "line-clamp-3"}`}>
                   {item.message}
                 </p>
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex items-center gap-2 text-xs text-slate-500">
-                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
-                      AU
-                    </div>
-                    <span>{item.postedBy}</span>
-                    <span>{item.date}</span>
-                    <span>{item.reached} students reached</span>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      className="rounded-full border border-slate-200 px-3 py-1 text-xs"
-                      onClick={() => openModal(item)}
-                    >
-                      Edit
-                    </button>
-                    <button
-                      className="rounded-full border border-slate-200 px-3 py-1 text-xs"
-                      onClick={() => setDeleteTarget(item)}
-                    >
-                      Delete
-                    </button>
-                    <button
-                      className="rounded-full border border-slate-200 px-3 py-1 text-xs"
-                      onClick={() => handlePinToggle(item)}
-                    >
-                      {item.pinned ? "Unpin" : "Pin to top"}
-                    </button>
-                  </div>
+                {canExpand ? (
+                  <button
+                    className="mt-1 text-xs font-semibold text-primary"
+                    onClick={() =>
+                      setExpanded((prev) => ({ ...prev, [item.id]: !prev[item.id] }))
+                    }
+                  >
+                    {expandedKey ? "Read less" : "Read more"}
+                  </button>
+                ) : null}
+
+                <div className="mt-4 flex flex-wrap items-center gap-3 text-xs text-slate-500">
+                  <span>
+                    Posted by <strong>{item.postedByName || "Admin"}</strong>
+                  </span>
+                  <span>{formatDate(item.createdAt)}</span>
+                  <span>{getRelativeTime(item.createdAt)}</span>
+                  <span>{item.studentsReached || 0} reached</span>
                 </div>
-              </div>
-            ))}
+              </motion.div>
+            );
+          })
+        )}
       </div>
 
-      {modalOpen && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center px-4">
-          <button
-            type="button"
-            className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
-            onClick={() => setModalOpen(false)}
-            aria-label="Close"
-          />
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="relative w-full max-w-2xl rounded-3xl bg-white p-6 shadow-2xl"
-          >
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h3 className="font-heading text-2xl text-slate-900">
-                  {editing ? "Edit Announcement" : "Post Announcement"}
-                </h3>
-                <p className="text-sm text-slate-500">
-                  Compose and target your announcement.
-                </p>
-              </div>
-              <button
-                type="button"
-                className="rounded-full border border-slate-200 px-3 py-1 text-sm text-slate-500"
-                onClick={() => setModalOpen(false)}
-              >
-                Close
-              </button>
-            </div>
-
-            <div className="mt-4 space-y-4">
-              <div>
-                <label className="text-xs font-semibold uppercase text-slate-400">
-                  Title
-                </label>
-                <input
-                  type="text"
-                  value={formData.title}
-                  onChange={(event) =>
-                    setFormData((prev) => ({
-                      ...prev,
-                      title: event.target.value,
-                    }))
-                  }
-                  className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                />
-              </div>
-
-              <div className="grid gap-4 sm:grid-cols-2">
+      <AnimatePresence>
+        {(createOpen || editItem) && (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+            <button
+              type="button"
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+              onClick={() => {
+                setCreateOpen(false);
+                setEditItem(null);
+                resetFormState();
+              }}
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-3xl bg-white p-6"
+            >
+              <div className="mb-4 flex items-start justify-between">
                 <div>
-                  <label className="text-xs font-semibold uppercase text-slate-400">
-                    Type
-                  </label>
-                  <select
-                    value={formData.type}
-                    onChange={(event) => handleTypeChange(event.target.value)}
+                  <h3 className="font-heading text-2xl text-slate-900">
+                    {editItem ? "Edit Announcement" : "Post Announcement"}
+                  </h3>
+                  {editItem ? (
+                    <p className="text-xs text-slate-500">
+                      Target cannot be changed after posting.
+                    </p>
+                  ) : null}
+                </div>
+                <button
+                  className="rounded-full border border-slate-200 px-3 py-1 text-sm text-slate-500"
+                  onClick={() => {
+                    setCreateOpen(false);
+                    setEditItem(null);
+                    resetFormState();
+                  }}
+                >
+                  X
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="text-xs font-semibold uppercase text-slate-500">Title</label>
+                  <input
+                    value={form.title}
+                    onChange={(event) =>
+                      setForm((prev) => ({ ...prev, title: event.target.value }))
+                    }
+                    className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                    placeholder="Enter announcement title"
+                  />
+                  <div className="mt-1 flex items-center justify-between">
+                    <p className="text-xs text-rose-500">{errors.title || ""}</p>
+                    <p className="text-xs text-slate-400">{form.title.length}/100</p>
+                  </div>
+                </div>
+
+                {!editItem ? (
+                  <>
+                    <div>
+                      <label className="text-xs font-semibold uppercase text-slate-500">Target Type</label>
+                      <div className="mt-2 grid grid-cols-3 gap-2">
+                        {[
+                          { key: "system", label: "System-wide" },
+                          { key: "class", label: "Class" },
+                          { key: "course", label: "Course" },
+                        ].map((item) => (
+                          <button
+                            key={item.key}
+                            className={`rounded-xl border px-3 py-2 text-sm font-semibold ${
+                              form.targetType === item.key
+                                ? "border-primary bg-primary/10 text-primary"
+                                : "border-slate-200 text-slate-600"
+                            }`}
+                            onClick={() =>
+                              setForm((prev) => ({
+                                ...prev,
+                                targetType: item.key,
+                                targetId: "",
+                                audienceRole:
+                                  item.key === "system" ? prev.audienceRole : "student",
+                              }))
+                            }
+                            type="button"
+                          >
+                            {item.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {form.targetType === "system" ? (
+                      <div>
+                        <label className="text-xs font-semibold uppercase text-slate-500">
+                          Audience
+                        </label>
+                        <select
+                          value={form.audienceRole}
+                          onChange={(event) =>
+                            setForm((prev) => ({
+                              ...prev,
+                              audienceRole: event.target.value,
+                            }))
+                          }
+                          className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                        >
+                          <option value="student">Students</option>
+                          <option value="teacher">Teachers</option>
+                          <option value="admin">Admins</option>
+                          <option value="all">All Users</option>
+                        </select>
+                      </div>
+                    ) : null}
+
+                    {form.targetType !== "system" ? (
+                      <div>
+                        <label className="text-xs font-semibold uppercase text-slate-500">
+                          {form.targetType === "class" ? "Class" : "Course"}
+                        </label>
+                        <select
+                          value={form.targetId}
+                          onChange={(event) =>
+                            setForm((prev) => ({ ...prev, targetId: event.target.value }))
+                          }
+                          className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                        >
+                          <option value="">Select target</option>
+                          {(form.targetType === "class" ? classes : courses).map((item) => (
+                            <option key={item.id} value={item.id}>
+                              {form.targetType === "class" ? item.name : item.title}
+                            </option>
+                          ))}
+                        </select>
+                        <p className="mt-1 text-xs text-rose-500">{errors.targetId || ""}</p>
+                      </div>
+                    ) : null}
+                  </>
+                ) : null}
+
+                <div>
+                  <label className="text-xs font-semibold uppercase text-slate-500">Message</label>
+                  <div className="mt-1 flex items-center gap-2">
+                    <button
+                      type="button"
+                      className="rounded-full border border-slate-200 px-2 py-1 text-xs"
+                      onClick={() => applyFormatting("bold")}
+                    >
+                      Bold
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-full border border-slate-200 px-2 py-1 text-xs"
+                      onClick={() => applyFormatting("italic")}
+                    >
+                      Italic
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-full border border-slate-200 px-2 py-1 text-xs"
+                      onClick={() => applyFormatting("bullet")}
+                    >
+                      Bullet
+                    </button>
+                  </div>
+                  <textarea
+                    id="announcement-message"
+                    value={form.message}
+                    onChange={(event) =>
+                      setForm((prev) => ({ ...prev, message: event.target.value }))
+                    }
                     className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                  >
-                    {tabs
-                      .filter((item) => item !== "All")
-                      .map((type) => (
-                        <option key={type} value={type}>
-                          {type}
-                        </option>
-                      ))}
-                  </select>
+                    rows={7}
+                    placeholder="Write announcement message..."
+                  />
+                  <div className="mt-1 flex items-center justify-between">
+                    <p className="text-xs text-rose-500">{errors.message || ""}</p>
+                    <p className="text-xs text-slate-400">{form.message.length} chars</p>
+                  </div>
                 </div>
-                {formData.type === "Class-specific" && (
-                  <div>
-                    <label className="text-xs font-semibold uppercase text-slate-400">
-                      Class
+
+                {!editItem ? (
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                    <p className="text-xs font-semibold text-slate-600">
+                      This will reach {studentReachPreview} users
+                    </p>
+                  </div>
+                ) : null}
+
+                <div className="grid gap-3 md:grid-cols-2">
+                  {!editItem ? (
+                    <label className="flex items-center justify-between rounded-2xl border border-slate-200 px-3 py-2">
+                      <span className="text-sm font-semibold text-slate-700">Send Email</span>
+                      <input
+                        type="checkbox"
+                        checked={form.sendEmail}
+                        onChange={(event) =>
+                          setForm((prev) => ({ ...prev, sendEmail: event.target.checked }))
+                        }
+                      />
                     </label>
-                    <select
-                      value={formData.target.replace("Class: ", "")}
+                  ) : null}
+                  <label className="flex items-center justify-between rounded-2xl border border-slate-200 px-3 py-2">
+                    <span className="text-sm font-semibold text-slate-700">Pin to top</span>
+                    <input
+                      type="checkbox"
+                      checked={form.isPinned}
                       onChange={(event) =>
-                        setFormData((prev) => ({
-                          ...prev,
-                          target: `Class: ${event.target.value}`,
-                        }))
+                        setForm((prev) => ({ ...prev, isPinned: event.target.checked }))
                       }
-                      className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                    >
-                      {classOptions.map((option) => (
-                        <option key={option} value={option}>
-                          {option}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-                {formData.type === "Course-specific" && (
-                  <div>
-                    <label className="text-xs font-semibold uppercase text-slate-400">
-                      Course
-                    </label>
-                    <select
-                      value={formData.target.replace("Course: ", "")}
-                      onChange={(event) =>
-                        setFormData((prev) => ({
-                          ...prev,
-                          target: `Course: ${event.target.value}`,
-                        }))
-                      }
-                      className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                    >
-                      {courseOptions.map((option) => (
-                        <option key={option} value={option}>
-                          {option}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-              </div>
-
-              <div>
-                <label className="text-xs font-semibold uppercase text-slate-400">
-                  Message
-                </label>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    className="rounded-full border border-slate-200 px-3 py-1 text-xs"
-                    onClick={() => applyFormat("bold")}
-                  >
-                    Bold
-                  </button>
-                  <button
-                    type="button"
-                    className="rounded-full border border-slate-200 px-3 py-1 text-xs"
-                    onClick={() => applyFormat("italic")}
-                  >
-                    Italic
-                  </button>
-                  <button
-                    type="button"
-                    className="rounded-full border border-slate-200 px-3 py-1 text-xs"
-                    onClick={() => applyFormat("bullet")}
-                  >
-                    Bullet list
-                  </button>
-                </div>
-                <textarea
-                  ref={textAreaRef}
-                  rows={5}
-                  value={formData.message}
-                  onChange={(event) =>
-                    setFormData((prev) => ({
-                      ...prev,
-                      message: event.target.value,
-                    }))
-                  }
-                  className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                />
-              </div>
-
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="flex items-center justify-between rounded-2xl border border-slate-200 px-4 py-3">
-                  <div>
-                    <p className="text-sm font-semibold text-slate-900">
-                      Send email notification
-                    </p>
-                    <p className="text-xs text-slate-500">
-                      Email all targeted students.
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition ${
-                      formData.sendEmail ? "bg-primary" : "bg-slate-200"
-                    }`}
-                    onClick={() =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        sendEmail: !prev.sendEmail,
-                      }))
-                    }
-                  >
-                    <span
-                      className={`inline-block h-5 w-5 transform rounded-full bg-white transition ${
-                        formData.sendEmail ? "translate-x-5" : "translate-x-1"
-                      }`}
                     />
-                  </button>
-                </div>
-                <div className="flex items-center justify-between rounded-2xl border border-slate-200 px-4 py-3">
-                  <div>
-                    <p className="text-sm font-semibold text-slate-900">
-                      Pin to top
-                    </p>
-                    <p className="text-xs text-slate-500">
-                      Keep this announcement visible.
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition ${
-                      formData.pinned ? "bg-emerald-500" : "bg-slate-200"
-                    }`}
-                    onClick={() =>
-                      setFormData((prev) => ({ ...prev, pinned: !prev.pinned }))
-                    }
-                  >
-                    <span
-                      className={`inline-block h-5 w-5 transform rounded-full bg-white transition ${
-                        formData.pinned ? "translate-x-5" : "translate-x-1"
-                      }`}
-                    />
-                  </button>
+                  </label>
                 </div>
               </div>
-            </div>
 
-            <button className="btn-primary mt-6 w-full" onClick={handleSave}>
-              {editing ? "Save Changes" : "Post Announcement"}
-            </button>
-          </motion.div>
-        </div>
-      )}
-
-      {deleteTarget && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center px-4">
-          <button
-            type="button"
-            className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
-            onClick={() => setDeleteTarget(null)}
-            aria-label="Close"
-          />
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="relative w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl"
-          >
-            <h3 className="font-heading text-xl text-slate-900">
-              Delete announcement?
-            </h3>
-            <p className="mt-2 text-sm text-slate-500">
-              This action cannot be undone.
-            </p>
-            <div className="mt-6 flex gap-3">
               <button
-                className="btn-outline flex-1"
-                onClick={() => setDeleteTarget(null)}
+                className="btn-primary mt-5 w-full"
+                onClick={editItem ? submitEdit : submitCreate}
+                disabled={createMutation.isPending || updateMutation.isPending}
               >
-                Cancel
+                {createMutation.isPending || updateMutation.isPending ? "Saving..." : editItem ? "Save Changes" : "Post Announcement"}
               </button>
-              <button className="btn-primary flex-1" onClick={handleDelete}>
-                Delete
-              </button>
-            </div>
-          </motion.div>
-        </div>
-      )}
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
-      {toast && (
-        <div
-          className={`fixed right-6 top-6 z-50 rounded-2xl px-4 py-3 text-sm font-semibold text-white shadow-xl ${
-            toast.type === "success" ? "bg-emerald-500" : "bg-rose-500"
-          }`}
-        >
-          {toast.message}
-        </div>
-      )}
+      <AnimatePresence>
+        {deleteItem ? (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+            <button
+              type="button"
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+              onClick={() => setDeleteItem(null)}
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-md rounded-3xl bg-white p-6"
+            >
+              <h3 className="text-xl font-bold text-slate-900">Delete this announcement?</h3>
+              <p className="mt-2 text-sm text-slate-500">
+                Students will no longer see it.
+              </p>
+              <div className="mt-5 grid grid-cols-2 gap-2">
+                <button
+                  className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-600"
+                  onClick={() => setDeleteItem(null)}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="rounded-xl bg-rose-500 px-3 py-2 text-sm font-semibold text-white"
+                  onClick={() => deleteMutation.mutate(deleteItem.id)}
+                  disabled={deleteMutation.isPending}
+                >
+                  {deleteMutation.isPending ? "Deleting..." : "Delete"}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        ) : null}
+      </AnimatePresence>
     </div>
   );
 }
 
 export default Announcements;
+

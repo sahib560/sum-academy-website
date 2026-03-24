@@ -10,6 +10,12 @@ import { db }       from "./config/firebase.js";
 import authRoutes   from "./routes/auth.routes.js";
 import adminRoutes  from "./routes/admin.routes.js";
 import classesPublicRoutes from "./routes/classes.routes.js";
+import paymentRoutes from "./routes/payment.routes.js";
+import certificateRoutes, { publicCertRoutes } from "./routes/certificate.routes.js";
+import adminAnnouncementRoutes, {
+  userAnnouncementsRoutes,
+} from "./routes/announcement.routes.js";
+import settingsRoutes, { publicSettingsRoutes } from "./routes/settings.routes.js";
 import { verifyToken } from "./middlewares/auth.middleware.js";
 import { validatePromoCode } from "./controllers/admin.controller.js";
 
@@ -48,7 +54,14 @@ if (process.env.NODE_ENV === "development") {
 // ── Routes ────────────────────────────────────────────────────
 app.use("/api/auth", authRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/admin", certificateRoutes);
+app.use("/api/admin", adminAnnouncementRoutes);
+app.use("/api/admin", settingsRoutes);
+app.use("/api", publicSettingsRoutes);
+app.use("/api/payments", paymentRoutes);
 app.use("/api/classes", classesPublicRoutes);
+app.use("/api", publicCertRoutes);
+app.use("/api", userAnnouncementsRoutes);
 app.post("/api/promo-codes/validate", verifyToken, validatePromoCode);
 
 app.get("/api/health", (req, res) => {

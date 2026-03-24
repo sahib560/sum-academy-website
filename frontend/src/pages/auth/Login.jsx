@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import logo from "../../assets/logo.jpeg";
-import { useSiteSettings } from "../../context/SiteSettingsContext.jsx";
+import { useSettings } from "../../hooks/useSettings.js";
 import { loginWithEmail, loginWithGoogle } from "../../services/auth.service.js";
 import SplashScreen from "../../components/SplashScreen.jsx";
 
@@ -14,7 +14,7 @@ const fadeUp = {
 const MIN_SPLASH_MS = 1200;
 
 function Login() {
-  const { settings } = useSiteSettings();
+  const { settings } = useSettings();
   const navigate = useNavigate();
   const [form, setForm] = useState({
     email: "",
@@ -28,7 +28,7 @@ function Login() {
   const [toast, setToast] = useState(null);
   const [error, setError] = useState("");
   const [showContactAdmin, setShowContactAdmin] = useState(false);
-  const logoSrc = settings.general.logoPreview || logo;
+  const logoSrc = settings.general.logoUrl || logo;
   const siteName = settings.general.siteName || "SUM Academy";
 
   const getReadableLoginError = (err) => {
