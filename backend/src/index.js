@@ -16,6 +16,7 @@ import adminAnnouncementRoutes, {
   userAnnouncementsRoutes,
 } from "./routes/announcement.routes.js";
 import settingsRoutes, { publicSettingsRoutes } from "./routes/settings.routes.js";
+import teacherRoutes from "./routes/teacher.routes.js";
 import { verifyToken } from "./middlewares/auth.middleware.js";
 import { validatePromoCode } from "./controllers/admin.controller.js";
 
@@ -57,6 +58,7 @@ app.use("/api/admin", adminRoutes);
 app.use("/api/admin", certificateRoutes);
 app.use("/api/admin", adminAnnouncementRoutes);
 app.use("/api/admin", settingsRoutes);
+app.use("/api/teacher", teacherRoutes);
 app.use("/api", publicSettingsRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/admin", adminPaymentRoutes);
