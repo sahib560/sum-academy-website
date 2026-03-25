@@ -147,11 +147,15 @@ const PORT = process.env.PORT || 5000;
 app.use(helmet({
   contentSecurityPolicy: false, // needed for React to load properly
 }));
+// app.use(cors({
+//   origin:         process.env.CLIENT_URL,
+//   credentials:    true,
+//   methods:        ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+//   allowedHeaders: ["Content-Type", "Authorization"],
+// }));
 app.use(cors({
-  origin:         process.env.CLIENT_URL,
-  credentials:    true,
-  methods:        ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
+  origin: "*",
+  credentials: true,
 }));
 
 // ── Rate Limiting ─────────────────────────────────────────────
@@ -216,13 +220,13 @@ app.get("/api/test", async (req, res) => {
 });
 
 // ── Serve React Frontend ──────────────────────────────────────
-const frontendDist = path.join(__dirname, "../../frontend/dist");
-app.use(express.static(frontendDist));
+// const frontendDist = path.join(__dirname, "../../frontend/dist");
+// app.use(express.static(frontendDist));
 
-// Any route not caught by API → serve React app
-app.get("*", (req, res) => {
-  res.sendFile(path.join(frontendDist, "index.html"));
-});
+// // Any route not caught by API → serve React app
+// app.get("*", (req, res) => {
+//   res.sendFile(path.join(frontendDist, "index.html"));
+// });
 
 // ── Global Error Handler ──────────────────────────────────────
 app.use((err, req, res, next) => {
@@ -233,6 +237,10 @@ app.use((err, req, res, next) => {
 });
 
 // ── Start Server ──────────────────────────────────────────────
-app.listen(PORT, () => {
-  console.log(`✅ SUM Academy API running → http://localhost:${PORT}`);
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`✅ SUM Academy API running on port ${PORT}`);
 });
+
+// app.listen(PORT, () => {
+//   console.log(`✅ SUM Academy API running → http://localhost:${PORT}`);
+// });
