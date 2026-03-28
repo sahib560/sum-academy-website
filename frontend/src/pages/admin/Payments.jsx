@@ -26,6 +26,17 @@ const statusBadgeClass = {
 };
 
 const formatPKR = (value) => `PKR ${Number(value || 0).toLocaleString("en-PK")}`;
+const formatMethod = (value = "") => {
+  const method = String(value || "").toLowerCase();
+  if (method === "bank_transfer") return "Bank Transfer";
+  if (method === "jazzcash") return "JazzCash";
+  if (method === "easypaisa") return "EasyPaisa";
+  return method || "-";
+};
+const canReviewPayment = (payment = {}) =>
+  ["pending", "pending_verification"].includes(
+    String(payment.status || "").toLowerCase()
+  );
 
 const formatDate = (value) => {
   const date = value?.toDate ? value.toDate() : value ? new Date(value) : null;
@@ -69,6 +80,8 @@ function Payments() {
       );
       queryClient.invalidateQueries({ queryKey: ["admin-payments"] });
       queryClient.invalidateQueries({ queryKey: ["admin-installments-for-stats"] });
+      queryClient.invalidateQueries({ queryKey: ["admin-transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["admin-installments"] });
       setSelectedPayment(null);
     },
     onError: (error) => {
@@ -94,9 +107,7 @@ function Payments() {
       .filter((item) => item.status === "paid" && monthKey(item.createdAt) === currentMonth)
       .reduce((sum, item) => sum + Number(item.amount || 0), 0);
 
-    const pendingVerifications = normalized.filter(
-      (item) => item.method === "bank_transfer" && item.status === "pending_verification"
-    );
+    const pendingRequests = normalized.filter((item) => canReviewPayment(item));
 
     const overdueInstallments = installments.filter((plan) => {
       if (String(plan.status || "").toLowerCase() === "overdue") return true;
@@ -109,17 +120,14 @@ function Payments() {
       if (activeTab === "JazzCash") return item.method === "jazzcash";
       if (activeTab === "EasyPaisa") return item.method === "easypaisa";
       if (activeTab === "Bank Transfer") return item.method === "bank_transfer";
-      if (activeTab === "Pending")
-        return (
-          item.status === "pending" || item.status === "pending_verification"
-        );
+      if (activeTab === "Pending") return canReviewPayment(item);
       return true;
     });
 
     return {
       totalRevenue,
       monthRevenue,
-      pendingVerifications,
+      pendingRequests,
       overdueInstallments,
       rows: tabFiltered.sort(
         (a, b) =>
@@ -176,7 +184,7 @@ function Payments() {
           { label: "This Month Revenue", value: formatPKR(computed.monthRevenue) },
           {
             label: "Pending Verifications",
-            value: computed.pendingVerifications.length,
+            value: computed.pendingRequests.length,
           },
           {
             label: "Overdue Installments",
@@ -255,13 +263,7 @@ function Payments() {
                           methodBadgeClass[row.method] || "bg-slate-100 text-slate-600"
                         }`}
                       >
-                        {row.method === "bank_transfer"
-                          ? "Bank Transfer"
-                          : row.method === "jazzcash"
-                            ? "JazzCash"
-                            : row.method === "easypaisa"
-                              ? "EasyPaisa"
-                              : row.method || "-"}
+                        {formatMethod(row.method)}
                       </span>
                     </td>
                     <td className="px-6 py-4">{formatPKR(row.amount)}</td>
@@ -283,16 +285,25 @@ function Payments() {
                         >
                           View Details
                         </button>
-                        {row.method === "bank_transfer" &&
-                        row.status === "pending_verification" ? (
-                          <button
-                            onClick={() =>
-                              verifyMutation.mutate({ paymentId: row.id, action: "approve" })
-                            }
-                            className="rounded-full border border-emerald-200 px-3 py-1 text-xs text-emerald-600"
-                          >
-                            Verify
-                          </button>
+                        {canReviewPayment(row) ? (
+                          <>
+                            <button
+                              onClick={() =>
+                                verifyMutation.mutate({ paymentId: row.id, action: "approve" })
+                              }
+                              className="rounded-full border border-emerald-200 px-3 py-1 text-xs text-emerald-600"
+                            >
+                              Approve
+                            </button>
+                            <button
+                              onClick={() =>
+                                verifyMutation.mutate({ paymentId: row.id, action: "reject" })
+                              }
+                              className="rounded-full border border-rose-200 px-3 py-1 text-xs text-rose-600"
+                            >
+                              Reject
+                            </button>
+                          </>
                         ) : null}
                       </div>
                     </td>
@@ -306,15 +317,15 @@ function Payments() {
 
       <div className="space-y-3">
         <h3 className="font-heading text-xl text-slate-900">
-          Pending Bank Transfer Verifications
+          Pending Payment Requests
         </h3>
-        {computed.pendingVerifications.length < 1 ? (
+        {computed.pendingRequests.length < 1 ? (
           <div className="rounded-2xl border border-dashed border-slate-200 bg-white px-4 py-8 text-center text-sm text-slate-500">
-            No pending bank transfer verifications
+            No pending payment requests
           </div>
         ) : (
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {computed.pendingVerifications.map((item) => (
+            {computed.pendingRequests.map((item) => (
               <div key={item.id} className="rounded-2xl border border-slate-200 bg-white p-4">
                 <p className="font-semibold text-slate-900">{item.studentName || "-"}</p>
                 <p className="text-sm text-slate-500">{item.courseName || "-"}</p>
@@ -322,7 +333,7 @@ function Payments() {
                   {formatPKR(item.amount)}
                 </p>
                 <p className="mt-1 text-xs text-slate-500">
-                  Ref: {item.reference || "-"} · {formatDate(item.createdAt)}
+                  Ref: {item.reference || "-"} | {formatMethod(item.method)} |{" "}{formatDate(item.createdAt)}
                 </p>
                 {item.receiptUrl ? (
                   <img
@@ -403,7 +414,7 @@ function Payments() {
               </div>
 
               <div className="mt-4 grid gap-3 rounded-2xl border border-slate-200 p-4 text-sm md:grid-cols-2">
-                <p><span className="text-slate-500">Method:</span> {selectedPayment.method || "-"}</p>
+                <p><span className="text-slate-500">Method:</span> {formatMethod(selectedPayment.method)}</p>
                 <p><span className="text-slate-500">Original:</span> {formatPKR(selectedPayment.originalAmount)}</p>
                 <p><span className="text-slate-500">Discount:</span> {formatPKR(selectedPayment.discount)}</p>
                 <p><span className="text-slate-500">Final:</span> {formatPKR(selectedPayment.amount)}</p>
@@ -424,8 +435,7 @@ function Payments() {
                 </div>
               ) : null}
 
-              {selectedPayment.method === "bank_transfer" &&
-              selectedPayment.status === "pending_verification" ? (
+              {canReviewPayment(selectedPayment) ? (
                 <div className="mt-5 flex gap-2">
                   <button
                     className="btn-primary flex-1"
@@ -462,4 +472,5 @@ function Payments() {
 }
 
 export default Payments;
+
 

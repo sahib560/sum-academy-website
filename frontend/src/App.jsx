@@ -34,12 +34,17 @@ import TeacherStudents from "./pages/teacher/Students.jsx";
 import TeacherAnnouncements from "./pages/teacher/Announcements.jsx";
 import TeacherSettings from "./pages/teacher/Settings.jsx";
 import TeacherSessions from "./pages/teacher/Sessions.jsx";
+import TeacherQuizzes from "./pages/teacher/Quizzes.jsx";
+import TeacherMyQuizzes from "./pages/teacher/MyQuizzes.jsx";
+import TeacherQuizDetailAssignmentGrading from "./pages/teacher/QuizDetailAssignmentGrading.jsx";
 import StudentLayout from "./layouts/StudentLayout.jsx";
 import StudentDashboard from "./pages/student/Dashboard.jsx";
 import StudentMyCourses from "./pages/student/MyCourses.jsx";
 import StudentExploreCourses from "./pages/student/ExploreCourses.jsx";
+import StudentCoursePlayer from "./pages/student/CoursePlayer.jsx";
 import StudentCertificates from "./pages/student/Certificates.jsx";
 import StudentQuizzes from "./pages/student/Quizzes.jsx";
+import StudentQuizAttempt from "./pages/student/QuizAttempt.jsx";
 import StudentPayments from "./pages/student/Payments.jsx";
 import StudentAnnouncements from "./pages/student/Announcements.jsx";
 import StudentAttendance from "./pages/student/Attendance.jsx";
@@ -264,6 +269,14 @@ function AppLayout() {
         <Route path="/verify/:certId" element={<VerifyCertificate />} />
         <Route path="/unauthorized" element={<Unauthorized />} />
         <Route
+          path="/student/quizzes/:quizId/attempt"
+          element={
+            <ProtectedRoute allowedRoles={["student"]}>
+              <StudentQuizAttempt />
+            </ProtectedRoute>
+          }
+        />
+        <Route
           path="/admin"
           element={
             <ProtectedRoute allowedRoles={["admin"]}>
@@ -301,6 +314,16 @@ function AppLayout() {
           <Route path="courses" element={<TeacherMyCourses />} />
           <Route path="students" element={<TeacherStudents />} />
           <Route path="sessions" element={<TeacherSessions />} />
+          <Route path="quizzes" element={<TeacherQuizzes />} />
+          <Route path="quizzes/my" element={<TeacherMyQuizzes />} />
+          <Route
+            path="quizzes/detail"
+            element={<TeacherQuizDetailAssignmentGrading />}
+          />
+          <Route
+            path="quizzes/detail/:quizId"
+            element={<TeacherQuizDetailAssignmentGrading />}
+          />
           <Route path="announcements" element={<TeacherAnnouncements />} />
           <Route path="notifications" element={<NotificationsPage />} />
           <Route path="settings" element={<TeacherSettings />} />
@@ -316,6 +339,11 @@ function AppLayout() {
           <Route index element={<Navigate to="dashboard" replace />} />
           <Route path="dashboard" element={<StudentDashboard />} />
           <Route path="courses" element={<StudentMyCourses />} />
+          <Route path="courses/:courseId/player" element={<StudentCoursePlayer />} />
+          <Route
+            path="courses/:courseId/player/:lectureId"
+            element={<StudentCoursePlayer />}
+          />
           <Route path="explore" element={<StudentExploreCourses />} />
           <Route path="checkout" element={<StudentCheckout />} />
           <Route path="certificates" element={<StudentCertificates />} />

@@ -14,6 +14,7 @@ const navItems = [
   { label: "My Courses", to: "/teacher/courses", icon: "book" },
   { label: "Students", to: "/teacher/students", icon: "users" },
   { label: "Sessions", to: "/teacher/sessions", icon: "calendar" },
+  { label: "Quizzes", to: "/teacher/quizzes", icon: "clipboard" },
   { label: "Announcements", to: "/teacher/announcements", icon: "bell" },
   { label: "Settings", to: "/teacher/settings", icon: "settings" },
 ];
@@ -39,6 +40,11 @@ const iconMap = {
       <path d="M7 2h2v3H7V2zm8 0h2v3h-2V2zM4 6h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2zm0 4v10h16V10H4z" />
     </svg>
   ),
+  clipboard: (
+    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
+      <path d="M9 2h6a2 2 0 0 1 2 2h3v18H4V4h3a2 2 0 0 1 2-2zm0 2v2h6V4H9zm-3 4v12h12V8H6z" />
+    </svg>
+  ),
   bell: (
     <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
       <path d="M12 22a2 2 0 0 0 2-2H10a2 2 0 0 0 2 2zm6-6V11a6 6 0 0 0-5-5.9V4a1 1 0 1 0-2 0v1.1A6 6 0 0 0 6 11v5l-2 2v1h16v-1l-2-2z" />
@@ -49,6 +55,17 @@ const iconMap = {
       <path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zm9 4a7 7 0 0 0-.1-1l2.1-1.6-2-3.4-2.5 1a7 7 0 0 0-1.7-1l-.4-2.6H9.6l-.4 2.6a7 7 0 0 0-1.7 1l-2.5-1-2 3.4 2.1 1.6a7 7 0 0 0 0 2l-2.1 1.6 2 3.4 2.5-1a7 7 0 0 0 1.7 1l.4 2.6h4.8l.4-2.6a7 7 0 0 0 1.7-1l2.5 1 2-3.4-2.1-1.6c.1-.3.1-.6.1-1z" />
     </svg>
   ),
+};
+
+const isTeacherAudienceAnnouncement = (item) => {
+  const audienceRole = String(item?.audienceRole || "").toLowerCase();
+  const postedByRole = String(item?.postedByRole || "").toLowerCase();
+  const isAdminOrLegacy = !postedByRole || postedByRole === "admin";
+  return (
+    item?.targetType === "system" &&
+    isAdminOrLegacy &&
+    (audienceRole === "teacher" || audienceRole === "all")
+  );
 };
 
 function TeacherLayout() {
@@ -70,7 +87,13 @@ function TeacherLayout() {
     staleTime: 60 * 1000,
     enabled: Boolean(userProfile?.uid),
   });
-  const notifications = announcementsQuery.data || [];
+  const notifications = useMemo(
+    () =>
+      (Array.isArray(announcementsQuery.data) ? announcementsQuery.data : []).filter(
+        isTeacherAudienceAnnouncement
+      ),
+    [announcementsQuery.data]
+  );
   const unreadCount = notifications.filter((item) => !item.isRead).length;
 
   const pageTitle = useMemo(() => {
@@ -239,7 +262,7 @@ function TeacherLayout() {
                     exit={{ opacity: 0, y: 6 }}
                     className="absolute right-0 z-20 mt-2 w-80 rounded-2xl border border-slate-200 bg-white p-3 shadow-xl"
                   >
-                    <p className="mb-2 text-sm font-semibold text-slate-900">Notifications</p>
+                    <p className="mb-2 text-sm font-semibold text-slate-900">Incoming Notifications</p>
                     {notifications.length === 0 ? (
                       <p className="text-xs text-slate-500">No announcements yet.</p>
                     ) : (

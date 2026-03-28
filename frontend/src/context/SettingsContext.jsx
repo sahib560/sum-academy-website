@@ -1,4 +1,4 @@
-import { createContext, useEffect, useMemo, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import api from "../api/axios.js";
 
 export const defaultSettings = {
@@ -208,15 +208,21 @@ export const defaultSettings = {
   payment: {
     jazzcash: {
       merchantId: "",
+      accountTitle: "SUM Academy",
       password: "",
       integritySalt: "",
-      enabled: false,
+      instructions:
+        "Send payment to JazzCash merchant and upload the transaction receipt.",
+      enabled: true,
     },
     easypaisa: {
       accountNumber: "",
+      accountTitle: "SUM Academy",
       username: "",
       password: "",
-      enabled: false,
+      instructions:
+        "Send payment to EasyPaisa account and upload the transaction receipt.",
+      enabled: true,
     },
     bankTransfer: {
       bankName: "Meezan Bank",
@@ -371,5 +377,7 @@ export function SettingsProvider({ children }) {
     <SettingsContext.Provider value={value}>{children}</SettingsContext.Provider>
   );
 }
+
+export const useSettings = () => useContext(SettingsContext);
 
 export default SettingsContext;

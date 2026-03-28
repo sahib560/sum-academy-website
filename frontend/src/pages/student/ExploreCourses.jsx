@@ -1,14 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { motion as Motion, AnimatePresence } from "framer-motion";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { motion, AnimatePresence } from "framer-motion";
+import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { Toaster, toast } from "react-hot-toast";
 import { SkeletonCard } from "../../components/Skeleton.jsx";
-import {
-  addStudentToClass,
-  getAvailableClasses,
-  getCourseCatalog,
-} from "../../services/admin.service.js";
+import { exploreCourses } from "../../services/student.service.js";
 import { useAuth } from "../../hooks/useAuth.js";
 
 const fadeUp = {
@@ -18,328 +13,253 @@ const fadeUp = {
   transition: { duration: 0.45 },
 };
 
-const categories = [
-  "All",
-  "Math",
-  "Science",
-  "English",
-  "Computer Science",
-  "Physics",
-  "Chemistry",
-  "Biology",
-  "Urdu",
-  "Islamic Studies",
-];
-
 const levelOptions = ["All", "Beginner", "Intermediate", "Advanced"];
-const priceOptions = ["All", "Free", "Paid", "Under 1000 PKR", "Under 5000 PKR"];
-const ratingOptions = ["All", "4★ & above", "3★ & above"];
+const priceOptions = ["All", "Free", "Under 1000 PKR", "1000 - 5000 PKR", "5000+ PKR"];
+const ratingOptions = ["All", "4.5+ Rating", "4+ Rating", "3+ Rating"];
 const sortOptions = [
   "Most Popular",
+  "Top Rated",
   "Newest",
   "Price Low-High",
   "Price High-Low",
 ];
 
-const courses = [
-  {
-    id: "class-xi-pre-medical",
-    title: "Class XI - Pre-Medical",
-    category: "Biology",
-    teacher: "Mr. Sikander Ali Qureshi",
-    rating: 4.8,
-    reviews: 124,
-    students: 420,
-    lectures: 36,
-    duration: "18h 20m",
-    price: 2500,
-    originalPrice: 3200,
-    discount: 20,
-    level: "Advanced",
-    enrolled: false,
-    bio: "Board-focused full stream for Biology, Chemistry and Physics.",
-    chapters: ["Biology", "Chemistry", "Physics", "Mock Tests"],
-  },
-  {
-    id: "organic-chemistry-drill",
-    title: "Organic Chemistry Drill",
-    category: "Chemistry",
-    teacher: "Mr. Mansoor Ahmed Mangi",
-    rating: 4.6,
-    reviews: 88,
-    students: 350,
-    lectures: 28,
-    duration: "12h 30m",
-    price: 2200,
-    originalPrice: 2200,
-    discount: 0,
-    level: "Intermediate",
-    enrolled: false,
-    bio: "Concept-to-MCQs chemistry track for board and entry tests.",
-    chapters: ["Basics", "Reactions", "Mechanisms", "Practice Sets"],
-  },
-  {
-    id: "physics-numericals",
-    title: "Physics Numericals",
-    category: "Physics",
-    teacher: "Mr. Muhammad Idress Mahar",
-    rating: 4.7,
-    reviews: 95,
-    students: 280,
-    lectures: 30,
-    duration: "14h 10m",
-    price: 2000,
-    originalPrice: 2600,
-    discount: 25,
-    level: "Intermediate",
-    enrolled: false,
-    bio: "Problem-solving heavy course with weekly performance checks.",
-    chapters: ["Kinematics", "Dynamics", "Waves", "Mock Tests"],
-  },
-  {
-    id: "english-grammar-bootcamp",
-    title: "English Grammar Bootcamp",
-    category: "English",
-    teacher: "Mr. Waseem Ahmed Soomro",
-    rating: 4.5,
-    reviews: 64,
-    students: 190,
-    lectures: 20,
-    duration: "9h 40m",
-    price: 1800,
-    originalPrice: 1800,
-    discount: 0,
-    level: "Beginner",
-    enrolled: false,
-    bio: "Grammar and writing confidence with live practice sheets.",
-    chapters: ["Grammar", "Writing", "Practice", "Final Quiz"],
-  },
-];
-
-const categoryStyles = {
-  Biology: "from-emerald-400/70 to-emerald-100",
-  Chemistry: "from-blue-500/70 to-blue-100",
-  Physics: "from-violet-500/70 to-violet-100",
-  English: "from-orange-400/70 to-orange-100",
-  Math: "from-sky-400/70 to-sky-100",
-  "Computer Science": "from-indigo-400/70 to-indigo-100",
-  Science: "from-teal-400/70 to-teal-100",
-  Urdu: "from-rose-400/70 to-rose-100",
-  "Islamic Studies": "from-amber-400/70 to-amber-100",
+const toNumber = (value, fallback = 0) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
 };
 
-const formatTime = (value = "") => {
-  if (!/^\d{2}:\d{2}$/.test(value)) return value || "N/A";
-  const [h, m] = value.split(":").map(Number);
-  const suffix = h >= 12 ? "PM" : "AM";
-  const hour = h % 12 || 12;
-  return `${hour}:${String(m).padStart(2, "0")} ${suffix}`;
+const getFinalPrice = (course = {}) => {
+  const basePrice = Math.max(0, toNumber(course.price, 0));
+  const discountPercent = Math.max(0, Math.min(100, toNumber(course.discountPercent, 0)));
+  const discountAmount = (basePrice * discountPercent) / 100;
+  return Number((basePrice - discountAmount).toFixed(2));
 };
 
-const shortDay = (day = "") => day.slice(0, 3);
+const getPriceRangeMatch = (priceRange, finalPrice) => {
+  if (priceRange === "All") return true;
+  if (priceRange === "Free") return finalPrice === 0;
+  if (priceRange === "Under 1000 PKR") return finalPrice > 0 && finalPrice <= 1000;
+  if (priceRange === "1000 - 5000 PKR") return finalPrice > 1000 && finalPrice <= 5000;
+  if (priceRange === "5000+ PKR") return finalPrice > 5000;
+  return true;
+};
+
+const getRatingMatch = (ratingFilter, rating) => {
+  if (ratingFilter === "All") return true;
+  if (ratingFilter === "4.5+ Rating") return rating >= 4.5;
+  if (ratingFilter === "4+ Rating") return rating >= 4;
+  if (ratingFilter === "3+ Rating") return rating >= 3;
+  return true;
+};
+
+const getSubjectTitle = (subject) => {
+  if (!subject) return "Subject";
+  if (typeof subject === "string") return subject;
+  return subject.subjectName || subject.name || subject.title || "Subject";
+};
+
+const getSubjectTeacher = (subject) =>
+  (typeof subject === "object" && subject?.teacherName) || "Teacher";
+
+const getChapterTitle = (chapter) => {
+  if (!chapter) return "Chapter";
+  if (typeof chapter === "string") return chapter;
+  return chapter.title || chapter.name || "Chapter";
+};
 
 function StudentExploreCourses() {
   const navigate = useNavigate();
-  const { user, userProfile } = useAuth();
+  const { isAuthenticated, loading: authLoading } = useAuth();
 
-  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("All");
   const [level, setLevel] = useState("All");
-  const [price, setPrice] = useState("All");
-  const [rating, setRating] = useState("All");
-  const [sort, setSort] = useState("Most Popular");
+  const [priceRange, setPriceRange] = useState("All");
+  const [ratingFilter, setRatingFilter] = useState("All");
+  const [sortBy, setSortBy] = useState("Most Popular");
   const [showCount, setShowCount] = useState(6);
   const [selectedCourse, setSelectedCourse] = useState(null);
 
-  const [enrollStep, setEnrollStep] = useState(1);
-  const [selectedClass, setSelectedClass] = useState(null);
-  const [selectedShift, setSelectedShift] = useState(null);
-  const [paymentMethod, setPaymentMethod] = useState("bank_transfer");
-  const [promoCode, setPromoCode] = useState("");
+  const filters = useMemo(
+    () => ({
+      category,
+      level,
+      search,
+      priceRange,
+      rating: ratingFilter,
+      sort: sortBy,
+    }),
+    [category, level, priceRange, ratingFilter, search, sortBy]
+  );
 
-  useEffect(() => {
-    const timer = setTimeout(() => setLoading(false), 900);
-    return () => clearTimeout(timer);
-  }, []);
+  const serverFilters = useMemo(
+    () => ({
+      category: category === "All" ? undefined : category,
+      level: level === "All" ? undefined : level.toLowerCase(),
+      search: search.trim() || undefined,
+    }),
+    [category, level, search]
+  );
 
-  const courseCatalogQuery = useQuery({
-    queryKey: ["public-course-catalog"],
-    queryFn: getCourseCatalog,
+  const { data, isLoading, isError, error } = useQuery({
+    queryKey: ["explore-courses", filters],
+    queryFn: () => exploreCourses(serverFilters),
     staleTime: 30000,
   });
 
-  const coursesData = useMemo(() => {
-    const remoteCourses = Array.isArray(courseCatalogQuery.data)
-      ? courseCatalogQuery.data
-      : [];
-    if (remoteCourses.length > 0) {
-      return remoteCourses.map((course) => ({
-        id: course.id,
-        title: course.title || "Untitled Course",
-        category: course.category || "General",
-        teacher: course.teacher || "SUM Academy Faculty",
-        rating: Number(course.rating || 0),
-        reviews: Number(course.reviews || 0),
-        students: Number(course.students || 0),
-        lectures: Number(course.lectures || 0),
-        duration: course.duration || "Self paced",
-        price: Number(course.price || 0),
-        originalPrice: Number(course.originalPrice || course.price || 0),
-        discount: Number(course.discount || 0),
-        level:
-          String(course.level || "Beginner").charAt(0).toUpperCase() +
-          String(course.level || "Beginner").slice(1),
-        enrolled: false,
-        bio: course.description || "No description available.",
-        chapters: Array.isArray(course.chapters) ? course.chapters : [],
-      }));
-    }
-    return courses;
-  }, [courseCatalogQuery.data]);
+  const categoriesQuery = useQuery({
+    queryKey: ["explore-courses-categories"],
+    queryFn: () => exploreCourses({}),
+    staleTime: 60000,
+  });
 
-  const hasFilters =
-    search ||
-    category !== "All" ||
-    level !== "All" ||
-    price !== "All" ||
-    rating !== "All" ||
-    sort !== "Most Popular";
+  const allCourses = useMemo(() => (Array.isArray(data) ? data : []), [data]);
+  const categoryCourses = useMemo(
+    () => (Array.isArray(categoriesQuery.data) ? categoriesQuery.data : allCourses),
+    [categoriesQuery.data, allCourses]
+  );
+
+  const categoryPills = useMemo(() => {
+    const values = new Set(["All"]);
+    categoryCourses.forEach((course) => {
+      const value = String(course.category || "").trim();
+      if (value) values.add(value);
+    });
+    return Array.from(values);
+  }, [categoryCourses]);
+
+  const normalizedCourses = useMemo(
+    () =>
+      allCourses.map((course, index) => {
+        const price = Math.max(0, toNumber(course.price, 0));
+        const discountPercent = Math.max(
+          0,
+          Math.min(100, toNumber(course.discountPercent, 0))
+        );
+        const finalPrice = getFinalPrice(course);
+        const rating = Math.max(0, toNumber(course.rating, 0));
+        const enrolledCount = Math.max(0, toNumber(course.enrollmentCount, 0));
+        const subjects = Array.isArray(course.subjects) ? course.subjects : [];
+        const chapters = Array.isArray(course.chapters) ? course.chapters : [];
+        const totalLectures = Math.max(
+          0,
+          toNumber(
+            course.totalLectures,
+            chapters.reduce((sum, chapter) => {
+              if (Array.isArray(chapter?.lectures)) return sum + chapter.lectures.length;
+              return sum;
+            }, 0)
+          )
+        );
+        return {
+          id: course.id || `course-${index}`,
+          title: course.title || "Course",
+          description: course.description || "No description available.",
+          thumbnail: course.thumbnail || "",
+          category: course.category || "General",
+          level: course.level || "Beginner",
+          teacherName: course.teacherName || "Teacher",
+          rating,
+          enrollmentCount: enrolledCount,
+          price,
+          discountPercent,
+          finalPrice,
+          subjects,
+          chapters,
+          totalLectures,
+          hasCertificate: course.hasCertificate !== false,
+          isEnrolled: Boolean(course.isEnrolled),
+          createdAt: course.createdAt || null,
+        };
+      }),
+    [allCourses]
+  );
 
   const filteredCourses = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    let list = coursesData.filter((course) => {
-      const matchesSearch =
-        !query ||
-        course.title.toLowerCase().includes(query) ||
-        course.teacher.toLowerCase().includes(query);
-      const matchesCategory = category === "All" || course.category === category;
-      const matchesLevel = level === "All" || course.level === level;
-      const matchesPrice =
-        price === "All" ||
-        (price === "Free" && course.price === 0) ||
-        (price === "Paid" && course.price > 0) ||
-        (price === "Under 1000 PKR" && course.price <= 1000) ||
-        (price === "Under 5000 PKR" && course.price <= 5000);
-      const matchesRating =
-        rating === "All" ||
-        (rating === "4★ & above" && course.rating >= 4) ||
-        (rating === "3★ & above" && course.rating >= 3);
-      return (
-        matchesSearch && matchesCategory && matchesLevel && matchesPrice && matchesRating
-      );
+    let list = normalizedCourses.filter((course) => {
+      const matchesPrice = getPriceRangeMatch(priceRange, course.finalPrice);
+      const matchesRating = getRatingMatch(ratingFilter, course.rating);
+      return matchesPrice && matchesRating;
     });
 
-    if (sort === "Price Low-High") {
-      list = [...list].sort((a, b) => a.price - b.price);
-    } else if (sort === "Price High-Low") {
-      list = [...list].sort((a, b) => b.price - a.price);
+    if (sortBy === "Top Rated") {
+      list = [...list].sort((a, b) => b.rating - a.rating);
+    } else if (sortBy === "Price Low-High") {
+      list = [...list].sort((a, b) => a.finalPrice - b.finalPrice);
+    } else if (sortBy === "Price High-Low") {
+      list = [...list].sort((a, b) => b.finalPrice - a.finalPrice);
+    } else if (sortBy === "Newest") {
+      list = [...list].sort((a, b) => {
+        const aTime = new Date(a.createdAt || 0).getTime() || 0;
+        const bTime = new Date(b.createdAt || 0).getTime() || 0;
+        return bTime - aTime;
+      });
+    } else {
+      list = [...list].sort((a, b) => b.enrollmentCount - a.enrollmentCount);
     }
 
     return list;
-  }, [category, coursesData, level, price, rating, search, sort]);
+  }, [normalizedCourses, priceRange, ratingFilter, sortBy]);
 
   const visibleCourses = filteredCourses.slice(0, showCount);
 
-  const clearFilters = () => {
-    setSearch("");
-    setCategory("All");
-    setLevel("All");
-    setPrice("All");
-    setRating("All");
-    setSort("Most Popular");
-  };
+  useEffect(() => {
+    setShowCount(6);
+  }, [search, category, level, priceRange, ratingFilter, sortBy]);
 
-  const availableClassesQuery = useQuery({
-    queryKey: ["available-classes", selectedCourse?.id],
-    queryFn: () => getAvailableClasses(selectedCourse.id),
-    enabled: Boolean(selectedCourse?.id),
-    staleTime: 10000,
-  });
+  const handleEnroll = (course) => {
+    if (authLoading) return;
+    if (!isAuthenticated) {
+      navigate("/login");
+      return;
+    }
 
-  const enrollMutation = useMutation({
-    mutationFn: ({ classId, data }) => addStudentToClass(classId, data),
-    onSuccess: () => {
-      toast.success("Enrollment request submitted successfully.");
-      setSelectedCourse(null);
-      setSelectedClass(null);
-      setSelectedShift(null);
-      setEnrollStep(1);
-      setPromoCode("");
-      setPaymentMethod("bank_transfer");
-    },
-    onError: (error) => {
-      toast.error(error?.response?.data?.error || "Enrollment failed.");
-    },
-  });
-
-  const onClickEnroll = (course) => {
     navigate("/student/checkout", {
       state: {
         course: {
           id: course.id,
           title: course.title,
-          price: course.price,
-          category: course.category || "",
-          level: course.level || "Beginner",
+          price: course.finalPrice,
+          category: course.category,
+          level: course.level,
         },
       },
     });
   };
 
-  const closeEnroll = () => {
-    setSelectedCourse(null);
-    setSelectedClass(null);
-    setSelectedShift(null);
-    setEnrollStep(1);
-    setPromoCode("");
-    setPaymentMethod("bank_transfer");
+  const handlePrimaryAction = (course) => {
+    if (course.isEnrolled) {
+      navigate("/student/courses");
+      return;
+    }
+    handleEnroll(course);
   };
-
-  const availableClasses = useMemo(
-    () => availableClassesQuery.data || [],
-    [availableClassesQuery.data]
-  );
-
-  const selectedClassShifts = useMemo(
-    () => selectedClass?.shifts || [],
-    [selectedClass]
-  );
-
-  const totalFee = Number(selectedCourse?.price || 0);
 
   return (
     <div className="space-y-6">
-      <Toaster position="top-left" />
-
-      <Motion.section {...fadeUp} className="text-center">
+      <motion.section {...fadeUp} className="text-center">
         <h1 className="font-heading text-3xl text-slate-900">Explore Courses</h1>
-        <div className="mt-4 flex justify-center">
-          <div className="relative w-full max-w-2xl">
+        <div className="mt-5 flex justify-center">
+          <div className="relative w-full max-w-3xl">
             <input
               type="text"
-              placeholder="Search for courses, topics, or teachers..."
+              placeholder="Search for courses, teachers, or topics..."
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              className="w-full rounded-full border border-slate-200 bg-white px-12 py-3 text-sm text-slate-700 shadow-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+              className="w-full rounded-full border border-slate-200 bg-white px-14 py-4 text-base text-slate-700 shadow-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
             />
-            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
-              🔍
+            <span className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400">
+              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
+                <path d="M10 2a8 8 0 1 1 0 16 8 8 0 0 1 0-16zm0 2a6 6 0 1 0 0 12 6 6 0 0 0 0-12zm7.7 12.3 4 4-1.4 1.4-4-4 1.4-1.4z" />
+              </svg>
             </span>
-            {search ? (
-              <button
-                className="absolute right-4 top-1/2 -translate-y-1/2 text-xs text-slate-400"
-                onClick={() => setSearch("")}
-              >
-                Clear
-              </button>
-            ) : null}
           </div>
         </div>
-      </Motion.section>
+      </motion.section>
 
-      <Motion.section {...fadeUp} className="flex gap-2 overflow-x-auto pb-2">
-        {categories.map((item) => (
+      <motion.section {...fadeUp} className="flex gap-2 overflow-x-auto pb-2">
+        {categoryPills.map((item) => (
           <button
             key={item}
             className={`whitespace-nowrap rounded-full px-4 py-2 text-xs font-semibold ${
@@ -352,9 +272,9 @@ function StudentExploreCourses() {
             {item}
           </button>
         ))}
-      </Motion.section>
+      </motion.section>
 
-      <Motion.section {...fadeUp} className="flex flex-wrap items-center gap-3">
+      <motion.section {...fadeUp} className="flex flex-wrap items-center gap-3">
         <select
           value={level}
           onChange={(event) => setLevel(event.target.value)}
@@ -367,8 +287,8 @@ function StudentExploreCourses() {
           ))}
         </select>
         <select
-          value={price}
-          onChange={(event) => setPrice(event.target.value)}
+          value={priceRange}
+          onChange={(event) => setPriceRange(event.target.value)}
           className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700"
         >
           {priceOptions.map((option) => (
@@ -378,8 +298,8 @@ function StudentExploreCourses() {
           ))}
         </select>
         <select
-          value={rating}
-          onChange={(event) => setRating(event.target.value)}
+          value={ratingFilter}
+          onChange={(event) => setRatingFilter(event.target.value)}
           className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700"
         >
           {ratingOptions.map((option) => (
@@ -389,8 +309,8 @@ function StudentExploreCourses() {
           ))}
         </select>
         <select
-          value={sort}
-          onChange={(event) => setSort(event.target.value)}
+          value={sortBy}
+          onChange={(event) => setSortBy(event.target.value)}
           className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700"
         >
           {sortOptions.map((option) => (
@@ -399,37 +319,44 @@ function StudentExploreCourses() {
             </option>
           ))}
         </select>
-        {hasFilters ? (
-          <button className="text-xs text-primary" onClick={clearFilters}>
-            Clear Filters
-          </button>
-        ) : null}
-      </Motion.section>
+      </motion.section>
 
-      <Motion.section {...fadeUp} className="text-sm text-slate-500">
-        Showing {filteredCourses.length} courses
-      </Motion.section>
+      {isError && (
+        <motion.section
+          {...fadeUp}
+          className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700"
+        >
+          {error?.response?.data?.message || error?.message || "Failed to load courses"}
+        </motion.section>
+      )}
 
-      <Motion.section {...fadeUp} className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {loading
+      <motion.section {...fadeUp} className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {isLoading
           ? Array.from({ length: 6 }).map((_, index) => (
               <SkeletonCard key={`course-skel-${index}`} />
             ))
           : visibleCourses.map((course) => (
               <article
                 key={course.id}
-                className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"
+                className="cursor-pointer rounded-3xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-primary/40 hover:shadow-md"
+                onClick={() => setSelectedCourse(course)}
               >
-                <div
-                  className={`h-24 rounded-2xl bg-gradient-to-br ${
-                    categoryStyles[course.category] || "from-slate-300 to-slate-100"
-                  }`}
-                />
-                <span className="mt-3 inline-flex rounded-full bg-primary/10 px-3 py-1 text-xs text-primary">
-                  {course.category}
-                </span>
+                <div className="h-24 overflow-hidden rounded-2xl bg-slate-100">
+                  {course.thumbnail ? (
+                    <img
+                      src={course.thumbnail}
+                      alt={course.title}
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-primary/20 to-slate-100 text-xs font-semibold text-primary">
+                      {course.category}
+                    </div>
+                  )}
+                </div>
+
                 <h3
-                  className="mt-3 font-heading text-lg text-slate-900"
+                  className="mt-4 font-heading text-lg text-slate-900"
                   style={{
                     display: "-webkit-box",
                     WebkitLineClamp: 2,
@@ -439,260 +366,200 @@ function StudentExploreCourses() {
                 >
                   {course.title}
                 </h3>
-                <p className="mt-2 text-xs text-slate-500">{course.teacher}</p>
+                <p className="mt-2 text-xs text-slate-500">{course.teacherName}</p>
+
                 <div className="mt-3 flex items-center gap-2 text-xs text-slate-500">
-                  <span>⭐ {course.rating}</span>
-                  <span>({course.reviews})</span>
-                  <span>{course.students} students</span>
+                  <span>Rating {course.rating.toFixed(1)}</span>
+                  <span>{course.enrollmentCount} enrolled</span>
                 </div>
-                <div className="mt-2 text-xs text-slate-500">
-                  {course.lectures} lectures · {course.duration}
-                </div>
-                <div className="mt-3 flex items-center gap-2">
+
+                <div className="mt-3 flex items-end gap-2">
                   <span className="text-lg font-semibold text-slate-900">
-                    {course.price === 0 ? "Free" : `PKR ${course.price}`}
+                    {course.finalPrice === 0
+                      ? "Free"
+                      : `PKR ${Math.round(course.finalPrice).toLocaleString("en-PK")}`}
                   </span>
-                  {course.originalPrice > course.price ? (
+                  {course.discountPercent > 0 && course.price > course.finalPrice ? (
                     <span className="text-xs text-slate-400 line-through">
-                      PKR {course.originalPrice}
+                      PKR {Math.round(course.price).toLocaleString("en-PK")}
                     </span>
                   ) : null}
                 </div>
+
                 <button
-                  className="btn-primary mt-4 w-full"
-                  onClick={() => onClickEnroll(course)}
+                  className={`mt-4 w-full rounded-full px-4 py-2 text-sm font-semibold ${
+                    course.isEnrolled
+                      ? "bg-emerald-500 text-white"
+                      : "bg-primary text-white"
+                  }`}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    handlePrimaryAction(course);
+                  }}
                 >
-                  Enroll Now
+                  {course.isEnrolled ? "Continue Learning" : "Enroll Now"}
                 </button>
               </article>
             ))}
-      </Motion.section>
+      </motion.section>
 
-      {!loading && filteredCourses.length === 0 ? (
-        <Motion.section
+      {!isLoading && filteredCourses.length === 0 && (
+        <motion.section
           {...fadeUp}
           className="rounded-3xl border border-dashed border-slate-200 bg-white p-10 text-center text-sm text-slate-500"
         >
-          <p>No courses found.</p>
-          <button className="btn-outline mt-4" onClick={clearFilters}>
-            Clear Filters
-          </button>
-        </Motion.section>
-      ) : null}
+          No courses found.
+        </motion.section>
+      )}
 
-      {!loading && filteredCourses.length > visibleCourses.length ? (
+      {!isLoading && filteredCourses.length > visibleCourses.length && (
         <div className="flex justify-center">
           <button
             className="btn-outline"
-            onClick={() => setShowCount((prev) => prev + 6)}
+            onClick={() => setShowCount((previous) => previous + 6)}
           >
             Load More
           </button>
         </div>
-      ) : null}
+      )}
 
       <AnimatePresence>
         {selectedCourse ? (
           <div className="fixed inset-0 z-[80] flex items-center justify-center px-4 py-6">
             <button
-              type="button"
-              className="absolute inset-0 bg-slate-900/40"
-              onClick={closeEnroll}
+              className="absolute inset-0 bg-slate-900/50"
+              onClick={() => setSelectedCourse(null)}
+              aria-label="Close course detail modal"
             />
-            <Motion.div
-              initial={{ opacity: 0, scale: 0.96, y: 12 }}
+            <motion.div
+              initial={{ opacity: 0, scale: 0.96, y: 10 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.96, y: 12 }}
-              className="relative z-10 flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-3xl bg-white p-6 shadow-2xl"
+              exit={{ opacity: 0, scale: 0.96, y: 10 }}
+              className="relative z-10 max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl"
             >
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <h3 className="font-heading text-2xl text-slate-900">{selectedCourse.title}</h3>
-                  <p className="text-sm text-slate-500">
-                    Step {enrollStep} of 3
+                  <h3 className="font-heading text-2xl text-slate-900">
+                    {selectedCourse.title}
+                  </h3>
+                  <p className="mt-1 text-sm text-slate-500">
+                    {selectedCourse.teacherName}
                   </p>
                 </div>
                 <button
-                  type="button"
-                  onClick={closeEnroll}
                   className="rounded-full border border-slate-200 px-3 py-1 text-xs"
+                  onClick={() => setSelectedCourse(null)}
                 >
                   Close
                 </button>
               </div>
 
-              <div className="mt-4 overflow-y-auto pr-1">
-                {enrollStep === 1 ? (
-                  <div className="space-y-4">
-                    <h4 className="text-lg font-semibold text-slate-900">Select Class</h4>
-                    {availableClassesQuery.isLoading ? (
-                      <div className="space-y-2">
-                        {Array.from({ length: 3 }).map((_, index) => (
-                          <div key={`class-select-skel-${index}`} className="skeleton h-24 rounded-2xl" />
-                        ))}
-                      </div>
-                    ) : availableClasses.length < 1 ? (
-                      <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-10 text-center text-sm text-slate-500">
-                        No available classes found for this course yet.
-                      </div>
-                    ) : (
-                      <div className="space-y-3">
-                        {availableClasses.map((classItem) => (
-                          <button
-                            key={classItem.id}
-                            type="button"
-                            onClick={() => {
-                              setSelectedClass(classItem);
-                              setSelectedShift(null);
-                              setEnrollStep(2);
-                            }}
-                            className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-left transition hover:border-primary/40 hover:bg-primary/5"
-                          >
-                            <div className="flex flex-wrap items-center justify-between gap-2">
-                              <p className="font-semibold text-slate-900">
-                                {classItem.name} ({classItem.batchCode || "No Batch"})
-                              </p>
-                              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-600">
-                                {classItem.status}
-                              </span>
-                            </div>
-                            <p className="mt-1 text-xs text-slate-500">
-                              {classItem.enrolledCount}/{classItem.capacity} enrolled ·{" "}
-                              {classItem.availableSpots} seats left
-                            </p>
-                            <p className="mt-2 text-xs text-slate-500">
-                              Shifts: {(classItem.shifts || []).length}
-                            </p>
-                          </button>
-                        ))}
-                      </div>
-                    )}
+              <div className="mt-4 space-y-4">
+                <p className="text-sm text-slate-600">{selectedCourse.description}</p>
+
+                <div className="grid gap-3 md:grid-cols-3">
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                    <p className="text-xs text-slate-500">Category</p>
+                    <p className="text-sm font-semibold text-slate-900">
+                      {selectedCourse.category}
+                    </p>
                   </div>
-                ) : null}
-
-                {enrollStep === 2 ? (
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <h4 className="text-lg font-semibold text-slate-900">Select Shift</h4>
-                      <button
-                        type="button"
-                        className="text-xs text-primary"
-                        onClick={() => setEnrollStep(1)}
-                      >
-                        Back to classes
-                      </button>
-                    </div>
-                    {selectedClassShifts.length < 1 ? (
-                      <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-10 text-center text-sm text-slate-500">
-                        No shifts found for selected class.
-                      </div>
-                    ) : (
-                      <div className="space-y-3">
-                        {selectedClassShifts.map((shift) => (
-                          <button
-                            key={shift.id}
-                            type="button"
-                            onClick={() => {
-                              setSelectedShift(shift);
-                              setEnrollStep(3);
-                            }}
-                            className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-left transition hover:border-primary/40 hover:bg-primary/5"
-                          >
-                            <p className="font-semibold text-slate-900">{shift.name}</p>
-                            <p className="mt-1 text-xs text-slate-500">
-                              {(shift.days || []).map((day) => shortDay(day)).join(", ")} ·{" "}
-                              {formatTime(shift.startTime)} to {formatTime(shift.endTime)}
-                            </p>
-                            <p className="mt-1 text-xs text-slate-500">
-                              Teacher: {shift.teacherName || "N/A"}
-                            </p>
-                          </button>
-                        ))}
-                      </div>
-                    )}
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                    <p className="text-xs text-slate-500">Level</p>
+                    <p className="text-sm font-semibold text-slate-900">
+                      {selectedCourse.level}
+                    </p>
                   </div>
-                ) : null}
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                    <p className="text-xs text-slate-500">Total Lectures</p>
+                    <p className="text-sm font-semibold text-slate-900">
+                      {selectedCourse.totalLectures}
+                    </p>
+                  </div>
+                </div>
 
-                {enrollStep === 3 ? (
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <h4 className="text-lg font-semibold text-slate-900">Payment</h4>
-                      <button
-                        type="button"
-                        className="text-xs text-primary"
-                        onClick={() => setEnrollStep(2)}
-                      >
-                        Back to shifts
-                      </button>
+                <div>
+                  <p className="text-sm font-semibold text-slate-900">Subjects</p>
+                  {selectedCourse.subjects.length > 0 ? (
+                    <div className="mt-2 space-y-2">
+                      {selectedCourse.subjects.map((subject, index) => (
+                        <div
+                          key={`subject-${selectedCourse.id}-${index}`}
+                          className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600"
+                        >
+                          {getSubjectTitle(subject)} - {getSubjectTeacher(subject)}
+                        </div>
+                      ))}
                     </div>
+                  ) : (
+                    <p className="mt-2 text-sm text-slate-500">No subjects listed yet.</p>
+                  )}
+                </div>
 
-                    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm">
-                      <p className="font-semibold text-slate-900">{selectedCourse.title}</p>
-                      <p className="mt-1 text-xs text-slate-600">
-                        {selectedClass?.name} · {selectedShift?.name}
+                <div>
+                  <p className="text-sm font-semibold text-slate-900">
+                    Chapter Preview (first 3)
+                  </p>
+                  {selectedCourse.chapters.length > 0 ? (
+                    <div className="mt-2 space-y-2">
+                      {selectedCourse.chapters.slice(0, 3).map((chapter, index) => (
+                        <div
+                          key={`chapter-${selectedCourse.id}-${index}`}
+                          className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600"
+                        >
+                          {getChapterTitle(chapter)}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="mt-2 text-sm text-slate-500">No chapters available yet.</p>
+                  )}
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-sm text-slate-500">Price</p>
+                  <div className="mt-1 flex items-center gap-2">
+                    <p className="text-xl font-semibold text-slate-900">
+                      {selectedCourse.finalPrice === 0
+                        ? "Free"
+                        : `PKR ${Math.round(selectedCourse.finalPrice).toLocaleString("en-PK")}`}
+                    </p>
+                    {selectedCourse.discountPercent > 0 &&
+                    selectedCourse.price > selectedCourse.finalPrice ? (
+                      <p className="text-xs text-slate-400 line-through">
+                        PKR {Math.round(selectedCourse.price).toLocaleString("en-PK")}
                       </p>
-                      <p className="mt-2 text-sm font-semibold text-slate-900">
-                        Course Fee: {totalFee === 0 ? "Free" : `PKR ${totalFee}`}
-                      </p>
-                    </div>
+                    ) : null}
+                  </div>
+                  {selectedCourse.discountPercent > 0 ? (
+                    <p className="mt-1 text-xs font-semibold text-emerald-600">
+                      {selectedCourse.discountPercent}% discount applied
+                    </p>
+                  ) : null}
+                </div>
 
-                    <div>
-                      <label className="text-sm font-semibold text-slate-700">Payment Method</label>
-                      <select
-                        value={paymentMethod}
-                        onChange={(event) => setPaymentMethod(event.target.value)}
-                        className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm"
-                      >
-                        <option value="bank_transfer">Bank Transfer</option>
-                        <option value="jazzcash">JazzCash</option>
-                        <option value="easypaisa">EasyPaisa</option>
-                        <option value="cash">Cash</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="text-sm font-semibold text-slate-700">Promo Code</label>
-                      <input
-                        type="text"
-                        value={promoCode}
-                        onChange={(event) => setPromoCode(event.target.value)}
-                        placeholder="Enter promo code (optional)"
-                        className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm"
-                      />
-                    </div>
-
+                <div className="flex flex-wrap justify-end gap-2">
+                  {selectedCourse.isEnrolled ? (
                     <button
-                      type="button"
-                      className="btn-primary w-full"
-                      disabled={enrollMutation.isPending}
+                      className="rounded-full bg-emerald-500 px-5 py-2 text-sm font-semibold text-white"
                       onClick={() => {
-                        if (!selectedClass || !selectedShift) {
-                          toast.error("Please select class and shift.");
-                          return;
-                        }
-                        if (!userProfile?.uid && !user?.uid) {
-                          toast.error("User session not found. Please login again.");
-                          return;
-                        }
-
-                        enrollMutation.mutate({
-                          classId: selectedClass.id,
-                          data: {
-                            studentId: userProfile?.uid || user?.uid,
-                            shiftId: selectedShift.id,
-                            courseId: selectedCourse.id,
-                            paymentMethod,
-                            promoCode: promoCode.trim(),
-                          },
-                        });
+                        setSelectedCourse(null);
+                        navigate("/student/courses");
                       }}
                     >
-                      {enrollMutation.isPending ? "Submitting..." : "Confirm Enrollment"}
+                      Continue Learning
                     </button>
-                  </div>
-                ) : null}
+                  ) : (
+                    <button
+                      className="rounded-full bg-primary px-5 py-2 text-sm font-semibold text-white"
+                      onClick={() => handleEnroll(selectedCourse)}
+                    >
+                      Enroll Now
+                    </button>
+                  )}
+                </div>
               </div>
-            </Motion.div>
+            </motion.div>
           </div>
         ) : null}
       </AnimatePresence>
@@ -701,4 +568,3 @@ function StudentExploreCourses() {
 }
 
 export default StudentExploreCourses;
-

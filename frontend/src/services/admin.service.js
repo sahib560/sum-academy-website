@@ -191,6 +191,9 @@ export const generateCertificate = (data) =>
 export const revokeCertificate = (certId) =>
   api.patch(`/admin/certificates/${certId}/revoke`).then((r) => r.data);
 
+export const unrevokeCertificate = (certId) =>
+  api.patch(`/admin/certificates/${certId}/unrevoke`).then((r) => r.data);
+
 export const verifyCertificatePublic = (certId) =>
   api.get(`/verify/${certId}`).then((r) => r.data.data);
 

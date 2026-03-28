@@ -1440,6 +1440,7 @@ export const addStudentToClass = async (req, res) => {
         : requestedStudentId;
     const shiftId = String(req.body?.shiftId || "").trim();
     const requestedCourseId = String(req.body?.courseId || "").trim();
+    let enrolledCourseId = "";
 
     if (!studentId) {
       return errorResponse(res, "studentId is required", 400);
@@ -1499,6 +1500,15 @@ export const addStudentToClass = async (req, res) => {
       if (!assignedCourses.some((course) => course.courseId === finalCourseId)) {
         throw new Error("COURSE_NOT_ASSIGNED");
       }
+      enrolledCourseId = finalCourseId;
+      const enrollmentQuery = db
+        .collection(COLLECTIONS.ENROLLMENTS)
+        .where("studentId", "==", studentId);
+      const enrollmentSnap = await transaction.get(enrollmentQuery);
+      const existingEnrollmentDoc = enrollmentSnap.docs.find((doc) => {
+        const row = doc.data() || {};
+        return String(row.courseId || "").trim() === finalCourseId;
+      });
 
       normalizedStudents.push({
         studentId,
@@ -1512,11 +1522,46 @@ export const addStudentToClass = async (req, res) => {
         enrolledCount: normalizedStudents.length,
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
+
+      if (existingEnrollmentDoc) {
+        transaction.set(
+          existingEnrollmentDoc.ref,
+          {
+            classId,
+            shiftId,
+            status: "active",
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
+      } else {
+        transaction.set(db.collection(COLLECTIONS.ENROLLMENTS).doc(), {
+          studentId,
+          courseId: finalCourseId,
+          classId,
+          shiftId,
+          status: "active",
+          progress: 0,
+          completedAt: null,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          source: "class_assignment",
+        });
+      }
+
+      transaction.set(
+        db.collection(COLLECTIONS.STUDENTS).doc(studentId),
+        {
+          enrolledCourses: admin.firestore.FieldValue.arrayUnion(finalCourseId),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
     });
 
     return successResponse(
       res,
-      { classId, studentId, shiftId },
+      { classId, studentId, shiftId, courseId: enrolledCourseId || requestedCourseId },
       "Student enrolled in class"
     );
   } catch (e) {

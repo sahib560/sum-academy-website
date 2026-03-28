@@ -1,691 +1,519 @@
 import { useEffect, useMemo, useState } from "react";
-import { motion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import toast, { Toaster } from "react-hot-toast";
+import {
+  EmailAuthProvider,
+  reauthenticateWithCredential,
+  updatePassword,
+} from "firebase/auth";
 import { Skeleton } from "../../components/Skeleton.jsx";
+import { firebaseAuth } from "../../config/firebase.js";
+import {
+  getStudentSettings,
+  updateStudentSettings,
+} from "../../services/student.service.js";
 
-const fadeUp = {
-  initial: { opacity: 0, y: 16 },
-  whileInView: { opacity: 1, y: 0 },
-  viewport: { once: true, amount: 0.2 },
-  transition: { duration: 0.45 },
-};
-
-const tabs = ["Profile", "Security", "Notifications"];
-
-const initialProfile = {
-  name: "Sana Ahmed",
-  email: "sana.ahmed@sumacademy.com",
-  phone: "+92 300 1234567",
-  dob: "2006-08-12",
-  city: "Karachi",
-};
-
-const initialNotifications = {
-  announcement: true,
-  installment: true,
-  quiz: true,
-  session: false,
-  certificate: true,
-  completion: false,
-};
-
-
-const sessions = [
-  {
-    id: 1,
-    device: "Chrome on Windows",
-    ip: "103.12.45.102",
-    location: "Karachi",
-    lastActive: "Just now",
-    current: true,
-  },
-  {
-    id: 2,
-    device: "Safari on iPhone",
-    ip: "223.64.21.17",
-    location: "Lahore",
-    lastActive: "2 hours ago",
-    current: false,
-  },
+const TABS = [
+  { id: "profile", label: "Profile" },
+  { id: "security", label: "Security" },
+  { id: "notifications", label: "Notifications" },
+  { id: "appearance", label: "Appearance" },
 ];
 
-const passwordStrength = (value) => {
-  const score = [
-    value.length >= 8,
-    /[A-Z]/.test(value),
-    /[0-9]/.test(value),
-    /[^A-Za-z0-9]/.test(value),
-  ].filter(Boolean).length;
-  if (score <= 1) return { label: "Weak", color: "bg-rose-500" };
-  if (score === 2 || score === 3)
-    return { label: "Medium", color: "bg-amber-400" };
-  return { label: "Strong", color: "bg-emerald-500" };
+const tabTransition = {
+  initial: { opacity: 0, y: 14 },
+  animate: { opacity: 1, y: 0 },
+  exit: { opacity: 0, y: -10 },
+  transition: { duration: 0.22 },
 };
 
-const requirementList = [
-  { key: "length", label: "At least 8 characters" },
-  { key: "upper", label: "One uppercase letter" },
-  { key: "number", label: "One number" },
-  { key: "special", label: "One special character" },
-];
+const profileErrorsFor = (form) => {
+  const errors = {};
+  const fullName = String(form.fullName || "").trim();
+  const phoneNumber = String(form.phoneNumber || "").trim();
 
+  if (!fullName) {
+    errors.fullName = "Full Name is required";
+  } else if (fullName.length < 2) {
+    errors.fullName = "Full Name must be at least 2 characters";
+  } else if (fullName.length > 120) {
+    errors.fullName = "Full Name cannot exceed 120 characters";
+  }
+
+  if (phoneNumber.length > 30) {
+    errors.phoneNumber = "Phone Number cannot exceed 30 characters";
+  }
+
+  return errors;
+};
+
+const passwordRulesFor = (password = "") => ({
+  length: password.length >= 8,
+  upper: /[A-Z]/.test(password),
+  number: /[0-9]/.test(password),
+  special: /[^A-Za-z0-9]/.test(password),
+});
+
+const passwordStrength = (rules) => {
+  const score = Object.values(rules).filter(Boolean).length;
+  if (score <= 1) return { label: "Weak", barClass: "bg-rose-500", width: "33%" };
+  if (score <= 3) return { label: "Medium", barClass: "bg-amber-400", width: "66%" };
+  return { label: "Strong", barClass: "bg-emerald-500", width: "100%" };
+};
 
 function StudentSettings() {
-  const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState("Profile");
-  const [profile, setProfile] = useState(initialProfile);
-  const [profileBaseline, setProfileBaseline] = useState(initialProfile);
-  const [notifications, setNotifications] = useState(initialNotifications);
-  const [notificationsBaseline, setNotificationsBaseline] =
-    useState(initialNotifications);
-  const [profileErrors, setProfileErrors] = useState({});
-  const [securityErrors, setSecurityErrors] = useState({});
-  const [passwords, setPasswords] = useState({
+  const queryClient = useQueryClient();
+  const [activeTab, setActiveTab] = useState("profile");
+
+  const [profileForm, setProfileForm] = useState({
+    fullName: "",
+    email: "",
+    phoneNumber: "",
+  });
+  const [profileBaseline, setProfileBaseline] = useState(profileForm);
+  const [profileTouched, setProfileTouched] = useState({
+    fullName: false,
+    phoneNumber: false,
+  });
+
+  const [passwordForm, setPasswordForm] = useState({
     current: "",
     next: "",
     confirm: "",
   });
-  const [showPasswords, setShowPasswords] = useState({
+  const [passwordTouched, setPasswordTouched] = useState({
     current: false,
     next: false,
     confirm: false,
   });
-  const [toast, setToast] = useState(null);
-  const [savingProfile, setSavingProfile] = useState(false);
-  const [savingSecurity, setSavingSecurity] = useState(false);
-  const [savingNotifications, setSavingNotifications] = useState(false);
-  const [avatar, setAvatar] = useState("");
-  const [avatarBaseline, setAvatarBaseline] = useState("");
-  const [uploading, setUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
+  const [savingPassword, setSavingPassword] = useState(false);
+
+  const [notifications, setNotifications] = useState({
+    announcements: true,
+    sessions: true,
+    quizzes: true,
+    payments: true,
+  });
+
+  const [appearance, setAppearance] = useState({
+    compactCards: false,
+    reduceMotion: false,
+  });
+
+  const settingsQuery = useQuery({
+    queryKey: ["student-settings"],
+    queryFn: () => getStudentSettings(),
+    staleTime: 30000,
+  });
 
   useEffect(() => {
-    const timer = setTimeout(() => setLoading(false), 1200);
-    return () => clearTimeout(timer);
-  }, []);
-
-  useEffect(() => {
-    if (!toast) return;
-    const timer = setTimeout(() => setToast(null), 2200);
-    return () => clearTimeout(timer);
-  }, [toast]);
-
-  const profileDirty = useMemo(
-    () =>
-      JSON.stringify(profile) !== JSON.stringify(profileBaseline) ||
-      avatar !== avatarBaseline,
-    [profile, profileBaseline, avatar, avatarBaseline]
-  );
-  const securityDirty = useMemo(
-    () => passwords.current || passwords.next || passwords.confirm,
-    [passwords]
-  );
-  const notificationsDirty = useMemo(
-    () =>
-      JSON.stringify(notifications) !== JSON.stringify(notificationsBaseline),
-    [notifications, notificationsBaseline]
-  );
-
-  const handleTabChange = (tab) => {
-    const hasUnsaved =
-      (activeTab === "Profile" && profileDirty) ||
-      (activeTab === "Security" && securityDirty) ||
-      (activeTab === "Notifications" && notificationsDirty);
-    if (hasUnsaved) {
-      const confirmed = window.confirm(
-        "You have unsaved changes. Switch tabs anyway?"
-      );
-      if (!confirmed) return;
-    }
-    setActiveTab(tab);
-  };
-
-  const handleAvatarUpload = (file) => {
-    if (!file) return;
-    setUploading(true);
-    setUploadProgress(10);
-    const reader = new FileReader();
-    reader.onload = () => {
-      setAvatar(reader.result);
-      let progress = 10;
-      const timer = setInterval(() => {
-        progress += 15;
-        setUploadProgress(progress);
-        if (progress >= 100) {
-          clearInterval(timer);
-          setUploading(false);
-          setAvatarBaseline(reader.result);
-          setToast({ message: "Profile photo updated" });
-        }
-      }, 140);
+    if (!settingsQuery.data) return;
+    const nextForm = {
+      fullName: String(settingsQuery.data.fullName || ""),
+      email: String(settingsQuery.data.email || ""),
+      phoneNumber: String(settingsQuery.data.phoneNumber || ""),
     };
-    reader.readAsDataURL(file);
+    setProfileForm(nextForm);
+    setProfileBaseline(nextForm);
+  }, [settingsQuery.data]);
+
+  const profileErrors = useMemo(() => profileErrorsFor(profileForm), [profileForm]);
+  const profileDirty = useMemo(
+    () => JSON.stringify(profileForm) !== JSON.stringify(profileBaseline),
+    [profileForm, profileBaseline]
+  );
+
+  const updateProfileMutation = useMutation({
+    mutationFn: (payload) => updateStudentSettings(payload),
+    onSuccess: (response) => {
+      const data = response?.data || response?.data?.data || response || {};
+      const next = {
+        fullName: String(data.fullName || profileForm.fullName || ""),
+        email: String(data.email || profileForm.email || ""),
+        phoneNumber: String(data.phoneNumber || profileForm.phoneNumber || ""),
+      };
+      setProfileForm(next);
+      setProfileBaseline(next);
+      queryClient.invalidateQueries({ queryKey: ["student-settings"] });
+      toast.success("Profile updated", {
+        style: { borderRadius: "12px", fontFamily: "DM Sans, sans-serif" },
+      });
+    },
+    onError: (error) => {
+      toast.error(error?.response?.data?.message || "Failed to update profile", {
+        style: { borderRadius: "12px", fontFamily: "DM Sans, sans-serif" },
+      });
+    },
+  });
+
+  const passwordRules = useMemo(() => passwordRulesFor(passwordForm.next), [passwordForm.next]);
+  const strength = useMemo(() => passwordStrength(passwordRules), [passwordRules]);
+
+  const profileSave = () => {
+    const errors = profileErrorsFor(profileForm);
+    setProfileTouched({ fullName: true, phoneNumber: true });
+    if (Object.keys(errors).length) {
+      toast.error("Please fix profile validation errors", {
+        style: { borderRadius: "12px", fontFamily: "DM Sans, sans-serif" },
+      });
+      return;
+    }
+
+    updateProfileMutation.mutate({
+      fullName: String(profileForm.fullName || "").trim(),
+      phoneNumber: String(profileForm.phoneNumber || "").trim(),
+    });
   };
 
-  const validateProfile = () => {
-    const errors = {};
-    if (!profile.name.trim()) errors.name = "Name is required.";
-    if (!profile.phone.trim()) errors.phone = "Phone number is required.";
-    if (!profile.dob) errors.dob = "Date of birth is required.";
-    if (!profile.city.trim()) errors.city = "City is required.";
-    setProfileErrors(errors);
-    return Object.keys(errors).length === 0;
+  const passwordSave = async () => {
+    const nextErrors = {};
+    if (!passwordForm.current) nextErrors.current = "Current password is required";
+    if (!passwordForm.next) nextErrors.next = "New password is required";
+    if (!Object.values(passwordRules).every(Boolean)) {
+      nextErrors.next = "New password does not meet strength requirements";
+    }
+    if (passwordForm.confirm !== passwordForm.next) {
+      nextErrors.confirm = "Passwords do not match";
+    }
+
+    setPasswordTouched({ current: true, next: true, confirm: true });
+    if (Object.keys(nextErrors).length) {
+      toast.error(nextErrors.current || nextErrors.next || nextErrors.confirm, {
+        style: { borderRadius: "12px", fontFamily: "DM Sans, sans-serif" },
+      });
+      return;
+    }
+
+    const currentUser = firebaseAuth.currentUser;
+    if (!currentUser?.email) {
+      toast.error("Current user not available. Please login again.", {
+        style: { borderRadius: "12px", fontFamily: "DM Sans, sans-serif" },
+      });
+      return;
+    }
+
+    setSavingPassword(true);
+    try {
+      const credential = EmailAuthProvider.credential(
+        currentUser.email,
+        passwordForm.current
+      );
+      await reauthenticateWithCredential(currentUser, credential);
+      await updatePassword(currentUser, passwordForm.next);
+
+      setPasswordForm({ current: "", next: "", confirm: "" });
+      setPasswordTouched({ current: false, next: false, confirm: false });
+      toast.success("Password updated", {
+        style: { borderRadius: "12px", fontFamily: "DM Sans, sans-serif" },
+      });
+    } catch (error) {
+      let message = error?.message || "Failed to update password";
+      if (error?.code === "auth/wrong-password") message = "Current password is incorrect";
+      if (error?.code === "auth/weak-password") message = "New password is too weak";
+      if (error?.code === "auth/requires-recent-login") {
+        message = "Please logout and login again, then try updating password";
+      }
+      toast.error(message, {
+        style: { borderRadius: "12px", fontFamily: "DM Sans, sans-serif" },
+      });
+    } finally {
+      setSavingPassword(false);
+    }
   };
 
-  const handleSaveProfile = () => {
-    if (!validateProfile()) return;
-    setSavingProfile(true);
-    setTimeout(() => {
-      setSavingProfile(false);
-      setProfileBaseline(profile);
-      setAvatarBaseline(avatar);
-      setToast({ message: "Profile saved successfully" });
-    }, 900);
-  };
-
-  const strength = passwordStrength(passwords.next);
-  const requirements = {
-    length: passwords.next.length >= 8,
-    upper: /[A-Z]/.test(passwords.next),
-    number: /[0-9]/.test(passwords.next),
-    special: /[^A-Za-z0-9]/.test(passwords.next),
-  };
-
-  const validateSecurity = () => {
-    const errors = {};
-    if (!passwords.current) errors.current = "Current password required.";
-    if (!passwords.next) errors.next = "New password required.";
-    if (passwords.next && passwords.next.length < 8)
-      errors.next = "Password too short.";
-    if (passwords.confirm !== passwords.next)
-      errors.confirm = "Passwords do not match.";
-    setSecurityErrors(errors);
-    return Object.keys(errors).length === 0;
-  };
-
-  const handleSavePassword = () => {
-    if (!validateSecurity()) return;
-    setSavingSecurity(true);
-    setTimeout(() => {
-      setSavingSecurity(false);
-      setPasswords({ current: "", next: "", confirm: "" });
-      setToast({ message: "Password updated" });
-    }, 900);
-  };
-
-  const handleSaveNotifications = () => {
-    setSavingNotifications(true);
-    setTimeout(() => {
-      setSavingNotifications(false);
-      setNotificationsBaseline(notifications);
-      setToast({ message: "Preferences saved" });
-    }, 900);
-  };
-
+  if (settingsQuery.isError) {
+    return (
+      <div className="rounded-3xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
+        {settingsQuery.error?.response?.data?.message ||
+          settingsQuery.error?.message ||
+          "Failed to load settings"}
+      </div>
+    );
+  }
 
   return (
     <div className="grid gap-6 lg:grid-cols-[240px_1fr]">
+      <Toaster position="top-right" />
+
       <motion.aside
-        {...fadeUp}
+        initial={{ opacity: 0, x: -10 }}
+        animate={{ opacity: 1, x: 0 }}
         className="sticky top-24 h-fit rounded-3xl border border-slate-200 bg-white p-4 shadow-sm"
       >
-        {loading ? (
+        {settingsQuery.isLoading ? (
           <div className="space-y-2">
-            {Array.from({ length: 3 }).map((_, index) => (
-              <Skeleton key={index} className="h-10 w-full" />
+            {Array.from({ length: 4 }).map((_, index) => (
+              <Skeleton key={`tab-skel-${index}`} className="h-10 w-full rounded-2xl" />
             ))}
           </div>
         ) : (
           <div className="space-y-2">
-            {tabs.map((tab) => (
+            {TABS.map((tab) => (
               <button
-                key={tab}
-                className={`w-full rounded-2xl px-4 py-3 text-left text-sm font-semibold ${
-                  activeTab === tab
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveTab(tab.id)}
+                className={`w-full rounded-2xl px-4 py-3 text-left text-sm font-semibold transition ${
+                  activeTab === tab.id
                     ? "bg-primary text-white"
                     : "text-slate-600 hover:bg-slate-100"
                 }`}
-                onClick={() => handleTabChange(tab)}
-                type="button"
               >
-                {tab}
+                {tab.label}
               </button>
             ))}
           </div>
         )}
       </motion.aside>
 
-      <div className="space-y-6">
-        {loading ? (
+      <div>
+        {settingsQuery.isLoading ? (
           <div className="space-y-4">
-            <Skeleton className="h-10 w-1/3" />
-            <Skeleton className="h-24 w-full" />
-            <Skeleton className="h-24 w-full" />
+            <Skeleton className="h-10 w-44" />
+            <Skeleton className="h-40 w-full rounded-3xl" />
+            <Skeleton className="h-40 w-full rounded-3xl" />
           </div>
         ) : (
-          <>
-            {activeTab === "Profile" && (
-              <div className="space-y-6">
-                <motion.section
-                  {...fadeUp}
-                  className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"
-                >
-                  <div className="flex flex-wrap items-center gap-4">
-                    <label className="relative flex h-[72px] w-[72px] cursor-pointer items-center justify-center overflow-hidden rounded-full bg-primary/10 text-xl font-semibold text-primary">
-                      {avatar ? (
-                        <img
-                          src={avatar}
-                          alt="Avatar"
-                          className="h-full w-full object-cover"
-                        />
-                      ) : (
-                        profile.name
-                          .split(" ")
-                          .slice(0, 2)
-                          .map((part) => part[0])
-                          .join("")
-                      )}
-                      <input
-                        type="file"
-                        accept="image/*"
-                        className="hidden"
-                        onChange={(event) =>
-                          handleAvatarUpload(event.target.files?.[0])
-                        }
-                      />
-                    </label>
-                    <div className="flex-1">
-                      <h2 className="font-heading text-2xl text-slate-900">
-                        {profile.name}
-                      </h2>
-                      <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-500">
-                        <span className="rounded-full bg-primary/10 px-3 py-1 text-xs text-primary">
-                          Student
-                        </span>
-                        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-600">
-                          3 Courses
-                        </span>
-                        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-600">
-                          2 Certificates
-                        </span>
-                        <span>Member since Jan 2025</span>
-                      </div>
-                    </div>
-                  </div>
-                  {uploading && (
-                    <div className="mt-4">
-                      <div className="h-2 w-full rounded-full bg-slate-100">
-                        <div
-                          className="h-2 rounded-full bg-primary"
-                          style={{ width: `${uploadProgress}%` }}
-                        />
-                      </div>
-                    </div>
-                  )}
-                </motion.section>
-
-                <motion.section
-                  {...fadeUp}
-                  className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"
-                >
-                  <h3 className="font-heading text-xl text-slate-900">
-                    Edit Profile
-                  </h3>
+          <AnimatePresence mode="wait" initial={false}>
+            {activeTab === "profile" ? (
+              <motion.div key="profile" {...tabTransition} className="space-y-6">
+                <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+                  <h2 className="font-heading text-2xl text-slate-900">Profile</h2>
                   <div className="mt-4 grid gap-4 sm:grid-cols-2">
                     <div>
-                      <label className="text-xs font-semibold uppercase text-slate-400">
+                      <label className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">
                         Full Name
                       </label>
                       <input
-                        value={profile.name}
-                        onChange={(event) =>
-                          setProfile((prev) => ({
-                            ...prev,
-                            name: event.target.value,
-                          }))
-                        }
+                        value={profileForm.fullName}
+                        onChange={(event) => {
+                          setProfileTouched((prev) => ({ ...prev, fullName: true }));
+                          setProfileForm((prev) => ({ ...prev, fullName: event.target.value }));
+                        }}
                         className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
                       />
-                      {profileErrors.name && (
-                        <p className="mt-1 text-xs text-rose-500">
-                          {profileErrors.name}
-                        </p>
-                      )}
+                      {profileTouched.fullName && profileErrors.fullName ? (
+                        <p className="mt-1 text-xs text-rose-600">{profileErrors.fullName}</p>
+                      ) : null}
                     </div>
+
                     <div>
-                      <label className="text-xs font-semibold uppercase text-slate-400">
+                      <label className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">
                         Email
                       </label>
-                      <div className="mt-2 flex items-center rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500">
-                        <svg
-                          viewBox="0 0 24 24"
-                          className="mr-2 h-4 w-4"
-                          fill="currentColor"
-                        >
-                          <path d="M12 1a5 5 0 0 1 5 5v4h-2V6a3 3 0 0 0-6 0v4H7V6a5 5 0 0 1 5-5zm-6 9h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2z" />
-                        </svg>
-                        {profile.email}
-                      </div>
-                      <p className="mt-1 text-xs text-slate-400">
-                        Contact admin to update email
-                      </p>
-                    </div>
-                    <div>
-                      <label className="text-xs font-semibold uppercase text-slate-400">
-                        Phone Number (+92)
-                      </label>
                       <input
-                        value={profile.phone}
-                        onChange={(event) =>
-                          setProfile((prev) => ({
-                            ...prev,
-                            phone: event.target.value,
-                          }))
-                        }
-                        className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                        value={profileForm.email}
+                        readOnly
+                        className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500"
                       />
-                      {profileErrors.phone && (
-                        <p className="mt-1 text-xs text-rose-500">
-                          {profileErrors.phone}
-                        </p>
-                      )}
                     </div>
-                    <div>
-                      <label className="text-xs font-semibold uppercase text-slate-400">
-                        Date of Birth
-                      </label>
-                      <input
-                        type="date"
-                        value={profile.dob}
-                        onChange={(event) =>
-                          setProfile((prev) => ({
-                            ...prev,
-                            dob: event.target.value,
-                          }))
-                        }
-                        className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                      />
-                      {profileErrors.dob && (
-                        <p className="mt-1 text-xs text-rose-500">
-                          {profileErrors.dob}
-                        </p>
-                      )}
-                    </div>
-                    <div>
-                      <label className="text-xs font-semibold uppercase text-slate-400">
-                        City
-                      </label>
-                      <input
-                        value={profile.city}
-                        onChange={(event) =>
-                          setProfile((prev) => ({
-                            ...prev,
-                            city: event.target.value,
-                          }))
-                        }
-                        className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                      />
-                      {profileErrors.city && (
-                        <p className="mt-1 text-xs text-rose-500">
-                          {profileErrors.city}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                  <div className="mt-4 flex justify-end">
-                    <button
-                      className="btn-primary"
-                      onClick={handleSaveProfile}
-                      disabled={savingProfile}
-                    >
-                      {savingProfile ? "Saving..." : "Save Profile"}
-                    </button>
-                  </div>
-                </motion.section>
-              </div>
-            )}
-            {activeTab === "Security" && (
-              <div className="space-y-6">
-                <motion.section
-                  {...fadeUp}
-                  className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"
-                >
-                  <h3 className="font-heading text-xl text-slate-900">
-                    Change Password
-                  </h3>
-                  <div className="mt-4 grid gap-4">
-                    {[
-                      { key: "current", label: "Current Password" },
-                      { key: "next", label: "New Password" },
-                      { key: "confirm", label: "Confirm New Password" },
-                    ].map((field) => (
-                      <div key={field.key}>
-                        <label className="text-xs font-semibold uppercase text-slate-400">
-                          {field.label}
-                        </label>
-                        <div className="mt-2 flex items-center rounded-xl border border-slate-200 px-3 py-2 text-sm">
-                          <input
-                            type={
-                              showPasswords[field.key] ? "text" : "password"
-                            }
-                            value={passwords[field.key]}
-                            onChange={(event) =>
-                              setPasswords((prev) => ({
-                                ...prev,
-                                [field.key]: event.target.value,
-                              }))
-                            }
-                            className="w-full bg-transparent focus:outline-none"
-                          />
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setShowPasswords((prev) => ({
-                                ...prev,
-                                [field.key]: !prev[field.key],
-                              }))
-                            }
-                            className="text-xs text-slate-500"
-                          >
-                            {showPasswords[field.key] ? "Hide" : "Show"}
-                          </button>
-                        </div>
-                        {securityErrors[field.key] && (
-                          <p className="mt-1 text-xs text-rose-500">
-                            {securityErrors[field.key]}
-                          </p>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                  <div className="mt-4">
-                    <div className="h-2 w-full rounded-full bg-slate-100">
-                      <div className={`h-2 rounded-full ${strength.color}`} />
-                    </div>
-                    <div className="mt-3 grid gap-2 text-xs text-slate-500 sm:grid-cols-2">
-                      {requirementList.map((item) => (
-                        <div
-                          key={item.key}
-                          className="flex items-center gap-2"
-                        >
-                          <span
-                            className={`flex h-4 w-4 items-center justify-center rounded-full border ${
-                              requirements[item.key]
-                                ? "border-emerald-500 text-emerald-500"
-                                : "border-slate-300 text-slate-300"
-                            }`}
-                          >
-                            <svg
-                              viewBox="0 0 20 20"
-                              className="h-3 w-3"
-                              fill="currentColor"
-                            >
-                              <path d="M7.5 13.2 4.5 10.3l-1.2 1.2 4.2 4.1 8-8-1.2-1.2-6.2 6.2z" />
-                            </svg>
-                          </span>
-                          <span
-                            className={
-                              requirements[item.key]
-                                ? "text-emerald-600"
-                                : "text-slate-500"
-                            }
-                          >
-                            {item.label}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="mt-4 flex justify-end">
-                    <button
-                      className="btn-primary"
-                      onClick={handleSavePassword}
-                      disabled={savingSecurity}
-                    >
-                      {savingSecurity ? "Saving..." : "Save Password"}
-                    </button>
-                  </div>
-                </motion.section>
 
-                <motion.section
-                  {...fadeUp}
-                  className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"
-                >
-                  <h3 className="font-heading text-xl text-slate-900">
-                    Active Login Sessions
-                  </h3>
-                  <div className="mt-4 space-y-3">
-                    {sessions.map((session) => (
-                      <div
-                        key={session.id}
-                        className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm"
-                      >
-                        <div>
-                          <p className="font-semibold text-slate-900">
-                            {session.device}
-                          </p>
-                          <p className="text-xs text-slate-500">
-                            {session.location} - {session.ip}
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <span className="text-xs text-slate-400">
-                            {session.lastActive}
-                          </span>
-                          {session.current ? (
-                            <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs text-emerald-600">
-                              This device
-                            </span>
-                          ) : (
-                            <button className="rounded-full border border-slate-200 px-3 py-1 text-xs text-slate-500">
-                              Revoke
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  <button className="btn-outline mt-4 border-rose-200 text-rose-500">
-                    Revoke All Other Sessions
-                  </button>
-                </motion.section>
-              </div>
-            )}
-            {activeTab === "Notifications" && (
-              <motion.section
-                {...fadeUp}
-                className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"
-              >
-                <h3 className="font-heading text-xl text-slate-900">
-                  Email Notifications
-                </h3>
-                <div className="mt-4 space-y-3">
-                  {[
-                    {
-                      key: "announcement",
-                      label: "New announcement from teacher",
-                      desc: "Get emailed when teacher posts an announcement",
-                    },
-                    {
-                      key: "installment",
-                      label: "Installment due reminder",
-                      desc: "Get reminded 3 days before installment due",
-                    },
-                    {
-                      key: "quiz",
-                      label: "Quiz available",
-                      desc: "Get notified when a new quiz is assigned",
-                    },
-                    {
-                      key: "session",
-                      label: "Live session reminder",
-                      desc: "Get reminded 1 hour before a live session",
-                    },
-                    {
-                      key: "certificate",
-                      label: "Certificate issued",
-                      desc: "Get emailed when your certificate is ready",
-                    },
-                    {
-                      key: "completion",
-                      label: "Course completion",
-                      desc: "Get a summary email when you complete a course",
-                    },
-                  ].map((item) => (
-                    <div
-                      key={item.key}
-                      className="flex items-center justify-between rounded-2xl border border-slate-200 px-4 py-3 text-sm"
-                    >
-                      <div>
-                        <p className="font-semibold text-slate-900">
-                          {item.label}
-                        </p>
-                        <p className="text-xs text-slate-500">{item.desc}</p>
-                      </div>
-                      <button
-                        className={`h-7 w-12 rounded-full p-1 ${
-                          notifications[item.key]
-                            ? "bg-primary"
-                            : "bg-slate-200"
-                        }`}
-                        onClick={() =>
-                          setNotifications((prev) => ({
-                            ...prev,
-                            [item.key]: !prev[item.key],
-                          }))
-                        }
-                        type="button"
-                      >
-                        <span
-                          className={`block h-5 w-5 rounded-full bg-white transition ${
-                            notifications[item.key]
-                              ? "translate-x-5"
-                              : "translate-x-0"
-                          }`}
-                        />
-                      </button>
+                    <div>
+                      <label className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">
+                        Phone Number
+                      </label>
+                      <input
+                        value={profileForm.phoneNumber}
+                        onChange={(event) => {
+                          setProfileTouched((prev) => ({ ...prev, phoneNumber: true }));
+                          setProfileForm((prev) => ({ ...prev, phoneNumber: event.target.value }));
+                        }}
+                        className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                      />
+                      {profileTouched.phoneNumber && profileErrors.phoneNumber ? (
+                        <p className="mt-1 text-xs text-rose-600">{profileErrors.phoneNumber}</p>
+                      ) : null}
                     </div>
+                  </div>
+
+                  <div className="mt-6">
+                    <button
+                      type="button"
+                      onClick={profileSave}
+                      disabled={!profileDirty || updateProfileMutation.isPending}
+                      className="inline-flex min-w-[160px] items-center justify-center rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {updateProfileMutation.isPending ? (
+                        <span className="flex items-center gap-2">
+                          <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                          Saving...
+                        </span>
+                      ) : (
+                        "Save"
+                      )}
+                    </button>
+                  </div>
+                </section>
+
+                <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+                  <h3 className="font-heading text-xl text-slate-900">Change Password</h3>
+                  <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                    <div>
+                      <label className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">
+                        Current Password
+                      </label>
+                      <input
+                        type="password"
+                        value={passwordForm.current}
+                        onChange={(event) => {
+                          setPasswordTouched((prev) => ({ ...prev, current: true }));
+                          setPasswordForm((prev) => ({ ...prev, current: event.target.value }));
+                        }}
+                        className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                      />
+                      {passwordTouched.current && !passwordForm.current ? (
+                        <p className="mt-1 text-xs text-rose-600">Current password is required</p>
+                      ) : null}
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">
+                        New Password
+                      </label>
+                      <input
+                        type="password"
+                        value={passwordForm.next}
+                        onChange={(event) => {
+                          setPasswordTouched((prev) => ({ ...prev, next: true }));
+                          setPasswordForm((prev) => ({ ...prev, next: event.target.value }));
+                        }}
+                        className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                      />
+                      {passwordTouched.next && passwordForm.next && !Object.values(passwordRules).every(Boolean) ? (
+                        <p className="mt-1 text-xs text-rose-600">Password does not meet requirements</p>
+                      ) : null}
+                    </div>
+
+                    <div className="sm:col-span-2">
+                      <div className="h-2 rounded-full bg-slate-100">
+                        <div className={`h-2 rounded-full ${strength.barClass}`} style={{ width: strength.width }} />
+                      </div>
+                      <p className="mt-2 text-xs font-semibold text-slate-600">Strength: {strength.label}</p>
+                      <div className="mt-2 grid gap-1 text-xs text-slate-500 sm:grid-cols-2">
+                        <p className={passwordRules.length ? "text-emerald-600" : "text-slate-500"}>At least 8 characters</p>
+                        <p className={passwordRules.upper ? "text-emerald-600" : "text-slate-500"}>One uppercase letter</p>
+                        <p className={passwordRules.number ? "text-emerald-600" : "text-slate-500"}>One number</p>
+                        <p className={passwordRules.special ? "text-emerald-600" : "text-slate-500"}>One special character</p>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">
+                        Confirm Password
+                      </label>
+                      <input
+                        type="password"
+                        value={passwordForm.confirm}
+                        onChange={(event) => {
+                          setPasswordTouched((prev) => ({ ...prev, confirm: true }));
+                          setPasswordForm((prev) => ({ ...prev, confirm: event.target.value }));
+                        }}
+                        className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                      />
+                      {passwordTouched.confirm && passwordForm.confirm !== passwordForm.next ? (
+                        <p className="mt-1 text-xs text-rose-600">Passwords do not match</p>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  <div className="mt-6">
+                    <button
+                      type="button"
+                      onClick={passwordSave}
+                      disabled={savingPassword}
+                      className="inline-flex min-w-[160px] items-center justify-center rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {savingPassword ? (
+                        <span className="flex items-center gap-2">
+                          <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                          Saving...
+                        </span>
+                      ) : (
+                        "Save Password"
+                      )}
+                    </button>
+                  </div>
+                </section>
+              </motion.div>
+            ) : null}
+
+            {activeTab === "security" ? (
+              <motion.section key="security" {...tabTransition} className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+                <h2 className="font-heading text-2xl text-slate-900">Security</h2>
+                <p className="mt-2 text-sm text-slate-500">Password updates are available in the Profile tab. Keep your account secure by using a strong password and signing out from shared devices.</p>
+              </motion.section>
+            ) : null}
+
+            {activeTab === "notifications" ? (
+              <motion.section key="notifications" {...tabTransition} className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+                <h2 className="font-heading text-2xl text-slate-900">Notifications</h2>
+                <div className="mt-4 space-y-3 text-sm">
+                  {[
+                    ["announcements", "Announcements"],
+                    ["sessions", "Live Sessions"],
+                    ["quizzes", "Quizzes"],
+                    ["payments", "Payments"],
+                  ].map(([key, label]) => (
+                    <label key={key} className="flex items-center justify-between rounded-xl border border-slate-200 px-4 py-3">
+                      <span className="font-medium text-slate-700">{label}</span>
+                      <input
+                        type="checkbox"
+                        checked={Boolean(notifications[key])}
+                        onChange={(event) =>
+                          setNotifications((prev) => ({ ...prev, [key]: event.target.checked }))
+                        }
+                      />
+                    </label>
                   ))}
                 </div>
-                <div className="mt-4 flex justify-end">
-                  <button
-                    className="btn-primary"
-                    onClick={handleSaveNotifications}
-                    disabled={savingNotifications}
-                  >
-                    {savingNotifications ? "Saving..." : "Save Preferences"}
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => toast.success("Notification preferences saved", { style: { borderRadius: "12px", fontFamily: "DM Sans, sans-serif" } })}
+                  className="mt-5 rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-white"
+                >
+                  Save Notifications
+                </button>
               </motion.section>
-            )}
-          </>
+            ) : null}
+
+            {activeTab === "appearance" ? (
+              <motion.section key="appearance" {...tabTransition} className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+                <h2 className="font-heading text-2xl text-slate-900">Appearance</h2>
+                <div className="mt-4 space-y-3 text-sm">
+                  <label className="flex items-center justify-between rounded-xl border border-slate-200 px-4 py-3">
+                    <span className="font-medium text-slate-700">Compact Cards</span>
+                    <input
+                      type="checkbox"
+                      checked={appearance.compactCards}
+                      onChange={(event) =>
+                        setAppearance((prev) => ({ ...prev, compactCards: event.target.checked }))
+                      }
+                    />
+                  </label>
+                  <label className="flex items-center justify-between rounded-xl border border-slate-200 px-4 py-3">
+                    <span className="font-medium text-slate-700">Reduce Motion</span>
+                    <input
+                      type="checkbox"
+                      checked={appearance.reduceMotion}
+                      onChange={(event) =>
+                        setAppearance((prev) => ({ ...prev, reduceMotion: event.target.checked }))
+                      }
+                    />
+                  </label>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => toast.success("Appearance preferences saved", { style: { borderRadius: "12px", fontFamily: "DM Sans, sans-serif" } })}
+                  className="mt-5 rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-white"
+                >
+                  Save Appearance
+                </button>
+              </motion.section>
+            ) : null}
+          </AnimatePresence>
         )}
       </div>
-
-      {toast && (
-        <div className="fixed right-6 top-6 z-[70] rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-semibold text-white shadow-xl">
-          {toast.message}
-        </div>
-      )}
     </div>
   );
 }

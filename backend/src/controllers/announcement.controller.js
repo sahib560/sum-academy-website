@@ -5,6 +5,7 @@ import { sendAnnouncementEmail } from "../services/email.service.js";
 
 const TARGET_TYPES = new Set(["system", "class", "course", "single_user"]);
 const AUDIENCE_ROLES = new Set(["student", "teacher", "admin", "all"]);
+const trimText = (value = "") => String(value || "").trim();
 
 const toDate = (value) => {
   if (!value) return null;
@@ -89,6 +90,25 @@ const getUsersByRole = async (role) => {
     .filter(
       (doc) => String(doc.data()?.role || "").toLowerCase() === normalizedRole
     )
+    .map((doc) => doc.id);
+};
+
+const isTeacherAssignedToCourse = (courseData = {}, teacherUid = "") => {
+  const uid = trimText(teacherUid);
+  if (!uid) return false;
+
+  if (trimText(courseData?.teacherId) === uid) return true;
+  const subjects = Array.isArray(courseData?.subjects) ? courseData.subjects : [];
+  return subjects.some((subject) => trimText(subject?.teacherId) === uid);
+};
+
+const getTeacherAssignedCourseIds = async (teacherUid = "") => {
+  const uid = trimText(teacherUid);
+  if (!uid) return [];
+
+  const coursesSnap = await db.collection(COLLECTIONS.COURSES).get();
+  return coursesSnap.docs
+    .filter((doc) => isTeacherAssignedToCourse(doc.data() || {}, uid))
     .map((doc) => doc.id);
 };
 
@@ -263,6 +283,7 @@ const isAnnouncementVisibleToUser = (announcement, context) => {
   if (!isAudienceMatch) return false;
 
   if (isSingleUserTarget) {
+    if (role === "teacher") return false;
     const recipientIds = Array.isArray(announcement.recipientIds)
       ? announcement.recipientIds
       : [];
@@ -270,6 +291,12 @@ const isAnnouncementVisibleToUser = (announcement, context) => {
   }
 
   if (role !== "student") {
+    if (announcement.targetType !== "system") return false;
+    if (role === "teacher") {
+      if (!["teacher", "all"].includes(audienceRole)) return false;
+      const postedByRole = trimText(announcement.postedByRole).toLowerCase();
+      if (postedByRole && postedByRole !== "admin") return false;
+    }
     return announcement.targetType === "system";
   }
 
@@ -407,6 +434,7 @@ export const createAnnouncement = async (req, res) => {
       audienceRole: resolvedAudienceRole || normalizedAudienceRole,
       postedBy: req.user.uid,
       postedByName,
+      postedByRole: trimText(req.user?.role || "admin").toLowerCase() || "admin",
       sendEmail: Boolean(sendEmail),
       isPinned: Boolean(isPinned),
       studentsReached: recipientIds.length,
@@ -452,6 +480,215 @@ export const createAnnouncement = async (req, res) => {
       return errorResponse(res, "Selected user not found", 404);
     }
     return errorResponse(res, "Failed to post announcement", 500);
+  }
+};
+
+export const createTeacherAnnouncement = async (req, res) => {
+  try {
+    const teacherUid = trimText(req.user?.uid);
+    if (!teacherUid) {
+      return errorResponse(res, "Unauthorized", 401);
+    }
+
+    const {
+      title,
+      message,
+      targetType = "course",
+      targetId,
+      sendEmail = false,
+      isPinned = false,
+    } = req.body || {};
+
+    const normalizedTitle = trimText(title);
+    const normalizedMessage = trimText(message);
+    const normalizedTargetType = trimText(targetType).toLowerCase();
+    const normalizedTargetId = trimText(targetId);
+
+    if (!normalizedTitle || normalizedTitle.length < 5 || normalizedTitle.length > 100) {
+      return errorResponse(res, "Title must be between 5 and 100 characters", 400);
+    }
+    if (!normalizedMessage || normalizedMessage.length < 10) {
+      return errorResponse(res, "Message must be at least 10 characters", 400);
+    }
+    if (!["course", "single_user"].includes(normalizedTargetType)) {
+      return errorResponse(
+        res,
+        "targetType must be course or single_user",
+        400
+      );
+    }
+    if (!normalizedTargetId) {
+      return errorResponse(res, "targetId is required", 400);
+    }
+
+    const teacherCourseIds = await getTeacherAssignedCourseIds(teacherUid);
+    if (!teacherCourseIds.length) {
+      return errorResponse(res, "You are not assigned to any course", 403);
+    }
+
+    let payloadTargetType = "course";
+    let payloadTargetId = normalizedTargetId;
+    let targetName = "";
+    let recipientIds = [];
+
+    if (normalizedTargetType === "course") {
+      const courseSnap = await db
+        .collection(COLLECTIONS.COURSES)
+        .doc(normalizedTargetId)
+        .get();
+      if (!courseSnap.exists) {
+        return errorResponse(res, "Course not found", 404);
+      }
+
+      const courseData = courseSnap.data() || {};
+      if (!isTeacherAssignedToCourse(courseData, teacherUid)) {
+        return errorResponse(
+          res,
+          "You can only send announcements to your assigned course students",
+          403
+        );
+      }
+
+      const enrollmentsSnap = await db
+        .collection(COLLECTIONS.ENROLLMENTS)
+        .where("courseId", "==", normalizedTargetId)
+        .get();
+
+      recipientIds = [
+        ...new Set(
+          enrollmentsSnap.docs
+            .map((doc) => trimText(doc.data()?.studentId))
+            .filter(Boolean)
+        ),
+      ];
+      if (recipientIds.length < 1) {
+        return errorResponse(
+          res,
+          "No enrolled students found in this course",
+          400
+        );
+      }
+
+      targetName = trimText(courseData.title) || "Course";
+    } else {
+      const userProfile = await getUserProfile(normalizedTargetId);
+      if (!userProfile) {
+        return errorResponse(res, "Student not found", 404);
+      }
+      if (trimText(userProfile.role).toLowerCase() !== "student") {
+        return errorResponse(res, "Only students can be targeted", 400);
+      }
+
+      const studentEnrollmentsSnap = await db
+        .collection(COLLECTIONS.ENROLLMENTS)
+        .where("studentId", "==", normalizedTargetId)
+        .get();
+      const studentCourseIds = new Set(
+        studentEnrollmentsSnap.docs
+          .map((doc) => trimText(doc.data()?.courseId))
+          .filter(Boolean)
+      );
+      const isMyStudent = teacherCourseIds.some((courseId) =>
+        studentCourseIds.has(courseId)
+      );
+      if (!isMyStudent) {
+        return errorResponse(
+          res,
+          "You can only send to students from your assigned courses",
+          403
+        );
+      }
+
+      payloadTargetType = "single_user";
+      targetName = trimText(userProfile.fullName || userProfile.email || "Student");
+      recipientIds = [normalizedTargetId];
+    }
+
+    const postedByName = await getPosterName(teacherUid);
+    const payload = {
+      title: normalizedTitle,
+      message: normalizedMessage,
+      targetType: payloadTargetType,
+      targetId: payloadTargetId,
+      targetName,
+      audienceRole: "student",
+      postedBy: teacherUid,
+      postedByName,
+      postedByRole: "teacher",
+      sendEmail: Boolean(sendEmail),
+      isPinned: Boolean(isPinned),
+      studentsReached: recipientIds.length,
+      recipientIds,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+
+    const ref = await db.collection(COLLECTIONS.ANNOUNCEMENTS).add(payload);
+
+    let emailsSent = 0;
+    if (payload.sendEmail) {
+      const result = await sendAnnouncementEmails({
+        recipientIds,
+        title: payload.title,
+        message: payload.message,
+        targetName: payload.targetName,
+      });
+      emailsSent = result.sent;
+    }
+
+    return successResponse(
+      res,
+      {
+        id: ref.id,
+        ...payload,
+        emailsSent,
+      },
+      "Announcement posted",
+      201
+    );
+  } catch (error) {
+    return errorResponse(res, "Failed to post announcement", 500);
+  }
+};
+
+export const getTeacherOutgoingAnnouncements = async (req, res) => {
+  try {
+    const teacherUid = trimText(req.user?.uid);
+    if (!teacherUid) {
+      return errorResponse(res, "Unauthorized", 401);
+    }
+
+    const snap = await db
+      .collection(COLLECTIONS.ANNOUNCEMENTS)
+      .where("postedBy", "==", teacherUid)
+      .get();
+
+    const rows = await Promise.all(
+      snap.docs.map(async (doc) => {
+        const data = doc.data() || {};
+        const targetName = await resolveTargetName(
+          data.targetType || "system",
+          data.targetId || null,
+          data.targetName || ""
+        );
+        return {
+          ...normalizeAnnouncementDoc(doc),
+          targetName,
+        };
+      })
+    );
+
+    const outgoing = rows
+      .filter((item) => ["course", "single_user"].includes(trimText(item.targetType)))
+      .sort((a, b) => {
+        const aTime = toDate(a.createdAt)?.getTime() || 0;
+        const bTime = toDate(b.createdAt)?.getTime() || 0;
+        return bTime - aTime;
+      });
+
+    return successResponse(res, outgoing, "Teacher outgoing announcements fetched");
+  } catch (error) {
+    return errorResponse(res, "Failed to fetch teacher outgoing announcements", 500);
   }
 };
 

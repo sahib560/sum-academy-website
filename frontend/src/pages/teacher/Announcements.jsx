@@ -1,546 +1,527 @@
 import { useEffect, useMemo, useState } from "react";
-import { motion } from "framer-motion";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import toast from "react-hot-toast";
 import { Skeleton } from "../../components/Skeleton.jsx";
-
-const fadeUp = {
-  initial: { opacity: 0, y: 16 },
-  whileInView: { opacity: 1, y: 0 },
-  viewport: { once: true, amount: 0.2 },
-  transition: { duration: 0.45 },
-};
-
-const classOptions = [
-  "Batch A - Biology XI",
-  "Batch B - Chemistry XII",
-  "Batch C - Physics XI",
-];
-
-const courseOptions = [
-  "Biology Masterclass XI",
-  "Chemistry Quick Revision",
-  "Physics Practice Lab",
-];
-
-const initialAnnouncements = [
-  {
-    id: 1,
-    type: "Class",
-    target: "Batch A - Biology XI",
-    title: "Tomorrow's revision session",
-    message:
-      "Please review Chapter 5 before we meet. Bring your notes and questions so we can focus on weak areas.",
-    date: "2026-03-14",
-    students: 42,
-    emailSent: true,
-  },
-  {
-    id: 2,
-    type: "Course",
-    target: "Chemistry Quick Revision",
-    title: "New practice worksheet uploaded",
-    message:
-      "A new worksheet is live in Module 3. Complete it before Friday and post your questions in the discussion.",
-    date: "2026-03-12",
-    students: 28,
-    emailSent: false,
-  },
-  {
-    id: 3,
-    type: "Class",
-    target: "Batch C - Physics XI",
-    title: "Lab assessment reminder",
-    message:
-      "Lab assessments begin next week. Make sure to review your lab notebooks and be prepared for viva questions.",
-    date: "2026-03-10",
-    students: 31,
-    emailSent: true,
-  },
-];
+import {
+  createTeacherAnnouncement,
+  getTeacherAnnouncements,
+  getTeacherCourses,
+  getTeacherStudents,
+} from "../../services/teacher.service.js";
 
 const tabs = [
-  { label: "All", value: "All" },
-  { label: "Class Announcements", value: "Class" },
-  { label: "Course Announcements", value: "Course" },
+  { label: "All", value: "all" },
+  { label: "Course", value: "course" },
+  { label: "Single Student", value: "single_user" },
 ];
 
-const formatLongDate = (dateStr) =>
-  new Date(dateStr).toLocaleDateString("en-US", {
-    month: "long",
+const initialSendForm = {
+  targetType: "course",
+  targetId: "",
+  title: "",
+  message: "",
+  sendEmail: true,
+};
+
+const formatDateTime = (value) => {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return date.toLocaleString("en-GB", {
     day: "2-digit",
+    month: "short",
     year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
   });
+};
+
+const getRelativeTime = (value) => {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const diffMs = Date.now() - date.getTime();
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  if (diffDays <= 0) return "Today";
+  if (diffDays === 1) return "1 day ago";
+  if (diffDays < 30) return `${diffDays} days ago`;
+  const diffMonths = Math.floor(diffDays / 30);
+  if (diffMonths === 1) return "1 month ago";
+  return `${diffMonths} months ago`;
+};
+
+const resolveTargetLabel = (item) => {
+  if (item?.targetName) return item.targetName;
+  if (item?.targetType === "course") return "Course";
+  if (item?.targetType === "single_user") return "Single Student";
+  return "Announcement";
+};
 
 function TeacherAnnouncements() {
-  const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState("All");
+  const queryClient = useQueryClient();
+  const [activeTab, setActiveTab] = useState("all");
   const [search, setSearch] = useState("");
-  const [announcements, setAnnouncements] = useState(initialAnnouncements);
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [expanded, setExpanded] = useState({});
-  const [modalOpen, setModalOpen] = useState(false);
-  const [editing, setEditing] = useState(null);
-  const [deleteTarget, setDeleteTarget] = useState(null);
-  const [toast, setToast] = useState(null);
-  const [emailToggle, setEmailToggle] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [formData, setFormData] = useState({
-    type: "Class",
-    target: classOptions[0],
-    title: "",
-    message: "",
+  const [sendModalOpen, setSendModalOpen] = useState(false);
+  const [sendForm, setSendForm] = useState(initialSendForm);
+  const [sendErrors, setSendErrors] = useState({});
+
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      setDebouncedSearch(search.trim().toLowerCase());
+    }, 300);
+    return () => clearTimeout(timeout);
+  }, [search]);
+
+  const outgoingQuery = useQuery({
+    queryKey: ["teacher-announcements", "outgoing"],
+    queryFn: getTeacherAnnouncements,
+    staleTime: 60 * 1000,
+    refetchInterval: 60 * 1000,
   });
 
-  useEffect(() => {
-    const timer = setTimeout(() => setLoading(false), 1200);
-    return () => clearTimeout(timer);
-  }, []);
+  const teacherCoursesQuery = useQuery({
+    queryKey: ["teacher-courses", "announcement-targets"],
+    queryFn: getTeacherCourses,
+    staleTime: 60 * 1000,
+  });
 
-  useEffect(() => {
-    if (!toast) return;
-    const timer = setTimeout(() => setToast(null), 2000);
-    return () => clearTimeout(timer);
-  }, [toast]);
+  const teacherStudentsQuery = useQuery({
+    queryKey: ["teacher-students", "announcement-targets"],
+    queryFn: getTeacherStudents,
+    staleTime: 60 * 1000,
+  });
 
-  const tabCounts = useMemo(() => {
-    return {
-      All: announcements.length,
-      Class: announcements.filter((item) => item.type === "Class").length,
-      Course: announcements.filter((item) => item.type === "Course").length,
-    };
-  }, [announcements]);
+  const announcements = useMemo(() => {
+    return Array.isArray(outgoingQuery.data) ? outgoingQuery.data : [];
+  }, [outgoingQuery.data]);
+
+  const counts = useMemo(
+    () => ({
+      all: announcements.length,
+      course: announcements.filter((item) => item.targetType === "course").length,
+      single_user: announcements.filter((item) => item.targetType === "single_user")
+        .length,
+    }),
+    [announcements]
+  );
 
   const filteredAnnouncements = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    return announcements
-      .filter((item) => (activeTab === "All" ? true : item.type === activeTab))
-      .filter(
-        (item) =>
-          !query ||
-          item.title.toLowerCase().includes(query) ||
-          item.message.toLowerCase().includes(query)
-      )
-      .sort((a, b) => new Date(b.date) - new Date(a.date));
-  }, [activeTab, announcements, search]);
+    const byTab =
+      activeTab === "all"
+        ? announcements
+        : announcements.filter((item) => item.targetType === activeTab);
 
-  const openModal = (announcement = null) => {
-    setEditing(announcement);
-    setFormData(
-      announcement
-        ? {
-            type: announcement.type,
-            target: announcement.target,
-            title: announcement.title,
-            message: announcement.message,
-          }
-        : {
-            type: "Class",
-            target: classOptions[0],
-            title: "",
-            message: "",
-          }
-    );
-    setEmailToggle(announcement?.emailSent || false);
-    setModalOpen(true);
-  };
+    const bySearch = debouncedSearch
+      ? byTab.filter((item) => {
+          const title = String(item.title || "").toLowerCase();
+          const message = String(item.message || "").toLowerCase();
+          return title.includes(debouncedSearch) || message.includes(debouncedSearch);
+        })
+      : byTab;
 
-  const applyFormat = (wrapper) => {
-    setFormData((prev) => {
-      const nextValue = `${wrapper}${prev.message}${wrapper}`;
-      return { ...prev, message: nextValue };
+    return [...bySearch].sort((a, b) => {
+      const aTime = new Date(a.createdAt || 0).getTime();
+      const bTime = new Date(b.createdAt || 0).getTime();
+      return bTime - aTime;
     });
-  };
+  }, [activeTab, announcements, debouncedSearch]);
 
-  const handleSave = () => {
-    if (formData.title.trim().length === 0 || formData.message.trim().length < 10) {
-      setToast({ type: "error", message: "Something went wrong. Please try again." });
-      return;
+  const sendMutation = useMutation({
+    mutationFn: createTeacherAnnouncement,
+    onSuccess: (response) => {
+      const reached = Number(response?.data?.studentsReached || 0);
+      const emailsSent = Number(response?.data?.emailsSent || 0);
+      toast.success(
+        reached > 0
+          ? `Announcement sent to ${reached} students`
+          : "Announcement posted"
+      );
+      if (emailsSent > 0) {
+        toast.success(`${emailsSent} email notifications sent`);
+      }
+      setSendModalOpen(false);
+      setSendForm(initialSendForm);
+      setSendErrors({});
+      queryClient.invalidateQueries({ queryKey: ["teacher-announcements"] });
+    },
+    onError: (error) => {
+      toast.error(error?.response?.data?.message || "Failed to send announcement");
+    },
+  });
+
+  const teacherCourses = Array.isArray(teacherCoursesQuery.data)
+    ? teacherCoursesQuery.data
+    : [];
+  const teacherStudents = Array.isArray(teacherStudentsQuery.data)
+    ? teacherStudentsQuery.data
+    : [];
+
+  const validateSendForm = () => {
+    const next = {};
+    const title = String(sendForm.title || "").trim();
+    const message = String(sendForm.message || "").trim();
+
+    if (!["course", "single_user"].includes(sendForm.targetType)) {
+      next.targetType = "Invalid recipient type";
     }
-    setSaving(true);
-    setTimeout(() => {
-      setSaving(false);
-      let emailCount = 0;
-      if (editing) {
-        setAnnouncements((prev) =>
-          prev.map((item) =>
-            item.id === editing.id
-              ? {
-                  ...item,
-                  ...formData,
-                  emailSent: emailToggle,
-                }
-              : item
-          )
-        );
-        emailCount = editing.students;
-        setToast({ type: "success", message: "Announcement posted successfully" });
-      } else {
-        const newAnnouncement = {
-          id: Date.now(),
-          date: new Date().toISOString().slice(0, 10),
-          students: 0,
-          emailSent: emailToggle,
-          ...formData,
-        };
-        setAnnouncements((prev) => [newAnnouncement, ...prev]);
-        emailCount = newAnnouncement.students;
-        setToast({ type: "success", message: "Announcement posted successfully" });
-      }
-      if (emailToggle) {
-        setTimeout(() => {
-          setToast({
-            type: "email",
-            message: `Email sent to ${emailCount} students`,
-          });
-        }, 1200);
-      }
-      setModalOpen(false);
-    }, 900);
+    if (!sendForm.targetId) {
+      next.targetId =
+        sendForm.targetType === "single_user"
+          ? "Please select a student"
+          : "Please select a course";
+    }
+    if (title.length < 5) next.title = "Title must be at least 5 characters";
+    if (title.length > 100) next.title = "Title must be at most 100 characters";
+    if (message.length < 10) next.message = "Message must be at least 10 characters";
+
+    setSendErrors(next);
+    return Object.keys(next).length < 1;
   };
 
-  const handleDelete = () => {
-    if (!deleteTarget) return;
-    setAnnouncements((prev) => prev.filter((item) => item.id !== deleteTarget.id));
-    setDeleteTarget(null);
-    setToast({ type: "delete", message: "Announcement deleted" });
+  const submitSendAnnouncement = () => {
+    if (!validateSendForm()) return;
+    sendMutation.mutate({
+      targetType: sendForm.targetType,
+      targetId: sendForm.targetId,
+      title: String(sendForm.title || "").trim(),
+      message: String(sendForm.message || "").trim(),
+      sendEmail: Boolean(sendForm.sendEmail),
+    });
   };
 
   return (
     <div className="space-y-6">
-      <motion.section
-        {...fadeUp}
-        className="flex flex-wrap items-center justify-between gap-4"
-      >
-        <h1 className="font-heading text-3xl text-slate-900">Announcements</h1>
-        <button className="btn-primary" onClick={() => openModal()}>
-          Post Announcement
+      <section className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="font-heading text-3xl text-slate-900">Announcements</h1>
+          <p className="text-sm text-slate-500">
+            Showing only outgoing announcements sent by you.
+          </p>
+        </div>
+        <button
+          className="btn-primary"
+          onClick={() => {
+            setSendForm(initialSendForm);
+            setSendErrors({});
+            setSendModalOpen(true);
+          }}
+        >
+          Send Announcement
         </button>
-      </motion.section>
+      </section>
 
-      <motion.section {...fadeUp} className="flex flex-wrap items-center gap-3">
-        {tabs.map((tab) => (
-          <button
-            key={tab.value}
-            className={`rounded-full px-4 py-2 text-xs font-semibold ${
-              activeTab === tab.value
-                ? "bg-primary text-white"
-                : "border border-slate-200 text-slate-600"
-            }`}
-            onClick={() => setActiveTab(tab.value)}
-          >
-            {tab.label}
-            <span className="ml-2 rounded-full bg-white/20 px-2 py-0.5 text-[10px]">
-              {tabCounts[tab.value]}
-            </span>
-          </button>
-        ))}
+      <section className="grid gap-3 md:grid-cols-3">
+        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">
+            Total Outgoing
+          </p>
+          <p className="mt-2 text-2xl font-bold text-slate-900">{counts.all}</p>
+        </div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-orange-500">
+            Course Announcements
+          </p>
+          <p className="mt-2 text-2xl font-bold text-slate-900">{counts.course}</p>
+        </div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-500">
+            Single Student
+          </p>
+          <p className="mt-2 text-2xl font-bold text-slate-900">{counts.single_user}</p>
+        </div>
+      </section>
+
+      <section className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          {tabs.map((tab) => (
+            <button
+              key={tab.value}
+              className={`rounded-full px-4 py-2 text-xs font-semibold ${
+                activeTab === tab.value
+                  ? "bg-primary text-white"
+                  : "border border-slate-200 bg-white text-slate-600"
+              }`}
+              onClick={() => setActiveTab(tab.value)}
+            >
+              {tab.label} ({counts[tab.value] || 0})
+            </button>
+          ))}
+        </div>
         <input
           type="text"
           placeholder="Search announcements..."
           value={search}
           onChange={(event) => setSearch(event.target.value)}
-          className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 shadow-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+          className="w-full max-w-sm rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 shadow-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
         />
-      </motion.section>
+      </section>
 
-      <motion.section {...fadeUp} className="grid gap-4">
-        {loading ? (
-          Array.from({ length: 3 }).map((_, index) => (
-            <div key={`ann-skel-${index}`} className="glass-card border border-slate-200">
+      <section className="space-y-4">
+        {outgoingQuery.isLoading ? (
+          Array.from({ length: 4 }).map((_, index) => (
+            <div
+              key={`teacher-outgoing-skeleton-${index}`}
+              className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"
+            >
               <Skeleton className="h-4 w-1/3" />
-              <Skeleton className="mt-4 h-4 w-2/3" />
-              <Skeleton className="mt-4 h-10 w-full" />
+              <Skeleton className="mt-3 h-5 w-2/3" />
+              <Skeleton className="mt-3 h-4 w-full" />
+              <Skeleton className="mt-2 h-4 w-10/12" />
             </div>
           ))
-        ) : filteredAnnouncements.length === 0 ? (
-          <div className="rounded-3xl border border-dashed border-slate-200 bg-white p-10 text-center text-sm text-slate-500">
-            <p>No announcements yet.</p>
-            <button className="btn-primary mt-4" onClick={() => openModal()}>
-              Post Announcement
+        ) : outgoingQuery.isError ? (
+          <div className="rounded-3xl border border-rose-200 bg-rose-50 p-6 text-sm text-rose-700">
+            <p className="font-semibold">Failed to load outgoing announcements</p>
+            <button className="btn-outline mt-3" onClick={() => outgoingQuery.refetch()}>
+              Try Again
             </button>
           </div>
+        ) : filteredAnnouncements.length === 0 ? (
+          <div className="rounded-3xl border border-dashed border-slate-200 bg-white p-10 text-center text-sm text-slate-500">
+            No outgoing announcements found.
+          </div>
         ) : (
-          filteredAnnouncements.map((item) => (
-            <div
-              key={item.id}
-              className="flex flex-wrap items-start gap-4 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"
-            >
-              <span
-                className={`h-full w-1 rounded-full ${
-                  item.type === "Class" ? "bg-primary" : "bg-accent"
-                }`}
-              />
-              <div className="flex-1 space-y-2">
-                <div className="flex flex-wrap items-center gap-3">
-                  <h3 className="font-heading text-lg text-slate-900">{item.title}</h3>
-                  <span className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-600">
-                    {item.target}
-                  </span>
+          filteredAnnouncements.map((item) => {
+            const message = String(item.message || "");
+            const isExpanded = Boolean(expanded[item.id]);
+            const shouldTrim = message.length > 180 && !isExpanded;
+            const displayMessage = shouldTrim ? `${message.slice(0, 180)}...` : message;
+
+            return (
+              <div
+                key={item.id}
+                className="rounded-3xl border-l-4 border-primary bg-white p-5 shadow-sm"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+                      {resolveTargetLabel(item)}
+                    </span>
+                    <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
+                      {item.targetType === "single_user" ? "Single Student" : "Course"}
+                    </span>
+                    {item.sendEmail ? (
+                      <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">
+                        Email Enabled
+                      </span>
+                    ) : null}
+                  </div>
                 </div>
-                <p className="text-sm text-slate-500">
-                  {expanded[item.id]
-                    ? item.message
-                    : `${item.message.slice(0, 140)}${item.message.length > 140 ? "..." : ""}`}
-                  {item.message.length > 140 && (
+
+                <h3 className="mt-3 font-heading text-xl text-slate-900">
+                  {item.title || "Announcement"}
+                </h3>
+                <p className="mt-2 text-sm text-slate-600">{displayMessage}</p>
+
+                {message.length > 180 ? (
+                  <button
+                    className="mt-2 text-xs font-semibold text-primary"
+                    onClick={() =>
+                      setExpanded((prev) => ({
+                        ...prev,
+                        [item.id]: !prev[item.id],
+                      }))
+                    }
+                  >
+                    {isExpanded ? "Show less" : "Read more"}
+                  </button>
+                ) : null}
+
+                <div className="mt-4 flex flex-wrap items-center gap-4 text-xs text-slate-500">
+                  <span>{formatDateTime(item.createdAt)}</span>
+                  <span>{getRelativeTime(item.createdAt)}</span>
+                  <span>{Number(item.studentsReached || 0)} recipients</span>
+                </div>
+              </div>
+            );
+          })
+        )}
+      </section>
+
+      {sendModalOpen ? (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+          <button
+            type="button"
+            className="absolute inset-0 bg-slate-900/40"
+            onClick={() => {
+              if (sendMutation.isPending) return;
+              setSendModalOpen(false);
+            }}
+          />
+          <div className="relative w-full max-w-xl rounded-3xl bg-white p-6 shadow-2xl">
+            <div className="mb-4 flex items-start justify-between">
+              <div>
+                <h3 className="font-heading text-2xl text-slate-900">Send Announcement</h3>
+                <p className="text-xs text-slate-500">
+                  Send to students in your assigned courses or one specific student.
+                </p>
+              </div>
+              <button
+                className="rounded-full border border-slate-200 px-3 py-1 text-sm text-slate-500"
+                onClick={() => {
+                  if (sendMutation.isPending) return;
+                  setSendModalOpen(false);
+                }}
+              >
+                X
+              </button>
+            </div>
+
+            {teacherCoursesQuery.isLoading || teacherStudentsQuery.isLoading ? (
+              <div className="space-y-2">
+                <Skeleton className="h-10 w-full" />
+                <Skeleton className="h-24 w-full" />
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {teacherCourses.length < 1 && teacherStudents.length < 1 ? (
+                  <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">
+                    No eligible students found in your assigned courses.
+                  </div>
+                ) : null}
+
+                <div>
+                  <label className="text-xs font-semibold uppercase text-slate-500">
+                    Recipient Type
+                  </label>
+                  <div className="mt-1 grid grid-cols-2 gap-2">
                     <button
-                      className="ml-2 text-primary"
+                      type="button"
+                      className={`rounded-xl border px-3 py-2 text-sm font-semibold ${
+                        sendForm.targetType === "course"
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-slate-200 text-slate-600"
+                      }`}
                       onClick={() =>
-                        setExpanded((prev) => ({ ...prev, [item.id]: !prev[item.id] }))
+                        setSendForm((prev) => ({
+                          ...prev,
+                          targetType: "course",
+                          targetId: "",
+                        }))
                       }
                     >
-                      {expanded[item.id] ? "Show less" : "Read more"}
+                      Course Students
                     </button>
-                  )}
-                </p>
-                <div className="flex flex-wrap items-center gap-4 text-xs text-slate-500">
-                  <span>{formatLongDate(item.date)}</span>
-                  <span className="inline-flex items-center gap-2">
-                    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-                      <path d="M7 12a4 4 0 1 1 0-8 4 4 0 0 1 0 8zm10 0a3 3 0 1 1 0-6 3 3 0 0 1 0 6zM2 20a5 5 0 0 1 10 0H2zm12 0a4 4 0 0 1 8 0h-8z" />
-                    </svg>
-                    {item.students} students reached
-                  </span>
-                  {item.emailSent && (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-1 text-emerald-600">
-                      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-                        <path d="M4 6h16a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2zm0 2v.5l8 4.5 8-4.5V8H4z" />
-                      </svg>
-                      Email sent
-                    </span>
-                  )}
+                    <button
+                      type="button"
+                      className={`rounded-xl border px-3 py-2 text-sm font-semibold ${
+                        sendForm.targetType === "single_user"
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-slate-200 text-slate-600"
+                      }`}
+                      onClick={() =>
+                        setSendForm((prev) => ({
+                          ...prev,
+                          targetType: "single_user",
+                          targetId: "",
+                        }))
+                      }
+                    >
+                      Single Student
+                    </button>
+                  </div>
+                  <p className="mt-1 text-xs text-rose-500">{sendErrors.targetType || ""}</p>
                 </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  className="rounded-full border border-slate-200 px-3 py-2 text-xs text-slate-600"
-                  onClick={() => openModal(item)}
-                >
-                  <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-                    <path d="M4 17.3V20h2.7l7.9-7.9-2.7-2.7L4 17.3zM20.7 7.04a1 1 0 0 0 0-1.41l-2.3-2.3a1 1 0 0 0-1.41 0l-1.8 1.8 3.7 3.7 1.8-1.79z" />
-                  </svg>
-                </button>
-                <button
-                  className="rounded-full border border-slate-200 px-3 py-2 text-xs text-rose-500"
-                  onClick={() => setDeleteTarget(item)}
-                >
-                  <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-                    <path d="M6 7h12l-1 14H7L6 7zm3-3h6l1 2H8l1-2z" />
-                  </svg>
-                </button>
-              </div>
-            </div>
-          ))
-        )}
-      </motion.section>
 
-      {modalOpen && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center px-4">
-          <button
-            type="button"
-            className="absolute inset-0 bg-slate-900/40"
-            onClick={() => setModalOpen(false)}
-            aria-label="Close"
-          />
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="relative w-full max-w-2xl rounded-3xl bg-white p-6 shadow-2xl"
-          >
-            <h2 className="font-heading text-2xl text-slate-900">
-              {editing ? "Edit Announcement" : "Post Announcement"}
-            </h2>
-            <div className="mt-4 space-y-4">
-              <div className="flex flex-wrap items-center gap-3">
-                {["Class", "Course"].map((type) => (
-                  <button
-                    key={type}
-                    className={`rounded-full px-4 py-2 text-xs font-semibold ${
-                      formData.type === type
-                        ? type === "Class"
-                          ? "bg-primary text-white"
-                          : "bg-accent text-white"
-                        : "border border-slate-200 text-slate-600"
-                    }`}
-                    onClick={() =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        type,
-                        target: type === "Class" ? classOptions[0] : courseOptions[0],
-                      }))
-                    }
-                  >
-                    {type} Announcement
-                  </button>
-                ))}
-              </div>
-              <div>
-                <label className="text-xs font-semibold uppercase text-slate-400">
-                  Target
-                </label>
-                <select
-                  value={formData.target}
-                  onChange={(event) =>
-                    setFormData((prev) => ({ ...prev, target: event.target.value }))
-                  }
-                  className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                >
-                  {(formData.type === "Class" ? classOptions : courseOptions).map(
-                    (item) => (
-                      <option key={item}>{item}</option>
-                    )
-                  )}
-                </select>
-              </div>
-              <div>
-                <label className="text-xs font-semibold uppercase text-slate-400">
-                  Title
-                </label>
-                <input
-                  value={formData.title}
-                  maxLength={100}
-                  onChange={(event) =>
-                    setFormData((prev) => ({ ...prev, title: event.target.value }))
-                  }
-                  className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                />
-              </div>
-              <div>
-                <div className="flex items-center justify-between text-xs text-slate-400">
-                  <span className="font-semibold uppercase">Message</span>
-                  <span>{formData.message.length}/500</span>
-                </div>
-                <div className="mt-2 flex gap-2">
-                  <button
-                    className="rounded-full border border-slate-200 px-3 py-1 text-xs"
-                    onClick={() => applyFormat("**")}
-                  >
-                    Bold
-                  </button>
-                  <button
-                    className="rounded-full border border-slate-200 px-3 py-1 text-xs"
-                    onClick={() => applyFormat("_")}
-                  >
-                    Italic
-                  </button>
-                  <button
-                    className="rounded-full border border-slate-200 px-3 py-1 text-xs"
-                    onClick={() =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        message: `${prev.message}\n- `,
-                      }))
-                    }
-                  >
-                    Bullet List
-                  </button>
-                </div>
-                <textarea
-                  value={formData.message}
-                  minLength={10}
-                  onChange={(event) =>
-                    setFormData((prev) => ({ ...prev, message: event.target.value }))
-                  }
-                  rows={4}
-                  className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                />
-              </div>
-              <div className="flex items-center justify-between rounded-2xl border border-slate-200 px-4 py-3 text-sm">
                 <div>
-                  <p className="font-semibold text-slate-900">
-                    Send email notification
-                  </p>
-                  <p className="text-xs text-slate-500">
-                    Announcement visible in dashboard only when off
-                  </p>
+                  <label className="text-xs font-semibold uppercase text-slate-500">
+                    {sendForm.targetType === "single_user" ? "Student" : "Course"}
+                  </label>
+                  <select
+                    value={sendForm.targetId}
+                    onChange={(event) =>
+                      setSendForm((prev) => ({ ...prev, targetId: event.target.value }))
+                    }
+                    className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                  >
+                    <option value="">
+                      {sendForm.targetType === "single_user"
+                        ? "Select student"
+                        : "Select your course"}
+                    </option>
+                    {sendForm.targetType === "single_user"
+                      ? teacherStudents.map((student) => (
+                          <option key={student.uid} value={student.uid}>
+                            {student.fullName || student.email || "Student"}
+                          </option>
+                        ))
+                      : teacherCourses.map((course) => (
+                          <option key={course.id} value={course.id}>
+                            {course.title}
+                          </option>
+                        ))}
+                  </select>
+                  <p className="mt-1 text-xs text-rose-500">{sendErrors.targetId || ""}</p>
                 </div>
-                <button
-                  className={`h-7 w-12 rounded-full p-1 ${
-                    emailToggle ? "bg-primary" : "bg-slate-200"
-                  }`}
-                  onClick={() => setEmailToggle((prev) => !prev)}
-                  type="button"
-                >
-                  <span
-                    className={`block h-5 w-5 rounded-full bg-white transition ${
-                      emailToggle ? "translate-x-5" : "translate-x-0"
-                    }`}
+
+                <div>
+                  <label className="text-xs font-semibold uppercase text-slate-500">Title</label>
+                  <input
+                    value={sendForm.title}
+                    onChange={(event) =>
+                      setSendForm((prev) => ({ ...prev, title: event.target.value }))
+                    }
+                    maxLength={100}
+                    className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                    placeholder="Enter announcement title"
                   />
+                  <div className="mt-1 flex items-center justify-between">
+                    <p className="text-xs text-rose-500">{sendErrors.title || ""}</p>
+                    <p className="text-xs text-slate-400">{sendForm.title.length}/100</p>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold uppercase text-slate-500">
+                    Message
+                  </label>
+                  <textarea
+                    value={sendForm.message}
+                    onChange={(event) =>
+                      setSendForm((prev) => ({ ...prev, message: event.target.value }))
+                    }
+                    rows={6}
+                    className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                    placeholder="Write your announcement..."
+                  />
+                  <p className="mt-1 text-xs text-rose-500">{sendErrors.message || ""}</p>
+                </div>
+
+                <label className="flex items-center justify-between rounded-2xl border border-slate-200 px-3 py-2">
+                  <span className="text-sm font-semibold text-slate-700">
+                    Send email notification
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={sendForm.sendEmail}
+                    onChange={(event) =>
+                      setSendForm((prev) => ({
+                        ...prev,
+                        sendEmail: event.target.checked,
+                      }))
+                    }
+                  />
+                </label>
+
+                <button
+                  className="btn-primary w-full"
+                  onClick={submitSendAnnouncement}
+                  disabled={
+                    sendMutation.isPending ||
+                    (sendForm.targetType === "single_user"
+                      ? teacherStudents.length < 1
+                      : teacherCourses.length < 1)
+                  }
+                >
+                  {sendMutation.isPending ? "Sending..." : "Send Announcement"}
                 </button>
               </div>
-              {emailToggle && (
-                <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
-                  <p className="font-semibold">
-                    This will send an email to all enrolled students. This action
-                    cannot be undone.
-                  </p>
-                  <p className="mt-2 text-xs">
-                    Subject: {formData.title || "Announcement"}
-                  </p>
-                  <p className="text-xs">
-                    Preview: {formData.message.slice(0, 60) || "No message yet"}
-                  </p>
-                </div>
-              )}
-            </div>
-            <div className="mt-6 flex justify-end gap-3">
-              <button className="btn-outline" onClick={() => setModalOpen(false)}>
-                Cancel
-              </button>
-              <button className="btn-primary" onClick={handleSave} disabled={saving}>
-                {saving ? "Posting..." : "Post Announcement"}
-              </button>
-            </div>
-          </motion.div>
+            )}
+          </div>
         </div>
-      )}
-
-      {deleteTarget && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center px-4">
-          <button
-            type="button"
-            className="absolute inset-0 bg-slate-900/40"
-            onClick={() => setDeleteTarget(null)}
-            aria-label="Close"
-          />
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="relative w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl"
-          >
-            <h3 className="font-heading text-xl text-slate-900">
-              Delete announcement?
-            </h3>
-            <p className="mt-2 text-sm text-slate-500">
-              Students will no longer see it.
-            </p>
-            <div className="mt-6 flex gap-3">
-              <button
-                className="btn-outline flex-1"
-                onClick={() => setDeleteTarget(null)}
-              >
-                Cancel
-              </button>
-              <button className="btn-primary flex-1" onClick={handleDelete}>
-                Delete
-              </button>
-            </div>
-          </motion.div>
-        </div>
-      )}
-
-      {toast && (
-        <div
-          className={`fixed right-6 top-6 z-[70] rounded-2xl px-4 py-3 text-sm font-semibold text-white shadow-xl ${
-            toast.type === "error"
-              ? "bg-rose-500"
-              : toast.type === "delete"
-                ? "bg-slate-700"
-                : toast.type === "email"
-                  ? "bg-blue-600"
-                  : "bg-emerald-500"
-          }`}
-        >
-          {toast.message}
-        </div>
-      )}
+      ) : null}
     </div>
   );
 }

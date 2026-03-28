@@ -85,6 +85,9 @@ const formatPaymentMethodLabel = (value = "") => {
   return method || "-";
 };
 
+const resolveEnabled = (value, fallback = true) =>
+  typeof value === "boolean" ? value : fallback;
+
 const sortByCreatedAtDesc = (a, b) =>
   (parseDate(b.createdAt)?.getTime() || 0) -
   (parseDate(a.createdAt)?.getTime() || 0);
@@ -271,34 +274,77 @@ const calculateInstallmentComputedFields = (plan = {}) => {
 };
 
 const getCurrentPaymentSettings = async () => {
-  const settingsSnap = await db
-    .collection(COLLECTIONS.SETTINGS)
-    .doc("general")
-    .get();
-  const settings = settingsSnap.exists ? settingsSnap.data() || {} : {};
+  const [settingsSnap, legacySnap] = await Promise.all([
+    db.collection(COLLECTIONS.SETTINGS).doc("siteSettings").get(),
+    db.collection(COLLECTIONS.SETTINGS).doc("general").get(),
+  ]);
+  const settings = settingsSnap.exists
+    ? settingsSnap.data() || {}
+    : legacySnap.exists
+      ? legacySnap.data() || {}
+      : {};
+
+  const configuredPayment = settings.payment || settings.paymentSettings || {};
+  const configuredJazz = configuredPayment.jazzcash || settings.jazzcash || {};
+  const configuredEasypaisa = configuredPayment.easypaisa || settings.easypaisa || {};
 
   const configuredBank =
-    settings?.paymentSettings?.bankTransfer ||
-    settings?.paymentSettings?.bank ||
+    configuredPayment?.bankTransfer ||
+    configuredPayment?.bank ||
     settings?.bankTransfer ||
     {};
 
+  const defaultAccountTitle =
+    settings?.general?.siteName || settings?.siteName || "SUM Academy";
+  const legacyJazzDisabledByDefault =
+    configuredJazz?.enabled === false &&
+    !configuredJazz?.merchantId &&
+    !configuredJazz?.accountTitle &&
+    !configuredJazz?.instructions;
+  const legacyEasyDisabledByDefault =
+    configuredEasypaisa?.enabled === false &&
+    !configuredEasypaisa?.accountNumber &&
+    !configuredEasypaisa?.accountTitle &&
+    !configuredEasypaisa?.instructions;
+
   return {
     jazzcash: {
-      enabled:
-        settings?.paymentSettings?.jazzcash?.enabled ??
-        PAYMENT_CONFIG.jazzcash.enabled,
+      enabled: legacyJazzDisabledByDefault
+        ? true
+        : resolveEnabled(configuredJazz?.enabled, PAYMENT_CONFIG.jazzcash.enabled ?? true),
+      merchantId: configuredJazz?.merchantId || PAYMENT_CONFIG.jazzcash.merchantId || "",
+      accountTitle:
+        configuredJazz?.accountTitle ||
+        PAYMENT_CONFIG.jazzcash.accountTitle ||
+        defaultAccountTitle,
+      instructions:
+        configuredJazz?.instructions ||
+        PAYMENT_CONFIG.jazzcash.instructions ||
+        "Send payment to JazzCash merchant and upload the transaction receipt.",
       returnUrl: PAYMENT_CONFIG.jazzcash.returnUrl,
     },
     easypaisa: {
-      enabled:
-        settings?.paymentSettings?.easypaisa?.enabled ??
-        PAYMENT_CONFIG.easypaisa.enabled,
+      enabled: legacyEasyDisabledByDefault
+        ? true
+        : resolveEnabled(
+            configuredEasypaisa?.enabled,
+            PAYMENT_CONFIG.easypaisa.enabled ?? true
+          ),
+      accountNumber:
+        configuredEasypaisa?.accountNumber || PAYMENT_CONFIG.easypaisa.accountNumber || "",
+      accountTitle:
+        configuredEasypaisa?.accountTitle ||
+        PAYMENT_CONFIG.easypaisa.accountTitle ||
+        defaultAccountTitle,
+      username: configuredEasypaisa?.username || PAYMENT_CONFIG.easypaisa.username || "",
+      instructions:
+        configuredEasypaisa?.instructions ||
+        PAYMENT_CONFIG.easypaisa.instructions ||
+        "Send payment to EasyPaisa account and upload the transaction receipt.",
       returnUrl: PAYMENT_CONFIG.easypaisa.returnUrl,
     },
     bankTransfer: {
-      enabled:
-        configuredBank?.enabled ?? PAYMENT_CONFIG.bankTransfer.enabled,
+      enabled: resolveEnabled(configuredBank?.enabled, PAYMENT_CONFIG.bankTransfer.enabled),
       bankName:
         configuredBank?.bankName || PAYMENT_CONFIG.bankTransfer.bankName,
       accountTitle:
@@ -457,51 +503,22 @@ export const initiatePayment = async (req, res) => {
         : null;
 
     const paymentSettings = await getCurrentPaymentSettings();
+    const selectedMethodSettings =
+      paymentMethod === "jazzcash"
+        ? paymentSettings.jazzcash
+        : paymentMethod === "easypaisa"
+          ? paymentSettings.easypaisa
+          : paymentSettings.bankTransfer;
 
-    if (paymentMethod === "jazzcash") {
-      if (!paymentSettings.jazzcash.enabled) {
-        return errorResponse(
-          res,
-          "JazzCash integration coming soon. Please use Bank Transfer for now.",
-          503
-        );
-      }
-
-      return successResponse(
+    if (!selectedMethodSettings?.enabled) {
+      return errorResponse(
         res,
-        {
-          gateway: "jazzcash",
-          status: "placeholder",
-          message: "JazzCash API call placeholder ready. Add keys to enable.",
-        },
-        "JazzCash initiation placeholder"
+        `${formatPaymentMethodLabel(paymentMethod)} is currently disabled`,
+        503
       );
     }
 
-    if (paymentMethod === "easypaisa") {
-      if (!paymentSettings.easypaisa.enabled) {
-        return errorResponse(
-          res,
-          "EasyPaisa integration coming soon. Please use Bank Transfer for now.",
-          503
-        );
-      }
-
-      return successResponse(
-        res,
-        {
-          gateway: "easypaisa",
-          status: "placeholder",
-          message: "EasyPaisa API call placeholder ready. Add keys to enable.",
-        },
-        "EasyPaisa initiation placeholder"
-      );
-    }
-
-    if (!paymentSettings.bankTransfer.enabled) {
-      return errorResponse(res, "Bank transfer is currently disabled", 503);
-    }
-
+    const methodLabel = formatPaymentMethodLabel(paymentMethod);
     const paymentRef = db.collection(COLLECTIONS.PAYMENTS).doc();
     const reference = generateReference();
 
@@ -518,7 +535,7 @@ export const initiatePayment = async (req, res) => {
       discount: discountAmount,
       promoCode: promoData?.code || null,
       promoCodeId: promoDoc?.id || null,
-      method: "bank_transfer",
+      method: paymentMethod,
       status: "pending",
       receiptUrl: null,
       reference,
@@ -529,6 +546,33 @@ export const initiatePayment = async (req, res) => {
       updatedAt: FieldValue.serverTimestamp(),
     };
 
+    const paymentDetails =
+      paymentMethod === "jazzcash"
+        ? {
+            merchantId: paymentSettings.jazzcash.merchantId || "-",
+            accountTitle: paymentSettings.jazzcash.accountTitle || "SUM Academy",
+            instructions:
+              paymentSettings.jazzcash.instructions ||
+              "Send payment to JazzCash merchant and upload the transaction receipt.",
+          }
+        : paymentMethod === "easypaisa"
+          ? {
+              accountNumber: paymentSettings.easypaisa.accountNumber || "-",
+              accountTitle: paymentSettings.easypaisa.accountTitle || "SUM Academy",
+              username: paymentSettings.easypaisa.username || "",
+              instructions:
+                paymentSettings.easypaisa.instructions ||
+                "Send payment to EasyPaisa account and upload the transaction receipt.",
+            }
+          : {
+              bankName: paymentSettings.bankTransfer.bankName,
+              accountTitle: paymentSettings.bankTransfer.accountTitle,
+              accountNumber: paymentSettings.bankTransfer.accountNumber,
+              iban: paymentSettings.bankTransfer.iban,
+              instructions:
+                "Transfer amount to the bank account and upload your payment receipt.",
+            };
+
     await paymentRef.set(paymentPayload);
 
     try {
@@ -536,7 +580,8 @@ export const initiatePayment = async (req, res) => {
         student.email,
         student.fullName,
         paymentPayload,
-        paymentSettings.bankTransfer
+        paymentDetails,
+        methodLabel
       );
     } catch (emailError) {
       console.error("sendBankTransferInitiated error:", emailError.message);
@@ -550,11 +595,14 @@ export const initiatePayment = async (req, res) => {
         amount: finalAmount,
         originalAmount,
         discount: discountAmount,
+        method: paymentMethod,
         promoCode: promoData?.code || null,
-        bankDetails: paymentSettings.bankTransfer,
+        paymentDetails,
+        bankDetails:
+          paymentMethod === "bank_transfer" ? paymentDetails : undefined,
         installments: installmentSchedule,
       },
-      "Bank transfer initiated",
+      `${methodLabel} initiated`,
       201
     );
   } catch (error) {
@@ -955,8 +1003,24 @@ export const verifyBankTransfer = async (req, res) => {
     if (!paymentSnap.exists) return errorResponse(res, "Payment not found", 404);
 
     const payment = paymentSnap.data() || {};
-    if (payment.method !== "bank_transfer") {
-      return errorResponse(res, "Only bank transfer can be verified here", 400);
+    const currentStatus = String(payment.status || "").toLowerCase();
+    const actionableStatuses = new Set(["pending", "pending_verification"]);
+    if (!actionableStatuses.has(currentStatus)) {
+      if (action === "approve" && currentStatus === "paid") {
+        return successResponse(res, { paymentId, status: "paid" }, "Payment already approved");
+      }
+      if (action === "reject" && currentStatus === "rejected") {
+        return successResponse(
+          res,
+          { paymentId, status: "rejected" },
+          "Payment already rejected"
+        );
+      }
+      return errorResponse(
+        res,
+        "Only pending requests can be approved or rejected",
+        400
+      );
     }
 
     const studentUserSnap = await db.collection(COLLECTIONS.USERS).doc(payment.studentId).get();

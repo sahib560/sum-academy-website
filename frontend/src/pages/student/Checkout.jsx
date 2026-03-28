@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { motion } from "framer-motion";
+import { motion as Motion } from "framer-motion";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import toast, { Toaster } from "react-hot-toast";
@@ -21,6 +21,10 @@ const METHOD_STYLE = {
 };
 
 const formatPKR = (amount) => `PKR ${Number(amount || 0).toLocaleString("en-PK")}`;
+const formatMethodLabel = (value = "") =>
+  String(value || "")
+    .replace("_", " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
 
 const formatTime = (value = "") => {
   if (!/^\d{2}:\d{2}$/.test(value)) return value || "-";
@@ -86,25 +90,55 @@ function Checkout() {
   const totalAmount = Math.max(Number((originalAmount - discountAmount).toFixed(2)), 0);
 
   const paymentMethods = useMemo(
-    () => [
-      {
-        id: "jazzcash",
-        label: "JazzCash",
-        enabled: Boolean(paymentConfig?.jazzcash?.enabled),
-      },
-      {
-        id: "easypaisa",
-        label: "EasyPaisa",
-        enabled: Boolean(paymentConfig?.easypaisa?.enabled),
-      },
-      {
-        id: "bank_transfer",
-        label: "Bank Transfer",
-        enabled: Boolean(paymentConfig?.bankTransfer?.enabled ?? true),
-      },
-    ],
+    () => {
+      const jazz = paymentConfig?.jazzcash || {};
+      const easy = paymentConfig?.easypaisa || {};
+      const jazzLegacyDisabled =
+        jazz?.enabled === false &&
+        !jazz?.merchantId &&
+        !jazz?.accountTitle &&
+        !jazz?.instructions;
+      const easyLegacyDisabled =
+        easy?.enabled === false &&
+        !easy?.accountNumber &&
+        !easy?.accountTitle &&
+        !easy?.instructions;
+
+      return [
+        {
+          id: "jazzcash",
+          label: "JazzCash",
+          enabled: jazzLegacyDisabled ? true : Boolean(jazz?.enabled ?? true),
+        },
+        {
+          id: "easypaisa",
+          label: "EasyPaisa",
+          enabled: easyLegacyDisabled ? true : Boolean(easy?.enabled ?? true),
+        },
+        {
+          id: "bank_transfer",
+          label: "Bank Transfer",
+          enabled: Boolean(paymentConfig?.bankTransfer?.enabled ?? true),
+        },
+      ];
+    },
     [paymentConfig]
   );
+
+  const jazzcashDetails = paymentConfig?.jazzcash || {
+    merchantId: "----",
+    accountTitle: "SUM Academy",
+    instructions:
+      "Send payment to JazzCash merchant and upload your transaction receipt.",
+  };
+
+  const easypaisaDetails = paymentConfig?.easypaisa || {
+    accountNumber: "----",
+    accountTitle: "SUM Academy",
+    username: "",
+    instructions:
+      "Send payment to EasyPaisa account and upload your transaction receipt.",
+  };
 
   const bankDetails = paymentConfig?.bankTransfer || {
     bankName: "Meezan Bank",
@@ -112,6 +146,18 @@ function Checkout() {
     accountNumber: "----",
     iban: "----",
   };
+
+  const activePaymentMethod =
+    paymentMethods.find((method) => method.id === paymentMethod && method.enabled)?.id ||
+    paymentMethods.find((method) => method.enabled)?.id ||
+    "bank_transfer";
+
+  const selectedPaymentDetails =
+    activePaymentMethod === "jazzcash"
+      ? jazzcashDetails
+      : activePaymentMethod === "easypaisa"
+        ? easypaisaDetails
+        : bankDetails;
 
   const installmentPreview = useMemo(() => {
     if (installmentMode !== "installment") return [];
@@ -152,17 +198,15 @@ function Checkout() {
         courseId,
         classId: selectedClassId,
         shiftId: selectedShiftId,
-        method: paymentMethod,
+        method: activePaymentMethod,
         promoCode: promoCode ? promoCode.toUpperCase() : "",
         installments: installmentMode === "installment" ? Number(installments) : 1,
       }),
     onSuccess: (data) => {
       setInitiatedPayment(data);
-      if (paymentMethod === "bank_transfer") {
-        toast.success("Payment initiated. Upload your receipt.");
-      } else {
-        toast.success("Gateway initiation started.");
-      }
+      toast.success(
+        `${formatMethodLabel(data?.method || activePaymentMethod)} payment initiated.`
+      );
     },
     onError: (error) => {
       toast.error(error?.response?.data?.message || "Failed to initiate payment");
@@ -229,7 +273,7 @@ function Checkout() {
         ))}
       </div>
 
-      <motion.section
+      <Motion.section
         key={step}
         initial={{ opacity: 0, y: 14 }}
         animate={{ opacity: 1, y: 0 }}
@@ -389,7 +433,9 @@ function Checkout() {
                   type="button"
                   onClick={() => method.enabled && setPaymentMethod(method.id)}
                   className={`rounded-2xl border p-4 text-left ${
-                    paymentMethod === method.id ? "border-primary ring-2 ring-primary/20" : ""
+                    activePaymentMethod === method.id
+                      ? "border-primary ring-2 ring-primary/20"
+                      : ""
                   } ${METHOD_STYLE[method.id] || "border-slate-200 bg-slate-50"} ${
                     !method.enabled ? "opacity-60" : ""
                   }`}
@@ -398,7 +444,7 @@ function Checkout() {
                   <p className="font-semibold text-slate-900">{method.label}</p>
                   {!method.enabled ? (
                     <span className="mt-2 inline-flex rounded-full bg-white px-2 py-1 text-[10px] font-semibold text-slate-600">
-                      Coming Soon
+                      Disabled
                     </span>
                   ) : null}
                   {method.id === "bank_transfer" ? (
@@ -410,15 +456,51 @@ function Checkout() {
               ))}
             </div>
 
-            {paymentMethod === "bank_transfer" ? (
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm">
-                <p className="font-semibold text-slate-900">Bank Details</p>
-                <p className="mt-2 text-slate-600">Bank: {bankDetails.bankName}</p>
-                <p className="text-slate-600">Account Title: {bankDetails.accountTitle}</p>
-                <p className="text-slate-600">Account Number: {bankDetails.accountNumber}</p>
-                <p className="text-slate-600">IBAN: {bankDetails.iban}</p>
-              </div>
-            ) : null}
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm">
+                <p className="font-semibold text-slate-900">
+                {activePaymentMethod === "bank_transfer"
+                  ? "Bank Details"
+                  : `${formatMethodLabel(activePaymentMethod)} Details`}
+              </p>
+              {activePaymentMethod === "jazzcash" ? (
+                <>
+                  <p className="mt-2 text-slate-600">
+                    Merchant ID: {selectedPaymentDetails?.merchantId || "----"}
+                  </p>
+                  <p className="text-slate-600">
+                    Account Title: {selectedPaymentDetails?.accountTitle || "SUM Academy"}
+                  </p>
+                </>
+              ) : null}
+              {activePaymentMethod === "easypaisa" ? (
+                <>
+                  <p className="mt-2 text-slate-600">
+                    Account Number: {selectedPaymentDetails?.accountNumber || "----"}
+                  </p>
+                  <p className="text-slate-600">
+                    Account Title: {selectedPaymentDetails?.accountTitle || "SUM Academy"}
+                  </p>
+                  {selectedPaymentDetails?.username ? (
+                    <p className="text-slate-600">
+                      Username: {selectedPaymentDetails.username}
+                    </p>
+                  ) : null}
+                </>
+              ) : null}
+              {activePaymentMethod === "bank_transfer" ? (
+                <>
+                  <p className="mt-2 text-slate-600">Bank: {bankDetails.bankName}</p>
+                  <p className="text-slate-600">Account Title: {bankDetails.accountTitle}</p>
+                  <p className="text-slate-600">Account Number: {bankDetails.accountNumber}</p>
+                  <p className="text-slate-600">IBAN: {bankDetails.iban}</p>
+                </>
+              ) : null}
+              {selectedPaymentDetails?.instructions ? (
+                <p className="mt-3 text-xs text-slate-500">
+                  {selectedPaymentDetails.instructions}
+                </p>
+              ) : null}
+            </div>
           </div>
         ) : null}
 
@@ -431,7 +513,7 @@ function Checkout() {
                 Class: {selectedClass?.name || "-"} · Shift: {selectedShift?.name || "-"}
               </p>
               <p className="mt-1 text-slate-600">
-                Method: {paymentMethod.replace("_", " ")}
+                Method: {formatMethodLabel(activePaymentMethod)}
               </p>
               <p className="mt-2 text-base font-semibold text-slate-900">
                 Total: {formatPKR(totalAmount)}
@@ -459,11 +541,18 @@ function Checkout() {
               </button>
             ) : null}
 
-            {initiatedPayment?.paymentId && paymentMethod === "bank_transfer" ? (
+            {initiatedPayment?.paymentId ? (
               <div className="space-y-3 rounded-2xl border border-slate-200 p-4">
                 <p className="text-sm font-semibold text-slate-900">
                   Payment Reference: {initiatedPayment.reference}
                 </p>
+                {initiatedPayment?.paymentDetails ? (
+                  <p className="text-xs text-slate-600">
+                    Method: {formatMethodLabel(
+                      initiatedPayment.method || activePaymentMethod
+                    )}
+                  </p>
+                ) : null}
                 <p className="text-xs text-slate-600">
                   Upload receipt image (JPG/PNG, max 5MB) for admin verification.
                 </p>
@@ -515,7 +604,7 @@ function Checkout() {
             Next
           </button>
         </div>
-      </motion.section>
+      </Motion.section>
     </div>
   );
 }

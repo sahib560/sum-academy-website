@@ -210,39 +210,42 @@ export const sendBankTransferInitiated = async (
   email,
   name,
   payment,
-  bankDetails
+  paymentDetails,
+  methodLabel = "Payment"
 ) => {
   try {
     await transporter.sendMail({
       from: process.env.EMAIL_FROM,
       to: email,
-      subject: "Bank Transfer Initiated - SUM Academy",
+      subject: `${methodLabel} Initiated - SUM Academy`,
       html: `
         <div style="font-family: sans-serif; max-width: 520px; margin: 0 auto; padding: 32px; background: #f8f9fe; border-radius: 16px;">
           <h2 style="color: #1a1a2e;">Payment Initiated</h2>
-          <p style="color: #64748b;">Hi ${name || "Student"}, your bank transfer request has been created.</p>
+          <p style="color: #64748b;">Hi ${name || "Student"}, your ${methodLabel} payment request has been created.</p>
           <div style="background: white; padding: 16px; border-radius: 12px; margin: 16px 0;">
             <p style="margin: 0; color: #64748b;">Reference</p>
             <p style="margin: 4px 0 0; font-weight: bold; color: #1a1a2e;">${payment.reference || "-"}</p>
             <p style="margin: 12px 0 0; color: #64748b;">Amount</p>
             <p style="margin: 4px 0 0; font-weight: bold; color: #1a1a2e;">PKR ${payment.amount || 0}</p>
-            <p style="margin: 12px 0 0; color: #64748b;">Bank</p>
-            <p style="margin: 4px 0 0; color: #1a1a2e;">${bankDetails?.bankName || "-"}</p>
-            <p style="margin: 8px 0 0; color: #64748b;">Account Title: ${bankDetails?.accountTitle || "-"}</p>
-            <p style="margin: 4px 0 0; color: #64748b;">Account Number: ${bankDetails?.accountNumber || "-"}</p>
-            <p style="margin: 4px 0 0; color: #64748b;">IBAN: ${bankDetails?.iban || "-"}</p>
+            <p style="margin: 12px 0 0; color: #64748b;">Method</p>
+            <p style="margin: 4px 0 0; color: #1a1a2e;">${methodLabel}</p>
+            ${paymentDetails?.bankName ? `<p style="margin: 8px 0 0; color: #64748b;">Bank: ${paymentDetails.bankName || "-"}</p>` : ""}
+            ${paymentDetails?.merchantId ? `<p style="margin: 8px 0 0; color: #64748b;">Merchant ID: ${paymentDetails.merchantId || "-"}</p>` : ""}
+            ${paymentDetails?.accountNumber ? `<p style="margin: 8px 0 0; color: #64748b;">Account Number: ${paymentDetails.accountNumber || "-"}</p>` : ""}
+            ${paymentDetails?.accountTitle ? `<p style="margin: 4px 0 0; color: #64748b;">Account Title: ${paymentDetails.accountTitle || "-"}</p>` : ""}
+            ${paymentDetails?.iban ? `<p style="margin: 4px 0 0; color: #64748b;">IBAN: ${paymentDetails.iban || "-"}</p>` : ""}
           </div>
           <p style="color: #64748b; font-size: 13px;">
-            Please transfer the amount and upload your receipt from your dashboard for verification.
+            ${paymentDetails?.instructions || "Please transfer the amount and upload your receipt from your dashboard for verification."}
           </p>
           <p style="color: #94a3b8; font-size: 12px; text-align: center;">
-            © 2026 SUM Academy - Karachi, Pakistan
+            � 2026 SUM Academy - Karachi, Pakistan
           </p>
         </div>
       `,
     });
   } catch (error) {
-    console.error("Bank transfer initiated email failed:", error.message);
+    console.error("Payment initiation email failed:", error.message);
     throw error;
   }
 };
@@ -497,6 +500,113 @@ export const sendAnnouncementEmail = async (
     });
   } catch (error) {
     console.error("Announcement email failed:", error.message);
+    throw error;
+  }
+};
+
+export const sendSessionScheduledEmail = async (
+  email,
+  studentName,
+  session = {}
+) => {
+  try {
+    await transporter.sendMail({
+      from: process.env.EMAIL_FROM,
+      to: email,
+      subject: "New live session scheduled — SUM Academy",
+      html: `
+        <div style="font-family: DM Sans, sans-serif; max-width: 520px; margin: 0 auto; padding: 28px; background: #f8f9fe; border-radius: 16px;">
+          <h2 style="color: #4a63f5; margin: 0 0 10px;">New Session Scheduled</h2>
+          <p style="color: #334155;">Hi ${studentName || "Student"}, a new live session has been scheduled for your class.</p>
+          <div style="background: white; border-radius: 12px; padding: 16px; margin-top: 14px;">
+            <p style="margin: 0; color: #64748b;">Topic</p>
+            <p style="margin: 4px 0 10px; font-weight: 700; color: #0f172a;">${session.topic || "-"}</p>
+            <p style="margin: 0; color: #64748b;">Date</p>
+            <p style="margin: 4px 0 10px; color: #0f172a;">${session.date || "-"}</p>
+            <p style="margin: 0; color: #64748b;">Time</p>
+            <p style="margin: 4px 0 10px; color: #0f172a;">${session.startTime || "-"} - ${session.endTime || "-"}</p>
+            <p style="margin: 0; color: #64748b;">Platform</p>
+            <p style="margin: 4px 0 10px; color: #0f172a;">${session.platform || "-"}</p>
+            <p style="margin: 0; color: #64748b;">Meeting Link</p>
+            <p style="margin: 4px 0 0;"><a href="${session.meetingLink || "#"}" style="color: #4a63f5; text-decoration: none;">${session.meetingLink || "-"}</a></p>
+          </div>
+          <p style="margin-top: 14px; font-size: 12px; color: #64748b;">Please join on time and stay prepared.</p>
+        </div>
+      `,
+    });
+  } catch (error) {
+    console.error("Session scheduled email failed:", error.message);
+    throw error;
+  }
+};
+
+export const sendSessionCancelledEmail = async (
+  email,
+  studentName,
+  session = {}
+) => {
+  try {
+    await transporter.sendMail({
+      from: process.env.EMAIL_FROM,
+      to: email,
+      subject: "Session cancelled — SUM Academy",
+      html: `
+        <div style="font-family: DM Sans, sans-serif; max-width: 520px; margin: 0 auto; padding: 28px; background: #fff7f7; border-radius: 16px;">
+          <h2 style="color: #dc2626; margin: 0 0 10px;">Session Cancelled</h2>
+          <p style="color: #334155;">Hi ${studentName || "Student"}, the following session has been cancelled:</p>
+          <div style="background: white; border-radius: 12px; padding: 16px; margin-top: 14px;">
+            <p style="margin: 0; color: #64748b;">Topic</p>
+            <p style="margin: 4px 0 10px; font-weight: 700; color: #0f172a;">${session.topic || "-"}</p>
+            <p style="margin: 0; color: #64748b;">Original Date</p>
+            <p style="margin: 4px 0 10px; color: #0f172a;">${session.date || "-"}</p>
+            <p style="margin: 0; color: #64748b;">Original Time</p>
+            <p style="margin: 4px 0 10px; color: #0f172a;">${session.startTime || "-"} - ${session.endTime || "-"}</p>
+            <p style="margin: 0; color: #64748b;">Reason</p>
+            <p style="margin: 4px 0 0; color: #0f172a;">${session.cancelReason || "No reason provided."}</p>
+          </div>
+          <p style="margin-top: 14px; font-size: 12px; color: #64748b;">We apologize for the inconvenience. A new schedule will be shared soon.</p>
+        </div>
+      `,
+    });
+  } catch (error) {
+    console.error("Session cancellation email failed:", error.message);
+    throw error;
+  }
+};
+
+
+export const sendStudentHelpSupportEmail = async (
+  adminEmail,
+  payload = {}
+) => {
+  try {
+    await transporter.sendMail({
+      from: process.env.EMAIL_FROM,
+      to: adminEmail,
+      replyTo: payload.studentEmail || undefined,
+      subject: `Student Help Request - ${payload.subject || "No Subject"}`,
+      html: `
+        <div style="font-family: DM Sans, sans-serif; max-width: 560px; margin: 0 auto; padding: 28px; background: #f8f9fe; border-radius: 16px;">
+          <h2 style="color: #4a63f5; margin: 0 0 10px;">New Student Help Request</h2>
+          <p style="color: #334155; margin: 0 0 14px;">A student submitted a support request from the student portal.</p>
+          <div style="background: #ffffff; border-radius: 12px; padding: 16px;">
+            <p style="margin: 0; color: #64748b;">Student Name</p>
+            <p style="margin: 4px 0 10px; color: #0f172a; font-weight: 700;">${payload.studentName || "Student"}</p>
+            <p style="margin: 0; color: #64748b;">Student Email</p>
+            <p style="margin: 4px 0 10px; color: #0f172a;">${payload.studentEmail || "-"}</p>
+            <p style="margin: 0; color: #64748b;">Category</p>
+            <p style="margin: 4px 0 10px; color: #0f172a;">${payload.category || "General"}</p>
+            <p style="margin: 0; color: #64748b;">Subject</p>
+            <p style="margin: 4px 0 10px; color: #0f172a; font-weight: 700;">${payload.subject || "-"}</p>
+            <p style="margin: 0; color: #64748b;">Message</p>
+            <p style="margin: 4px 0 0; color: #0f172a; white-space: pre-line;">${payload.message || "-"}</p>
+          </div>
+          <p style="margin-top: 14px; color: #64748b; font-size: 12px;">SUM Academy Student Help and Support</p>
+        </div>
+      `,
+    });
+  } catch (error) {
+    console.error("Student help support email failed:", error.message);
     throw error;
   }
 };

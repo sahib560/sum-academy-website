@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
-import { motion } from "framer-motion";
-import { Link } from "react-router-dom";
+import { useMemo, useState } from "react";
+import { motion as Motion } from "framer-motion";
+import { useQuery } from "@tanstack/react-query";
 import { Skeleton } from "../../components/Skeleton.jsx";
+import { getStudentAttendance } from "../../services/student.service.js";
 
 const fadeUp = {
   initial: { opacity: 0, y: 16 },
@@ -10,97 +11,38 @@ const fadeUp = {
   transition: { duration: 0.45 },
 };
 
-const classes = [
-  {
-    id: 1,
-    name: "Batch A - Biology",
-    teacher: "Mr. Sikander Ali Qureshi",
-    sessions: [
-      {
-        id: 1,
-        date: "2026-03-02",
-        topic: "Genetics Intro",
-        status: "Present",
-        remarks: "",
-      },
-      {
-        id: 2,
-        date: "2026-03-05",
-        topic: "DNA Basics",
-        status: "Late",
-        remarks: "Joined 10 min late",
-      },
-      {
-        id: 3,
-        date: "2026-03-08",
-        topic: "Chromosomes",
-        status: "Absent",
-        remarks: "Excused absence",
-      },
-      {
-        id: 4,
-        date: "2026-03-12",
-        topic: "Physiology",
-        status: "Present",
-        remarks: "",
-      },
-      {
-        id: 5,
-        date: "2026-03-18",
-        topic: "Respiration",
-        status: "Upcoming",
-        remarks: "",
-      },
-    ],
-  },
-  {
-    id: 2,
-    name: "Batch B - Chemistry",
-    teacher: "Mr. Mansoor Ahmed Mangi",
-    sessions: [
-      {
-        id: 1,
-        date: "2026-03-01",
-        topic: "Organic Intro",
-        status: "Present",
-        remarks: "",
-      },
-      {
-        id: 2,
-        date: "2026-03-04",
-        topic: "Reactions",
-        status: "Present",
-        remarks: "",
-      },
-      {
-        id: 3,
-        date: "2026-03-07",
-        topic: "Mechanisms",
-        status: "Present",
-        remarks: "",
-      },
-      {
-        id: 4,
-        date: "2026-03-11",
-        topic: "Practice Session",
-        status: "Present",
-        remarks: "",
-      },
-    ],
-  },
-];
+const WEEK_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-const statusStyles = {
-  Present: "bg-emerald-50 text-emerald-600",
-  Absent: "bg-rose-50 text-rose-600",
-  Late: "bg-amber-50 text-amber-600",
+const STATUS_STYLES = {
+  present: "bg-emerald-50 text-emerald-700",
+  absent: "bg-rose-50 text-rose-700",
+  late: "bg-amber-50 text-amber-700",
+  upcoming: "bg-slate-100 text-slate-600",
 };
 
-const calendarDot = {
-  Present: "bg-emerald-500",
-  Absent: "bg-rose-500",
-  Late: "bg-amber-400",
-  Upcoming: "bg-slate-300",
+const CALENDAR_DOT = {
+  present: "bg-emerald-500",
+  absent: "bg-rose-500",
+  late: "bg-amber-400",
+  upcoming: "bg-slate-400",
+};
+
+const STATUS_PRIORITY = {
+  absent: 4,
+  late: 3,
+  present: 2,
+  upcoming: 1,
+};
+
+const toNumber = (value, fallback = 0) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const normalizeStatus = (value = "") => {
+  const status = String(value || "").trim().toLowerCase();
+  if (["present", "absent", "late", "upcoming"].includes(status)) return status;
+  return "absent";
 };
 
 const getPercentColor = (value) => {
@@ -109,189 +51,290 @@ const getPercentColor = (value) => {
   return "text-rose-600";
 };
 
-const getStatusBadge = (value) => {
-  if (value >= 75) return "bg-emerald-50 text-emerald-600";
-  if (value >= 50) return "bg-amber-50 text-amber-600";
-  return "bg-rose-50 text-rose-600";
+const getStandingBadge = (value) => {
+  if (value >= 75) return { label: "Good Standing", className: "bg-emerald-50 text-emerald-700" };
+  if (value >= 50) return { label: "At Risk", className: "bg-amber-50 text-amber-700" };
+  return { label: "Critical", className: "bg-rose-50 text-rose-700" };
 };
 
-const getStatusLabel = (value) => {
-  if (value >= 75) return "Good Standing";
-  if (value >= 50) return "At Risk";
-  return "Critical";
+const toDate = (value) => {
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const toDateKey = (value) => {
+  const parsed = toDate(value);
+  return parsed ? parsed.toISOString().slice(0, 10) : "";
+};
+
+const formatDate = (value) => {
+  const parsed = toDate(value);
+  if (!parsed) return "-";
+  return parsed.toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+};
+
+const formatDateCompact = (value) => {
+  const parsed = toDate(value);
+  if (!parsed) return "N/A";
+  return parsed.toLocaleDateString("en-US", {
+    month: "short",
+    day: "2-digit",
+    year: "numeric",
+  });
+};
+
+const formatMonth = (date) =>
+  date.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+
+const getMonthGrid = (monthCursor) => {
+  const firstDay = new Date(monthCursor.getFullYear(), monthCursor.getMonth(), 1);
+  const lastDay = new Date(monthCursor.getFullYear(), monthCursor.getMonth() + 1, 0);
+  const leadingBlanks = (firstDay.getDay() + 6) % 7;
+  const totalDays = lastDay.getDate();
+  const cells = [];
+
+  for (let index = 0; index < leadingBlanks; index += 1) cells.push(null);
+  for (let day = 1; day <= totalDays; day += 1) {
+    cells.push(new Date(monthCursor.getFullYear(), monthCursor.getMonth(), day));
+  }
+  while (cells.length % 7 !== 0) cells.push(null);
+  return cells;
 };
 
 function StudentAttendance() {
-  const [loading, setLoading] = useState(true);
-  const [activeClass, setActiveClass] = useState(classes[0]?.id || null);
-  const [currentMonth, setCurrentMonth] = useState(() => new Date());
-  const [sortAsc, setSortAsc] = useState(false);
-
-  useEffect(() => {
-    const timer = setTimeout(() => setLoading(false), 1200);
-    return () => clearTimeout(timer);
-  }, []);
-
-  const selectedClass = classes.find((item) => item.id === activeClass);
-  const sessions = selectedClass?.sessions || [];
-
-  const stats = useMemo(() => {
-    const recorded = sessions.filter((s) => s.status !== "Upcoming");
-    const total = recorded.length;
-    const present = recorded.filter((s) => s.status === "Present").length;
-    const late = recorded.filter((s) => s.status === "Late").length;
-    const absent = recorded.filter((s) => s.status === "Absent").length;
-    const percent = total === 0 ? 0 : Math.round((present / total) * 100);
-    return { total, present, late, absent, percent };
-  }, [sessions]);
-
-  const monthStart = useMemo(
-    () => new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1),
-    [currentMonth]
-  );
-  const monthEnd = useMemo(
-    () => new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0),
-    [currentMonth]
+  const [preferredClassId, setPreferredClassId] = useState("");
+  const [monthCursor, setMonthCursor] = useState(
+    () => new Date(new Date().getFullYear(), new Date().getMonth(), 1)
   );
 
-  const calendarDays = useMemo(() => {
-    const days = [];
-    const startDay = monthStart.getDay();
-    const totalDays = monthEnd.getDate();
-    for (let i = 0; i < startDay; i += 1) {
-      days.push(null);
-    }
-    for (let day = 1; day <= totalDays; day += 1) {
-      days.push(new Date(monthStart.getFullYear(), monthStart.getMonth(), day));
-    }
-    while (days.length % 7 !== 0) {
-      days.push(null);
-    }
-    return days;
-  }, [monthEnd, monthStart]);
+  const { data, isLoading, isError, error } = useQuery({
+    queryKey: ["student-attendance"],
+    queryFn: () => getStudentAttendance(),
+    staleTime: 30000,
+  });
 
-  const sessionsByDate = useMemo(() => {
+  const classes = useMemo(
+    () => (Array.isArray(data?.classes) ? data.classes : []),
+    [data]
+  );
+
+  const activeClassId = useMemo(() => {
+    if (!classes.length) return "";
+    if (classes.some((row) => String(row.classId) === String(preferredClassId))) {
+      return String(preferredClassId);
+    }
+    return String(classes[0].classId);
+  }, [classes, preferredClassId]);
+
+  const selectedClass = useMemo(
+    () => classes.find((row) => String(row.classId) === String(activeClassId)) || null,
+    [activeClassId, classes]
+  );
+
+  const sessions = useMemo(() => {
+    const rows = Array.isArray(selectedClass?.sessions) ? selectedClass.sessions : [];
+    return rows
+      .map((row, index) => ({
+        sessionId: row.sessionId || `session-${index + 1}`,
+        sessionNumber: toNumber(row.sessionNumber, index + 1),
+        date: row.date || "",
+        topic: row.topic || "Session",
+        status: normalizeStatus(row.status),
+        remarks: row.remarks || "",
+        subjectName: row.subjectName || "",
+      }))
+      .sort((a, b) => (toDate(b.date)?.getTime() || 0) - (toDate(a.date)?.getTime() || 0));
+  }, [selectedClass]);
+
+  const monthSessions = useMemo(
+    () =>
+      sessions.filter((row) => {
+        const date = toDate(row.date);
+        if (!date) return false;
+        return (
+          date.getFullYear() === monthCursor.getFullYear() &&
+          date.getMonth() === monthCursor.getMonth()
+        );
+      }),
+    [monthCursor, sessions]
+  );
+
+  const calendarStatusByDate = useMemo(() => {
     const map = new Map();
-    sessions.forEach((session) => {
-      map.set(session.date, session.status);
+    monthSessions.forEach((row) => {
+      const key = toDateKey(row.date);
+      if (!key) return;
+      const current = map.get(key);
+      if (!current || STATUS_PRIORITY[row.status] > STATUS_PRIORITY[current]) {
+        map.set(key, row.status);
+      }
     });
     return map;
-  }, [sessions]);
+  }, [monthSessions]);
 
-  const monthSessions = useMemo(() => {
-    return sessions.filter((item) => {
-      const date = new Date(item.date);
-      return (
-        date.getFullYear() === currentMonth.getFullYear() &&
-        date.getMonth() === currentMonth.getMonth()
-      );
-    });
-  }, [currentMonth, sessions]);
+  const monthGrid = useMemo(() => getMonthGrid(monthCursor), [monthCursor]);
+  const attendancePercent = toNumber(selectedClass?.attendancePercent, 0);
+  const standing = getStandingBadge(attendancePercent);
+  const currentStreak = toNumber(selectedClass?.currentStreak, 0);
+  const longestStreak = toNumber(selectedClass?.longestStreak, 0);
+  const learningDaysElapsed = toNumber(selectedClass?.learningDaysElapsed, 0);
+  const courseDurationDays = toNumber(selectedClass?.courseDurationDays, 0);
+  const courseWindowStart = selectedClass?.courseWindowStart || null;
+  const courseWindowEnd = selectedClass?.courseWindowEnd || null;
 
-  const sortedSessions = useMemo(() => {
-    const list = monthSessions.filter((item) => item.status !== "Upcoming");
-    return list.sort((a, b) =>
-      sortAsc
-        ? new Date(a.date) - new Date(b.date)
-        : new Date(b.date) - new Date(a.date)
+  const stats = useMemo(() => {
+    if (!selectedClass) return { total: 0, present: 0, absent: 0, late: 0 };
+    return {
+      total: toNumber(selectedClass.totalSessions, 0),
+      present: toNumber(selectedClass.presentCount, 0),
+      absent: toNumber(selectedClass.absentCount, 0),
+      late: toNumber(selectedClass.lateCount, 0),
+    };
+  }, [selectedClass]);
+
+  if (isError) {
+    return (
+      <div className="rounded-3xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
+        {error?.response?.data?.message || error?.message || "Failed to load attendance"}
+      </div>
     );
-  }, [monthSessions, sortAsc]);
+  }
 
-  if (classes.length === 0) {
+  if (!isLoading && classes.length < 1) {
     return (
       <div className="space-y-6">
-        <motion.section {...fadeUp}>
+        <Motion.section {...fadeUp}>
           <h1 className="font-heading text-3xl text-slate-900">Attendance</h1>
-        </motion.section>
-        <motion.section
+        </Motion.section>
+        <Motion.section
           {...fadeUp}
-          className="rounded-3xl border border-dashed border-slate-200 bg-white p-10 text-center text-sm text-slate-500"
+          className="rounded-3xl border border-dashed border-slate-200 bg-white p-10 text-center"
         >
           <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 text-primary">
-            <svg viewBox="0 0 24 24" className="h-8 w-8" fill="currentColor">
+            <svg viewBox="0 0 24 24" className="h-8 w-8" fill="currentColor" aria-hidden="true">
               <path d="M7 2h2v3H7V2zm8 0h2v3h-2V2zM4 6h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z" />
             </svg>
           </div>
-          <p className="font-semibold text-slate-700">
+          <p className="text-base font-semibold text-slate-800">
             You are not enrolled in any class
           </p>
-          <Link className="btn-primary mt-4 inline-flex" to="/student/explore">
-            Explore Courses
-          </Link>
-        </motion.section>
+          <p className="mt-1 text-sm text-slate-500">Contact admin to enroll in a class</p>
+        </Motion.section>
       </div>
     );
   }
 
   return (
     <div className="space-y-6">
-      <motion.section {...fadeUp}>
+      <Motion.section {...fadeUp}>
         <h1 className="font-heading text-3xl text-slate-900">Attendance</h1>
-      </motion.section>
+      </Motion.section>
 
-      <motion.section {...fadeUp} className="flex flex-wrap items-center gap-3">
-        {classes.map((item) => (
-          <button
-            key={item.id}
-            className={`rounded-full px-4 py-2 text-xs font-semibold ${
-              activeClass === item.id
-                ? "bg-primary text-white"
-                : "border border-slate-200 text-slate-600"
-            }`}
-            onClick={() => setActiveClass(item.id)}
-          >
-            {item.name}
-          </button>
-        ))}
-      </motion.section>
+      <Motion.section {...fadeUp} className="flex flex-wrap items-center gap-3">
+        {isLoading
+          ? Array.from({ length: 3 }).map((_, index) => (
+              <Skeleton key={`class-tab-skel-${index}`} className="h-10 w-40 rounded-full" />
+            ))
+          : classes.map((row) => (
+              <button
+                key={row.classId}
+                className={`rounded-full px-4 py-2 text-left text-xs font-semibold ${
+                  String(activeClassId) === String(row.classId)
+                    ? "bg-primary text-white"
+                    : "border border-slate-200 bg-white text-slate-600"
+                }`}
+                onClick={() => setPreferredClassId(String(row.classId))}
+              >
+                {row.className}
+                <span className="ml-2 opacity-80">{row.batchCode ? `(${row.batchCode})` : ""}</span>
+              </button>
+            ))}
+      </Motion.section>
 
-      <motion.section
+      <Motion.section
         {...fadeUp}
         className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"
       >
-        {loading ? (
-          <Skeleton className="h-20 w-full" />
+        {isLoading ? (
+          <Skeleton className="h-28 w-full rounded-2xl" />
         ) : (
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <div>
-              <p className="text-sm text-slate-500">{selectedClass?.name}</p>
-              <p className="text-sm text-slate-500">{selectedClass?.teacher}</p>
-            </div>
-            <div className="text-center">
-              <p className={`text-4xl font-semibold ${getPercentColor(stats.percent)}`}>
-                {stats.percent}%
-              </p>
-              <span
-                className={`rounded-full px-3 py-1 text-xs font-semibold ${getStatusBadge(
-                  stats.percent
-                )}`}
-              >
-                {getStatusLabel(stats.percent)}
-              </span>
-            </div>
-            <div className="grid grid-cols-4 gap-3 text-xs text-slate-500">
+          <>
+            <div className="grid gap-5 lg:grid-cols-[220px_1fr]">
               <div>
-                <p className="text-sm font-semibold text-slate-900">{stats.total}</p>
-                Total Sessions
+                <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Attendance</p>
+                <p className={`mt-2 text-5xl font-semibold ${getPercentColor(attendancePercent)}`}>
+                  {Math.round(attendancePercent)}%
+                </p>
+                <span
+                  className={`mt-3 inline-flex rounded-full px-3 py-1 text-xs font-semibold ${standing.className}`}
+                >
+                  {standing.label}
+                </span>
               </div>
-              <div>
-                <p className="text-sm font-semibold text-slate-900">{stats.present}</p>
-                Present
-              </div>
-              <div>
-                <p className="text-sm font-semibold text-slate-900">{stats.absent}</p>
-                Absent
-              </div>
-              <div>
-                <p className="text-sm font-semibold text-slate-900">{stats.late}</p>
-                Late
-              </div>
-            </div>
-          </div>
-        )}
-      </motion.section>
 
-      <motion.section
+              <div className="grid gap-3 sm:grid-cols-4">
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                  <p className="text-xs text-slate-500">Total</p>
+                  <p className="mt-1 text-xl font-semibold text-slate-900">{stats.total}</p>
+                </div>
+                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-3">
+                  <p className="text-xs text-emerald-600">Present</p>
+                  <p className="mt-1 text-xl font-semibold text-emerald-700">{stats.present}</p>
+                </div>
+                <div className="rounded-2xl border border-rose-200 bg-rose-50 p-3">
+                  <p className="text-xs text-rose-600">Absent</p>
+                  <p className="mt-1 text-xl font-semibold text-rose-700">{stats.absent}</p>
+                </div>
+                <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3">
+                  <p className="text-xs text-amber-600">Late</p>
+                  <p className="mt-1 text-xl font-semibold text-amber-700">{stats.late}</p>
+                </div>
+                <div className="rounded-2xl border border-blue-200 bg-blue-50 p-3">
+                  <p className="text-xs text-blue-700">Current Streak</p>
+                  <p className="mt-1 text-xl font-semibold text-blue-800">
+                    {currentStreak} days
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-3">
+                  <p className="text-xs text-indigo-700">Longest Streak</p>
+                  <p className="mt-1 text-xl font-semibold text-indigo-800">
+                    {longestStreak} days
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-3">
+                  <p className="text-xs text-emerald-700">Learning Days</p>
+                  <p className="mt-1 text-xl font-semibold text-emerald-800">
+                    {courseDurationDays > 0
+                      ? `${learningDaysElapsed}/${courseDurationDays}`
+                      : learningDaysElapsed}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-white p-3">
+                  <p className="text-xs text-slate-500">Course Window</p>
+                  <p className="mt-1 text-xs font-semibold text-slate-700">
+                    {formatDateCompact(courseWindowStart)} -{" "}
+                    {formatDateCompact(courseWindowEnd)}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {attendancePercent < 75 ? (
+              <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                Your attendance is below 75%. Contact your teacher.
+              </div>
+            ) : null}
+          </>
+        )}
+      </Motion.section>
+
+      <Motion.section
         {...fadeUp}
         className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"
       >
@@ -299,166 +342,141 @@ function StudentAttendance() {
           <button
             className="btn-outline"
             onClick={() =>
-              setCurrentMonth(
-                new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1)
+              setMonthCursor(
+                new Date(monthCursor.getFullYear(), monthCursor.getMonth() - 1, 1)
               )
             }
+            disabled={isLoading}
           >
             Prev
           </button>
-          <h2 className="font-heading text-xl text-slate-900">
-            {currentMonth.toLocaleDateString("en-US", {
-              month: "long",
-              year: "numeric",
-            })}
-          </h2>
+          <h2 className="font-heading text-xl text-slate-900">{formatMonth(monthCursor)}</h2>
           <button
             className="btn-outline"
             onClick={() =>
-              setCurrentMonth(
-                new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1)
+              setMonthCursor(
+                new Date(monthCursor.getFullYear(), monthCursor.getMonth() + 1, 1)
               )
             }
+            disabled={isLoading}
           >
             Next
           </button>
         </div>
-        {loading ? (
-          <Skeleton className="mt-4 h-48 w-full" />
+
+        {isLoading ? (
+          <Skeleton className="mt-4 h-56 w-full rounded-2xl" />
         ) : (
-          <div className="mt-4 grid grid-cols-7 gap-2 text-xs text-slate-500">
-            {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
-              <span key={day} className="text-center uppercase text-[10px]">
-                {day}
-              </span>
+          <div className="mt-4 grid grid-cols-7 gap-2 text-xs">
+            {WEEK_LABELS.map((label) => (
+              <div
+                key={label}
+                className="py-1 text-center uppercase tracking-[0.16em] text-slate-400"
+              >
+                {label}
+              </div>
             ))}
-            {calendarDays.map((day, index) => {
-              const key = day ? day.toISOString().slice(0, 10) : `empty-${index}`;
-              const status = day ? sessionsByDate.get(day.toISOString().slice(0, 10)) : null;
+            {monthGrid.map((date, index) => {
+              const key = date ? toDateKey(date) : `empty-${index}`;
+              const status = date ? calendarStatusByDate.get(toDateKey(date)) : "";
+              const isToday =
+                Boolean(date) && toDateKey(date) === new Date().toISOString().slice(0, 10);
+
               return (
                 <div
                   key={key}
-                  className="min-h-[48px] rounded-xl border border-slate-200 bg-white p-2 text-center"
+                  className={`min-h-[68px] rounded-xl border p-2 ${
+                    isToday ? "border-primary/40 bg-primary/5" : "border-slate-200 bg-white"
+                  }`}
                 >
-                  {day && (
-                    <div className="flex flex-col items-center gap-2">
-                      <span className="text-xs text-slate-600">{day.getDate()}</span>
-                      {status && (
-                        <span className={`h-2 w-2 rounded-full ${calendarDot[status]}`} />
-                      )}
+                  {date ? (
+                    <div className="flex h-full flex-col items-center justify-start gap-2">
+                      <span className="text-xs text-slate-600">{date.getDate()}</span>
+                      {status ? <span className={`h-2.5 w-2.5 rounded-full ${CALENDAR_DOT[status]}`} /> : null}
                     </div>
-                  )}
+                  ) : null}
                 </div>
               );
             })}
           </div>
         )}
+
         <div className="mt-4 flex flex-wrap gap-3 text-xs text-slate-500">
-          {Object.entries(calendarDot).map(([label, color]) => (
-            <span key={label} className="inline-flex items-center gap-2">
-              <span className={`h-2 w-2 rounded-full ${color}`} />
-              {label}
-            </span>
-          ))}
           <span className="inline-flex items-center gap-2">
-            <span className="h-2 w-2 rounded-full bg-slate-200" />
-            No session
+            <span className={`h-2.5 w-2.5 rounded-full ${CALENDAR_DOT.present}`} />
+            Present
+          </span>
+          <span className="inline-flex items-center gap-2">
+            <span className={`h-2.5 w-2.5 rounded-full ${CALENDAR_DOT.absent}`} />
+            Absent
+          </span>
+          <span className="inline-flex items-center gap-2">
+            <span className={`h-2.5 w-2.5 rounded-full ${CALENDAR_DOT.late}`} />
+            Late
+          </span>
+          <span className="inline-flex items-center gap-2">
+            <span className={`h-2.5 w-2.5 rounded-full ${CALENDAR_DOT.upcoming}`} />
+            Upcoming session
           </span>
         </div>
-      </motion.section>
+      </Motion.section>
 
-      <motion.section {...fadeUp} className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-        <div className="flex items-center justify-between">
-          <h3 className="font-heading text-xl text-slate-900">Attendance Detail</h3>
-          <button className="text-xs text-slate-500" onClick={() => setSortAsc((prev) => !prev)}>
-            Sort by date
-          </button>
-        </div>
-        {loading ? (
-          <Skeleton className="mt-4 h-24 w-full" />
-        ) : sortedSessions.length === 0 ? (
-          <div className="mt-4 text-sm text-slate-500">
-            No attendance records for this month.
+      <Motion.section
+        {...fadeUp}
+        className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"
+      >
+        <h3 className="font-heading text-xl text-slate-900">Attendance Table</h3>
+
+        {isLoading ? (
+          <div className="mt-4 space-y-2">
+            {Array.from({ length: 6 }).map((_, index) => (
+              <Skeleton key={`attendance-row-skel-${index}`} className="h-12 w-full rounded-xl" />
+            ))}
           </div>
+        ) : monthSessions.length < 1 ? (
+          <p className="mt-4 text-sm text-slate-500">No session records for this month.</p>
         ) : (
-          <>
-            <div className="mt-4 space-y-3 md:hidden">
-              {sortedSessions.map((session, index) => (
-                <div
-                  key={session.id}
-                  className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-slate-400">
-                      Session #{index + 1}
-                    </span>
-                    <span
-                      className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                        statusStyles[session.status]
-                      }`}
-                    >
-                      {session.status}
-                    </span>
-                  </div>
-                  <p className="mt-2 font-semibold text-slate-900">
-                    {session.topic}
-                  </p>
-                  <p className="text-xs text-slate-500">{session.date}</p>
-                  {session.remarks && (
-                    <p className="mt-2 text-xs text-slate-500">
-                      {session.remarks}
-                    </p>
-                  )}
-                </div>
-              ))}
-            </div>
-            <div className="mt-4 hidden overflow-x-auto md:block">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left text-xs uppercase tracking-[0.2em] text-slate-400">
-                    <th className="py-2">Session #</th>
-                    <th className="py-2">Date</th>
-                    <th className="py-2">Topic</th>
-                    <th className="py-2">Status</th>
-                    <th className="py-2">Remarks</th>
+          <div className="mt-4 overflow-x-auto">
+            <table className="w-full min-w-[680px] text-sm">
+              <thead>
+                <tr className="text-left text-xs uppercase tracking-[0.2em] text-slate-400">
+                  <th className="py-2">Session #</th>
+                  <th className="py-2">Date</th>
+                  <th className="py-2">Topic</th>
+                  <th className="py-2">Status</th>
+                  <th className="py-2">Remarks</th>
+                </tr>
+              </thead>
+              <tbody>
+                {monthSessions.map((row, index) => (
+                  <tr key={row.sessionId} className="border-t border-slate-100">
+                    <td className="py-3">{row.sessionNumber || index + 1}</td>
+                    <td className="py-3 text-slate-600">{formatDate(row.date)}</td>
+                    <td className="py-3">
+                      <p className="font-semibold text-slate-900">{row.topic}</p>
+                      {row.subjectName ? (
+                        <p className="text-xs text-slate-500">{row.subjectName}</p>
+                      ) : null}
+                    </td>
+                    <td className="py-3">
+                      <span
+                        className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                          STATUS_STYLES[row.status] || STATUS_STYLES.absent
+                        }`}
+                      >
+                        {row.status === "upcoming"
+                          ? "Upcoming"
+                          : row.status.charAt(0).toUpperCase() + row.status.slice(1)}
+                      </span>
+                    </td>
+                    <td className="py-3 text-slate-500">{row.remarks || "-"}</td>
                   </tr>
-                </thead>
-                <tbody>
-                  {sortedSessions.map((session, index) => (
-                    <tr key={session.id} className="border-t border-slate-100">
-                      <td className="py-3">{index + 1}</td>
-                      <td className="py-3">{session.date}</td>
-                      <td className="py-3">{session.topic}</td>
-                      <td className="py-3">
-                        <span
-                          className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                            statusStyles[session.status]
-                          }`}
-                        >
-                          {session.status}
-                        </span>
-                      </td>
-                      <td className="py-3 text-slate-500">
-                        {session.remarks || "-"}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
-      </motion.section>
-
-      {stats.percent < 75 && (
-        <motion.section
-          {...fadeUp}
-          className="rounded-3xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-700"
-        >
-          Your attendance is below 75%. Please contact your teacher.
-          <button className="btn-primary ml-4">Contact Teacher</button>
-        </motion.section>
-      )}
+      </Motion.section>
     </div>
   );
 }

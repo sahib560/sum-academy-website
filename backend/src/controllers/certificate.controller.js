@@ -11,6 +11,12 @@ const parseDate = (value) => {
 };
 
 const certIdRegex = /^SUM-\d{4}-[A-Z0-9]{8}$/;
+const ACTIVE_ENROLLMENT_STATUSES = new Set([
+  "active",
+  "completed",
+  "pending_review",
+  "",
+]);
 
 const generateCertId = () => {
   const year = new Date().getFullYear();
@@ -64,6 +70,129 @@ const getProgressRecord = async (studentId, courseId) => {
   const completed =
     progressValue >= 100 || Boolean(record.completedAt) || Boolean(record.isCompleted);
   return { ...record, progressValue, completed };
+};
+
+const normalizeProfileCourseIds = (studentData = {}) => {
+  const profileCourses = Array.isArray(studentData.enrolledCourses)
+    ? studentData.enrolledCourses
+    : [];
+  return profileCourses
+    .map((entry) =>
+      typeof entry === "string"
+        ? String(entry || "").trim()
+        : String(entry?.courseId || entry?.id || "").trim()
+    )
+    .filter(Boolean);
+};
+
+const normalizeClassStudentEntry = (entry) =>
+  typeof entry === "string"
+    ? {
+        studentId: String(entry || "").trim(),
+        shiftId: "",
+        courseId: "",
+      }
+    : {
+        studentId: String(entry?.studentId || entry?.id || entry?.uid || "").trim(),
+        shiftId: String(entry?.shiftId || "").trim(),
+        courseId: String(entry?.courseId || "").trim(),
+      };
+
+const getClassDerivedCourseIdsForStudent = (classData = {}, studentId = "") => {
+  const cleanStudentId = String(studentId || "").trim();
+  if (!cleanStudentId) return [];
+
+  const courseIds = new Set();
+  const students = Array.isArray(classData.students) ? classData.students : [];
+  const shifts = Array.isArray(classData.shifts) ? classData.shifts : [];
+  const assignedCourses = Array.isArray(classData.assignedCourses)
+    ? classData.assignedCourses
+    : [];
+
+  const shiftCourseMap = shifts.reduce((acc, shift) => {
+    const shiftId = String(shift?.id || "").trim();
+    const shiftCourseId = String(shift?.courseId || "").trim();
+    if (shiftId && shiftCourseId) acc[shiftId] = shiftCourseId;
+    return acc;
+  }, {});
+
+  const assignedCourseIds = assignedCourses
+    .map((entry) =>
+      typeof entry === "string"
+        ? String(entry || "").trim()
+        : String(entry?.courseId || entry?.id || "").trim()
+    )
+    .filter(Boolean);
+
+  const matchingEntries = students
+    .map((entry) => normalizeClassStudentEntry(entry))
+    .filter((entry) => entry.studentId === cleanStudentId);
+
+  matchingEntries.forEach((entry) => {
+    if (entry.courseId) courseIds.add(entry.courseId);
+    if (entry.shiftId && shiftCourseMap[entry.shiftId]) {
+      courseIds.add(shiftCourseMap[entry.shiftId]);
+    }
+  });
+
+  if (!courseIds.size && matchingEntries.length > 0) {
+    const classCourseId = String(classData.courseId || "").trim();
+    if (classCourseId) {
+      courseIds.add(classCourseId);
+    } else if (assignedCourseIds.length === 1) {
+      courseIds.add(assignedCourseIds[0]);
+    } else if (assignedCourseIds.length > 1) {
+      assignedCourseIds.forEach((courseId) => courseIds.add(courseId));
+    }
+  }
+
+  return [...courseIds];
+};
+
+const getEnrolledCourseIds = async (studentId, studentData = {}) => {
+  const cleanStudentId = String(studentId || "").trim();
+  if (!cleanStudentId) return [];
+
+  const [enrollmentSnap, classesSnap] = await Promise.all([
+    db.collection(COLLECTIONS.ENROLLMENTS).where("studentId", "==", cleanStudentId).get(),
+    db.collection(COLLECTIONS.CLASSES).get(),
+  ]);
+
+  const profileCourseIds = normalizeProfileCourseIds(studentData);
+  const enrollmentCourseIds = enrollmentSnap.docs
+    .map((doc) => doc.data() || {})
+    .filter((row) =>
+      ACTIVE_ENROLLMENT_STATUSES.has(String(row.status || "active").trim().toLowerCase())
+    )
+    .map((row) => String(row.courseId || "").trim())
+    .filter(Boolean);
+
+  const classCourseIds = classesSnap.docs.flatMap((doc) =>
+    getClassDerivedCourseIdsForStudent(doc.data() || {}, cleanStudentId)
+  );
+
+  return [...new Set([...profileCourseIds, ...enrollmentCourseIds, ...classCourseIds])];
+};
+
+const syncCertificateRefToStudent = async ({
+  studentId,
+  certId,
+  courseId,
+  courseName,
+  issuedAt,
+}) => {
+  if (!studentId || !certId || !courseId) return;
+  await db.collection(COLLECTIONS.STUDENTS).doc(studentId).set(
+    {
+      certificates: admin.firestore.FieldValue.arrayUnion({
+        certId,
+        courseId,
+        courseName: courseName || "",
+        issuedAt: parseDate(issuedAt)?.toISOString() || new Date().toISOString(),
+      }),
+    },
+    { merge: true }
+  );
 };
 
 export const getCertificates = async (req, res) => {
@@ -143,7 +272,10 @@ export const getCertificates = async (req, res) => {
 
 export const generateCertificate = async (req, res) => {
   try {
-    const { studentId, courseId } = req.body || {};
+    const { studentId, courseId, allowIncomplete, forceGenerate } = req.body || {};
+    const allowIncompleteOverride = Boolean(
+      allowIncomplete === true || forceGenerate === true
+    );
     if (!studentId || !courseId) {
       return errorResponse(res, "studentId and courseId are required", 400);
     }
@@ -158,9 +290,29 @@ export const generateCertificate = async (req, res) => {
       return errorResponse(res, "Student or course not found", 404);
     }
 
+    const studentData = studentSnap.data() || {};
+    const enrolledCourseIds = await getEnrolledCourseIds(studentId, studentData);
+    if (!enrolledCourseIds.includes(String(courseId).trim())) {
+      return errorResponse(
+        res,
+        "Student is not enrolled in this course",
+        400
+      );
+    }
+
     const progress = await getProgressRecord(studentId, courseId);
-    if (!progress?.completed) {
-      return errorResponse(res, "Student has not completed this course", 400);
+    if (!progress?.completed && !allowIncompleteOverride) {
+      return errorResponse(
+        res,
+        "Student has not completed this course. Confirm override to generate anyway.",
+        409,
+        {
+          code: "INCOMPLETE_COURSE",
+          requiresConfirmation: true,
+          canOverride: true,
+          progressPercent: Number(progress?.progressValue || 0),
+        }
+      );
     }
 
     const existingSnap = await db
@@ -171,6 +323,13 @@ export const generateCertificate = async (req, res) => {
       .map((doc) => ({ id: doc.id, ...(doc.data() || {}) }))
       .find((row) => row.courseId === courseId && !row.isRevoked);
     if (existing) {
+      await syncCertificateRefToStudent({
+        studentId,
+        certId: existing.certId || existing.id,
+        courseId,
+        courseName: existing.courseName || courseSnap.data()?.title || "Course",
+        issuedAt: existing.issuedAt || existing.createdAt || new Date().toISOString(),
+      });
       return successResponse(res, existing, "Certificate already exists");
     }
 
@@ -188,12 +347,13 @@ export const generateCertificate = async (req, res) => {
     }
 
     const studentName =
-      studentSnap.data()?.fullName ||
+      studentData.fullName ||
       (userSnap.data()?.email
         ? String(userSnap.data().email).split("@")[0]
         : "Student");
     const courseName = courseSnap.data()?.title || "Course";
     const verificationUrl = `${process.env.CLIENT_URL}/verify/${certId}`;
+    const issuedWithoutCompletion = !progress?.completed;
 
     const certRef = db.collection(COLLECTIONS.CERTIFICATES).doc();
     const payload = {
@@ -208,21 +368,18 @@ export const generateCertificate = async (req, res) => {
       isRevoked: false,
       revokedAt: null,
       createdBy: req.user.uid,
+      issuedWithoutCompletion,
     };
 
     await certRef.set(payload);
 
-    await db.collection(COLLECTIONS.STUDENTS).doc(studentId).set(
-      {
-        certificates: admin.firestore.FieldValue.arrayUnion({
-          certId,
-          courseId,
-          courseName,
-          issuedAt: new Date().toISOString(),
-        }),
-      },
-      { merge: true }
-    );
+    await syncCertificateRefToStudent({
+      studentId,
+      certId,
+      courseId,
+      courseName,
+      issuedAt: new Date().toISOString(),
+    });
 
     try {
       const email = userSnap.data()?.email || "";
@@ -271,6 +428,41 @@ export const revokeCertificate = async (req, res) => {
     );
   } catch (error) {
     return errorResponse(res, "Failed to revoke certificate", 500);
+  }
+};
+
+export const unrevokeCertificate = async (req, res) => {
+  try {
+    const certKey = req.params.certId;
+    const certData = await findCertificateByCertKey(certKey);
+    if (!certData) {
+      return errorResponse(res, "Certificate not found", 404);
+    }
+
+    if (!certData.isRevoked) {
+      return successResponse(
+        res,
+        { id: certData.id, certId: certData.certId, isRevoked: false },
+        "Certificate is already active"
+      );
+    }
+
+    await db.collection(COLLECTIONS.CERTIFICATES).doc(certData.id).update({
+      isRevoked: false,
+      revokedAt: null,
+      revokedBy: null,
+      unrevokedAt: admin.firestore.FieldValue.serverTimestamp(),
+      unrevokedBy: req.user.uid,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    return successResponse(
+      res,
+      { id: certData.id, certId: certData.certId, isRevoked: false },
+      "Certificate unrevoked"
+    );
+  } catch (error) {
+    return errorResponse(res, "Failed to unrevoke certificate", 500);
   }
 };
 

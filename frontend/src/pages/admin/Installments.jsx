@@ -5,12 +5,14 @@ import toast, { Toaster } from "react-hot-toast";
 import { jsPDF } from "jspdf";
 import {
   createInstallmentPlan,
+  getAdminPayments,
   getInstallmentPlanById,
   getInstallmentsAdmin,
   markInstallmentPaid,
   overrideInstallmentPlan,
   sendInstallmentReminderToStudent,
   sendInstallmentReminders,
+  verifyPayment,
 } from "../../services/payment.service.js";
 import { getCourses, getStudents, getClasses } from "../../services/admin.service.js";
 
@@ -33,6 +35,10 @@ const formatDate = (value) => {
 };
 
 const formatPKR = (amount) => `PKR ${Number(amount || 0).toLocaleString("en-PK")}`;
+const canReviewPaymentRequest = (payment = {}) =>
+  ["pending", "pending_verification"].includes(
+    String(payment.status || "").toLowerCase()
+  );
 
 const getInitials = (name = "") =>
   String(name || "")
@@ -105,6 +111,13 @@ function Installments() {
     staleTime: 30000,
   });
 
+  const { data: paymentRequests = [] } = useQuery({
+    queryKey: ["admin-payments-installments"],
+    queryFn: getAdminPayments,
+    staleTime: 30000,
+    refetchInterval: 60000,
+  });
+
   const markPaidMutation = useMutation({
     mutationFn: ({ planId, number }) => markInstallmentPaid(planId, number),
     onSuccess: (_, vars) => {
@@ -114,6 +127,23 @@ function Installments() {
     },
     onError: (error) => {
       toast.error(error?.response?.data?.message || "Failed to mark installment as paid");
+    },
+  });
+
+  const verifyPaymentMutation = useMutation({
+    mutationFn: ({ paymentId, action }) => verifyPayment(paymentId, action),
+    onSuccess: (_, vars) => {
+      toast.success(
+        vars.action === "approve" ? "Payment approved" : "Payment rejected"
+      );
+      queryClient.invalidateQueries({ queryKey: ["admin-installments"] });
+      queryClient.invalidateQueries({ queryKey: ["admin-installment-plan"] });
+      queryClient.invalidateQueries({ queryKey: ["admin-payments-installments"] });
+      queryClient.invalidateQueries({ queryKey: ["admin-payments"] });
+      queryClient.invalidateQueries({ queryKey: ["admin-transactions"] });
+    },
+    onError: (error) => {
+      toast.error(error?.response?.data?.message || "Failed to update payment");
     },
   });
 
@@ -233,8 +263,30 @@ function Installments() {
           (parseDate(b.createdAt)?.getTime() || 0) - (parseDate(a.createdAt)?.getTime() || 0)
       );
 
-    return { activePlans, overduePlans, collectedThisMonth, dueThisWeek, filtered, total: rows.length };
-  }, [plans, tab, debouncedSearch]);
+    const pendingRequests = (Array.isArray(paymentRequests) ? paymentRequests : [])
+      .map((item) => ({
+        ...item,
+        status: String(item.status || "").toLowerCase(),
+        method: String(item.method || "").toLowerCase(),
+      }))
+      .filter((item) => canReviewPaymentRequest(item))
+      .sort(
+        (a, b) =>
+          (parseDate(b.createdAt)?.getTime() || 0) -
+          (parseDate(a.createdAt)?.getTime() || 0)
+      )
+      .slice(0, 8);
+
+    return {
+      activePlans,
+      overduePlans,
+      collectedThisMonth,
+      dueThisWeek,
+      filtered,
+      total: rows.length,
+      pendingRequests,
+    };
+  }, [plans, tab, debouncedSearch, paymentRequests]);
 
   const previewSchedule = useMemo(() => {
     const count = Number(form.numberOfInstallments || 2);
@@ -333,6 +385,54 @@ function Installments() {
           </button>
         </div>
       ) : null}
+
+      <div className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="font-heading text-xl text-slate-900">Pending Course Requests</h3>
+          <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+            {computed.pendingRequests.length} pending
+          </span>
+        </div>
+        {computed.pendingRequests.length < 1 ? (
+          <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-3 py-5 text-center text-sm text-slate-500">
+            No pending payment requests to review.
+          </div>
+        ) : (
+          <div className="grid gap-3 md:grid-cols-2">
+            {computed.pendingRequests.map((item) => (
+              <div key={item.id} className="rounded-xl border border-slate-200 bg-white p-3">
+                <p className="text-sm font-semibold text-slate-900">{item.studentName || "-"}</p>
+                <p className="text-xs text-slate-500">
+                  {item.courseName || "-"} | {item.method || "-"} | {formatDate(item.createdAt)}
+                </p>
+                <p className="mt-2 text-sm font-semibold text-slate-900">
+                  {formatPKR(item.amount)}
+                </p>
+                <div className="mt-3 flex gap-2">
+                  <button
+                    className="flex-1 rounded-full bg-emerald-600 px-3 py-2 text-xs font-semibold text-white"
+                    disabled={verifyPaymentMutation.isPending}
+                    onClick={() =>
+                      verifyPaymentMutation.mutate({ paymentId: item.id, action: "approve" })
+                    }
+                  >
+                    Approve
+                  </button>
+                  <button
+                    className="flex-1 rounded-full border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-700"
+                    disabled={verifyPaymentMutation.isPending}
+                    onClick={() =>
+                      verifyPaymentMutation.mutate({ paymentId: item.id, action: "reject" })
+                    }
+                  >
+                    Reject
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex flex-wrap gap-2">

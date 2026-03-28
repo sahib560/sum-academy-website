@@ -4,6 +4,7 @@ import {
   getCertificates,
   generateCertificate,
   revokeCertificate,
+  unrevokeCertificate,
   verifyCertificate,
 } from "../controllers/certificate.controller.js";
 
@@ -14,6 +15,7 @@ const adminOnly = [verifyToken, requireRole("admin")];
 adminRouter.get("/certificates", adminOnly, getCertificates);
 adminRouter.post("/certificates", adminOnly, generateCertificate);
 adminRouter.patch("/certificates/:certId/revoke", adminOnly, revokeCertificate);
+adminRouter.patch("/certificates/:certId/unrevoke", adminOnly, unrevokeCertificate);
 
 publicRouter.get("/verify/:certId", verifyCertificate);
 

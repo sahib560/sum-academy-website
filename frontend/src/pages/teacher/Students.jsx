@@ -1,1046 +1,841 @@
-import { useEffect, useMemo, useState } from "react";
-import { motion } from "framer-motion";
+﻿import { useEffect, useMemo, useState } from "react";
+import { AnimatePresence, motion as Motion } from "framer-motion";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { Toaster, toast } from "react-hot-toast";
+import { jsPDF } from "jspdf";
 import { Skeleton } from "../../components/Skeleton.jsx";
+import {
+  getStudentAttendance,
+  getStudentProgress,
+  getTeacherStudentById,
+  getTeacherStudents,
+  updateStudentVideoAccess,
+} from "../../services/teacher.service.js";
 
-const fadeUp = {
-  initial: { opacity: 0, y: 16 },
-  whileInView: { opacity: 1, y: 0 },
-  viewport: { once: true, amount: 0.2 },
-  transition: { duration: 0.45 },
-};
+const QUERY_STALE_TIME = 30000;
+const NOW_TS = Date.now();
 
-const studentsData = [
-  {
-    id: 1,
-    name: "Ayesha Noor",
-    email: "ayesha.noor@sumacademy.pk",
-    course: "Biology Masterclass XI",
-    progress: 92,
-    lastActiveDays: 0,
-    enrolledDate: "2026-01-20",
-    coursesProgress: [
-      {
-        id: "bio-1",
-        title: "Biology Masterclass XI",
-        progress: 92,
-        chapters: [
-          {
-            id: "bio-ch-1",
-            title: "Cells & Genetics",
-            lectures: [
-              { id: "bio-l-1", title: "Cell Structure", completed: true },
-              { id: "bio-l-2", title: "DNA Basics", completed: true },
-              { id: "bio-l-3", title: "Genetic Variation", completed: false },
-            ],
-          },
-          {
-            id: "bio-ch-2",
-            title: "Physiology",
-            lectures: [
-              {
-                id: "bio-l-4",
-                title: "Circulatory System",
-                completed: false,
-                locked: true,
-              },
-              {
-                id: "bio-l-5",
-                title: "Respiration",
-                completed: false,
-                locked: true,
-              },
-            ],
-          },
-        ],
-      },
-    ],
-    quizResults: [
-      {
-        id: 1,
-        name: "Genetics Quiz",
-        score: 82,
-        status: "Pass",
-        date: "Mar 08, 2026",
-      },
-      {
-        id: 2,
-        name: "Cell Biology Quiz",
-        score: 74,
-        status: "Pass",
-        date: "Mar 02, 2026",
-      },
-    ],
-    attendance: {
-      percent: 88,
-      sessions: [
-        { id: 1, date: "Mar 10", status: "Present" },
-        { id: 2, date: "Mar 08", status: "Present" },
-        { id: 3, date: "Mar 06", status: "Leave" },
-        { id: 4, date: "Mar 04", status: "Present" },
-        { id: 5, date: "Mar 01", status: "Absent" },
-      ],
-    },
-  },
-  {
-    id: 2,
-    name: "Bilal Khan",
-    email: "bilal.khan@sumacademy.pk",
-    course: "Chemistry Quick Revision",
-    progress: 68,
-    lastActiveDays: 2,
-    enrolledDate: "2026-02-11",
-    coursesProgress: [
-      {
-        id: "chem-1",
-        title: "Chemistry Quick Revision",
-        progress: 68,
-        chapters: [
-          {
-            id: "chem-ch-1",
-            title: "Organic Chemistry",
-            lectures: [
-              { id: "chem-l-1", title: "Hydrocarbons", completed: true },
-              {
-                id: "chem-l-2",
-                title: "Functional Groups",
-                completed: false,
-              },
-              {
-                id: "chem-l-3",
-                title: "Reaction Mechanisms",
-                completed: false,
-                locked: true,
-              },
-            ],
-          },
-        ],
-      },
-    ],
-    quizResults: [
-      {
-        id: 1,
-        name: "Organic Basics",
-        score: 61,
-        status: "Pass",
-        date: "Mar 05, 2026",
-      },
-    ],
-  },
-  {
-    id: 3,
-    name: "Hina Sheikh",
-    email: "hina.sheikh@sumacademy.pk",
-    course: "Physics Practice Lab",
-    progress: 100,
-    lastActiveDays: 1,
-    enrolledDate: "2025-12-18",
-    coursesProgress: [
-      {
-        id: "phy-1",
-        title: "Physics Practice Lab",
-        progress: 100,
-        chapters: [
-          {
-            id: "phy-ch-1",
-            title: "Mechanics",
-            lectures: [
-              { id: "phy-l-1", title: "Motion", completed: true },
-              { id: "phy-l-2", title: "Energy", completed: true },
-            ],
-          },
-          {
-            id: "phy-ch-2",
-            title: "Waves",
-            lectures: [
-              { id: "phy-l-3", title: "Sound Waves", completed: true },
-              { id: "phy-l-4", title: "Light Waves", completed: true },
-            ],
-          },
-        ],
-      },
-    ],
-    quizResults: [
-      {
-        id: 1,
-        name: "Mechanics Final",
-        score: 92,
-        status: "Pass",
-        date: "Feb 28, 2026",
-      },
-    ],
-    attendance: {
-      percent: 96,
-      sessions: [
-        { id: 1, date: "Mar 09", status: "Present" },
-        { id: 2, date: "Mar 07", status: "Present" },
-        { id: 3, date: "Mar 05", status: "Present" },
-        { id: 4, date: "Mar 03", status: "Present" },
-        { id: 5, date: "Mar 01", status: "Present" },
-      ],
-    },
-  },
-  {
-    id: 4,
-    name: "Usman Raza",
-    email: "usman.raza@sumacademy.pk",
-    course: "English Essay Clinic",
-    progress: 34,
-    lastActiveDays: 5,
-    enrolledDate: "2026-01-30",
-    coursesProgress: [
-      {
-        id: "eng-1",
-        title: "English Essay Clinic",
-        progress: 34,
-        chapters: [
-          {
-            id: "eng-ch-1",
-            title: "Essay Structure",
-            lectures: [
-              { id: "eng-l-1", title: "Introductions", completed: true },
-              {
-                id: "eng-l-2",
-                title: "Body Paragraphs",
-                completed: false,
-              },
-              {
-                id: "eng-l-3",
-                title: "Conclusions",
-                completed: false,
-                locked: true,
-              },
-            ],
-          },
-        ],
-      },
-    ],
-    quizResults: [],
-  },
-  {
-    id: 5,
-    name: "Mariam Bukhari",
-    email: "mariam.bukhari@sumacademy.pk",
-    course: "Entrance Test Sprint",
-    progress: 0,
-    lastActiveDays: 14,
-    enrolledDate: "2026-02-25",
-    coursesProgress: [
-      {
-        id: "entry-1",
-        title: "Entrance Test Sprint",
-        progress: 0,
-        chapters: [
-          {
-            id: "entry-ch-1",
-            title: "Starter Pack",
-            lectures: [
-              { id: "entry-l-1", title: "Orientation", completed: false },
-              {
-                id: "entry-l-2",
-                title: "Diagnostic Test",
-                completed: false,
-                locked: true,
-              },
-            ],
-          },
-        ],
-      },
-    ],
-    quizResults: [],
-  },
-  {
-    id: 6,
-    name: "Sana Ahmed",
-    email: "sana.ahmed@sumacademy.pk",
-    course: "Biology Masterclass XI",
-    progress: 76,
-    lastActiveDays: 3,
-    enrolledDate: "2026-01-14",
-    coursesProgress: [
-      {
-        id: "bio-2",
-        title: "Biology Masterclass XI",
-        progress: 76,
-        chapters: [
-          {
-            id: "bio2-ch-1",
-            title: "Genetics",
-            lectures: [
-              { id: "bio2-l-1", title: "Inheritance", completed: true },
-              { id: "bio2-l-2", title: "Punnett Squares", completed: true },
-              { id: "bio2-l-3", title: "Mutation", completed: false },
-            ],
-          },
-        ],
-      },
-    ],
-    quizResults: [
-      {
-        id: 1,
-        name: "Inheritance Quiz",
-        score: 69,
-        status: "Pass",
-        date: "Mar 06, 2026",
-      },
-    ],
-  },
+const PROGRESS_FILTER_OPTIONS = [
+  { id: "all", label: "All" },
+  { id: "not_started", label: "Not Started" },
+  { id: "in_progress", label: "In Progress" },
+  { id: "completed", label: "Completed" },
 ];
 
-const progressFilters = ["All", "In Progress", "Completed", "Not Started"];
-const sortOptions = ["Name", "Progress", "Last Active", "Enrolled Date"];
+const SORT_OPTIONS = [
+  { id: "name", label: "Name A-Z" },
+  { id: "most_progress", label: "Most Progress" },
+  { id: "least_progress", label: "Least Progress" },
+  { id: "recent_active", label: "Recently Active" },
+  { id: "newest_enrolled", label: "Newest Enrolled" },
+];
 
-const formatRelative = (days) => {
-  if (days === 0) return "Today";
-  if (days === 1) return "1 day ago";
-  return `${days} days ago`;
+const PROFILE_TABS = [
+  { id: "overview", label: "Overview" },
+  { id: "progress", label: "Course Progress" },
+  { id: "quiz", label: "Quiz Results" },
+  { id: "attendance", label: "Attendance" },
+];
+
+const clampPercent = (value) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 0;
+  return Math.max(0, Math.min(100, Math.round(parsed)));
 };
 
-const getInitials = (name) =>
-  name
+const asDate = (value) => {
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const toYmd = (value) => {
+  const date = asDate(value);
+  if (!date) return "";
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+};
+
+const formatNumber = (value) => Number(value || 0).toLocaleString("en-US");
+
+const getInitials = (name = "") =>
+  String(name || "")
     .split(" ")
+    .filter(Boolean)
     .slice(0, 2)
-    .map((part) => part[0])
-    .join("");
+    .map((part) => part[0]?.toUpperCase() || "")
+    .join("") || "S";
 
-const progressColor = (value) => {
-  if (value === 0) return "bg-slate-200";
-  if (value >= 100) return "bg-emerald-500";
-  return "bg-blue-500";
+const formatRelativeTime = (value) => {
+  const date = asDate(value);
+  if (!date) return "Never";
+
+  const diffMs = Date.now() - date.getTime();
+  const diffDays = Math.floor(diffMs / (24 * 60 * 60 * 1000));
+  if (diffDays <= 0) return "Today";
+  if (diffDays === 1) return "1 day ago";
+  return `${diffDays} days ago`;
 };
 
-const attendanceBadge = (percent) => {
-  if (percent >= 75) return "bg-emerald-50 text-emerald-600";
-  if (percent >= 50) return "bg-amber-50 text-amber-600";
-  return "bg-rose-50 text-rose-600";
+const formatReadableDate = (value) => {
+  const date = asDate(value);
+  if (!date) return "-";
+  return date.toLocaleDateString("en-US", {
+    month: "short",
+    day: "2-digit",
+    year: "numeric",
+  });
 };
 
-const sessionStatusStyles = {
-  Present: "bg-emerald-50 text-emerald-600",
-  Absent: "bg-rose-50 text-rose-500",
-  Leave: "bg-slate-100 text-slate-500",
+const getProgressTone = (value) => {
+  const percent = clampPercent(value);
+  if (percent >= 75) return "bg-emerald-500";
+  if (percent >= 25) return "bg-amber-500";
+  return "bg-rose-500";
 };
 
-function TeacherStudents() {
-  const [loading, setLoading] = useState(true);
+const getProgressTextTone = (value) => {
+  const percent = clampPercent(value);
+  if (percent >= 75) return "text-emerald-600";
+  if (percent >= 25) return "text-amber-600";
+  return "text-rose-600";
+};
+
+const getStatusBadgeClass = (isActive) =>
+  isActive
+    ? "bg-emerald-50 text-emerald-700"
+    : "bg-rose-50 text-rose-700";
+
+const getLatestEnrollmentDate = (student = {}) => {
+  const courses = Array.isArray(student.enrolledCourses) ? student.enrolledCourses : [];
+  return courses
+    .map((course) => asDate(course.enrolledAt))
+    .filter(Boolean)
+    .sort((a, b) => b.getTime() - a.getTime())[0] || null;
+};
+
+const buildCalendarGrid = (monthDate, sessions = []) => {
+  const year = monthDate.getFullYear();
+  const month = monthDate.getMonth();
+  const firstDay = new Date(year, month, 1);
+  const gridStart = new Date(firstDay);
+  gridStart.setDate(firstDay.getDate() - firstDay.getDay());
+
+  const statusByDate = {};
+  sessions.forEach((session) => {
+    const key = toYmd(session.date);
+    if (!key) return;
+    statusByDate[key] = String(session.status || "").toLowerCase();
+  });
+
+  const days = [];
+  for (let index = 0; index < 42; index += 1) {
+    const date = new Date(gridStart);
+    date.setDate(gridStart.getDate() + index);
+    const key = toYmd(date);
+    days.push({
+      key,
+      date,
+      day: date.getDate(),
+      inMonth: date.getMonth() === month,
+      status: statusByDate[key] || "none",
+    });
+  }
+  return days;
+};
+
+const statusColorByAttendance = {
+  present: "bg-emerald-500",
+  absent: "bg-rose-500",
+  late: "bg-amber-500",
+  none: "bg-slate-200",
+};
+
+const getLectureMetaMap = (profile = null) => {
+  const lectures = Array.isArray(profile?.teacherLectures) ? profile.teacherLectures : [];
+  return Object.fromEntries(
+    lectures.map((lecture) => [lecture.lectureId, lecture])
+  );
+};
+
+const IconBase = ({ children }) => (
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.8"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className="h-4 w-4"
+    aria-hidden="true"
+  >
+    {children}
+  </svg>
+);
+
+const EyeIcon = () => (
+  <IconBase>
+    <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12Z" />
+    <circle cx="12" cy="12" r="3" />
+  </IconBase>
+);
+
+const LockIcon = () => (
+  <IconBase>
+    <rect x="4" y="11" width="16" height="10" rx="2" />
+    <path d="M8 11V8a4 4 0 1 1 8 0v3" />
+  </IconBase>
+);
+
+const MessageIcon = () => (
+  <IconBase>
+    <path d="M21 15a4 4 0 0 1-4 4H8l-5 4V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z" />
+  </IconBase>
+);
+
+const UsersIcon = () => (
+  <IconBase>
+    <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+    <circle cx="8.5" cy="7" r="4" />
+    <path d="M20 8v6M23 11h-6" />
+  </IconBase>
+);
+
+const CheckIcon = () => (
+  <IconBase>
+    <path d="m5 12 4 4 10-10" />
+  </IconBase>
+);
+
+function Students() {
   const [search, setSearch] = useState("");
-  const [courseFilter, setCourseFilter] = useState("All");
-  const [progressFilter, setProgressFilter] = useState("All");
-  const [sortBy, setSortBy] = useState("Name");
-  const [page, setPage] = useState(1);
-  const [selectedStudent, setSelectedStudent] = useState(null);
-  const [unlockCourse, setUnlockCourse] = useState("");
-  const [unlockState, setUnlockState] = useState({});
-  const [savingAccess, setSavingAccess] = useState(false);
-  const [attendanceState, setAttendanceState] = useState({});
-  const [savingAttendance, setSavingAttendance] = useState(false);
-  const [toast, setToast] = useState(null);
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [courseFilter, setCourseFilter] = useState("all");
+  const [progressFilter, setProgressFilter] = useState("all");
+  const [sortBy, setSortBy] = useState("name");
 
-  useEffect(() => {
-    const timer = setTimeout(() => setLoading(false), 1500);
-    return () => clearTimeout(timer);
-  }, []);
+  const [selectedStudentId, setSelectedStudentId] = useState("");
+  const [activeProfileTab, setActiveProfileTab] = useState("overview");
+  const [selectedProgressCourseId, setSelectedProgressCourseId] = useState("");
+  const [selectedAttendanceClassId, setSelectedAttendanceClassId] = useState("");
+  const [attendanceMonth, setAttendanceMonth] = useState(new Date());
+  const [profileAccessDraft, setProfileAccessDraft] = useState({});
 
-  useEffect(() => {
-    if (!toast) return;
-    const timer = setTimeout(() => setToast(null), 2000);
-    return () => clearTimeout(timer);
-  }, [toast]);
+  const [quickAccessStudentId, setQuickAccessStudentId] = useState("");
+  const [quickAccessCourseId, setQuickAccessCourseId] = useState("");
+  const [quickAccessDraft, setQuickAccessDraft] = useState({});
 
-  useEffect(() => {
-    if (!selectedStudent) return;
-    const firstCourse = selectedStudent.coursesProgress?.[0]?.title || "";
-    setUnlockCourse(firstCourse);
-    const initialUnlock = {};
-    selectedStudent.coursesProgress?.forEach((course) => {
-      course.chapters.forEach((chapter) => {
-        chapter.lectures.forEach((lecture) => {
-          initialUnlock[lecture.id] = lecture.completed;
-        });
-      });
-    });
-    setUnlockState(initialUnlock);
-    const initialAttendance = {};
-    if (selectedStudent.attendance) {
-      selectedStudent.attendance.sessions.forEach((session) => {
-        initialAttendance[session.id] = session.status;
-      });
-    }
-    setAttendanceState(initialAttendance);
-  }, [selectedStudent]);
+  const studentsQuery = useQuery({
+    queryKey: ["teacher-students"],
+    queryFn: getTeacherStudents,
+    staleTime: QUERY_STALE_TIME,
+  });
 
-  useEffect(() => {
-    setPage(1);
-  }, [search, courseFilter, progressFilter, sortBy]);
+  const profileQuery = useQuery({
+    queryKey: ["teacher-student-profile", selectedStudentId],
+    queryFn: () => getTeacherStudentById(selectedStudentId),
+    enabled: Boolean(selectedStudentId),
+    staleTime: QUERY_STALE_TIME,
+  });
 
-  const courseOptions = useMemo(() => {
-    const unique = new Set(studentsData.map((student) => student.course));
-    return ["All", ...Array.from(unique)];
-  }, []);
+  const profileProgressQuery = useQuery({
+    queryKey: ["teacher-student-progress", selectedStudentId, selectedProgressCourseId],
+    queryFn: () => getStudentProgress(selectedStudentId, selectedProgressCourseId),
+    enabled: Boolean(selectedStudentId && selectedProgressCourseId),
+    staleTime: QUERY_STALE_TIME,
+  });
 
-  const stats = useMemo(() => {
-    const total = studentsData.length;
-    const active = studentsData.filter(
-      (student) => student.lastActiveDays <= 7
-    ).length;
-    const avg = Math.round(
-      studentsData.reduce((sum, student) => sum + student.progress, 0) / total
-    );
-    return { total, active, avg };
-  }, []);
+  const attendanceQuery = useQuery({
+    queryKey: ["teacher-student-attendance", selectedStudentId, selectedAttendanceClassId],
+    queryFn: () => getStudentAttendance(selectedStudentId, selectedAttendanceClassId),
+    enabled: Boolean(selectedStudentId && selectedAttendanceClassId && activeProfileTab === "attendance"),
+    staleTime: QUERY_STALE_TIME,
+  });
 
-  const filteredStudents = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    return studentsData.filter((student) => {
-      const matchesSearch =
-        !query || student.name.toLowerCase().includes(query);
-      const matchesCourse =
-        courseFilter === "All" || student.course === courseFilter;
-      const matchesProgress =
-        progressFilter === "All" ||
-        (progressFilter === "Completed" && student.progress >= 100) ||
-        (progressFilter === "Not Started" && student.progress === 0) ||
-        (progressFilter === "In Progress" &&
-          student.progress > 0 &&
-          student.progress < 100);
-      return matchesSearch && matchesCourse && matchesProgress;
-    });
-  }, [courseFilter, progressFilter, search]);
+  const quickProfileQuery = useQuery({
+    queryKey: ["teacher-quick-student", quickAccessStudentId],
+    queryFn: () => getTeacherStudentById(quickAccessStudentId),
+    enabled: Boolean(quickAccessStudentId),
+    staleTime: QUERY_STALE_TIME,
+  });
 
-  const sortedStudents = useMemo(() => {
-    const list = [...filteredStudents];
-    switch (sortBy) {
-      case "Progress":
-        return list.sort((a, b) => b.progress - a.progress);
-      case "Last Active":
-        return list.sort((a, b) => a.lastActiveDays - b.lastActiveDays);
-      case "Enrolled Date":
-        return list.sort(
-          (a, b) => new Date(b.enrolledDate) - new Date(a.enrolledDate)
-        );
-      default:
-        return list.sort((a, b) => a.name.localeCompare(b.name));
-    }
-  }, [filteredStudents, sortBy]);
+  const quickProgressQuery = useQuery({
+    queryKey: ["teacher-quick-progress", quickAccessStudentId, quickAccessCourseId],
+    queryFn: () => getStudentProgress(quickAccessStudentId, quickAccessCourseId),
+    enabled: Boolean(quickAccessStudentId && quickAccessCourseId),
+    staleTime: QUERY_STALE_TIME,
+  });
 
-  const pageSize = 15;
-  const totalPages = Math.max(1, Math.ceil(sortedStudents.length / pageSize));
-  const paginatedStudents = sortedStudents.slice(
-    (page - 1) * pageSize,
-    page * pageSize
+  const profileVideoAccessMutation = useMutation({
+    mutationFn: ({ studentId, lectureAccess }) =>
+      updateStudentVideoAccess(studentId, { lectureAccess }),
+  });
+
+  const quickVideoAccessMutation = useMutation({
+    mutationFn: ({ studentId, lectureAccess }) =>
+      updateStudentVideoAccess(studentId, { lectureAccess }),
+  });
+
+  const students = useMemo(
+    () => (Array.isArray(studentsQuery.data) ? studentsQuery.data : []),
+    [studentsQuery.data]
   );
 
-  const selectedCourse = useMemo(() => {
-    if (!selectedStudent) return null;
-    return selectedStudent.coursesProgress.find(
-      (course) => course.title === unlockCourse
-    );
-  }, [selectedStudent, unlockCourse]);
+  const profileProgressLectures = profileProgressQuery.data?.lectures;
+  const quickProgressLectures = quickProgressQuery.data?.lectures;
 
-  const lectureList = useMemo(() => {
-    if (!selectedCourse) return [];
-    return selectedCourse.chapters.flatMap((chapter) =>
-      chapter.lectures.map((lecture) => ({
-        ...lecture,
-        chapterTitle: chapter.title,
-      }))
-    );
-  }, [selectedCourse]);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search.trim().toLowerCase()), 300);
+    return () => clearTimeout(timer);
+  }, [search]);
 
-  const avgQuizScore = useMemo(() => {
-    if (!selectedStudent || selectedStudent.quizResults.length === 0) return null;
-    const total = selectedStudent.quizResults.reduce(
-      (sum, quiz) => sum + quiz.score,
+  useEffect(() => {
+    if (!profileQuery.data) {
+      setSelectedProgressCourseId("");
+      setSelectedAttendanceClassId("");
+      setProfileAccessDraft({});
+      return;
+    }
+
+    const courses = Array.isArray(profileQuery.data.enrolledCourses)
+      ? profileQuery.data.enrolledCourses
+      : [];
+    if (!selectedProgressCourseId && courses.length > 0) {
+      setSelectedProgressCourseId(courses[0].courseId);
+    }
+
+    const classes = Array.isArray(profileQuery.data.availableClasses)
+      ? profileQuery.data.availableClasses
+      : [];
+    if (!selectedAttendanceClassId && classes.length > 0) {
+      setSelectedAttendanceClassId(classes[0].classId);
+    }
+  }, [profileQuery.data, selectedProgressCourseId, selectedAttendanceClassId]);
+
+  useEffect(() => {
+    const lectures = Array.isArray(profileProgressLectures)
+      ? profileProgressLectures
+      : [];
+    if (!lectures.length) return;
+    const draft = {};
+    lectures.forEach((lecture) => {
+      draft[lecture.lectureId] = Boolean(lecture.hasVideoAccess);
+    });
+    setProfileAccessDraft(draft);
+  }, [profileProgressQuery.data?.courseId, profileProgressLectures]);
+
+  useEffect(() => {
+    if (!quickProfileQuery.data) {
+      setQuickAccessCourseId("");
+      setQuickAccessDraft({});
+      return;
+    }
+    const courses = Array.isArray(quickProfileQuery.data.enrolledCourses)
+      ? quickProfileQuery.data.enrolledCourses
+      : [];
+    if (!quickAccessCourseId && courses.length > 0) {
+      setQuickAccessCourseId(courses[0].courseId);
+    }
+  }, [quickProfileQuery.data, quickAccessCourseId]);
+
+  useEffect(() => {
+    const lectures = Array.isArray(quickProgressLectures)
+      ? quickProgressLectures
+      : [];
+    if (!lectures.length) return;
+    const draft = {};
+    lectures.forEach((lecture) => {
+      draft[lecture.lectureId] = Boolean(lecture.hasVideoAccess);
+    });
+    setQuickAccessDraft(draft);
+  }, [quickProgressQuery.data?.courseId, quickProgressLectures]);
+
+  const stats = useMemo(() => {
+    const totalMyStudents = students.length;
+    const activeThisWeek = students.filter((student) => {
+      const date = asDate(student.lastLoginAt);
+      if (!date) return false;
+      return NOW_TS - date.getTime() <= 7 * 24 * 60 * 60 * 1000;
+    }).length;
+    const avgCompletionRate =
+      students.length > 0
+        ? Math.round(
+            students.reduce((sum, student) => sum + clampPercent(student.avgProgress), 0) /
+              students.length
+          )
+        : 0;
+    const completedCourses = students.reduce(
+      (sum, student) => sum + Number(student.completedCourses || 0),
       0
     );
-    return Math.round(total / selectedStudent.quizResults.length);
-  }, [selectedStudent]);
+    return { totalMyStudents, activeThisWeek, avgCompletionRate, completedCourses };
+  }, [students]);
 
-  const attendancePercent = useMemo(() => {
-    if (!selectedStudent?.attendance) return null;
-    const sessions = selectedStudent.attendance.sessions;
-    if (sessions.length === 0) return 0;
-    const presentCount = sessions.filter(
-      (session) => attendanceState[session.id] === "Present"
-    ).length;
-    return Math.round((presentCount / sessions.length) * 100);
-  }, [attendanceState, selectedStudent]);
+  const courseOptions = useMemo(() => {
+    const map = new Map();
+    students.forEach((student) => {
+      (student.enrolledCourses || []).forEach((course) => {
+        const courseId = String(course.courseId || "");
+        if (!courseId) return;
+        map.set(courseId, course.courseName || "Course");
+      });
+    });
+    return [{ id: "all", name: "All Courses" }, ...Array.from(map.entries()).map(([id, name]) => ({ id, name }))];
+  }, [students]);
 
-  const displayAttendancePercent =
-    attendancePercent ?? selectedStudent?.attendance?.percent ?? 0;
+  const filteredStudents = useMemo(() => {
+    const rows = students.filter((student) => {
+      const fullName = String(student.fullName || "").toLowerCase();
+      const email = String(student.email || "").toLowerCase();
+      const searchMatch = !debouncedSearch || fullName.includes(debouncedSearch) || email.includes(debouncedSearch);
 
-  const handleSaveAccess = () => {
-    setSavingAccess(true);
-    setTimeout(() => {
-      setSavingAccess(false);
-      setToast({ type: "success", message: "Rewatch access saved." });
-    }, 900);
+      const courseMatch =
+        courseFilter === "all" ||
+        (Array.isArray(student.enrolledCourses)
+          ? student.enrolledCourses.some((course) => String(course.courseId) === courseFilter)
+          : false);
+
+      const progress = clampPercent(student.avgProgress);
+      const progressMatch =
+        progressFilter === "all" ||
+        (progressFilter === "not_started" && progress === 0) ||
+        (progressFilter === "in_progress" && progress > 0 && progress < 100) ||
+        (progressFilter === "completed" && progress === 100);
+
+      return searchMatch && courseMatch && progressMatch;
+    });
+
+    const sorted = [...rows];
+    sorted.sort((a, b) => {
+      if (sortBy === "name") return String(a.fullName || "").localeCompare(String(b.fullName || ""));
+      if (sortBy === "most_progress") return clampPercent(b.avgProgress) - clampPercent(a.avgProgress);
+      if (sortBy === "least_progress") return clampPercent(a.avgProgress) - clampPercent(b.avgProgress);
+      if (sortBy === "recent_active") {
+        const aDate = asDate(a.lastLoginAt);
+        const bDate = asDate(b.lastLoginAt);
+        if (!aDate && !bDate) return 0;
+        if (!aDate) return 1;
+        if (!bDate) return -1;
+        return bDate.getTime() - aDate.getTime();
+      }
+      const aEnroll = getLatestEnrollmentDate(a);
+      const bEnroll = getLatestEnrollmentDate(b);
+      if (!aEnroll && !bEnroll) return 0;
+      if (!aEnroll) return 1;
+      if (!bEnroll) return -1;
+      return bEnroll.getTime() - aEnroll.getTime();
+    });
+
+    return sorted;
+  }, [students, debouncedSearch, courseFilter, progressFilter, sortBy]);
+
+  const exportStudentsPdf = () => {
+    const doc = new jsPDF({ orientation: "landscape" });
+    doc.setFontSize(16);
+    doc.text("SUM Academy - Teacher Students", 14, 16);
+
+    doc.setFontSize(10);
+    doc.text(`Generated: ${new Date().toLocaleString()}`, 14, 23);
+
+    let y = 32;
+    doc.setFillColor(74, 99, 245);
+    doc.rect(14, y, 268, 8, "F");
+    doc.setTextColor(255, 255, 255);
+    doc.text("Name", 16, y + 5.5);
+    doc.text("Email", 80, y + 5.5);
+    doc.text("Courses", 160, y + 5.5);
+    doc.text("Avg Progress", 210, y + 5.5);
+    doc.text("Status", 245, y + 5.5);
+
+    doc.setTextColor(40, 40, 40);
+    y += 12;
+
+    filteredStudents.forEach((student, index) => {
+      if (y > 190) {
+        doc.addPage();
+        y = 20;
+      }
+      const coursesCount = Array.isArray(student.enrolledCourses)
+        ? student.enrolledCourses.length
+        : 0;
+      doc.text(String(student.fullName || "-").slice(0, 26), 16, y);
+      doc.text(String(student.email || "-").slice(0, 34), 80, y);
+      doc.text(String(coursesCount), 166, y);
+      doc.text(`${clampPercent(student.avgProgress)}%`, 212, y);
+      doc.text(student.isActive === false ? "Inactive" : "Active", 246, y);
+      y += 7;
+
+      if (index === 199) return;
+    });
+
+    doc.save(`sum-academy-students-${Date.now()}.pdf`);
+    toast.success("Student list exported");
   };
 
-  const handleSaveAttendance = () => {
-    setSavingAttendance(true);
-    setTimeout(() => {
-      setSavingAttendance(false);
-      setToast({ type: "success", message: "Attendance updated." });
-    }, 900);
+  const profileData = profileQuery.data || null;
+  const profileLectureMetaMap = useMemo(
+    () => getLectureMetaMap(profileData),
+    [profileData]
+  );
+
+  const progressGroupedBySubject = useMemo(() => {
+    const lectures = Array.isArray(profileProgressQuery.data?.lectures)
+      ? profileProgressQuery.data.lectures
+      : [];
+    const groups = {};
+    lectures.forEach((lecture) => {
+      const meta = profileLectureMetaMap[lecture.lectureId] || {};
+      const subjectName = meta.subjectName || "Subject";
+      if (!groups[subjectName]) groups[subjectName] = [];
+      groups[subjectName].push({ ...lecture, meta });
+    });
+    return groups;
+  }, [profileProgressQuery.data?.lectures, profileLectureMetaMap]);
+
+  const saveProfileVideoAccess = async () => {
+    if (!selectedStudentId || !profileProgressQuery.data?.lectures) return;
+    const lectureAccess = profileProgressQuery.data.lectures.map((lecture) => ({
+      lectureId: lecture.lectureId,
+      hasAccess: Boolean(profileAccessDraft[lecture.lectureId]),
+    }));
+    try {
+      await profileVideoAccessMutation.mutateAsync({ studentId: selectedStudentId, lectureAccess });
+      toast.success(`Access updated for ${profileData?.fullName || "student"}`);
+      profileProgressQuery.refetch();
+      profileQuery.refetch();
+    } catch (error) {
+      toast.error(error?.response?.data?.message || "Failed to update access");
+    }
   };
+
+  const quickProfileData = quickProfileQuery.data || null;
+  const quickLectureMetaMap = useMemo(
+    () => getLectureMetaMap(quickProfileData),
+    [quickProfileData]
+  );
+
+  const quickGroupedBySubject = useMemo(() => {
+    const lectures = Array.isArray(quickProgressQuery.data?.lectures)
+      ? quickProgressQuery.data.lectures
+      : [];
+    const groups = {};
+    lectures.forEach((lecture) => {
+      const meta = quickLectureMetaMap[lecture.lectureId] || {};
+      const subjectName = meta.subjectName || "Subject";
+      if (!groups[subjectName]) groups[subjectName] = [];
+      groups[subjectName].push({ ...lecture, meta });
+    });
+    return groups;
+  }, [quickProgressQuery.data?.lectures, quickLectureMetaMap]);
+
+  const saveQuickAccess = async () => {
+    if (!quickAccessStudentId || !quickProgressQuery.data?.lectures) return;
+    const lectureAccess = quickProgressQuery.data.lectures.map((lecture) => ({
+      lectureId: lecture.lectureId,
+      hasAccess: Boolean(quickAccessDraft[lecture.lectureId]),
+    }));
+    try {
+      await quickVideoAccessMutation.mutateAsync({ studentId: quickAccessStudentId, lectureAccess });
+      toast.success(`Access updated for ${quickProfileData?.fullName || "student"}`);
+      setQuickAccessStudentId("");
+      setQuickAccessCourseId("");
+      setQuickAccessDraft({});
+    } catch (error) {
+      toast.error(error?.response?.data?.message || "Failed to update access");
+    }
+  };
+
+  const attendanceCalendarDays = useMemo(() => {
+    if (!attendanceQuery.data) return [];
+    return buildCalendarGrid(attendanceMonth, attendanceQuery.data.sessions || []);
+  }, [attendanceMonth, attendanceQuery.data]);
 
   return (
     <div className="space-y-6">
-      <motion.section {...fadeUp}>
-        <h1 className="font-heading text-3xl text-slate-900">Students</h1>
-      </motion.section>
+      <Toaster position="top-left" toastOptions={{ style: { borderRadius: "12px", fontFamily: "DM Sans, sans-serif" } }} />
 
-      <motion.section {...fadeUp} className="grid gap-4 md:grid-cols-3">
-        {loading
-          ? Array.from({ length: 3 }).map((_, index) => (
-              <div
-                key={`stat-skeleton-${index}`}
-                className="glass-card border border-slate-200"
-              >
-                <Skeleton className="h-4 w-1/3" />
-                <Skeleton className="mt-4 h-8 w-1/2" />
-              </div>
-            ))
-          : [
-              { label: "Total Students", value: stats.total },
-              { label: "Active This Week", value: stats.active },
-              { label: "Avg Completion Rate", value: `${stats.avg}%` },
-            ].map((card) => (
-              <div
-                key={card.label}
-                className="glass-card border border-slate-200"
-              >
-                <p className="text-sm text-slate-500">{card.label}</p>
-                <p className="mt-3 text-2xl font-semibold text-slate-900">
-                  {card.value}
-                </p>
-              </div>
-            ))}
-      </motion.section>
-
-      <motion.section
-        {...fadeUp}
-        className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm"
-      >
-        <div className="flex flex-wrap items-center gap-3">
-          <input
-            type="text"
-            placeholder="Search students..."
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 shadow-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
-          />
-          <select
-            value={courseFilter}
-            onChange={(event) => setCourseFilter(event.target.value)}
-            className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700"
-          >
-            {courseOptions.map((course) => (
-              <option key={course} value={course}>
-                {course === "All" ? "Course: All" : course}
-              </option>
-            ))}
-          </select>
-          <div className="flex flex-wrap gap-2">
-            {progressFilters.map((filter) => (
-              <button
-                key={filter}
-                className={`rounded-full px-4 py-2 text-xs font-semibold ${
-                  progressFilter === filter
-                    ? "bg-primary text-white"
-                    : "border border-slate-200 text-slate-600"
-                }`}
-                onClick={() => setProgressFilter(filter)}
-              >
-                {filter}
-              </button>
-            ))}
-          </div>
-          <select
-            value={sortBy}
-            onChange={(event) => setSortBy(event.target.value)}
-            className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700"
-          >
-            {sortOptions.map((option) => (
-              <option key={option} value={option}>
-                Sort: {option}
-              </option>
-            ))}
-          </select>
+      <section className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="font-heading text-3xl text-slate-900">Students</h1>
+          <p className="text-sm text-slate-500">Manage students enrolled in your assigned courses.</p>
         </div>
-      </motion.section>
+        <button className="rounded-full bg-primary px-4 py-2 text-sm font-semibold text-white" onClick={exportStudentsPdf} disabled={studentsQuery.isLoading}>
+          Export Students PDF
+        </button>
+      </section>
 
-      <motion.section
-        {...fadeUp}
-        className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm"
-      >
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[720px] text-sm">
-            <thead>
-              <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-[0.2em] text-slate-400">
-                <th className="px-3 py-3">Avatar + Name</th>
-                <th className="px-3 py-3">Email</th>
-                <th className="px-3 py-3">Enrolled Course</th>
-                <th className="px-3 py-3">Progress</th>
-                <th className="px-3 py-3">Last Active</th>
-                <th className="px-3 py-3">Completed</th>
-                <th className="px-3 py-3">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading
-                ? Array.from({ length: 6 }).map((_, index) => (
-                    <tr
-                      key={`row-skeleton-${index}`}
-                      className="border-b border-slate-100"
-                    >
-                      <td className="px-3 py-4">
-                        <div className="flex items-center gap-3">
-                          <Skeleton className="h-10 w-10 rounded-full" />
-                          <Skeleton className="h-4 w-28" />
-                        </div>
-                      </td>
-                      <td className="px-3 py-4">
-                        <Skeleton className="h-3 w-40" />
-                      </td>
-                      <td className="px-3 py-4">
-                        <Skeleton className="h-3 w-32" />
-                      </td>
-                      <td className="px-3 py-4">
-                        <Skeleton className="h-3 w-28" />
-                      </td>
-                      <td className="px-3 py-4">
-                        <Skeleton className="h-3 w-20" />
-                      </td>
-                      <td className="px-3 py-4">
-                        <Skeleton className="h-4 w-10" />
-                      </td>
-                      <td className="px-3 py-4">
-                        <Skeleton className="h-8 w-24 rounded-full" />
-                      </td>
-                    </tr>
-                  ))
-                : paginatedStudents.map((student) => (
-                    <tr key={student.id} className="border-b border-slate-100">
-                      <td className="px-3 py-4">
-                        <div className="flex items-center gap-3">
-                          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
-                            {getInitials(student.name)}
-                          </div>
-                          <div>
-                            <p className="font-semibold text-slate-900">
-                              {student.name}
-                            </p>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-3 py-4 text-slate-600">
-                        {student.email}
-                      </td>
-                      <td className="px-3 py-4 text-slate-600">
-                        {student.course}
-                      </td>
-                      <td className="px-3 py-4">
-                        <div className="flex items-center gap-2">
-                          <div className="h-2 w-24 rounded-full bg-slate-100">
-                            <div
-                              className={`h-2 rounded-full ${progressColor(
-                                student.progress
-                              )}`}
-                              style={{ width: `${student.progress}%` }}
-                            />
-                          </div>
-                          <span className="text-xs text-slate-500">
-                            {student.progress}%
-                          </span>
-                        </div>
-                      </td>
-                      <td className="px-3 py-4 text-slate-500">
-                        {formatRelative(student.lastActiveDays)}
-                      </td>
-                      <td className="px-3 py-4">
-                        {student.progress >= 100 ? (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-600">
-                            <svg
-                              viewBox="0 0 24 24"
-                              className="h-3 w-3"
-                              fill="currentColor"
-                            >
-                              <path d="M9 16.2 5.5 12.7l-1.4 1.4L9 19 20.3 7.7l-1.4-1.4z" />
-                            </svg>
-                            Done
-                          </span>
+      <section className="rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+        You can only manage access for lectures in your assigned subjects.
+      </section>
+
+      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {[{ label: "Total My Students", value: stats.totalMyStudents }, { label: "Active This Week", value: stats.activeThisWeek }, { label: "Avg Completion Rate", value: `${stats.avgCompletionRate}%` }, { label: "Completed Courses", value: stats.completedCourses }].map((card) => (
+          <div key={card.label} className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+            <p className="text-sm text-slate-500">{card.label}</p>
+            {studentsQuery.isLoading ? <Skeleton className="mt-2 h-8 w-24" /> : <p className="mt-2 text-2xl font-bold text-slate-900">{formatNumber(card.value)}</p>}
+          </div>
+        ))}
+      </section>
+
+      <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+          <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search by name or email" className="rounded-2xl border border-slate-200 px-4 py-2 text-sm" />
+          <select value={courseFilter} onChange={(event) => setCourseFilter(event.target.value)} className="rounded-2xl border border-slate-200 px-4 py-2 text-sm">{courseOptions.map((course) => <option key={course.id} value={course.id}>{course.name}</option>)}</select>
+          <select value={progressFilter} onChange={(event) => setProgressFilter(event.target.value)} className="rounded-2xl border border-slate-200 px-4 py-2 text-sm">{PROGRESS_FILTER_OPTIONS.map((opt) => <option key={opt.id} value={opt.id}>{opt.label}</option>)}</select>
+          <select value={sortBy} onChange={(event) => setSortBy(event.target.value)} className="rounded-2xl border border-slate-200 px-4 py-2 text-sm">{SORT_OPTIONS.map((opt) => <option key={opt.id} value={opt.id}>{opt.label}</option>)}</select>
+          <div className="rounded-2xl border border-slate-200 px-4 py-2 text-sm text-slate-500">{formatNumber(filteredStudents.length)} students</div>
+        </div>
+      </section>
+
+      <section className="overflow-x-auto rounded-3xl border border-slate-200 bg-white shadow-sm">
+        <table className="min-w-full text-left text-sm">
+          <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+            <tr>
+              <th className="px-4 py-3">Avatar + Name</th>
+              <th className="px-4 py-3">Email</th>
+              <th className="px-4 py-3">Enrolled Courses</th>
+              <th className="px-4 py-3">Avg Progress</th>
+              <th className="px-4 py-3">Last Active</th>
+              <th className="px-4 py-3">Completed</th>
+              <th className="px-4 py-3">Status</th>
+              <th className="px-4 py-3">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {studentsQuery.isLoading
+              ? Array.from({ length: 8 }).map((_, index) => (
+                  <tr key={`skeleton-row-${index}`} className="border-t border-slate-100">
+                    <td className="px-4 py-3" colSpan={8}><Skeleton className="h-10 w-full" /></td>
+                  </tr>
+                ))
+              : filteredStudents.length === 0
+                ? <tr><td colSpan={8} className="px-4 py-10 text-center text-slate-500"><div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-slate-100 text-slate-500"><UsersIcon /></div><p className="mt-2 text-base font-semibold text-slate-700">No students yet</p><p className="mt-1 text-sm">Students will appear here once they enroll in your courses</p></td></tr>
+                : filteredStudents.map((student) => {
+                    const courses = Array.isArray(student.enrolledCourses) ? student.enrolledCourses : [];
+                    const progress = clampPercent(student.avgProgress);
+                    const courseNames = courses.map((course) => course.courseName).filter(Boolean).join(", ");
+                    return (
+                      <tr key={student.uid} className="border-t border-slate-100">
+                        <td className="px-4 py-3"><div className="flex items-center gap-3"><span className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-100 text-xs font-bold text-emerald-700">{getInitials(student.fullName)}</span><div><p className="font-semibold text-slate-900">{student.fullName || "Student"}</p></div></div></td>
+                        <td className="px-4 py-3 text-slate-600">{student.email || "-"}</td>
+                        <td className="px-4 py-3"><span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary" title={courseNames || "No courses"}>{formatNumber(courses.length)} Courses</span></td>
+                        <td className="px-4 py-3"><div className="w-32"><div className="h-2 rounded-full bg-slate-200"><div className={`h-2 rounded-full ${getProgressTone(progress)}`} style={{ width: `${progress}%` }} /></div><p className={`mt-1 text-xs font-semibold ${getProgressTextTone(progress)}`}>{progress}%</p></div></td>
+                        <td className="px-4 py-3 text-slate-500">{formatRelativeTime(student.lastLoginAt)}</td>
+                        <td className="px-4 py-3">{Number(student.completedCourses || 0) > 0 ? <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700"><CheckIcon /> {formatNumber(student.completedCourses)}</span> : <span className="text-slate-400">-</span>}</td>
+                        <td className="px-4 py-3"><span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${getStatusBadgeClass(student.isActive !== false)}`}>{student.isActive === false ? "Inactive" : "Active"}</span></td>
+                        <td className="px-4 py-3"><div className="flex items-center gap-1"><button className="rounded-full border border-slate-200 p-2 text-slate-600 hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-50" onClick={() => { setSelectedStudentId(student.uid); setActiveProfileTab("overview"); }} disabled={studentsQuery.isFetching} title="View Profile"><EyeIcon /></button><button className="rounded-full border border-slate-200 p-2 text-slate-600 hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-50" onClick={() => setQuickAccessStudentId(student.uid)} disabled={studentsQuery.isFetching} title="Quick Video Access"><LockIcon /></button><button className="rounded-full border border-slate-200 p-2 text-slate-300" disabled title="Coming soon"><MessageIcon /></button></div></td>
+                      </tr>
+                    );
+                  })}
+          </tbody>
+        </table>
+      </section>
+
+      <AnimatePresence>
+        {selectedStudentId ? (
+          <div className="fixed inset-0 z-[80]">
+            <Motion.button className="absolute inset-0 bg-slate-900/40" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setSelectedStudentId("")} disabled={profileVideoAccessMutation.isPending} />
+            <Motion.aside className="absolute right-0 top-0 h-full w-full max-w-[480px] overflow-y-auto bg-white p-5 shadow-2xl" initial={{ x: "100%" }} animate={{ x: 0 }} exit={{ x: "100%" }}>
+              {profileQuery.isLoading || !profileData ? (
+                <div className="space-y-4"><Skeleton className="h-20 w-20 rounded-full" /><Skeleton className="h-6 w-48" /><Skeleton className="h-4 w-32" /><Skeleton className="h-28 w-full" /></div>
+              ) : (
+                <div className="space-y-5">
+                  <div className="flex justify-end"><button className="rounded-full border border-slate-300 px-3 py-1 text-sm font-semibold text-slate-600" onClick={() => setSelectedStudentId("")} disabled={profileVideoAccessMutation.isPending}>Close</button></div>
+                  <div className="text-center"><span className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-emerald-100 text-xl font-bold text-emerald-700">{getInitials(profileData.fullName)}</span><h2 className="mt-3 font-heading text-3xl text-slate-900">{profileData.fullName}</h2><p className="text-sm text-slate-500">{profileData.email || "-"}</p><p className="text-sm text-slate-500">{profileData.phoneNumber || "-"}</p><div className="mt-2 flex justify-center gap-2"><span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">Student</span><span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${getStatusBadgeClass(profileData.isActive !== false)}`}>{profileData.isActive === false ? "Inactive" : "Active"}</span></div><p className="mt-1 text-xs text-slate-400">Joined {formatReadableDate(profileData.joinedAt)}</p></div>
+                  <div className="grid grid-cols-4 gap-2">{PROFILE_TABS.map((tab) => <button key={tab.id} className={`rounded-xl px-2 py-2 text-xs font-semibold ${activeProfileTab === tab.id ? "bg-primary text-white" : "border border-slate-200 text-slate-600"}`} onClick={() => setActiveProfileTab(tab.id)} disabled={false}>{tab.label}</button>)}</div>
+
+                  {activeProfileTab === "overview" ? (
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-2 gap-2 text-sm"><div className="rounded-2xl border border-slate-200 p-3"><p className="text-slate-500">Courses Enrolled</p><p className="text-lg font-bold">{formatNumber(profileData.enrolledCourses?.length || 0)}</p></div><div className="rounded-2xl border border-slate-200 p-3"><p className="text-slate-500">Avg Progress</p><p className="text-lg font-bold">{clampPercent(profileData.avgProgress)}%</p></div><div className="rounded-2xl border border-slate-200 p-3"><p className="text-slate-500">Completed</p><p className="text-lg font-bold">{formatNumber(profileData.completedCourses)}</p></div><div className="rounded-2xl border border-slate-200 p-3"><p className="text-slate-500">Certificates</p><p className="text-lg font-bold">{formatNumber(profileData.studentProfile?.certificatesEarned || 0)}</p></div></div>
+                      <div className="space-y-2">{(profileData.enrolledCourses || []).map((course) => { const progress = clampPercent(course.progress); return <div key={course.courseId} className="rounded-2xl border border-slate-200 p-3"><p className="font-semibold text-slate-800">{course.courseName}</p><div className="mt-2 h-2 rounded-full bg-slate-200"><div className={`h-2 rounded-full ${getProgressTone(progress)}`} style={{ width: `${progress}%` }} /></div><p className={`mt-1 text-xs font-semibold ${getProgressTextTone(progress)}`}>{progress}%</p><button className="mt-2 rounded-full border border-slate-300 px-3 py-1 text-xs font-semibold text-slate-600" onClick={() => { setSelectedProgressCourseId(course.courseId); setActiveProfileTab("progress"); }} disabled={false}>View Progress</button></div>; })}</div>
+                      <div className="rounded-2xl border border-slate-200 p-3 text-sm"><p><span className="font-semibold">Last Login:</span> {formatRelativeTime(profileData.lastLoginAt)}</p><p><span className="font-semibold">Device:</span> {profileData.assignedWebDevice || "Unknown"}</p><p><span className="font-semibold">Member Since:</span> {formatReadableDate(profileData.joinedAt)}</p></div>
+                    </div>
+                  ) : null}
+
+                  {activeProfileTab === "progress" ? (
+                    <div className="space-y-4">
+                      <div className="flex flex-wrap gap-2">{(profileData.enrolledCourses || []).map((course) => <button key={course.courseId} className={`rounded-full px-3 py-1.5 text-xs font-semibold ${selectedProgressCourseId === course.courseId ? "bg-primary text-white" : "border border-slate-200 text-slate-600"}`} onClick={() => setSelectedProgressCourseId(course.courseId)} disabled={false}>{course.courseName}</button>)}</div>
+                      {profileProgressQuery.isLoading ? <Skeleton className="h-40 w-full" /> : profileProgressQuery.data ? <div className="space-y-3"><div className="rounded-2xl border border-slate-200 p-4 text-center"><p className="text-xs uppercase tracking-wide text-slate-500">Overall Progress</p><p className="mt-1 text-4xl font-bold text-primary">{clampPercent(profileProgressQuery.data.progressPercent)}%</p><p className="mt-1 text-sm text-slate-500">{formatNumber(profileProgressQuery.data.completedLectures)} / {formatNumber(profileProgressQuery.data.totalLectures)} lectures completed</p></div>{Object.entries(progressGroupedBySubject).map(([subjectName, lectures]) => <div key={subjectName} className="rounded-2xl border border-slate-200 p-3"><p className="font-semibold text-slate-800">{subjectName}</p><div className="mt-2 space-y-2">{lectures.map((lecture) => <div key={lecture.lectureId} className="flex items-center justify-between rounded-xl border border-slate-200 p-2"><div><p className="text-sm font-semibold text-slate-800">{lecture.title}</p><p className="text-xs text-slate-500">{lecture.isCompleted ? `Completed ${formatReadableDate(lecture.completedAt)}` : "Not completed"}</p></div><label className="flex items-center gap-2 text-xs font-semibold text-slate-600"><input type="checkbox" checked={Boolean(profileAccessDraft[lecture.lectureId])} onChange={(event) => setProfileAccessDraft((prev) => ({ ...prev, [lecture.lectureId]: event.target.checked }))} />{profileAccessDraft[lecture.lectureId] ? "Unlocked" : "Locked"}</label></div>)}</div></div>)}<button className="w-full rounded-full bg-primary px-4 py-2 text-sm font-semibold text-white" onClick={saveProfileVideoAccess} disabled={profileVideoAccessMutation.isPending}>{profileVideoAccessMutation.isPending ? "Saving..." : `Save Video Access`}</button></div> : <p className="text-sm text-slate-500">No progress data available.</p>}
+                    </div>
+                  ) : null}
+
+                  {activeProfileTab === "quiz" ? (
+                    <div className="space-y-4">{(profileData.quizResults || []).length === 0 ? <p className="text-sm text-slate-500">No quizzes taken yet</p> : <><div className="grid grid-cols-2 gap-2"><div className="rounded-2xl border border-slate-200 p-3"><p className="text-xs text-slate-500">Average Score</p><p className="text-2xl font-bold text-primary">{Math.round((profileData.quizResults || []).reduce((sum, row) => sum + Number(row.score || row.scorePercent || 0), 0) / (profileData.quizResults.length || 1))}%</p></div><div className="rounded-2xl border border-slate-200 p-3"><p className="text-xs text-slate-500">Pass Rate</p><p className="text-2xl font-bold text-emerald-600">{Math.round(((profileData.quizResults || []).filter((row) => Number(row.score || row.scorePercent || 0) >= 40).length / (profileData.quizResults.length || 1)) * 100)}%</p></div></div><div className="overflow-x-auto rounded-2xl border border-slate-200"><table className="min-w-full text-left text-sm"><thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500"><tr><th className="px-3 py-2">Quiz</th><th className="px-3 py-2">Course</th><th className="px-3 py-2">Score</th><th className="px-3 py-2">Result</th><th className="px-3 py-2">Submitted</th></tr></thead><tbody>{profileData.quizResults.map((quiz) => { const score = Number(quiz.score || quiz.scorePercent || 0); return <tr key={quiz.id} className="border-t border-slate-100"><td className="px-3 py-2">{quiz.quizName || quiz.title || "Quiz"}</td><td className="px-3 py-2">{quiz.courseName || "Course"}</td><td className={`px-3 py-2 font-semibold ${score >= 70 ? "text-emerald-600" : score >= 40 ? "text-amber-600" : "text-rose-600"}`}>{score}%</td><td className="px-3 py-2"><span className={`rounded-full px-2 py-1 text-xs font-semibold ${score >= 40 ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`}>{score >= 40 ? "Pass" : "Fail"}</span></td><td className="px-3 py-2 text-slate-500">{formatReadableDate(quiz.submittedAt || quiz.createdAt)}</td></tr>; })}</tbody></table></div></>}
+                    </div>
+                  ) : null}
+
+                  {activeProfileTab === "attendance" ? (
+                    <div className="space-y-4">
+                      <select
+                        value={selectedAttendanceClassId}
+                        onChange={(event) => setSelectedAttendanceClassId(event.target.value)}
+                        className="w-full rounded-2xl border border-slate-200 px-4 py-2 text-sm"
+                      >
+                        {(profileData.availableClasses || []).length === 0 ? (
+                          <option value="">No class available</option>
                         ) : (
-                          <span className="text-slate-400">-</span>
+                          (profileData.availableClasses || []).map((row) => (
+                            <option key={row.classId} value={row.classId}>
+                              {row.className}
+                            </option>
+                          ))
                         )}
-                      </td>
-                      <td className="px-3 py-4">
-                        <button
-                          className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 hover:border-primary hover:text-primary"
-                          onClick={() => setSelectedStudent(student)}
-                        >
-                          <svg
-                            viewBox="0 0 24 24"
-                            className="h-4 w-4"
-                            fill="currentColor"
-                          >
-                            <path d="M12 5c-5 0-9 5-9 7s4 7 9 7 9-5 9-7-4-7-9-7zm0 12a5 5 0 1 1 0-10 5 5 0 0 1 0 10z" />
-                          </svg>
-                          View Progress
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-            </tbody>
-          </table>
-        </div>
-        {!loading && paginatedStudents.length === 0 && (
-          <div className="py-12 text-center text-sm text-slate-500">
-            No students found yet.
-          </div>
-        )}
-        {!loading && sortedStudents.length > 0 && (
-          <div className="mt-4 flex items-center justify-between text-sm text-slate-500">
-            <span>
-              Page {page} of {totalPages}
-            </span>
-            <div className="flex items-center gap-2">
-              <button
-                className="rounded-full border border-slate-200 px-3 py-1 text-xs"
-                disabled={page === 1}
-                onClick={() => setPage((prev) => Math.max(prev - 1, 1))}
-              >
-                Prev
-              </button>
-              <button
-                className="rounded-full border border-slate-200 px-3 py-1 text-xs"
-                disabled={page === totalPages}
-                onClick={() => setPage((prev) => Math.min(prev + 1, totalPages))}
-              >
-                Next
-              </button>
-            </div>
-          </div>
-        )}
-      </motion.section>
+                      </select>
 
-      {selectedStudent && (
-        <div className="fixed inset-0 z-[60]">
-          <button
-            type="button"
-            className="absolute inset-0 bg-slate-900/40"
-            onClick={() => setSelectedStudent(null)}
-            aria-label="Close panel"
-          />
-          <motion.div
-            initial={{ x: "100%" }}
-            animate={{ x: 0 }}
-            className="absolute right-0 top-0 h-full w-full max-w-3xl overflow-y-auto bg-white p-6 shadow-2xl"
-          >
-            {loading ? (
-              <div className="space-y-4">
-                <Skeleton className="h-8 w-1/3" />
-                <Skeleton className="h-4 w-1/2" />
-                <Skeleton className="h-24 w-full" />
-                <Skeleton className="h-24 w-full" />
-              </div>
-            ) : (
-              <div className="space-y-6">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
-                      {getInitials(selectedStudent.name)}
-                    </div>
-                    <div>
-                      <h2 className="font-heading text-2xl text-slate-900">
-                        {selectedStudent.name}
-                      </h2>
-                      <p className="text-sm text-slate-500">
-                        {selectedStudent.email}
-                      </p>
-                      <p className="text-xs text-slate-400">
-                        Enrolled: {selectedStudent.enrolledDate}
-                      </p>
-                    </div>
-                  </div>
-                  <button
-                    className="rounded-full border border-slate-200 px-3 py-1 text-xs text-slate-500"
-                    onClick={() => setSelectedStudent(null)}
-                  >
-                    Close
-                  </button>
-                </div>
+                      {(profileData.availableClasses || []).length === 0 ? (
+                        <p className="text-sm text-slate-500">Student is not in any of your classes</p>
+                      ) : attendanceQuery.isLoading ? (
+                        <Skeleton className="h-48 w-full" />
+                      ) : attendanceQuery.data ? (
+                        <>
+                          <div className="grid grid-cols-2 gap-2 text-sm">
+                            <div className="rounded-2xl border border-slate-200 p-3">
+                              <p className="text-slate-500">Total Sessions</p>
+                              <p className="text-xl font-bold">{formatNumber(attendanceQuery.data.totalSessions)}</p>
+                            </div>
+                            <div className="rounded-2xl border border-slate-200 p-3">
+                              <p className="text-slate-500">Present</p>
+                              <p className="text-xl font-bold text-emerald-600">{formatNumber(attendanceQuery.data.presentCount)}</p>
+                            </div>
+                            <div className="rounded-2xl border border-slate-200 p-3">
+                              <p className="text-slate-500">Absent</p>
+                              <p className="text-xl font-bold text-rose-600">{formatNumber(attendanceQuery.data.absentCount)}</p>
+                            </div>
+                            <div className="rounded-2xl border border-slate-200 p-3">
+                              <p className="text-slate-500">Late</p>
+                              <p className="text-xl font-bold text-amber-600">{formatNumber(attendanceQuery.data.lateCount)}</p>
+                            </div>
+                          </div>
 
-                <section className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
-                  <h3 className="font-heading text-xl text-slate-900">
-                    Course Progress
-                  </h3>
-                  <div className="mt-4 space-y-4">
-                    {selectedStudent.coursesProgress.map((course) => (
-                      <div
-                        key={course.id}
-                        className="rounded-2xl border border-slate-200 bg-white p-4"
-                      >
-                        <div className="flex items-center justify-between gap-3">
-                          <div>
-                            <p className="font-semibold text-slate-900">
-                              {course.title}
-                            </p>
-                            <p className="text-xs text-slate-500">
-                              {course.progress}% complete
-                            </p>
+                          <div className="grid grid-cols-2 gap-2 text-sm">
+                            <div className="rounded-2xl border border-blue-200 bg-blue-50 p-3">
+                              <p className="text-blue-700">Current Streak</p>
+                              <p className="text-xl font-bold text-blue-900">{formatNumber(attendanceQuery.data.currentStreak)} days</p>
+                            </div>
+                            <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-3">
+                              <p className="text-indigo-700">Longest Streak</p>
+                              <p className="text-xl font-bold text-indigo-900">{formatNumber(attendanceQuery.data.longestStreak)} days</p>
+                            </div>
+                            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-3">
+                              <p className="text-emerald-700">Learning Days</p>
+                              <p className="text-lg font-bold text-emerald-900">
+                                {Number(attendanceQuery.data.courseDurationDays || 0) > 0
+                                  ? `${formatNumber(attendanceQuery.data.learningDaysElapsed)}/${formatNumber(attendanceQuery.data.courseDurationDays)}`
+                                  : formatNumber(attendanceQuery.data.learningDaysElapsed)}
+                              </p>
+                            </div>
+                            <div className="rounded-2xl border border-slate-200 p-3">
+                              <p className="text-slate-500">Course Window</p>
+                              <p className="text-xs font-semibold text-slate-700">
+                                {formatReadableDate(attendanceQuery.data.courseWindowStart)} - {formatReadableDate(attendanceQuery.data.courseWindowEnd)}
+                              </p>
+                            </div>
                           </div>
-                          <div className="h-2 w-24 rounded-full bg-slate-100">
-                            <div
-                              className="h-2 rounded-full bg-primary"
-                              style={{ width: `${course.progress}%` }}
-                            />
+
+                          <div className="rounded-2xl border border-slate-200 p-3">
+                            <div className="flex items-center justify-between">
+                              <p className="font-semibold text-slate-800">Attendance %</p>
+                              <p className={`text-lg font-bold ${attendanceQuery.data.attendancePercent < 75 ? "text-amber-600" : "text-emerald-600"}`}>
+                                {attendanceQuery.data.attendancePercent}%
+                              </p>
+                            </div>
+                            {attendanceQuery.data.attendancePercent < 75 ? (
+                              <p className="mt-1 text-xs text-amber-700">Student attendance is below 75%</p>
+                            ) : null}
                           </div>
-                        </div>
-                        <div className="mt-3 space-y-2 text-sm text-slate-600">
-                          {course.chapters.map((chapter) => (
-                            <details
-                              key={chapter.id}
-                              className="rounded-xl border border-slate-200 bg-slate-50 p-3"
-                            >
-                              <summary className="cursor-pointer font-semibold text-slate-700">
-                                {chapter.title}
-                              </summary>
-                              <div className="mt-3 space-y-2">
-                                {chapter.lectures.map((lecture) => (
-                                  <div
-                                    key={lecture.id}
-                                    className="flex items-center justify-between text-xs"
+
+                          <div className="rounded-2xl border border-slate-200 p-3">
+                            <div className="mb-2 flex items-center justify-between">
+                              <button
+                                className="rounded-full border border-slate-300 px-3 py-1 text-xs"
+                                onClick={() => {
+                                  const next = new Date(attendanceMonth);
+                                  next.setMonth(next.getMonth() - 1);
+                                  setAttendanceMonth(next);
+                                }}
+                                disabled={false}
+                              >
+                                Prev
+                              </button>
+                              <p className="text-sm font-semibold text-slate-700">
+                                {attendanceMonth.toLocaleDateString("en-US", { month: "long", year: "numeric" })}
+                              </p>
+                              <button
+                                className="rounded-full border border-slate-300 px-3 py-1 text-xs"
+                                onClick={() => {
+                                  const next = new Date(attendanceMonth);
+                                  next.setMonth(next.getMonth() + 1);
+                                  setAttendanceMonth(next);
+                                }}
+                                disabled={false}
+                              >
+                                Next
+                              </button>
+                            </div>
+                            <div className="grid grid-cols-7 gap-1 text-center text-[11px] text-slate-500">
+                              {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
+                                <span key={day}>{day}</span>
+                              ))}
+                            </div>
+                            <div className="mt-2 grid grid-cols-7 gap-1">
+                              {attendanceCalendarDays.map((day) => (
+                                <div
+                                  key={day.key}
+                                  className={`flex h-8 items-center justify-center rounded-md text-xs ${day.inMonth ? "text-slate-700" : "text-slate-300"}`}
+                                >
+                                  <span
+                                    className={`flex h-6 w-6 items-center justify-center rounded-full ${statusColorByAttendance[day.status] || statusColorByAttendance.none} ${day.status === "none" ? "text-slate-500" : "text-white"}`}
                                   >
-                                    <span
-                                      className={
-                                        lecture.locked
-                                          ? "text-slate-400"
-                                          : "text-slate-600"
-                                      }
-                                    >
-                                      {lecture.title}
-                                    </span>
-                                    {lecture.locked ? (
-                                      <span className="text-slate-400">
-                                        <svg
-                                          viewBox="0 0 24 24"
-                                          className="h-3 w-3"
-                                          fill="currentColor"
-                                        >
-                                          <path d="M6 10V8a6 6 0 1 1 12 0v2h1a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V11a1 1 0 0 1 1-1h1zm2 0h8V8a4 4 0 1 0-8 0v2z" />
-                                        </svg>
-                                      </span>
-                                    ) : lecture.completed ? (
-                                      <span className="text-emerald-500">
-                                        <svg
-                                          viewBox="0 0 24 24"
-                                          className="h-3 w-3"
-                                          fill="currentColor"
-                                        >
-                                          <path d="M9 16.2 5.5 12.7l-1.4 1.4L9 19 20.3 7.7l-1.4-1.4z" />
-                                        </svg>
-                                      </span>
-                                    ) : (
-                                      <span className="text-slate-300">○</span>
-                                    )}
-                                  </div>
-                                ))}
-                              </div>
-                            </details>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </section>
-
-                <section className="rounded-3xl border border-slate-200 bg-white p-5">
-                  <div className="flex items-center justify-between">
-                    <h3 className="font-heading text-xl text-slate-900">
-                      Quiz Results
-                    </h3>
-                    {avgQuizScore !== null && (
-                      <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
-                        Avg Score: {avgQuizScore}%
-                      </span>
-                    )}
-                  </div>
-                  {selectedStudent.quizResults.length === 0 ? (
-                    <p className="mt-4 text-sm text-slate-500">
-                      No quiz attempts yet.
-                    </p>
-                  ) : (
-                    <div className="mt-4 overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="text-left text-xs uppercase tracking-[0.2em] text-slate-400">
-                            <th className="py-2">Quiz</th>
-                            <th className="py-2">Score</th>
-                            <th className="py-2">Result</th>
-                            <th className="py-2">Date</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {selectedStudent.quizResults.map((quiz) => (
-                            <tr key={quiz.id} className="border-t border-slate-100">
-                              <td className="py-2 text-slate-600">
-                                {quiz.name}
-                              </td>
-                              <td className="py-2 text-slate-600">
-                                {quiz.score}%
-                              </td>
-                              <td className="py-2">
-                                <span
-                                  className={`rounded-full px-2 py-1 text-xs font-semibold ${
-                                    quiz.status === "Pass"
-                                      ? "bg-emerald-50 text-emerald-600"
-                                      : "bg-rose-50 text-rose-500"
-                                  }`}
-                                >
-                                  {quiz.status}
-                                </span>
-                              </td>
-                              <td className="py-2 text-slate-500">{quiz.date}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </section>
-
-                <section className="rounded-3xl border border-slate-200 bg-white p-5">
-                  <h3 className="font-heading text-xl text-slate-900">
-                    Manage Rewatch Access
-                  </h3>
-                  <p className="text-sm text-slate-500">
-                    Videos auto-lock after course completion.
-                  </p>
-                  <div className="mt-4 flex flex-wrap items-center gap-3">
-                    <select
-                      value={unlockCourse}
-                      onChange={(event) => setUnlockCourse(event.target.value)}
-                      className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700"
-                    >
-                      {selectedStudent.coursesProgress.map((course) => (
-                        <option key={course.id} value={course.title}>
-                          {course.title}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="mt-4 space-y-2">
-                    {lectureList.map((lecture) => (
-                      <div
-                        key={lecture.id}
-                        className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2 text-sm"
-                      >
-                        <span className="text-slate-600">
-                          {lecture.title}
-                          <span className="ml-2 text-xs text-slate-400">
-                            ({lecture.chapterTitle})
-                          </span>
-                        </span>
-                        <button
-                          className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                            unlockState[lecture.id]
-                              ? "bg-emerald-50 text-emerald-600"
-                              : "bg-slate-200 text-slate-500"
-                          }`}
-                          onClick={() =>
-                            setUnlockState((prev) => ({
-                              ...prev,
-                              [lecture.id]: !prev[lecture.id],
-                            }))
-                          }
-                        >
-                          {unlockState[lecture.id] ? "Unlocked" : "Locked"}
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                  <button
-                    className="btn-primary mt-4"
-                    onClick={handleSaveAccess}
-                    disabled={savingAccess}
-                  >
-                    {savingAccess ? "Saving..." : "Save Access"}
-                  </button>
-                </section>
-
-                {selectedStudent.attendance && (
-                  <section className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
-                    <div className="flex items-center justify-between">
-                      <h3 className="font-heading text-xl text-slate-900">
-                        Attendance Summary
-                      </h3>
-                      <span
-                        className={`rounded-full px-3 py-1 text-xs font-semibold ${attendanceBadge(
-                          displayAttendancePercent
-                        )}`}
-                      >
-                        {displayAttendancePercent}% Attendance
-                      </span>
-                    </div>
-                    <div className="mt-4 grid gap-3 text-sm">
-                      {selectedStudent.attendance.sessions.map((session) => {
-                        const currentStatus =
-                          attendanceState[session.id] || session.status;
-                        return (
-                          <div
-                            key={session.id}
-                            className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3"
-                          >
-                            <span className="text-slate-600">{session.date}</span>
-                            <div className="flex flex-wrap items-center gap-2">
-                              {["Present", "Absent", "Leave"].map((status) => (
-                                <button
-                                  key={status}
-                                  className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                                    currentStatus === status
-                                      ? sessionStatusStyles[status]
-                                      : "border border-slate-200 text-slate-500"
-                                  }`}
-                                  onClick={() =>
-                                    setAttendanceState((prev) => ({
-                                      ...prev,
-                                      [session.id]: status,
-                                    }))
-                                  }
-                                >
-                                  {status}
-                                </button>
+                                    {day.day}
+                                  </span>
+                                </div>
                               ))}
                             </div>
                           </div>
-                        );
-                      })}
-                    </div>
-                    <div className="mt-4 flex justify-end">
-                      <button
-                        className="btn-primary"
-                        onClick={handleSaveAttendance}
-                        disabled={savingAttendance}
-                      >
-                        {savingAttendance ? "Saving..." : "Save Attendance"}
-                      </button>
-                    </div>
-                  </section>
-                )}
-              </div>
-            )}
-          </motion.div>
-        </div>
-      )}
 
-      {toast && (
-        <div className="fixed right-6 top-6 z-[70] rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-semibold text-white shadow-xl">
-          {toast.message}
-        </div>
-      )}
+                          <div className="space-y-2">
+                            {(attendanceQuery.data.sessions || []).map((session) => (
+                              <div key={session.id} className="rounded-2xl border border-slate-200 p-3 text-sm">
+                                <div className="flex items-center justify-between">
+                                  <p className="font-semibold text-slate-800">{formatReadableDate(session.date)}</p>
+                                  <span
+                                    className={`rounded-full px-2 py-1 text-xs font-semibold ${session.status === "present" ? "bg-emerald-50 text-emerald-700" : session.status === "late" ? "bg-amber-50 text-amber-700" : "bg-rose-50 text-rose-700"}`}
+                                  >
+                                    {session.status || "absent"}
+                                  </span>
+                                </div>
+                                <p className="text-xs text-slate-500">{session.topic || "No topic"}</p>
+                                <p className="text-xs text-slate-400">{session.remarks || "No remarks"}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
+              )}
+            </Motion.aside>
+          </div>
+        ) : null}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {quickAccessStudentId ? (
+          <div className="fixed inset-0 z-[82] flex items-center justify-center px-4">
+            <Motion.button className="absolute inset-0 bg-slate-900/45" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setQuickAccessStudentId("")} disabled={quickVideoAccessMutation.isPending} />
+            <Motion.div className="relative z-[1] w-full max-w-2xl rounded-3xl bg-white p-6 shadow-2xl" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }}>
+              <h3 className="font-heading text-2xl text-slate-900">Video Access - {quickProfileData?.fullName || "Student"}</h3>
+              {quickProfileQuery.isLoading ? <Skeleton className="mt-4 h-32 w-full" /> : <><select value={quickAccessCourseId} onChange={(event) => setQuickAccessCourseId(event.target.value)} className="mt-4 w-full rounded-2xl border border-slate-200 px-4 py-2 text-sm">{(quickProfileData?.enrolledCourses || []).map((course) => <option key={course.courseId} value={course.courseId}>{course.courseName}</option>)}</select><p className="mt-3 rounded-2xl border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-800">These are lectures from your assigned subjects. Locked videos are for students who completed the course.</p>{quickProgressQuery.isLoading ? <Skeleton className="mt-4 h-36 w-full" /> : <div className="mt-4 max-h-80 space-y-3 overflow-y-auto">{Object.entries(quickGroupedBySubject).map(([subjectName, lectures]) => <div key={subjectName} className="rounded-2xl border border-slate-200 p-3"><p className="font-semibold text-slate-800">{subjectName}</p><div className="mt-2 space-y-2">{lectures.map((lecture) => <div key={lecture.lectureId} className="flex items-center justify-between rounded-xl border border-slate-200 p-2"><div><p className="text-sm font-semibold text-slate-800">{lecture.title}</p><p className="text-xs text-slate-500">{quickAccessDraft[lecture.lectureId] ? "Access granted" : "Locked after completion"}</p></div><label className="flex items-center gap-2 text-xs font-semibold text-slate-600"><input type="checkbox" checked={Boolean(quickAccessDraft[lecture.lectureId])} onChange={(event) => setQuickAccessDraft((prev) => ({ ...prev, [lecture.lectureId]: event.target.checked }))} />{quickAccessDraft[lecture.lectureId] ? "Unlock" : "Lock"}</label></div>)}</div></div>)}</div>}<div className="mt-6 flex justify-end gap-2"><button className="rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600" onClick={() => setQuickAccessStudentId("")} disabled={quickVideoAccessMutation.isPending}>Cancel</button><button className="rounded-full bg-primary px-4 py-2 text-sm font-semibold text-white" onClick={saveQuickAccess} disabled={quickVideoAccessMutation.isPending}>{quickVideoAccessMutation.isPending ? "Saving..." : "Save Access"}</button></div></>}
+            </Motion.div>
+          </div>
+        ) : null}
+      </AnimatePresence>
     </div>
   );
 }
 
-export default TeacherStudents;
+export default Students;
+

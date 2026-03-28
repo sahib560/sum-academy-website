@@ -82,6 +82,10 @@ const formatDateTime = (value) => {
 };
 
 const formatPKR = (amount) => `PKR ${Number(amount || 0).toLocaleString("en-PK")}`;
+const canReviewTransaction = (transaction = {}) =>
+  ["pending", "pending_verification"].includes(
+    String(transaction.status || "").toLowerCase()
+  );
 
 const getInitials = (text = "") => {
   const words = String(text || "").trim().split(/\s+/).filter(Boolean);
@@ -167,6 +171,8 @@ function Transactions() {
       setSelectedId("");
       queryClient.invalidateQueries({ queryKey: ["admin-transactions"] });
       queryClient.invalidateQueries({ queryKey: ["admin-transaction"] });
+      queryClient.invalidateQueries({ queryKey: ["admin-payments"] });
+      queryClient.invalidateQueries({ queryKey: ["admin-installments"] });
     },
     onError: (error) => {
       toast.error(error?.response?.data?.message || "Failed to update payment");
@@ -199,8 +205,8 @@ function Transactions() {
       })
       .reduce((sum, item) => sum + Number(item.amount || 0), 0);
 
-    const pendingVerificationCount = rows.filter(
-      (item) => item.status === "pending_verification"
+    const pendingVerificationCount = rows.filter((item) =>
+      canReviewTransaction(item)
     ).length;
     const rejectedCount = rows.filter((item) => item.status === "rejected").length;
 
@@ -361,7 +367,7 @@ function Transactions() {
         {[
           { label: "Total Revenue PKR", value: formatPKR(computed.totalRevenue) },
           { label: "This Month PKR", value: formatPKR(computed.monthRevenue) },
-          { label: "Pending Verification", value: computed.pendingVerificationCount },
+          { label: "Pending Requests", value: computed.pendingVerificationCount },
           { label: "Failed / Rejected", value: computed.rejectedCount },
         ].map((item) => (
           <div key={item.label} className="glass-card">
@@ -499,14 +505,19 @@ function Transactions() {
                   <td className="px-4 py-4" title={getRelativeTime(row.createdAt)}>{formatDate(row.createdAt)}</td>
                   <td className="px-4 py-4">
                     <span className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold ${statusClassMap[row.status] || "bg-slate-100 text-slate-700"}`}>
-                      {row.status === "pending_verification" ? <span className="inline-flex h-2 w-2 animate-pulse rounded-full bg-orange-500" /> : null}
+                      {canReviewTransaction(row) ? <span className="inline-flex h-2 w-2 animate-pulse rounded-full bg-orange-500" /> : null}
                       {formatStatus(row.status)}
                     </span>
                   </td>
                   <td className="px-4 py-4">
                     <div className="flex flex-wrap gap-2">
                       <button className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-700" onClick={() => setSelectedId(row.id)}>View</button>
-                      {row.status === "pending_verification" ? <button className="rounded-full border border-emerald-200 px-3 py-1 text-xs font-semibold text-emerald-700" onClick={() => setPendingAction({ id: row.id, action: "approve" })}>Verify</button> : null}
+                      {canReviewTransaction(row) ? (
+                        <>
+                          <button className="rounded-full border border-emerald-200 px-3 py-1 text-xs font-semibold text-emerald-700" onClick={() => setPendingAction({ id: row.id, action: "approve" })}>Approve</button>
+                          <button className="rounded-full border border-rose-200 px-3 py-1 text-xs font-semibold text-rose-700" onClick={() => setPendingAction({ id: row.id, action: "reject" })}>Reject</button>
+                        </>
+                      ) : null}
                       {row.status === "paid" ? <button className="rounded-full border border-blue-200 px-3 py-1 text-xs font-semibold text-blue-700" onClick={() => handleInvoicePdf(row)}>Invoice</button> : null}
                     </div>
                   </td>
@@ -560,7 +571,7 @@ function Transactions() {
                     </div>
                   ) : null}
                   <div className="mt-5 flex flex-wrap gap-2">
-                    {selectedTransaction.status === "pending_verification" ? (
+                    {canReviewTransaction(selectedTransaction) ? (
                       <>
                         <button className="btn-primary flex-1" onClick={() => setPendingAction({ id: selectedTransaction.id, action: "approve" })}>Approve</button>
                         <button className="flex-1 rounded-full border border-rose-300 px-4 py-2 text-sm font-semibold text-rose-700" onClick={() => setPendingAction({ id: selectedTransaction.id, action: "reject" })}>Reject</button>

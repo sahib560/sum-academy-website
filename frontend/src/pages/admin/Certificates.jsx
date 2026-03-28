@@ -9,6 +9,7 @@ import {
   getCourses,
   getStudents,
   revokeCertificate,
+  unrevokeCertificate,
 } from "../../services/admin.service.js";
 const EMPTY = [];
 const MotionDiv = motion.div;
@@ -41,6 +42,28 @@ const statusClass = (s) =>
 const PUBLIC_VERIFY_BASE = "https://sum-academy-lms.web.app/verify";
 const verifyLinkFor = (cert) =>
   cert?.verificationUrl || `${PUBLIC_VERIFY_BASE}/${cert?.certId || cert?.id}`;
+
+const normalizeStudentEnrollments = (student) =>
+  Array.isArray(student?.enrolledCourses)
+    ? student.enrolledCourses
+        .map((entry) => {
+          const courseId =
+            typeof entry === "string" ? entry : entry?.courseId || entry?.id || "";
+          if (!courseId) return null;
+          const progress = Number(
+            typeof entry === "string"
+              ? 0
+              : entry?.progress ?? entry?.progressPercent ?? entry?.completionPercent ?? 0
+          );
+          const completedAt = typeof entry === "string" ? null : entry?.completedAt || null;
+          return {
+            courseId: String(courseId),
+            progress: Number.isFinite(progress) ? progress : 0,
+            completedAt,
+          };
+        })
+        .filter(Boolean)
+    : [];
 
 function downloadCertPdf(cert) {
   const doc = new jsPDF("landscape", "mm", "a4");
@@ -191,17 +214,16 @@ function GenerateModal({
 }) {
   if (!open) return null;
   const selectedStudent = students.find((s) => (s.uid || s.id) === form.studentId);
-  const enrolledIds = new Set(
-    Array.isArray(selectedStudent?.enrolledCourses)
-      ? selectedStudent.enrolledCourses
-          .map((row) => (typeof row === "string" ? row : row?.courseId || row?.id || ""))
-          .filter(Boolean)
-      : []
-  );
-  const eligibleCourses = enrolledIds.size
+  const enrolledRows = normalizeStudentEnrollments(selectedStudent);
+  const enrolledIds = new Set(enrolledRows.map((row) => row.courseId));
+  const eligibleCourses = form.studentId
     ? courses.filter((course) => enrolledIds.has(course.id))
-    : courses;
-  const warnIncomplete = form.courseId && !enrolledIds.has(form.courseId);
+    : [];
+  const selectedEnrollment = enrolledRows.find((row) => row.courseId === form.courseId);
+  const isIncompleteCourse =
+    Boolean(selectedEnrollment) &&
+    Number(selectedEnrollment.progress || 0) < 100 &&
+    !selectedEnrollment.completedAt;
 
   return (
     <AnimatePresence>
@@ -248,21 +270,41 @@ function GenerateModal({
               <label className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Course</label>
               <select
                 value={form.courseId}
-                onChange={(e) => setForm((p) => ({ ...p, courseId: e.target.value }))}
+                onChange={(e) =>
+                  setForm((p) => ({
+                    ...p,
+                    courseId: e.target.value,
+                    forceGenerate: false,
+                  }))
+                }
                 className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                disabled={!form.studentId}
               >
-                <option value="">Select course</option>
+                <option value="">
+                  {form.studentId ? "Select enrolled course" : "Select student first"}
+                </option>
                 {eligibleCourses.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.title}
                   </option>
                 ))}
               </select>
+              {form.studentId && eligibleCourses.length < 1 ? (
+                <p className="mt-2 text-xs text-rose-600">
+                  This student is not enrolled in any course yet.
+                </p>
+              ) : null}
             </div>
 
-            {warnIncomplete ? (
+            {isIncompleteCourse ? (
               <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-                <p>This student has not completed this course yet. Generate anyway?</p>
+                <p>
+                  This student has not completed this course yet
+                  {Number.isFinite(selectedEnrollment?.progress)
+                    ? ` (${Math.max(0, Math.round(selectedEnrollment.progress))}% done)`
+                    : ""}
+                  . Generate anyway?
+                </p>
                 <label className="mt-2 flex items-center gap-2">
                   <input
                     type="checkbox"
@@ -292,6 +334,7 @@ export default function Certificates() {
   const [endDate, setEndDate] = useState("");
   const [preview, setPreview] = useState(null);
   const [revokeTarget, setRevokeTarget] = useState(null);
+  const [unrevokeTarget, setUnrevokeTarget] = useState(null);
   const [showGenerate, setShowGenerate] = useState(false);
   const [genForm, setGenForm] = useState({
     studentSearch: "",
@@ -335,6 +378,18 @@ export default function Certificates() {
     },
   });
 
+  const unrevokeM = useMutation({
+    mutationFn: (certKey) => unrevokeCertificate(certKey),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin-certificates"] });
+      setUnrevokeTarget(null);
+      toast.success("Certificate has been unrevoked");
+    },
+    onError: (e) => {
+      toast.error(e?.response?.data?.message || "Failed to unrevoke certificate");
+    },
+  });
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return certs.filter((cert) => {
@@ -369,18 +424,23 @@ export default function Certificates() {
       return;
     }
     const student = students.find((s) => (s.uid || s.id) === genForm.studentId);
-    const enrolledIds = new Set(
-      Array.isArray(student?.enrolledCourses)
-        ? student.enrolledCourses
-            .map((row) => (typeof row === "string" ? row : row?.courseId || row?.id || ""))
-            .filter(Boolean)
-        : []
-    );
-    if (!enrolledIds.has(genForm.courseId) && !genForm.forceGenerate) {
-      toast.error("Confirm warning to continue");
+    const enrolledRows = normalizeStudentEnrollments(student);
+    const selectedEnrollment = enrolledRows.find((row) => row.courseId === genForm.courseId);
+    if (!selectedEnrollment) {
+      toast.error("Student is not enrolled in this course");
       return;
     }
-    generateM.mutate({ studentId: genForm.studentId, courseId: genForm.courseId });
+    const isIncomplete =
+      Number(selectedEnrollment.progress || 0) < 100 && !selectedEnrollment.completedAt;
+    if (isIncomplete && !genForm.forceGenerate) {
+      toast.error("Student has not completed this course. Confirm warning to continue.");
+      return;
+    }
+    generateM.mutate({
+      studentId: genForm.studentId,
+      courseId: genForm.courseId,
+      allowIncomplete: Boolean(isIncomplete && genForm.forceGenerate),
+    });
   };
 
   return (
@@ -484,7 +544,21 @@ export default function Certificates() {
                           <button className="rounded-full border border-slate-200 px-3 py-1 text-xs" onClick={() => setPreview(cert)}>Preview</button>
                           <button className="rounded-full border border-slate-200 px-3 py-1 text-xs" onClick={() => { downloadCertPdf(cert); toast.success("Certificate PDF downloaded"); }}>Download</button>
                           <button className="rounded-full border border-slate-200 px-3 py-1 text-xs" onClick={async () => { await navigator.clipboard.writeText(link); toast.success("Verification link copied!"); }}>Copy Verify Link</button>
-                          <button className={`rounded-full border px-3 py-1 text-xs ${cert.isRevoked ? "border-slate-200 text-slate-400" : "border-rose-200 text-rose-600"}`} disabled={Boolean(cert.isRevoked)} onClick={() => setRevokeTarget(cert)}>Revoke</button>
+                          {cert.isRevoked ? (
+                            <button
+                              className="rounded-full border border-emerald-200 px-3 py-1 text-xs text-emerald-700"
+                              onClick={() => setUnrevokeTarget(cert)}
+                            >
+                              Unrevoke
+                            </button>
+                          ) : (
+                            <button
+                              className="rounded-full border border-rose-200 px-3 py-1 text-xs text-rose-600"
+                              onClick={() => setRevokeTarget(cert)}
+                            >
+                              Revoke
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -522,6 +596,28 @@ export default function Certificates() {
                 </button>
                 <button className="rounded-full bg-rose-600 px-4 py-2 text-sm font-semibold text-white" onClick={() => revokeM.mutate(revokeTarget.certId || revokeTarget.id)}>
                   Revoke
+                </button>
+              </div>
+            </MotionDiv>
+          </MotionDiv>
+        ) : null}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {unrevokeTarget ? (
+          <MotionDiv className="fixed inset-0 z-[92] flex items-center justify-center p-4" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            <button className="absolute inset-0 bg-slate-900/45" onClick={() => setUnrevokeTarget(null)} />
+            <MotionDiv initial={{ scale: 0.96, y: 8 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.96, y: 8 }} className="relative w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl">
+              <h3 className="font-heading text-xl text-slate-900">Unrevoke Certificate</h3>
+              <p className="mt-2 text-sm text-slate-600">
+                Restore certificate {unrevokeTarget.certId || unrevokeTarget.id}? Student will be able to verify and download it again.
+              </p>
+              <div className="mt-6 flex justify-end gap-2">
+                <button className="rounded-full border border-slate-200 px-4 py-2 text-sm" onClick={() => setUnrevokeTarget(null)}>
+                  Cancel
+                </button>
+                <button className="rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white" onClick={() => unrevokeM.mutate(unrevokeTarget.certId || unrevokeTarget.id)}>
+                  Unrevoke
                 </button>
               </div>
             </MotionDiv>

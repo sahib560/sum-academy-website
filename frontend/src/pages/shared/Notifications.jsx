@@ -50,6 +50,17 @@ const resolveTargetLabel = (item) => {
   return "System";
 };
 
+const isTeacherAudienceAnnouncement = (item) => {
+  const audienceRole = String(item?.audienceRole || "").toLowerCase();
+  const postedByRole = String(item?.postedByRole || "").toLowerCase();
+  const isAdminOrLegacy = !postedByRole || postedByRole === "admin";
+  return (
+    item?.targetType === "system" &&
+    isAdminOrLegacy &&
+    (audienceRole === "teacher" || audienceRole === "all")
+  );
+};
+
 function Notifications() {
   const location = useLocation();
   const queryClient = useQueryClient();
@@ -76,7 +87,13 @@ function Notifications() {
     refetchInterval: 60 * 1000,
   });
 
-  const notifications = notificationsQuery.data || [];
+  const notifications = useMemo(() => {
+    const source = Array.isArray(notificationsQuery.data)
+      ? notificationsQuery.data
+      : [];
+    if (basePath !== "/teacher") return source;
+    return source.filter(isTeacherAudienceAnnouncement);
+  }, [basePath, notificationsQuery.data]);
   const unreadCount = notifications.filter((item) => !item.isRead).length;
   const readCount = notifications.length - unreadCount;
 
@@ -148,7 +165,9 @@ function Notifications() {
         <div>
           <h2 className="font-heading text-3xl text-slate-900">Notifications</h2>
           <p className="text-sm text-slate-500">
-            View all announcements sent to your account and manage read status.
+            {basePath === "/teacher"
+              ? "Showing incoming notifications only."
+              : "View all announcements sent to your account and manage read status."}
           </p>
         </div>
         <div className="flex items-center gap-2">

@@ -1,6 +1,212 @@
 import { db, admin } from "../config/firebase.js";
 import { COLLECTIONS } from "../config/collections.js";
 
+const trimText = (value = "") => String(value || "").trim();
+const lowerText = (value = "") => trimText(value).toLowerCase();
+const toNumber = (value, fallback = 0) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+const clampPercent = (value) => Math.max(0, Math.min(100, toNumber(value, 0)));
+const chunkArray = (rows = [], size = 10) => {
+  const chunks = [];
+  for (let index = 0; index < rows.length; index += size) {
+    chunks.push(rows.slice(index, index + size));
+  }
+  return chunks;
+};
+
+const ACTIVE_ENROLLMENT_STATUSES = new Set([
+  "active",
+  "completed",
+  "pending_review",
+  "",
+]);
+
+const getClassStudentEntries = (classData = {}) => {
+  const raw = Array.isArray(classData.students) ? classData.students : [];
+  return raw
+    .map((entry) =>
+      typeof entry === "string"
+        ? { studentId: trimText(entry), shiftId: "", courseId: "", enrolledAt: null }
+        : {
+            studentId: trimText(entry?.studentId || entry?.id || entry?.uid),
+            shiftId: trimText(entry?.shiftId),
+            courseId: trimText(entry?.courseId),
+            enrolledAt: entry?.enrolledAt || null,
+          }
+    )
+    .filter((entry) => Boolean(entry.studentId));
+};
+
+const getClassShiftCourseMap = (classData = {}) => {
+  const shifts = Array.isArray(classData.shifts) ? classData.shifts : [];
+  return shifts.reduce((acc, shift) => {
+    const shiftId = trimText(shift?.id);
+    const courseId = trimText(shift?.courseId);
+    if (shiftId && courseId) acc[shiftId] = courseId;
+    return acc;
+  }, {});
+};
+
+const getClassAssignedCourseIds = (classData = {}) => {
+  const ids = [];
+  const directCourseId = trimText(classData.courseId);
+  if (directCourseId) ids.push(directCourseId);
+
+  const assignedCourses = Array.isArray(classData.assignedCourses)
+    ? classData.assignedCourses
+    : [];
+  assignedCourses.forEach((entry) => {
+    const courseId =
+      typeof entry === "string"
+        ? trimText(entry)
+        : trimText(entry?.courseId || entry?.id);
+    if (courseId) ids.push(courseId);
+  });
+
+  const shifts = Array.isArray(classData.shifts) ? classData.shifts : [];
+  shifts.forEach((shift) => {
+    const courseId = trimText(shift?.courseId);
+    if (courseId) ids.push(courseId);
+  });
+
+  return [...new Set(ids)];
+};
+
+const resolveClassEntryCourseIds = (entry = {}, classData = {}) => {
+  const explicitCourseId = trimText(entry?.courseId);
+  if (explicitCourseId) return [explicitCourseId];
+
+  const shiftId = trimText(entry?.shiftId);
+  const shiftCourseMap = getClassShiftCourseMap(classData);
+  if (shiftId && shiftCourseMap[shiftId]) return [shiftCourseMap[shiftId]];
+
+  const assignedCourseIds = getClassAssignedCourseIds(classData);
+  if (assignedCourseIds.length === 1) return [assignedCourseIds[0]];
+
+  return [];
+};
+
+const buildClassDerivedEnrollmentRows = (classDocs = [], allowedCourseIds = []) => {
+  const allowedSet = new Set(
+    (Array.isArray(allowedCourseIds) ? allowedCourseIds : [])
+      .map((id) => trimText(id))
+      .filter(Boolean)
+  );
+  const hasCourseFilter = allowedSet.size > 0;
+
+  const rows = [];
+  classDocs.forEach((row) => {
+    const classId = trimText(row?.id);
+    const classData = row?.data || {};
+    const students = getClassStudentEntries(classData);
+    students.forEach((entry) => {
+      const studentId = trimText(entry?.studentId);
+      if (!studentId) return;
+      const courseIds = resolveClassEntryCourseIds(entry, classData);
+      courseIds.forEach((courseId) => {
+        const cleanCourseId = trimText(courseId);
+        if (!cleanCourseId) return;
+        if (hasCourseFilter && !allowedSet.has(cleanCourseId)) return;
+        rows.push({
+          id: `class_${classId}_${studentId}_${cleanCourseId}`,
+          studentId,
+          courseId: cleanCourseId,
+          classId,
+          status: "active",
+          source: "class_membership",
+        });
+      });
+    });
+  });
+
+  return rows;
+};
+
+const mergeEnrollmentRowsByStudentCourse = (directRows = [], inferredRows = []) => {
+  const byKey = new Map();
+
+  const addRow = (row, priority) => {
+    const studentId = trimText(row?.studentId);
+    const courseId = trimText(row?.courseId);
+    if (!studentId || !courseId) return;
+
+    if (priority >= 2) {
+      const status = lowerText(row?.status || "active");
+      if (!ACTIVE_ENROLLMENT_STATUSES.has(status)) return;
+    }
+
+    const key = `${studentId}::${courseId}`;
+    const existing = byKey.get(key);
+    if (!existing || priority > existing.priority) {
+      byKey.set(key, { priority, value: { ...row, studentId, courseId } });
+    }
+  };
+
+  directRows.forEach((row) => addRow(row, 2));
+  inferredRows.forEach((row) => addRow(row, 1));
+
+  return Array.from(byKey.values()).map((entry) => entry.value);
+};
+
+const extractCourseProgress = (progressRows = [], courseId = "", fallbackProgress = 0) => {
+  const cleanCourseId = trimText(courseId);
+  const scopedRows = progressRows.filter(
+    (row) => trimText(row.courseId) === cleanCourseId || !trimText(row.courseId)
+  );
+
+  const direct = scopedRows.find((row) => trimText(row.courseId) === cleanCourseId);
+  const directProgress = Number(
+    direct?.progress ?? direct?.progressPercent ?? direct?.completionPercent
+  );
+  if (Number.isFinite(directProgress)) return clampPercent(directProgress);
+
+  if (scopedRows.length > 0) {
+    const lectureRows = scopedRows.filter((row) => trimText(row.lectureId));
+    if (lectureRows.length) {
+      const completed = lectureRows.filter((row) =>
+        Boolean(
+          row.isCompleted ||
+            row.completed ||
+            toNumber(row.progress, 0) >= 100 ||
+            toNumber(row.progressPercent, 0) >= 100 ||
+            toNumber(row.completionPercent, 0) >= 100
+        )
+      ).length;
+      return clampPercent((completed / lectureRows.length) * 100);
+    }
+  }
+
+  return clampPercent(fallbackProgress);
+};
+
+const getLiveEnrollmentCountByCourse = async (courseIds = []) => {
+  const cleanCourseIds = [...new Set(courseIds.map((id) => trimText(id)).filter(Boolean))];
+  if (!cleanCourseIds.length) return {};
+
+  const enrollmentSnapshots = await Promise.all(
+    chunkArray(cleanCourseIds, 10).map((ids) =>
+      db.collection(COLLECTIONS.ENROLLMENTS).where("courseId", "in", ids).get()
+    )
+  );
+  const directRows = enrollmentSnapshots.flatMap((snap) =>
+    snap.docs.map((doc) => ({ id: doc.id, ...(doc.data() || {}) }))
+  );
+
+  const classesSnap = await db.collection(COLLECTIONS.CLASSES).get();
+  const classDocs = classesSnap.docs.map((doc) => ({ id: doc.id, data: doc.data() || {} }));
+  const inferredRows = buildClassDerivedEnrollmentRows(classDocs, cleanCourseIds);
+
+  const mergedRows = mergeEnrollmentRowsByStudentCourse(directRows, inferredRows);
+  return mergedRows.reduce((acc, row) => {
+    const courseId = trimText(row.courseId);
+    if (!courseId) return acc;
+    acc[courseId] = (acc[courseId] || 0) + 1;
+    return acc;
+  }, {});
+};
+
 export const getDashboardStats = async () => {
   const [
     studentsSnap,
@@ -224,9 +430,14 @@ export const getAllTeachers = async () => {
 };
 
 export const getAllStudents = async () => {
-  const [studentsSnap, usersSnap] = await Promise.all([
+  const [studentsSnap, usersSnap, enrollmentsSnap, classesSnap, coursesSnap, progressSnap] =
+    await Promise.all([
     db.collection(COLLECTIONS.STUDENTS).get(),
     db.collection(COLLECTIONS.USERS).where("role", "==", "student").get(),
+    db.collection(COLLECTIONS.ENROLLMENTS).get(),
+    db.collection(COLLECTIONS.CLASSES).get(),
+    db.collection(COLLECTIONS.COURSES).get(),
+    db.collection(COLLECTIONS.PROGRESS).get(),
   ]);
 
   const studentsMap = {};
@@ -234,9 +445,51 @@ export const getAllStudents = async () => {
     studentsMap[doc.id] = doc.data();
   });
 
+  const courseNameById = coursesSnap.docs.reduce((acc, doc) => {
+    acc[doc.id] = trimText(doc.data()?.title) || "Course";
+    return acc;
+  }, {});
+
+  const directEnrollments = enrollmentsSnap.docs.map((doc) => ({
+    id: doc.id,
+    ...(doc.data() || {}),
+  }));
+  const classDocs = classesSnap.docs.map((doc) => ({
+    id: doc.id,
+    data: doc.data() || {},
+  }));
+  const inferredEnrollments = buildClassDerivedEnrollmentRows(classDocs);
+  const mergedEnrollments = mergeEnrollmentRowsByStudentCourse(
+    directEnrollments,
+    inferredEnrollments
+  );
+  const enrollmentsByStudentId = mergedEnrollments.reduce((acc, row) => {
+    const studentId = trimText(row.studentId);
+    if (!studentId) return acc;
+    if (!acc[studentId]) acc[studentId] = [];
+    acc[studentId].push(row);
+    return acc;
+  }, {});
+
+  const progressByStudentId = progressSnap.docs.reduce((acc, doc) => {
+    const row = doc.data() || {};
+    const studentId = trimText(row.studentId);
+    if (!studentId) return acc;
+    if (!acc[studentId]) acc[studentId] = [];
+    acc[studentId].push(row);
+    return acc;
+  }, {});
+
   return usersSnap.docs.map((doc) => {
     const userData = doc.data();
     const studentData = studentsMap[doc.id] || {};
+    const studentId = doc.id;
+    const studentEnrollments = Array.isArray(enrollmentsByStudentId[studentId])
+      ? enrollmentsByStudentId[studentId]
+      : [];
+    const studentProgressRows = Array.isArray(progressByStudentId[studentId])
+      ? progressByStudentId[studentId]
+      : [];
 
     const emailPrefix = (userData.email || "").split("@")[0];
     const fallbackName = emailPrefix
@@ -251,9 +504,59 @@ export const getAllStudents = async () => {
       fallbackName ||
       "Unknown Student";
 
+    const enrolledCoursesFromRows = studentEnrollments.map((row) => {
+      const courseId = trimText(row.courseId);
+      return {
+        id: `${studentId}_${courseId}`,
+        courseId,
+        classId: trimText(row.classId),
+        courseName: courseNameById[courseId] || "Course",
+        enrolledAt: row.createdAt || row.enrolledAt || null,
+        completedAt: row.completedAt || null,
+        progress: extractCourseProgress(studentProgressRows, courseId, row.progress),
+      };
+    });
+
+    const profileCourses = Array.isArray(studentData.enrolledCourses)
+      ? studentData.enrolledCourses
+      : [];
+    const mergedCourseMap = new Map(
+      enrolledCoursesFromRows.map((course) => [trimText(course.courseId), course])
+    );
+    profileCourses.forEach((entry, index) => {
+      const courseId = trimText(typeof entry === "string" ? entry : entry?.courseId || entry?.id);
+      if (!courseId) return;
+      if (mergedCourseMap.has(courseId)) return;
+      mergedCourseMap.set(courseId, {
+        id: `${studentId}_profile_${index}`,
+        courseId,
+        classId: trimText(entry?.classId),
+        courseName:
+          trimText(typeof entry === "string" ? "" : entry?.courseName || entry?.name) ||
+          courseNameById[courseId] ||
+          "Course",
+        enrolledAt: typeof entry === "string" ? null : entry?.enrolledAt || entry?.createdAt || null,
+        completedAt: typeof entry === "string" ? null : entry?.completedAt || null,
+        progress: extractCourseProgress(
+          studentProgressRows,
+          courseId,
+          typeof entry === "string" ? 0 : entry?.progress
+        ),
+      });
+    });
+
+    const enrolledCourses = Array.from(mergedCourseMap.values());
+    const avgProgress =
+      enrolledCourses.length > 0
+        ? Math.round(
+            enrolledCourses.reduce((sum, row) => sum + clampPercent(row.progress), 0) /
+              enrolledCourses.length
+          )
+        : 0;
+
     return {
-      id: doc.id,
-      uid: doc.id,
+      id: studentId,
+      uid: studentId,
       ...studentData,
       fullName,
       email: userData.email || "",
@@ -263,6 +566,11 @@ export const getAllStudents = async () => {
       assignedWebDevice: userData.assignedWebDevice || "",
       assignedWebIp: userData.assignedWebIp || "",
       lastKnownWebIp: userData.lastKnownWebIp || "",
+      enrolledCourses,
+      avgProgress,
+      completedCourses: enrolledCourses.filter(
+        (course) => clampPercent(course.progress) >= 100 || Boolean(course.completedAt)
+      ).length,
     };
   });
 };
@@ -272,7 +580,18 @@ export const getAllCourses = async () => {
     .collection(COLLECTIONS.COURSES)
     .orderBy("createdAt", "desc")
     .get();
-  return snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+  const courses = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+  const liveCounts = await getLiveEnrollmentCountByCourse(
+    courses.map((course) => course.id)
+  );
+
+  return courses.map((course) => ({
+    ...course,
+    enrollmentCount: Math.max(
+      Number(course.enrollmentCount || 0),
+      Number(liveCounts[course.id] || 0)
+    ),
+  }));
 };
 
 export const getAllClasses = async () => {

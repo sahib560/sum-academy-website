@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion as Motion } from "framer-motion";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import { getDownloadURL, ref, uploadBytesResumable } from "firebase/storage";
@@ -851,9 +851,28 @@ function SiteSettings() {
       return (
         <>
           <p className="text-sm font-semibold text-slate-700">JazzCash</p>
+          <label className="flex items-center justify-between rounded-xl border border-slate-200 px-3 py-2 text-sm">
+            Enable JazzCash
+            <input
+              type="checkbox"
+              checked={Boolean(draft.payment.jazzcash.enabled)}
+              onChange={(e) =>
+                updateSection("payment", {
+                  jazzcash: {
+                    ...draft.payment.jazzcash,
+                    enabled: e.target.checked,
+                  },
+                })
+              }
+            />
+          </label>
           <div className="space-y-1">
             <p className={fieldLabelClass}>Merchant ID</p>
             <input className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Merchant ID" value={draft.payment.jazzcash.merchantId} onChange={(e) => updateSection("payment", { jazzcash: { ...draft.payment.jazzcash, merchantId: e.target.value } })} />
+          </div>
+          <div className="space-y-1">
+            <p className={fieldLabelClass}>Account Title</p>
+            <input className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Account Title" value={draft.payment.jazzcash.accountTitle || ""} onChange={(e) => updateSection("payment", { jazzcash: { ...draft.payment.jazzcash, accountTitle: e.target.value } })} />
           </div>
           <div className="space-y-1">
             <p className={fieldLabelClass}>JazzCash Password</p>
@@ -863,10 +882,33 @@ function SiteSettings() {
             <p className={fieldLabelClass}>Integrity Salt</p>
             <input type="password" className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Integrity Salt" value={draft.payment.jazzcash.integritySalt} onChange={(e) => updateSection("payment", { jazzcash: { ...draft.payment.jazzcash, integritySalt: e.target.value } })} />
           </div>
+          <div className="space-y-1">
+            <p className={fieldLabelClass}>Instructions</p>
+            <textarea className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" rows={2} placeholder="Instructions shown to students" value={draft.payment.jazzcash.instructions || ""} onChange={(e) => updateSection("payment", { jazzcash: { ...draft.payment.jazzcash, instructions: e.target.value } })} />
+          </div>
           <p className="text-sm font-semibold text-slate-700">EasyPaisa</p>
+          <label className="flex items-center justify-between rounded-xl border border-slate-200 px-3 py-2 text-sm">
+            Enable EasyPaisa
+            <input
+              type="checkbox"
+              checked={Boolean(draft.payment.easypaisa.enabled)}
+              onChange={(e) =>
+                updateSection("payment", {
+                  easypaisa: {
+                    ...draft.payment.easypaisa,
+                    enabled: e.target.checked,
+                  },
+                })
+              }
+            />
+          </label>
           <div className="space-y-1">
             <p className={fieldLabelClass}>Account Number</p>
             <input className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Account Number" value={draft.payment.easypaisa.accountNumber} onChange={(e) => updateSection("payment", { easypaisa: { ...draft.payment.easypaisa, accountNumber: e.target.value } })} />
+          </div>
+          <div className="space-y-1">
+            <p className={fieldLabelClass}>Account Title</p>
+            <input className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Account Title" value={draft.payment.easypaisa.accountTitle || ""} onChange={(e) => updateSection("payment", { easypaisa: { ...draft.payment.easypaisa, accountTitle: e.target.value } })} />
           </div>
           <div className="space-y-1">
             <p className={fieldLabelClass}>EasyPaisa Username</p>
@@ -875,6 +917,10 @@ function SiteSettings() {
           <div className="space-y-1">
             <p className={fieldLabelClass}>EasyPaisa Password</p>
             <input type="password" className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Password" value={draft.payment.easypaisa.password} onChange={(e) => updateSection("payment", { easypaisa: { ...draft.payment.easypaisa, password: e.target.value } })} />
+          </div>
+          <div className="space-y-1">
+            <p className={fieldLabelClass}>Instructions</p>
+            <textarea className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" rows={2} placeholder="Instructions shown to students" value={draft.payment.easypaisa.instructions || ""} onChange={(e) => updateSection("payment", { easypaisa: { ...draft.payment.easypaisa, instructions: e.target.value } })} />
           </div>
           <p className="text-sm font-semibold text-slate-700">Bank Transfer</p>
           <div className="space-y-1">
@@ -1011,7 +1057,7 @@ function SiteSettings() {
             </div>
           ) : (
             <AnimatePresence mode="wait">
-              <motion.div
+              <Motion.div
                 key={activeTab}
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -1020,7 +1066,7 @@ function SiteSettings() {
                 className="space-y-4"
               >
                 {renderTab()}
-              </motion.div>
+              </Motion.div>
             </AnimatePresence>
           )}
 
@@ -1050,7 +1096,7 @@ function SiteSettings() {
               className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
               onClick={() => setUnsavedOpen(false)}
             />
-            <motion.div
+            <Motion.div
               initial={{ opacity: 0, y: 16 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 16 }}
@@ -1076,7 +1122,7 @@ function SiteSettings() {
                   Discard
                 </button>
               </div>
-            </motion.div>
+            </Motion.div>
           </div>
         ) : null}
       </AnimatePresence>

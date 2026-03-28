@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { Link } from "react-router-dom";
 import { Skeleton, SkeletonCard } from "../../components/Skeleton.jsx";
 import { useAuth } from "../../hooks/useAuth.js";
+import { getStudentDashboard } from "../../services/student.service.js";
 
 const fadeUp = {
   initial: { opacity: 0, y: 16 },
@@ -11,195 +13,194 @@ const fadeUp = {
   transition: { duration: 0.45 },
 };
 
-const quotes = [
-  "Small steps every day lead to big results.",
-  "Your future is created by what you do today.",
-  "Consistency beats intensity. Keep learning.",
-  "Focus on progress, not perfection.",
-  "Your effort today is your success tomorrow.",
-];
-
-const summaryCards = [
-  {
-    label: "Enrolled Courses",
-    value: 6,
-    color: "border-blue-500",
-    icon: (
-      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
-        <path d="M6 4h11a3 3 0 0 1 3 3v12a2 2 0 0 1-2 2H7a3 3 0 0 0-3 3V7a3 3 0 0 1 2-3z" />
-      </svg>
-    ),
-  },
-  {
-    label: "Completed Courses",
-    value: 2,
-    color: "border-emerald-500",
-    icon: (
-      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
-        <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-1 14-4-4 1.4-1.4L11 12.2l4.6-4.6L17 9l-6 7z" />
-      </svg>
-    ),
-  },
-  {
-    label: "Certificates Earned",
-    value: 1,
-    color: "border-orange-500",
-    icon: (
-      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
-        <path d="M12 2a6 6 0 0 1 6 6c0 2.2-1.2 4.2-3 5.2V22l-3-1.6L9 22v-8.8A6 6 0 0 1 12 2z" />
-      </svg>
-    ),
-  },
-];
-
-const continueCourse = {
-  title: "Biology Masterclass XI",
-  teacher: "Mr. Sikander Ali Qureshi",
-  progress: 62,
-  nextLecture: "Human Physiology Overview",
+const parseDate = (value) => {
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
 };
 
-const courses = [
-  {
-    id: 1,
-    title: "Biology Masterclass XI",
-    teacher: "Mr. Sikander Ali Qureshi",
-    progress: 62,
-    status: "In Progress",
-  },
-  {
-    id: 2,
-    title: "Chemistry Quick Revision",
-    teacher: "Mr. Mansoor Ahmed Mangi",
-    progress: 100,
-    status: "Completed",
-  },
-  {
-    id: 3,
-    title: "Physics Practice Lab",
-    teacher: "Mr. Muhammad Idress Mahar",
-    progress: 0,
-    status: "Locked",
-  },
-  {
-    id: 4,
-    title: "English Essay Clinic",
-    teacher: "Mr. Waseem Ahmed Soomro",
-    progress: 44,
-    status: "In Progress",
-  },
-  {
-    id: 5,
-    title: "Entrance Test Sprint",
-    teacher: "Mr. Shah Mohammad Pathan",
-    progress: 76,
-    status: "In Progress",
-  },
-  {
-    id: 6,
-    title: "Pre-Medical Crash Course",
-    teacher: "Mr. Mansoor Ahmed Mangi",
-    progress: 0,
-    status: "Locked",
-  },
-];
-
-const deadlines = {
-  installments: [
-    { id: 1, amount: 1200, due: "2026-03-15", status: "due-soon" },
-    { id: 2, amount: 1500, due: "2026-03-20", status: "ok" },
-    { id: 3, amount: 900, due: "2026-03-08", status: "overdue" },
-  ],
-  quizzes: [
-    {
-      id: 1,
-      name: "Genetics Quiz",
-      course: "Biology Masterclass XI",
-      due: "2026-03-17",
-    },
-  ],
-  sessions: [
-    {
-      id: 1,
-      name: "Batch A - Biology XI",
-      date: "Mar 18, 2026",
-      time: "5:00 PM",
-    },
-  ],
+const toNumber = (value, fallback = 0) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
 };
 
-const announcements = [
-  {
-    id: 1,
-    title: "Live revision session tomorrow",
-    source: "Batch A - Biology XI",
-    date: "Mar 14, 2026",
-    unread: true,
-  },
-  {
-    id: 2,
-    title: "Worksheet uploaded in Module 3",
-    source: "Chemistry Quick Revision",
-    date: "Mar 12, 2026",
-    unread: true,
-  },
-  {
-    id: 3,
-    title: "Essay topics list updated",
-    source: "English Essay Clinic",
-    date: "Mar 10, 2026",
-    unread: false,
-  },
-];
+const getGreeting = () => {
+  const hour = new Date().getHours();
+  if (hour < 12) return "Good morning";
+  if (hour < 17) return "Good afternoon";
+  return "Good evening";
+};
 
-const recommended = [
-  {
-    id: 1,
-    title: "Advanced Biology MCQs",
-    teacher: "Mr. Sikander Ali Qureshi",
-    price: 2500,
-    rating: 4.8,
-  },
-  {
-    id: 2,
-    title: "Organic Chemistry Drill",
-    teacher: "Mr. Mansoor Ahmed Mangi",
-    price: 2200,
-    rating: 4.6,
-  },
-  {
-    id: 3,
-    title: "Physics Numericals",
-    teacher: "Mr. Muhammad Idress Mahar",
-    price: 2000,
-    rating: 4.7,
-  },
-  {
-    id: 4,
-    title: "English Grammar Bootcamp",
-    teacher: "Mr. Waseem Ahmed Soomro",
-    price: 1800,
-    rating: 4.5,
-  },
-];
+const getLearningStreak = (lastLoginAt) => {
+  const parsed = parseDate(lastLoginAt);
+  if (!parsed) return 1;
 
-const statusStyles = {
-  "In Progress": "bg-blue-50 text-blue-600",
-  Completed: "bg-emerald-50 text-emerald-600",
-  Locked: "bg-slate-100 text-slate-500",
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const last = new Date(parsed);
+  last.setHours(0, 0, 0, 0);
+  const diffDays = Math.floor((today.getTime() - last.getTime()) / 86400000);
+  if (diffDays <= 0) return 1;
+  if (diffDays === 1) return 2;
+  return 1;
+};
+
+const formatDisplayDate = (value, options) => {
+  const parsed = parseDate(value);
+  if (!parsed) return "-";
+  return parsed.toLocaleDateString("en-US", options);
+};
+
+const formatSessionTime = (startTime = "", endTime = "") => {
+  const safeStart = String(startTime || "").trim();
+  const safeEnd = String(endTime || "").trim();
+  if (!safeStart && !safeEnd) return "Time not set";
+  if (!safeEnd) return safeStart;
+  return `${safeStart} - ${safeEnd}`;
+};
+
+const capitalize = (value = "") => {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  return `${text[0].toUpperCase()}${text.slice(1)}`;
+};
+
+const getAnnouncementSource = (item = {}) => {
+  if (item.source) return String(item.source);
+  if (item.targetType) return `${capitalize(item.targetType)} Update`;
+  return "Announcement";
+};
+
+const normalizeDashboard = (raw = {}, fallbackName = "Student") => {
+  const profile = raw.profile || {};
+  const stats = raw.stats || {};
+  const courses = Array.isArray(raw.enrolledCourses)
+    ? raw.enrolledCourses
+    : Array.isArray(raw.courses)
+      ? raw.courses
+      : [];
+  const announcements = Array.isArray(raw.recentAnnouncements)
+    ? raw.recentAnnouncements
+    : Array.isArray(raw.announcements)
+      ? raw.announcements
+      : [];
+  const upcomingSessions = Array.isArray(raw.upcomingSessions)
+    ? raw.upcomingSessions
+    : [];
+  const lastAccessedCourse = raw.lastAccessedCourse || null;
+  const nextInstallment = raw.nextInstallment || null;
+  const attendanceSummary =
+    raw.attendanceSummary && typeof raw.attendanceSummary === "object"
+      ? raw.attendanceSummary
+      : {};
+
+  const enrolledCount = Math.max(
+    0,
+    toNumber(stats.enrolledCount, toNumber(raw.enrolledCount, courses.length))
+  );
+  const completedCount = Math.max(
+    0,
+    toNumber(
+      stats.completedCount,
+      toNumber(
+        raw.completedCount,
+        courses.filter((course) => toNumber(course.progress, 0) >= 100).length
+      )
+    )
+  );
+  const certificatesCount = Math.max(
+    0,
+    toNumber(
+      stats.certificatesCount,
+      toNumber(
+        raw.certificatesCount,
+        Array.isArray(raw.certificates) ? raw.certificates.length : 0
+      )
+    )
+  );
+
+  const fullName =
+    profile.fullName || raw.fullName || fallbackName || "Student";
+
+  const resolvedLastAccessed = lastAccessedCourse
+    ? {
+        ...lastAccessedCourse,
+        ...courses.find(
+          (course) =>
+            (course.courseId || course.id) ===
+            (lastAccessedCourse.courseId || lastAccessedCourse.id)
+        ),
+      }
+    : null;
+
+  return {
+    fullName,
+    lastLoginAt: profile.lastLoginAt || raw.lastLoginAt || null,
+    enrolledCount,
+    completedCount,
+    certificatesCount,
+    courses,
+    announcements,
+    upcomingSessions,
+    lastAccessedCourse: resolvedLastAccessed,
+    nextInstallment,
+    attendanceSummary: {
+      currentStreak: toNumber(attendanceSummary.currentStreak, 0),
+      longestStreak: toNumber(attendanceSummary.longestStreak, 0),
+      attendancePercent: toNumber(attendanceSummary.attendancePercent, 0),
+      learningDaysElapsed: toNumber(attendanceSummary.learningDaysElapsed, 0),
+      courseDurationDays: toNumber(attendanceSummary.courseDurationDays, 0),
+      learningDayProgress:
+        attendanceSummary.learningDayProgress === null ||
+        attendanceSummary.learningDayProgress === undefined
+          ? null
+          : toNumber(attendanceSummary.learningDayProgress, null),
+    },
+  };
 };
 
 function StudentDashboard() {
   const { userProfile } = useAuth();
-  const [loading, setLoading] = useState(true);
-  const [quote, setQuote] = useState(quotes[0]);
+  const fallbackName =
+    userProfile?.name ||
+    userProfile?.fullName ||
+    userProfile?.email ||
+    "Student";
 
-  useEffect(() => {
-    setQuote(quotes[Math.floor(Math.random() * quotes.length)]);
-    const timer = setTimeout(() => setLoading(false), 1500);
-    return () => clearTimeout(timer);
-  }, []);
+  const {
+    data,
+    isLoading,
+    isError,
+    error,
+    refetch,
+  } = useQuery({
+    queryKey: ["student-dashboard"],
+    queryFn: () => getStudentDashboard(),
+    staleTime: 30000,
+  });
 
+  const dashboard = useMemo(
+    () => normalizeDashboard(data || {}, fallbackName),
+    [data, fallbackName]
+  );
+
+  const firstName = String(dashboard.fullName).split(" ")[0] || "Student";
+  const greeting = getGreeting();
+  const streakDays = Math.max(
+    0,
+    toNumber(
+      dashboard.attendanceSummary.currentStreak,
+      getLearningStreak(dashboard.lastLoginAt)
+    )
+  );
+  const learningDaysElapsed = toNumber(
+    dashboard.attendanceSummary.learningDaysElapsed,
+    0
+  );
+  const courseDurationDays = toNumber(
+    dashboard.attendanceSummary.courseDurationDays,
+    0
+  );
   const today = useMemo(
     () =>
       new Date().toLocaleDateString("en-US", {
@@ -210,37 +211,135 @@ function StudentDashboard() {
       }),
     []
   );
-  const displayName =
-    userProfile?.name ||
-    userProfile?.fullName ||
-    userProfile?.email ||
-    "Student";
-  const firstName = displayName.split(" ")[0] || displayName;
+
+  const cards = [
+    {
+      label: "Enrolled Courses",
+      value: dashboard.enrolledCount,
+      color: "border-blue-500",
+      icon: (
+        <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
+          <path d="M6 4h11a3 3 0 0 1 3 3v12a2 2 0 0 1-2 2H7a3 3 0 0 0-3 3V7a3 3 0 0 1 2-3z" />
+        </svg>
+      ),
+    },
+    {
+      label: "Completed Courses",
+      value: dashboard.completedCount,
+      color: "border-emerald-500",
+      icon: (
+        <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
+          <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-1 14-4-4 1.4-1.4L11 12.2l4.6-4.6L17 9l-6 7z" />
+        </svg>
+      ),
+    },
+    {
+      label: "Certificates Earned",
+      value: dashboard.certificatesCount,
+      color: "border-orange-500",
+      icon: (
+        <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
+          <path d="M12 2a6 6 0 0 1 6 6c0 2.2-1.2 4.2-3 5.2V22l-3-1.6L9 22v-8.8A6 6 0 0 1 12 2z" />
+        </svg>
+      ),
+    },
+  ];
+
+  const topCourses = dashboard.courses.slice(0, 6);
+  const topSessions = dashboard.upcomingSessions.slice(0, 3);
+  const topAnnouncements = dashboard.announcements.slice(0, 3);
+
+  const installmentDueDate = parseDate(dashboard.nextInstallment?.dueDate);
+  const installmentState = useMemo(() => {
+    if (!installmentDueDate) return "none";
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const dueStart = new Date(installmentDueDate);
+    dueStart.setHours(0, 0, 0, 0);
+    const diffDays = Math.floor(
+      (dueStart.getTime() - todayStart.getTime()) / 86400000
+    );
+    if (diffDays < 0) return "overdue";
+    if (diffDays <= 3) return "due-soon";
+    return "normal";
+  }, [installmentDueDate]);
 
   return (
     <div className="space-y-6">
-      <motion.section {...fadeUp} className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-        <h2 className="font-heading text-2xl text-slate-900">
-          Welcome back, {firstName}!
-        </h2>
-        <p className="mt-2 text-sm text-slate-500">{quote}</p>
-        <div className="mt-4 flex flex-wrap items-center gap-3 text-sm text-slate-500">
-          <span className="rounded-full bg-primary/10 px-3 py-1 text-primary">
-            🔥 5 day streak — keep it up!
-          </span>
-          <span>{today}</span>
-        </div>
+      <motion.section
+        {...fadeUp}
+        className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"
+      >
+        {isLoading ? (
+          <div className="space-y-3">
+            <Skeleton className="h-8 w-72" />
+            <Skeleton className="h-4 w-56" />
+            <div className="flex flex-wrap gap-3 pt-1">
+              <Skeleton className="h-8 w-44 rounded-full" />
+              <Skeleton className="h-8 w-56 rounded-full" />
+            </div>
+          </div>
+        ) : (
+          <>
+            <h2 className="font-heading text-2xl text-slate-900">
+              {greeting}, {firstName}
+            </h2>
+            <p className="mt-2 text-sm text-slate-500">{today}</p>
+            <div className="mt-4 flex flex-wrap items-center gap-3 text-sm text-slate-500">
+              <span className="rounded-full bg-primary/10 px-3 py-1 text-primary">
+                {streakDays} day learning streak
+              </span>
+              <span className="rounded-full bg-emerald-50 px-3 py-1 text-emerald-700">
+                Learning days:{" "}
+                {courseDurationDays > 0
+                  ? `${learningDaysElapsed}/${courseDurationDays}`
+                  : `${learningDaysElapsed}`}
+              </span>
+              <span>
+                Last login:{" "}
+                {dashboard.lastLoginAt
+                  ? formatDisplayDate(dashboard.lastLoginAt, {
+                      day: "2-digit",
+                      month: "short",
+                      year: "numeric",
+                    })
+                  : "N/A"}
+              </span>
+            </div>
+          </>
+        )}
       </motion.section>
 
+      {isError && (
+        <motion.section
+          {...fadeUp}
+          className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700"
+        >
+          <p>
+            Failed to load dashboard data
+            {error?.message ? `: ${error.message}` : "."}
+          </p>
+          <button
+            className="mt-3 rounded-full border border-rose-300 bg-white px-4 py-2 text-xs font-semibold"
+            onClick={() => refetch()}
+          >
+            Retry
+          </button>
+        </motion.section>
+      )}
+
       <motion.section {...fadeUp} className="grid gap-4 md:grid-cols-3">
-        {loading
+        {isLoading
           ? Array.from({ length: 3 }).map((_, index) => (
-              <div key={`summary-${index}`} className="glass-card border border-slate-200">
-                <Skeleton className="h-4 w-1/3" />
-                <Skeleton className="mt-4 h-8 w-1/2" />
+              <div
+                key={`summary-${index}`}
+                className="glass-card border border-slate-200"
+              >
+                <Skeleton className="h-4 w-1/2" />
+                <Skeleton className="mt-4 h-8 w-1/3" />
               </div>
             ))
-          : summaryCards.map((card) => (
+          : cards.map((card) => (
               <div key={card.label} className={`glass-card border-l-4 ${card.color}`}>
                 <div className="flex items-center justify-between text-sm text-slate-500">
                   <span>{card.label}</span>
@@ -253,36 +352,70 @@ function StudentDashboard() {
             ))}
       </motion.section>
 
-      <motion.section {...fadeUp} className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-        {loading ? (
-          <Skeleton className="h-32 w-full" />
-        ) : (
+      <motion.section
+        {...fadeUp}
+        className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"
+      >
+        {isLoading ? (
+          <Skeleton className="h-36 w-full rounded-2xl" />
+        ) : dashboard.lastAccessedCourse ? (
           <div className="flex flex-wrap items-center gap-6">
-            <div className="h-28 w-40 rounded-2xl bg-gradient-to-br from-blue-400/70 to-blue-100" />
-            <div className="flex-1 space-y-2">
+            <div className="h-28 w-44 overflow-hidden rounded-2xl bg-slate-100">
+              {dashboard.lastAccessedCourse.thumbnail ? (
+                <img
+                  src={dashboard.lastAccessedCourse.thumbnail}
+                  alt={dashboard.lastAccessedCourse.title || "Course thumbnail"}
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-blue-200 to-blue-50 text-xs font-semibold text-blue-700">
+                  Continue
+                </div>
+              )}
+            </div>
+            <div className="min-w-[220px] flex-1 space-y-2">
               <h3 className="font-heading text-xl text-slate-900">
-                {continueCourse.title}
+                {dashboard.lastAccessedCourse.title || "Latest Course"}
               </h3>
               <p className="text-sm text-slate-500">
-                {continueCourse.teacher}
+                {dashboard.lastAccessedCourse.teacherName || "Teacher"}
               </p>
               <div className="flex items-center gap-3 text-xs text-slate-500">
-                <div className="h-2 w-40 rounded-full bg-slate-100">
+                <div className="h-2 w-44 rounded-full bg-slate-100">
                   <div
                     className="h-2 rounded-full bg-primary"
-                    style={{ width: `${continueCourse.progress}%` }}
+                    style={{
+                      width: `${Math.max(
+                        0,
+                        Math.min(100, toNumber(dashboard.lastAccessedCourse.progress, 0))
+                      )}%`,
+                    }}
                   />
                 </div>
-                {continueCourse.progress}%
+                {Math.round(toNumber(dashboard.lastAccessedCourse.progress, 0))}%
               </div>
-              <p className="inline-flex items-center gap-2 text-sm text-slate-500">
-                <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-                  <path d="M8 5v14l11-7-11-7z" />
-                </svg>
-                Next lecture: {continueCourse.nextLecture}
+              <p className="text-sm text-slate-500">
+                Next lecture:{" "}
+                {dashboard.lastAccessedCourse.nextLecture || "Resume from your last activity"}
               </p>
             </div>
-            <button className="btn-primary px-6 py-3">Continue Learning</button>
+            <Link className="btn-primary px-6 py-3" to="/student/courses">
+              Continue Learning
+            </Link>
+          </div>
+        ) : (
+          <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-dashed border-slate-200 p-5">
+            <div>
+              <h3 className="font-heading text-lg text-slate-900">
+                No active course yet
+              </h3>
+              <p className="text-sm text-slate-500">
+                Start a new course and keep your learning moving.
+              </p>
+            </div>
+            <Link className="btn-outline px-6 py-3" to="/student/explore">
+              Explore Courses
+            </Link>
           </div>
         )}
       </motion.section>
@@ -294,184 +427,246 @@ function StudentDashboard() {
             View All
           </Link>
         </div>
+
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {loading
+          {isLoading
             ? Array.from({ length: 6 }).map((_, index) => (
                 <SkeletonCard key={`course-skel-${index}`} />
               ))
-            : courses.map((course) => (
-                <div
-                  key={course.id}
-                  className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"
-                >
-                  <div className="h-24 rounded-2xl bg-slate-100" />
-                  <h4
-                    className="mt-4 font-heading text-lg text-slate-900"
-                    style={{
-                      display: "-webkit-box",
-                      WebkitLineClamp: 2,
-                      WebkitBoxOrient: "vertical",
-                      overflow: "hidden",
-                    }}
-                  >
-                    {course.title}
-                  </h4>
-                  <div className="mt-2 flex items-center gap-2 text-xs text-slate-500">
-                    <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-primary">
-                      {course.teacher
-                        .split(" ")
-                        .slice(0, 2)
-                        .map((part) => part[0])
-                        .join("")}
-                    </span>
-                    {course.teacher}
-                  </div>
-                  <div className="mt-3 flex items-center gap-2 text-xs text-slate-500">
-                    <div className="h-2 w-24 rounded-full bg-slate-100">
-                      <div
-                        className="h-2 rounded-full bg-primary"
-                        style={{ width: `${course.progress}%` }}
-                      />
-                    </div>
-                    {course.progress}%
-                  </div>
-                  <div className="mt-3 flex items-center justify-between">
-                    <span
-                      className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                        statusStyles[course.status]
-                      }`}
-                    >
-                      {course.status}
-                    </span>
-                    <button className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600">
-                      {course.status === "Completed"
-                        ? "View Certificate"
-                        : "Continue"}
-                    </button>
-                  </div>
-                </div>
-              ))}
-        </div>
-      </motion.section>
+            : topCourses.map((course, index) => {
+                const progress = Math.max(
+                  0,
+                  Math.min(100, toNumber(course.progress, 0))
+                );
+                const isCompleted = progress >= 100;
+                const badgeClass = isCompleted
+                  ? "bg-emerald-50 text-emerald-600"
+                  : "bg-blue-50 text-blue-600";
 
-      <motion.section {...fadeUp} className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-        <h3 className="font-heading text-xl text-slate-900">Upcoming Deadlines</h3>
-        {loading ? (
-          <Skeleton className="mt-4 h-24 w-full" />
-        ) : (
-          <div className="mt-4 space-y-4">
-            <div>
-              <p className="text-sm font-semibold text-slate-700">Installments</p>
-              <div className="mt-2 space-y-2">
-                {deadlines.installments.map((item) => (
+                return (
                   <div
-                    key={item.id}
-                    className={`flex flex-wrap items-center justify-between rounded-2xl border px-4 py-2 text-sm ${
-                      item.status === "overdue"
-                        ? "border-rose-200 bg-rose-50 text-rose-600"
-                        : item.status === "due-soon"
-                          ? "border-amber-200 bg-amber-50 text-amber-600"
-                          : "border-emerald-200 bg-emerald-50 text-emerald-600"
-                    }`}
+                    key={course.id || course.courseId || `${course.title}-${index}`}
+                    className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"
                   >
-                    <span>PKR {item.amount} · Due {item.due}</span>
-                    <button className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-600">
-                      Pay Now
-                    </button>
+                    <div className="h-24 overflow-hidden rounded-2xl bg-slate-100">
+                      {course.thumbnail ? (
+                        <img
+                          src={course.thumbnail}
+                          alt={course.title || "Course thumbnail"}
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-slate-100 to-slate-200 text-xs font-semibold text-slate-500">
+                          Course
+                        </div>
+                      )}
+                    </div>
+
+                    <h4
+                      className="mt-4 font-heading text-lg text-slate-900"
+                      style={{
+                        display: "-webkit-box",
+                        WebkitLineClamp: 2,
+                        WebkitBoxOrient: "vertical",
+                        overflow: "hidden",
+                      }}
+                    >
+                      {course.title || "Course"}
+                    </h4>
+
+                    <p className="mt-2 text-xs text-slate-500">
+                      {course.teacherName || "Teacher"}
+                    </p>
+
+                    <div className="mt-3 flex items-center gap-2 text-xs text-slate-500">
+                      <div className="h-2 w-28 rounded-full bg-slate-100">
+                        <div
+                          className="h-2 rounded-full bg-primary"
+                          style={{ width: `${progress}%` }}
+                        />
+                      </div>
+                      {Math.round(progress)}%
+                    </div>
+
+                    <div className="mt-3 flex items-center justify-between">
+                      <span
+                        className={`rounded-full px-3 py-1 text-xs font-semibold ${badgeClass}`}
+                      >
+                        {isCompleted ? "Completed" : "In Progress"}
+                      </span>
+                      <Link
+                        className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600"
+                        to={isCompleted ? "/student/certificates" : "/student/courses"}
+                      >
+                        {isCompleted ? "View Certificate" : "Continue"}
+                      </Link>
+                    </div>
                   </div>
-                ))}
-              </div>
-            </div>
-            <div>
-              <p className="text-sm font-semibold text-slate-700">Quizzes</p>
-              <div className="mt-2 space-y-2">
-                {deadlines.quizzes.map((quiz) => (
-                  <div
-                    key={quiz.id}
-                    className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2 text-sm text-slate-600"
-                  >
-                    <span>
-                      {quiz.name} · {quiz.course}
-                    </span>
-                    <span>Due {quiz.due}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div>
-              <p className="text-sm font-semibold text-slate-700">Live Sessions</p>
-              <div className="mt-2 space-y-2">
-                {deadlines.sessions.map((session) => (
-                  <div
-                    key={session.id}
-                    className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2 text-sm text-slate-600"
-                  >
-                    <span>
-                      {session.name} · {session.date} · {session.time}
-                    </span>
-                    <button className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-600">
-                      Join
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
+                );
+              })}
+        </div>
+
+        {!isLoading && topCourses.length === 0 && (
+          <div className="rounded-2xl border border-dashed border-slate-200 p-5 text-sm text-slate-500">
+            No enrolled courses yet.
           </div>
         )}
       </motion.section>
 
-      <motion.section {...fadeUp} className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-        <div className="flex items-center justify-between">
-          <h3 className="font-heading text-xl text-slate-900">Recent Announcements</h3>
-          <Link className="text-sm font-semibold text-primary" to="/student/announcements">
-            View All Announcements
-          </Link>
-        </div>
+      <motion.section
+        {...fadeUp}
+        className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"
+      >
+        <h3 className="font-heading text-xl text-slate-900">Upcoming Sessions</h3>
         <div className="mt-4 space-y-3">
-          {loading ? (
-            <Skeleton className="h-24 w-full" />
-          ) : (
-            announcements.map((item) => (
-              <div key={item.id} className="flex items-center justify-between text-sm">
+          {isLoading ? (
+            Array.from({ length: 3 }).map((_, index) => (
+              <Skeleton key={`session-skel-${index}`} className="h-16 w-full rounded-2xl" />
+            ))
+          ) : topSessions.length > 0 ? (
+            topSessions.map((session, index) => (
+              <div
+                key={session.id || `${session.topic}-${index}`}
+                className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4"
+              >
                 <div>
-                  <p className="font-semibold text-slate-900">{item.title}</p>
+                  <p className="text-sm font-semibold text-slate-900">
+                    {session.className || "Class"} - {session.topic || "Session"}
+                  </p>
                   <p className="text-xs text-slate-500">
-                    {item.source} · {item.date}
+                    {formatDisplayDate(session.date, {
+                      weekday: "long",
+                      month: "long",
+                      day: "numeric",
+                      year: "numeric",
+                    })}{" "}
+                    - {formatSessionTime(session.startTime, session.endTime)}
                   </p>
                 </div>
-                {item.unread && <span className="h-2 w-2 rounded-full bg-primary" />}
+                {session.meetingLink ? (
+                  <a
+                    href={session.meetingLink}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="rounded-full border border-primary px-4 py-2 text-xs font-semibold text-primary"
+                  >
+                    Join
+                  </a>
+                ) : (
+                  <button
+                    className="cursor-not-allowed rounded-full border border-slate-200 px-4 py-2 text-xs text-slate-400"
+                    disabled
+                  >
+                    No Link
+                  </button>
+                )}
               </div>
             ))
+          ) : (
+            <div className="rounded-2xl border border-dashed border-slate-200 p-4 text-sm text-slate-500">
+              No upcoming sessions.
+            </div>
           )}
         </div>
       </motion.section>
 
-      <motion.section {...fadeUp} className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+      <motion.section
+        {...fadeUp}
+        className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"
+      >
         <div className="flex items-center justify-between">
-          <h3 className="font-heading text-xl text-slate-900">Recommended Courses</h3>
+          <h3 className="font-heading text-xl text-slate-900">
+            Recent Announcements
+          </h3>
+          <Link className="text-sm font-semibold text-primary" to="/student/announcements">
+            View All
+          </Link>
         </div>
-        <div className="mt-4 flex gap-4 overflow-x-auto pb-2">
-          {loading
-            ? Array.from({ length: 4 }).map((_, index) => (
-                <Skeleton key={`rec-${index}`} className="h-40 w-56 rounded-2xl" />
-              ))
-            : recommended.map((course) => (
-                <div
-                  key={course.id}
-                  className="min-w-[220px] rounded-2xl border border-slate-200 bg-slate-50 p-4"
-                >
-                  <div className="h-20 rounded-xl bg-slate-100" />
-                  <p className="mt-3 font-semibold text-slate-900">{course.title}</p>
-                  <p className="text-xs text-slate-500">{course.teacher}</p>
-                  <div className="mt-2 flex items-center justify-between text-xs text-slate-500">
-                    <span>PKR {course.price}</span>
-                    <span>⭐ {course.rating}</span>
+        <div className="mt-4 space-y-3">
+          {isLoading ? (
+            Array.from({ length: 3 }).map((_, index) => (
+              <Skeleton key={`ann-skel-${index}`} className="h-14 w-full rounded-xl" />
+            ))
+          ) : topAnnouncements.length > 0 ? (
+            topAnnouncements.map((item, index) => (
+              <div
+                key={item.id || `${item.title}-${index}`}
+                className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm"
+              >
+                <div>
+                  <p className="font-semibold text-slate-900">
+                    {item.title || "Announcement"}
+                  </p>
+                  <div className="mt-1 flex items-center gap-2 text-xs text-slate-500">
+                    <span className="rounded-full bg-primary/10 px-2 py-0.5 text-primary">
+                      {getAnnouncementSource(item)}
+                    </span>
+                    <span>
+                      {formatDisplayDate(item.createdAt, {
+                        day: "2-digit",
+                        month: "short",
+                        year: "numeric",
+                      })}
+                    </span>
                   </div>
                 </div>
-              ))}
-          {!loading && (
-            <div className="flex min-w-[220px] items-center justify-center rounded-2xl border border-dashed border-slate-200 p-4">
-              <button className="btn-outline">Explore More Courses</button>
+                {item.isRead === false && (
+                  <span className="h-2.5 w-2.5 rounded-full bg-primary" />
+                )}
+              </div>
+            ))
+          ) : (
+            <div className="rounded-2xl border border-dashed border-slate-200 p-4 text-sm text-slate-500">
+              No announcements right now.
+            </div>
+          )}
+        </div>
+      </motion.section>
+
+      <motion.section
+        {...fadeUp}
+        className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"
+      >
+        <h3 className="font-heading text-xl text-slate-900">Upcoming Deadlines</h3>
+        <div className="mt-4">
+          {isLoading ? (
+            <Skeleton className="h-24 w-full rounded-2xl" />
+          ) : dashboard.nextInstallment ? (
+            <div
+              className={`flex flex-wrap items-center justify-between gap-3 rounded-2xl border px-4 py-4 ${
+                installmentState === "overdue"
+                  ? "border-rose-200 bg-rose-50 text-rose-700"
+                  : installmentState === "due-soon"
+                    ? "border-amber-200 bg-amber-50 text-amber-700"
+                    : "border-slate-200 bg-slate-50 text-slate-700"
+              }`}
+            >
+              <div className="space-y-1">
+                <p className="text-sm font-semibold">
+                  Next installment: PKR{" "}
+                  {toNumber(dashboard.nextInstallment.amount, 0).toLocaleString()}
+                </p>
+                <p className="text-xs">
+                  Due{" "}
+                  {formatDisplayDate(dashboard.nextInstallment.dueDate, {
+                    day: "2-digit",
+                    month: "short",
+                    year: "numeric",
+                  })}
+                  {installmentState === "overdue" ? " (Overdue)" : ""}
+                  {installmentState === "due-soon" ? " (Due soon)" : ""}
+                </p>
+              </div>
+              <Link
+                className="rounded-full border border-current px-4 py-2 text-xs font-semibold"
+                to="/student/payments"
+              >
+                Pay Now
+              </Link>
+            </div>
+          ) : (
+            <div className="rounded-2xl border border-dashed border-slate-200 p-4 text-sm text-slate-500">
+              No upcoming deadlines.
             </div>
           )}
         </div>

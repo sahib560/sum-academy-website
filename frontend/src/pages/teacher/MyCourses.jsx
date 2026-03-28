@@ -1,1182 +1,346 @@
 import { useEffect, useMemo, useState } from "react";
-import { motion } from "framer-motion";
-import { Link } from "react-router-dom";
-import { SkeletonCard, Skeleton } from "../../components/Skeleton.jsx";
+import { AnimatePresence, motion } from "framer-motion";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Toaster, toast } from "react-hot-toast";
+import { getDownloadURL, ref, uploadBytesResumable } from "firebase/storage";
+import { SkeletonCard } from "../../components/Skeleton.jsx";
+import {
+  addChapter,
+  addLecture,
+  deleteChapter,
+  deleteLecture,
+  deleteLectureContent,
+  getCourseStudents,
+  getTeacherCourseById,
+  getTeacherCourses,
+  saveLectureContent,
+  updateLecture,
+  updateVideoAccess,
+} from "../../services/teacher.service.js";
+import { storage } from "../../config/firebase.js";
 
-const categories = [
-  { label: "All", value: "All" },
-  { label: "Biology", value: "Biology" },
-  { label: "Chemistry", value: "Chemistry" },
-  { label: "Physics", value: "Physics" },
-  { label: "English", value: "English" },
-];
+const Motion = motion;
+const QUERY_STALE_TIME = 30000;
+const STATUS_TABS = ["all", "published", "draft"];
+const VIDEO_TYPES = ["video/mp4", "video/x-msvideo", "video/quicktime"];
+const PDF_TYPES = ["application/pdf"];
+const MAX_VIDEO_SIZE = 2 * 1024 * 1024 * 1024;
+const MAX_PDF_SIZE = 50 * 1024 * 1024;
 
-const categoryStyles = {
-  Biology: "from-emerald-400/70 to-emerald-100",
-  Chemistry: "from-blue-500/70 to-blue-100",
-  Physics: "from-violet-500/70 to-violet-100",
-  English: "from-orange-400/70 to-orange-100",
+const formatNumber = (value) => Number(value || 0).toLocaleString("en-US");
+const normalizeStatus = (value) => String(value || "draft").toLowerCase();
+const toOrder = (value) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+const formatFileSize = (bytes) => {
+  const size = Number(bytes || 0);
+  if (!Number.isFinite(size) || size <= 0) return "0 KB";
+  if (size >= 1024 * 1024 * 1024) return `${(size / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+  if (size >= 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(2)} MB`;
+  return `${(size / 1024).toFixed(2)} KB`;
 };
 
-const statusStyles = {
-  Published: "bg-emerald-50 text-emerald-600",
-  Draft: "bg-amber-50 text-amber-600",
-  Archived: "bg-slate-100 text-slate-500",
+const STATUS_STYLES = {
+  published: "bg-emerald-50 text-emerald-700",
+  draft: "bg-amber-50 text-amber-700",
+  archived: "bg-slate-100 text-slate-600",
 };
 
-const initialCourses = [
-  {
-    id: 1,
-    title: "Biology Masterclass XI - Genetics and Human Physiology",
-    category: "Biology",
-    status: "Published",
-    enrolled: 180,
-    completion: 78,
-    revenue: 420000,
-  },
-  {
-    id: 2,
-    title: "Chemistry Quick Revision for Board Exams",
-    category: "Chemistry",
-    status: "Published",
-    enrolled: 142,
-    completion: 83,
-    revenue: 320000,
-  },
-  {
-    id: 3,
-    title: "Physics Practice Lab - Mechanics Fundamentals",
-    category: "Physics",
-    status: "Draft",
-    enrolled: 112,
-    completion: 71,
-    revenue: 210000,
-  },
-  {
-    id: 4,
-    title: "English Essay Clinic - Academic Writing Skills",
-    category: "English",
-    status: "Published",
-    enrolled: 95,
-    completion: 65,
-    revenue: 150000,
-  },
-  {
-    id: 5,
-    title: "Entrance Test Sprint - Full Biology Series",
-    category: "Biology",
-    status: "Archived",
-    enrolled: 203,
-    completion: 88,
-    revenue: 540000,
-  },
-  {
-    id: 6,
-    title: "Chemistry Organic Reactions Intensive",
-    category: "Chemistry",
-    status: "Published",
-    enrolled: 126,
-    completion: 74,
-    revenue: 280000,
-  },
-];
+const uploadToStorage = (file, path, onProgress, onTask) =>
+  new Promise((resolve, reject) => {
+    const task = uploadBytesResumable(ref(storage, path), file);
+    if (typeof onTask === "function") onTask(task);
 
-const defaultChapters = [
-  {
-    id: "ch-1",
-    title: "Introduction",
-    open: true,
-    lectures: [
-      { id: "lec-1", title: "Welcome & Overview", duration: "12m" },
-      { id: "lec-2", title: "Course Goals", duration: "9m" },
-    ],
-  },
-  {
-    id: "ch-2",
-    title: "Core Concepts",
-    open: false,
-    lectures: [
-      { id: "lec-3", title: "Key Theory", duration: "18m" },
-      { id: "lec-4", title: "Practice Examples", duration: "22m" },
-    ],
-  },
-];
+    task.on(
+      "state_changed",
+      (snapshot) => {
+        const progress = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100);
+        if (typeof onProgress === "function") onProgress(progress);
+      },
+      reject,
+      async () => {
+        const url = await getDownloadURL(task.snapshot.ref);
+        resolve({ url, size: file.size, name: file.name });
+      }
+    );
+  });
 
-const sampleStudents = [
-  { id: 1, name: "Ayesha Noor", completedOn: "Mar 10, 2026" },
-  { id: 2, name: "Bilal Khan", completedOn: "Mar 09, 2026" },
-  { id: 3, name: "Hina Sheikh", completedOn: "Mar 08, 2026" },
-  { id: 4, name: "Usman Raza", completedOn: "Mar 07, 2026" },
-];
-
-const fadeUp = {
-  initial: { opacity: 0, y: 16 },
-  whileInView: { opacity: 1, y: 0 },
-  viewport: { once: true, amount: 0.2 },
-  transition: { duration: 0.45 },
-};
-
-const reorder = (list, startIndex, endIndex) => {
-  const result = Array.from(list);
-  const [removed] = result.splice(startIndex, 1);
-  result.splice(endIndex, 0, removed);
-  return result;
-};
+function StatusBadge({ status }) {
+  const normalized = normalizeStatus(status);
+  return (
+    <span className={`rounded-full px-3 py-1 text-xs font-semibold ${STATUS_STYLES[normalized] || STATUS_STYLES.draft}`}>
+      {normalized.charAt(0).toUpperCase() + normalized.slice(1)}
+    </span>
+  );
+}
 
 function MyCourses() {
-  const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState("All");
+  const queryClient = useQueryClient();
+
+  const [statusTab, setStatusTab] = useState("all");
   const [search, setSearch] = useState("");
-  const [category, setCategory] = useState("All");
-  const [courses, setCourses] = useState(initialCourses);
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const [drawerTab, setDrawerTab] = useState("Info");
-  const [editingCourse, setEditingCourse] = useState(null);
-  const [courseMenu, setCourseMenu] = useState(null);
-  const [deleteTarget, setDeleteTarget] = useState(null);
-  const [toast, setToast] = useState(null);
-  const [videoModal, setVideoModal] = useState(null);
-  const [pdfModal, setPdfModal] = useState(null);
-  const [unlockModal, setUnlockModal] = useState(false);
-  const [videoStage, setVideoStage] = useState("File Selected");
-  const [videoProgress, setVideoProgress] = useState(0);
-  const [pdfProgress, setPdfProgress] = useState(0);
-  const [chapters, setChapters] = useState(defaultChapters);
-  const [courseInfo, setCourseInfo] = useState({
-    title: "",
-    shortDescription: "",
-    description: "",
-    category: "Biology",
-    level: "Beginner",
-    price: 12000,
-    discount: 0,
-    thumbnail: "",
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+
+  const [contentCourseId, setContentCourseId] = useState("");
+  const [selectedSubjectId, setSelectedSubjectId] = useState("");
+  const [expandedChapters, setExpandedChapters] = useState({});
+  const [selectedLectureId, setSelectedLectureId] = useState("");
+  const [lectureTitleDraft, setLectureTitleDraft] = useState("");
+
+  const [contentInputModal, setContentInputModal] = useState({ open: false, type: "chapter", chapterId: "", title: "" });
+  const [isContentInputSaving, setIsContentInputSaving] = useState(false);
+  const [chapterDeleteModal, setChapterDeleteModal] = useState({ open: false, chapterId: "" });
+
+  const [videoUpload, setVideoUpload] = useState({ file: null, progress: 0, uploading: false, stage: "", task: null });
+  const [resourceModal, setResourceModal] = useState({ open: false, type: "pdf", lectureId: "" });
+  const [resourceTitle, setResourceTitle] = useState("");
+  const [resourceFile, setResourceFile] = useState(null);
+  const [resourceProgress, setResourceProgress] = useState(0);
+
+  const [studentsCourseId, setStudentsCourseId] = useState("");
+  const [videoAccessPanel, setVideoAccessPanel] = useState({ open: false, student: null, map: {} });
+
+  const coursesQuery = useQuery({ queryKey: ["teacher-courses"], queryFn: getTeacherCourses, staleTime: QUERY_STALE_TIME });
+  const contentQuery = useQuery({
+    queryKey: ["teacher-course-detail", contentCourseId],
+    queryFn: () => getTeacherCourseById(contentCourseId),
+    enabled: Boolean(contentCourseId),
+    staleTime: QUERY_STALE_TIME,
   });
-  const [searchStudent, setSearchStudent] = useState("");
-  const [unlockState, setUnlockState] = useState({});
+  const studentsQuery = useQuery({
+    queryKey: ["teacher-course-students", studentsCourseId],
+    queryFn: () => getCourseStudents(studentsCourseId),
+    enabled: Boolean(studentsCourseId),
+    staleTime: QUERY_STALE_TIME,
+  });
+  const accessCourseQuery = useQuery({
+    queryKey: ["teacher-course-access", studentsCourseId],
+    queryFn: () => getTeacherCourseById(studentsCourseId),
+    enabled: Boolean(studentsCourseId),
+    staleTime: QUERY_STALE_TIME,
+  });
+
+  const addChapterMutation = useMutation({ mutationFn: ({ courseId, subjectId, data }) => addChapter(courseId, subjectId, data) });
+  const deleteChapterMutation = useMutation({ mutationFn: deleteChapter });
+  const addLectureMutation = useMutation({ mutationFn: ({ chapterId, data }) => addLecture(chapterId, data) });
+  const updateLectureMutation = useMutation({ mutationFn: ({ lectureId, data }) => updateLecture(lectureId, data) });
+  const deleteLectureMutation = useMutation({ mutationFn: deleteLecture });
+  const saveLectureContentMutation = useMutation({ mutationFn: ({ lectureId, data }) => saveLectureContent(lectureId, data) });
+  const deleteLectureContentMutation = useMutation({ mutationFn: ({ lectureId, contentId, type }) => deleteLectureContent(lectureId, contentId, type) });
+  const updateVideoAccessMutation = useMutation({ mutationFn: ({ courseId, studentId, data }) => updateVideoAccess(courseId, studentId, data) });
+
+  const isContentBusy = addChapterMutation.isPending || deleteChapterMutation.isPending || addLectureMutation.isPending || updateLectureMutation.isPending || deleteLectureMutation.isPending || saveLectureContentMutation.isPending || deleteLectureContentMutation.isPending || isContentInputSaving;
+
+  const courses = useMemo(() => (Array.isArray(coursesQuery.data) ? coursesQuery.data : []), [coursesQuery.data]);
+  const stats = useMemo(() => ({
+    assignedCourses: courses.length,
+    mySubjects: courses.reduce((sum, course) => sum + (Array.isArray(course.mySubjects) ? course.mySubjects.length : 0), 0),
+    totalStudents: courses.reduce((sum, course) => sum + Number(course.enrollmentCount || 0), 0),
+  }), [courses]);
 
   useEffect(() => {
-    const timer = setTimeout(() => setLoading(false), 1500);
+    const timer = setTimeout(() => setDebouncedSearch(search.trim().toLowerCase()), 250);
     return () => clearTimeout(timer);
-  }, []);
+  }, [search]);
+
+  const filteredCourses = useMemo(() => courses.filter((course) => {
+    const status = normalizeStatus(course.status);
+    const statusMatch = statusTab === "all" || status === statusTab;
+    const searchMatch = !debouncedSearch || String(course.title || "").toLowerCase().includes(debouncedSearch);
+    return statusMatch && searchMatch;
+  }), [courses, statusTab, debouncedSearch]);
+
+  const contentSubjects = useMemo(() => {
+    const rows = Array.isArray(contentQuery.data?.mySubjects) ? contentQuery.data.mySubjects : [];
+    return rows.slice().sort((a, b) => toOrder(a.order) - toOrder(b.order));
+  }, [contentQuery.data]);
 
   useEffect(() => {
-    if (!toast) return;
-    const timer = setTimeout(() => setToast(null), 2200);
-    return () => clearTimeout(timer);
-  }, [toast]);
+    if (!contentCourseId || !contentSubjects.length) {
+      setSelectedSubjectId("");
+      setSelectedLectureId("");
+      return;
+    }
+    if (!contentSubjects.some((subject) => subject.subjectId === selectedSubjectId)) {
+      setSelectedSubjectId(contentSubjects[0].subjectId);
+      setSelectedLectureId("");
+    }
+  }, [contentCourseId, contentSubjects, selectedSubjectId]);
 
-  const tabCounts = useMemo(() => {
-    return {
-      All: courses.length,
-      Published: courses.filter((course) => course.status === "Published").length,
-      Draft: courses.filter((course) => course.status === "Draft").length,
-      Archived: courses.filter((course) => course.status === "Archived").length,
-    };
-  }, [courses]);
+  const selectedSubject = useMemo(() => contentSubjects.find((subject) => subject.subjectId === selectedSubjectId) || null, [contentSubjects, selectedSubjectId]);
+  const contentChapters = useMemo(() => {
+    const rows = Array.isArray(selectedSubject?.chapters) ? selectedSubject.chapters : [];
+    return rows.slice().sort((a, b) => toOrder(a.order) - toOrder(b.order));
+  }, [selectedSubject]);
+  const selectedLecture = useMemo(() => {
+    for (const chapter of contentChapters) {
+      const lectures = Array.isArray(chapter.lectures) ? chapter.lectures : [];
+      const match = lectures.find((lecture) => lecture.lectureId === selectedLectureId);
+      if (match) return match;
+    }
+    return null;
+  }, [contentChapters, selectedLectureId]);
 
-  const filteredCourses = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    return courses.filter((course) => {
-      const matchesTab = activeTab === "All" || course.status === activeTab;
-      const matchesSearch =
-        !query || course.title.toLowerCase().includes(query);
-      const matchesCategory =
-        category === "All" || course.category === category;
-      return matchesTab && matchesSearch && matchesCategory;
-    });
-  }, [activeTab, category, courses, search]);
+  useEffect(() => {
+    setLectureTitleDraft(selectedLecture?.title || "");
+  }, [selectedLecture?.lectureId, selectedLecture?.title]);
 
-  const discountedPrice = useMemo(() => {
-    const price = Number(courseInfo.price) || 0;
-    const discount = Number(courseInfo.discount) || 0;
-    return Math.max(price - (price * discount) / 100, 0);
-  }, [courseInfo.discount, courseInfo.price]);
+  const accessLectures = useMemo(() => {
+    const subjects = Array.isArray(accessCourseQuery.data?.mySubjects) ? accessCourseQuery.data.mySubjects : [];
+    return subjects.flatMap((subject) => (Array.isArray(subject.chapters) ? subject.chapters : [])).flatMap((chapter) => (Array.isArray(chapter.lectures) ? chapter.lectures : [])).map((lecture) => ({ id: lecture.lectureId, title: lecture.title }));
+  }, [accessCourseQuery.data]);
 
-  const filteredStudents = useMemo(() => {
-    const query = searchStudent.trim().toLowerCase();
-    return sampleStudents.filter((student) =>
-      student.name.toLowerCase().includes(query)
-    );
-  }, [searchStudent]);
-
-  const lectureOptions = useMemo(() => {
-    const lectures = chapters.flatMap((chapter) =>
-      chapter.lectures.map((lecture) => ({
-        id: lecture.id,
-        title: lecture.title,
-      }))
-    );
-    return lectures.slice(0, 4);
-  }, [chapters]);
-
-  const handleOpenDrawer = (course) => {
-    setEditingCourse(course || null);
-    setDrawerTab("Info");
-    setCourseInfo(
-      course
-        ? {
-            title: course.title,
-            shortDescription: "",
-            description: "",
-            category: course.category,
-            level: "Intermediate",
-            price: 12000,
-            discount: 0,
-            thumbnail: "",
-          }
-        : {
-            title: "",
-            shortDescription: "",
-            description: "",
-            category: "Biology",
-            level: "Beginner",
-            price: 12000,
-            discount: 0,
-            thumbnail: "",
-          }
-    );
-    setChapters(defaultChapters);
-    setDrawerOpen(true);
-  };
-
-  const handleSaveCourse = (status) => {
-    setToast({ type: "success", message: `Course saved as ${status}.` });
-    setDrawerOpen(false);
-  };
-
-  const handleDeleteCourse = () => {
-    if (!deleteTarget) return;
-    setCourses((prev) => prev.filter((course) => course.id !== deleteTarget.id));
-    setToast({ type: "success", message: "Course deleted." });
-    setDeleteTarget(null);
-  };
-
-  const handleArchiveCourse = (course) => {
-    setCourses((prev) =>
-      prev.map((item) =>
-        item.id === course.id ? { ...item, status: "Archived" } : item
-      )
-    );
-    setToast({ type: "success", message: "Course archived." });
-  };
-
-  const handleDropThumbnail = (event) => {
-    event.preventDefault();
-    const file = event.dataTransfer.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () =>
-      setCourseInfo((prev) => ({ ...prev, thumbnail: reader.result }));
-    reader.readAsDataURL(file);
-  };
-
-  const handleDragChapter = (startIndex, endIndex) => {
-    setChapters((prev) => reorder(prev, startIndex, endIndex));
-  };
-
-  const handleDragLecture = (chapterIndex, startIndex, endIndex) => {
-    setChapters((prev) => {
-      const updated = [...prev];
-      updated[chapterIndex].lectures = reorder(
-        updated[chapterIndex].lectures,
-        startIndex,
-        endIndex
-      );
-      return updated;
-    });
-  };
-
-  const handleAddChapter = () => {
-    setChapters((prev) => [
-      ...prev,
-      {
-        id: `ch-${Date.now()}`,
-        title: "New Chapter",
-        open: true,
-        lectures: [],
-      },
+  const invalidateCourse = async (courseId) => {
+    if (!courseId) return;
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["teacher-courses"] }),
+      queryClient.invalidateQueries({ queryKey: ["teacher-course-detail", courseId] }),
+      queryClient.invalidateQueries({ queryKey: ["teacher-course-students", courseId] }),
+      queryClient.invalidateQueries({ queryKey: ["teacher-course-access", courseId] }),
     ]);
   };
 
-  const handleAddLecture = (chapterIndex) => {
-    setChapters((prev) => {
-      const updated = [...prev];
-      updated[chapterIndex].lectures.push({
-        id: `lec-${Date.now()}`,
-        title: "New Lecture",
-        duration: "0m",
-      });
-      return updated;
-    });
-  };
+  const submitContentInputModal = async () => {
+    if (isContentBusy) return;
+    const title = String(contentInputModal.title || "").trim();
+    if (title.length < 3) return toast.error("Title must be at least 3 characters");
 
-  const handleDeleteChapter = (chapterId) => {
-    const confirmed = window.confirm("Delete this chapter?");
-    if (!confirmed) return;
-    setChapters((prev) => prev.filter((chapter) => chapter.id !== chapterId));
-  };
-
-  const handleDeleteLecture = (chapterId, lectureId) => {
-    const confirmed = window.confirm("Delete this lecture?");
-    if (!confirmed) return;
-    setChapters((prev) =>
-      prev.map((chapter) =>
-        chapter.id === chapterId
-          ? {
-              ...chapter,
-              lectures: chapter.lectures.filter((lec) => lec.id !== lectureId),
-            }
-          : chapter
-      )
-    );
-  };
-
-  const openVideoModal = (lecture) => {
-    setVideoModal(lecture);
-    setVideoStage("File Selected");
-    setVideoProgress(0);
-  };
-
-  const openPdfModal = (lecture) => {
-    setPdfModal(lecture);
-    setPdfProgress(0);
-  };
-
-  const simulateVideoUpload = () => {
-    setVideoStage("Uploading");
-    setVideoProgress(20);
-    let step = 0;
-    const timer = setInterval(() => {
-      step += 1;
-      if (step === 1) setVideoProgress(60);
-      if (step === 2) setVideoStage("Transcoding");
-      if (step === 3) {
-        setVideoStage("Ready");
-        setVideoProgress(100);
-        clearInterval(timer);
+    setIsContentInputSaving(true);
+    try {
+      if (contentInputModal.type === "chapter") {
+        await addChapterMutation.mutateAsync({ courseId: contentCourseId, subjectId: selectedSubjectId, data: { title } });
+        toast.success(`Chapter added to ${selectedSubject?.subjectName || "subject"}`);
+      } else {
+        await addLectureMutation.mutateAsync({ chapterId: contentInputModal.chapterId, data: { title } });
+        toast.success("Lecture added");
       }
-    }, 700);
+      await invalidateCourse(contentCourseId);
+      setContentInputModal({ open: false, type: "chapter", chapterId: "", title: "" });
+    } catch (error) {
+      toast.error(error?.response?.data?.message || "Failed to save");
+    } finally {
+      setIsContentInputSaving(false);
+    }
   };
 
-  const simulatePdfUpload = () => {
-    let progress = 10;
-    const timer = setInterval(() => {
-      progress += 20;
-      setPdfProgress(progress);
-      if (progress >= 100) clearInterval(timer);
-    }, 400);
+  const saveLectureTitle = async () => {
+    if (!selectedLecture) return;
+    const nextTitle = lectureTitleDraft.trim();
+    if (nextTitle.length < 3) return toast.error("Lecture title must be at least 3 characters");
+    try {
+      await updateLectureMutation.mutateAsync({ lectureId: selectedLecture.lectureId, data: { title: nextTitle } });
+      await invalidateCourse(contentCourseId);
+      toast.success("Lecture updated");
+    } catch (error) {
+      toast.error(error?.response?.data?.message || "Failed to update lecture");
+    }
+  };
+
+  const startVideoUpload = async () => {
+    if (!selectedLecture || !videoUpload.file) return;
+    if (!VIDEO_TYPES.includes(videoUpload.file.type)) return toast.error("Only MP4, AVI, MOV allowed");
+    if (videoUpload.file.size > MAX_VIDEO_SIZE) return toast.error("File too large. Max 2GB");
+
+    try {
+      setVideoUpload((prev) => ({ ...prev, uploading: true, stage: "Uploading..." }));
+      const path = `courses/${contentCourseId}/lectures/${selectedLecture.lectureId}/videos/${Date.now()}-${videoUpload.file.name}`;
+      const uploaded = await uploadToStorage(videoUpload.file, path, (progress) => setVideoUpload((prev) => ({ ...prev, progress })), (task) => setVideoUpload((prev) => ({ ...prev, task })));
+      await saveLectureContentMutation.mutateAsync({ lectureId: selectedLecture.lectureId, data: { type: "video", title: videoUpload.file.name, url: uploaded.url, size: uploaded.size, duration: "" } });
+      await invalidateCourse(contentCourseId);
+      setVideoUpload({ file: null, progress: 0, uploading: false, stage: "", task: null });
+      toast.success("Video uploaded successfully");
+    } catch (error) {
+      setVideoUpload((prev) => ({ ...prev, uploading: false, stage: "", task: null }));
+      toast.error(error?.response?.data?.message || "Failed to upload video");
+    }
+  };
+
+  const saveResource = async () => {
+    if (!resourceModal.lectureId) return;
+    if (resourceTitle.trim().length < 3) return toast.error("Content title must be at least 3 characters");
+    if (!resourceFile) return toast.error("Select a file");
+    if (!PDF_TYPES.includes(resourceFile.type)) return toast.error("Only PDF files are allowed");
+    if (resourceFile.size > MAX_PDF_SIZE) return toast.error("File too large. Max 50MB");
+
+    try {
+      const folder = resourceModal.type === "pdf" ? "pdfs" : "books";
+      const path = `courses/${contentCourseId}/lectures/${resourceModal.lectureId}/${folder}/${Date.now()}-${resourceFile.name}`;
+      const uploaded = await uploadToStorage(resourceFile, path, setResourceProgress);
+      await saveLectureContentMutation.mutateAsync({ lectureId: resourceModal.lectureId, data: { type: resourceModal.type, title: resourceTitle.trim(), url: uploaded.url, size: uploaded.size } });
+      await invalidateCourse(contentCourseId);
+      setResourceModal({ open: false, type: "pdf", lectureId: "" });
+      setResourceTitle("");
+      setResourceFile(null);
+      setResourceProgress(0);
+      toast.success(resourceModal.type === "pdf" ? "PDF notes added" : "Book added");
+    } catch (error) {
+      toast.error(error?.response?.data?.message || "Failed to save content");
+    }
   };
 
   return (
     <div className="space-y-6">
-      <motion.section {...fadeUp} className="flex flex-wrap items-center justify-between gap-4">
-        <h1 className="font-heading text-3xl text-slate-900">My Courses</h1>
-        <button className="btn-primary" onClick={() => handleOpenDrawer(null)}>
-          Create New Course
-        </button>
-      </motion.section>
+      <Toaster position="top-left" toastOptions={{ style: { borderRadius: "12px", fontFamily: "DM Sans, sans-serif" } }} />
+      <section className="rounded-3xl border border-blue-100 bg-blue-50 p-4 text-sm text-blue-800">Courses are created and managed by Admin. You can add content to your assigned subjects only.</section>
+      <section className="rounded-3xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">You cannot create or delete courses. Contact admin to create a new course.</section>
+      <section><h1 className="font-heading text-3xl text-slate-900">My Assigned Courses</h1><p className="text-sm text-slate-500">Courses where you are assigned as subject teacher</p></section>
 
-      <motion.section {...fadeUp} className="flex flex-wrap items-center gap-3">
-        {["All", "Published", "Draft", "Archived"].map((tab) => (
-          <button
-            key={tab}
-            className={`rounded-full px-4 py-2 text-xs font-semibold ${
-              activeTab === tab
-                ? "bg-primary text-white"
-                : "border border-slate-200 text-slate-600"
-            }`}
-            onClick={() => setActiveTab(tab)}
-          >
-            {tab}{" "}
-            <span className="ml-2 rounded-full bg-white/20 px-2 py-0.5 text-[10px]">
-              {tabCounts[tab]}
-            </span>
-          </button>
-        ))}
-        <div className="flex flex-wrap items-center gap-2">
-          <input
-            type="text"
-            placeholder="Search courses..."
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 shadow-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
-          />
-          <select
-            value={category}
-            onChange={(event) => setCategory(event.target.value)}
-            className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700"
-          >
-            {categories.map((item) => (
-              <option key={item.value} value={item.value}>
-                {item.label === "All" ? "Category: All" : item.label}
-              </option>
-            ))}
-          </select>
+      <section className="grid gap-4 sm:grid-cols-3">
+        <div className="rounded-3xl border border-slate-200 bg-white p-5"><p className="text-sm text-slate-500">My Assigned Courses</p><p className="mt-2 text-2xl font-bold text-slate-900">{formatNumber(stats.assignedCourses)}</p></div>
+        <div className="rounded-3xl border border-slate-200 bg-white p-5"><p className="text-sm text-slate-500">My Subjects</p><p className="mt-2 text-2xl font-bold text-slate-900">{formatNumber(stats.mySubjects)}</p></div>
+        <div className="rounded-3xl border border-slate-200 bg-white p-5"><p className="text-sm text-slate-500">Total Enrolled Students</p><p className="mt-2 text-2xl font-bold text-slate-900">{formatNumber(stats.totalStudents)}</p></div>
+      </section>
+
+      <section className="rounded-3xl border border-slate-200 bg-white p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex gap-2">
+            {STATUS_TABS.map((tab) => <button key={tab} className={`rounded-full px-3 py-2 text-xs font-semibold ${statusTab === tab ? "bg-primary text-white" : "border border-slate-200 text-slate-600"}`} onClick={() => setStatusTab(tab)} disabled={false}>{tab.charAt(0).toUpperCase() + tab.slice(1)}</button>)}
+          </div>
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by course title..." className="w-full rounded-full border border-slate-200 px-4 py-2 text-sm md:w-80" />
         </div>
-      </motion.section>
+      </section>
 
-      <motion.section {...fadeUp} className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-        {loading
-          ? Array.from({ length: 6 }).map((_, index) => (
-              <SkeletonCard key={`course-skeleton-${index}`} />
-            ))
-          : filteredCourses.map((course) => (
-              <div
-                key={course.id}
-                className="relative overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm"
-              >
-                <div
-                  className={`h-20 bg-gradient-to-r ${
-                    categoryStyles[course.category] || "from-slate-300 to-slate-100"
-                  }`}
-                />
-                <span
-                  className={`absolute right-4 top-4 rounded-full px-3 py-1 text-xs font-semibold ${
-                    statusStyles[course.status]
-                  }`}
-                >
-                  {course.status}
-                </span>
-                <div className="p-5">
-                  <h3
-                    className="font-heading text-lg text-slate-900"
-                    style={{
-                      display: "-webkit-box",
-                      WebkitLineClamp: 2,
-                      WebkitBoxOrient: "vertical",
-                      overflow: "hidden",
-                    }}
-                  >
-                    {course.title}
-                  </h3>
-                  <span className="mt-2 inline-flex rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
-                    {course.category}
-                  </span>
-                  <div className="mt-4 grid grid-cols-3 gap-3 text-xs text-slate-500">
-                    <div>
-                      <p className="font-semibold text-slate-900">{course.enrolled}</p>
-                      Enrolled
-                    </div>
-                    <div>
-                      <p className="font-semibold text-slate-900">
-                        {course.completion}%
-                      </p>
-                      Completion
-                    </div>
-                    <div>
-                      <p className="font-semibold text-slate-900">
-                        PKR {course.revenue.toLocaleString()}
-                      </p>
-                      Revenue
-                    </div>
-                  </div>
-                  <div className="mt-4 h-2 w-full rounded-full bg-slate-100">
-                    <div
-                      className="h-2 rounded-full bg-primary"
-                      style={{ width: `${course.completion}%` }}
-                    />
-                  </div>
-                  <div className="mt-4 flex flex-wrap items-center gap-2">
-                    <button
-                      className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 hover:border-primary hover:text-primary"
-                      onClick={() => handleOpenDrawer(course)}
-                    >
-                      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-                        <path d="M4 17.3V20h2.7l7.9-7.9-2.7-2.7L4 17.3zM20.7 7.04a1 1 0 0 0 0-1.41l-2.3-2.3a1 1 0 0 0-1.41 0l-1.8 1.8 3.7 3.7 1.8-1.79z" />
-                      </svg>
-                      Edit Content
-                    </button>
-                    <button
-                      className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 hover:border-primary hover:text-primary"
-                      onClick={() => setUnlockModal(true)}
-                    >
-                      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-                        <path d="M7 12a4 4 0 1 1 0-8 4 4 0 0 1 0 8zm10 0a3 3 0 1 1 0-6 3 3 0 0 1 0 6zM2 20a5 5 0 0 1 10 0H2zm12 0a4 4 0 0 1 8 0h-8z" />
-                      </svg>
-                      View Students
-                    </button>
-                    <div className="relative">
-                      <button
-                        className="rounded-full border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600"
-                        onClick={() =>
-                          setCourseMenu(courseMenu === course.id ? null : course.id)
-                        }
-                      >
-                        More
-                      </button>
-                      {courseMenu === course.id && (
-                        <div className="absolute right-0 z-10 mt-2 w-36 rounded-2xl border border-slate-200 bg-white p-2 text-xs shadow-lg">
-                          <button
-                            className="block w-full rounded-xl px-3 py-2 text-left hover:bg-slate-100"
-                            onClick={() => {
-                              handleArchiveCourse(course);
-                              setCourseMenu(null);
-                            }}
-                          >
-                            Archive
-                          </button>
-                          <button
-                            className="block w-full rounded-xl px-3 py-2 text-left text-rose-500 hover:bg-rose-50"
-                            onClick={() => {
-                              setDeleteTarget(course);
-                              setCourseMenu(null);
-                            }}
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
+      <section className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+        {coursesQuery.isLoading ? Array.from({ length: 6 }).map((_, idx) => <SkeletonCard key={`s-${idx}`} />) : null}
+        {!coursesQuery.isLoading && filteredCourses.length === 0 ? <div className="col-span-full rounded-3xl border border-dashed border-slate-300 bg-white p-10 text-center text-slate-500">No assigned courses found.</div> : null}
+        {filteredCourses.map((course) => <div key={course.id} className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm"><div className="h-40">{course.thumbnail ? <img src={course.thumbnail} alt={course.title} className="h-full w-full object-cover" /> : <div className="h-full bg-gradient-to-br from-blue-600 to-indigo-500" />}</div><div className="p-4"><div className="mb-2"><StatusBadge status={course.status} /></div><h3 className="text-lg font-bold text-slate-900">{course.title || "Untitled course"}</h3><span className="mt-2 inline-flex rounded-full bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary">{course.category || "General"}</span><p className="mt-3 text-xs font-semibold uppercase tracking-wide text-slate-400">Your Subjects:</p><div className="mt-2 flex flex-wrap gap-2">{(course.mySubjects || []).map((subject) => <span key={`${course.id}-${subject.subjectId}`} className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">{subject.subjectName || "Subject"}</span>)}</div><p className="mt-2 text-xs text-slate-500">{formatNumber((course.mySubjects || []).length)} subjects assigned to you</p><p className="mt-3 text-sm text-slate-600">{formatNumber(course.enrollmentCount)} students enrolled</p><div className="mt-4 space-y-2"><button className="w-full rounded-full bg-primary px-4 py-2 text-sm font-semibold text-white" onClick={() => setContentCourseId(course.id)} disabled={false}>Manage Content</button><button className="w-full rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700" onClick={() => setStudentsCourseId(course.id)} disabled={false}>View Students</button></div></div></div>)}
+      </section>
+      <AnimatePresence>
+        {contentCourseId ? (
+          <div className="fixed inset-0 z-[88]">
+            <Motion.button className="absolute inset-0 bg-slate-900/40" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setContentCourseId("")} disabled={isContentBusy} />
+            <Motion.div initial={{ x: "100%" }} animate={{ x: 0 }} exit={{ x: "100%" }} className="absolute right-0 top-0 h-full w-full bg-white shadow-2xl lg:max-w-[1080px]">
+              <div className="border-b border-slate-200 p-4"><div className="flex items-center justify-between"><div><h2 className="font-heading text-2xl text-slate-900">{contentQuery.data?.courseTitle || "Course"}</h2><div className="mt-2"><StatusBadge status={contentQuery.data?.courseStatus} /></div></div><button className="rounded-full border border-slate-300 px-3 py-1 text-sm font-semibold text-slate-600" onClick={() => setContentCourseId("")} disabled={isContentBusy}>Close</button></div><p className="mt-3 rounded-2xl border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-800">You can only add content to your assigned subjects.</p><div className="mt-3 flex flex-wrap gap-2">{contentSubjects.map((subject) => <button key={subject.subjectId} className={`rounded-full px-3 py-1.5 text-xs font-semibold ${selectedSubjectId === subject.subjectId ? "bg-primary text-white" : "border border-slate-200 text-slate-600"}`} onClick={() => { setSelectedSubjectId(subject.subjectId); setSelectedLectureId(""); }} disabled={isContentBusy}>{subject.subjectName || "Subject"}</button>)}</div></div>
+              <div className="grid h-[calc(100%-190px)] min-h-0 lg:grid-cols-[280px_1fr]">
+                <aside className="border-r border-slate-200 p-4"><div className="space-y-3 overflow-y-auto" style={{ maxHeight: "calc(100vh - 280px)" }}>{contentChapters.map((chapter) => <div key={chapter.chapterId} className="rounded-2xl border border-slate-200 p-3"><div className="flex items-center gap-2"><button className="text-slate-500" onClick={() => setExpandedChapters((prev) => ({ ...prev, [chapter.chapterId]: !prev[chapter.chapterId] }))} disabled={isContentBusy}>{expandedChapters[chapter.chapterId] ? "?" : "?"}</button><span className="text-xs font-semibold text-slate-700">{chapter.title}</span><button className="ml-auto text-xs text-rose-600" onClick={() => setChapterDeleteModal({ open: true, chapterId: chapter.chapterId })} disabled={isContentBusy}>Delete</button></div>{expandedChapters[chapter.chapterId] ? <div className="mt-2 space-y-2 pl-4">{(chapter.lectures || []).map((lecture) => <div key={lecture.lectureId} className="flex items-center gap-2"><button className={`flex-1 rounded-xl border px-2 py-1 text-left text-xs ${selectedLectureId === lecture.lectureId ? "border-primary bg-primary/5" : "border-slate-200"}`} onClick={() => setSelectedLectureId(lecture.lectureId)} disabled={isContentBusy}>{lecture.title}</button><button className="text-xs text-rose-600" onClick={() => deleteLectureMutation.mutateAsync(lecture.lectureId).then(() => invalidateCourse(contentCourseId)).then(() => toast.success("Lecture deleted")).catch((error) => toast.error(error?.response?.data?.message || "Failed to delete lecture"))} disabled={isContentBusy}>X</button></div>)}<button className="rounded-full border border-slate-200 px-3 py-1 text-[11px] font-semibold text-slate-700" onClick={() => setContentInputModal({ open: true, type: "lecture", chapterId: chapter.chapterId, title: "" })} disabled={isContentBusy}>Add Lecture</button></div> : null}</div>)}</div><button className="mt-3 w-full rounded-full bg-primary px-4 py-2 text-sm font-semibold text-white" onClick={() => setContentInputModal({ open: true, type: "chapter", chapterId: "", title: "" })} disabled={isContentBusy || !selectedSubjectId}>Add Chapter</button></aside>
+                <section className="overflow-y-auto p-5">{!selectedLecture ? <div className="rounded-3xl border border-dashed border-slate-300 p-10 text-center text-slate-500">Select a lecture from the left to add content</div> : <div className="space-y-5"><div className="rounded-2xl border border-slate-200 p-4"><div className="flex flex-wrap gap-2"><input value={lectureTitleDraft} onChange={(e) => setLectureTitleDraft(e.target.value)} className="flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm" /><button className="rounded-full border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700" onClick={saveLectureTitle} disabled={isContentBusy}>Save title</button></div></div><div className="rounded-2xl border border-slate-200 p-4"><h3 className="font-heading text-xl text-slate-900">Lecture Video</h3>{!selectedLecture.videoUrl ? <div className="mt-3 space-y-3"><label className="block rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 p-6 text-center"><input type="file" className="hidden" accept="video/mp4,video/x-msvideo,video/quicktime" onChange={(e) => setVideoUpload((prev) => ({ ...prev, file: e.target.files?.[0] || null, progress: 0 }))} /><p className="text-sm font-semibold text-slate-700">{videoUpload.file ? videoUpload.file.name : "Select MP4, AVI, or MOV"}</p><p className="text-xs text-slate-500">{videoUpload.file ? formatFileSize(videoUpload.file.size) : "Maximum 2GB"}</p></label><div className="flex gap-2"><button className="btn-primary" onClick={startVideoUpload} disabled={isContentBusy}>Upload Video</button>{videoUpload.uploading ? <button className="btn-outline" onClick={() => { if (videoUpload.task) videoUpload.task.cancel(); setVideoUpload({ file: null, progress: 0, uploading: false, stage: "", task: null }); }} disabled={!videoUpload.uploading}>Cancel</button> : null}</div></div> : <div className="mt-3 rounded-2xl border border-slate-200 p-3"><p className="font-semibold text-slate-800">{selectedLecture.videoTitle || "Lecture video"}</p><p className="text-xs text-slate-500">Duration: {selectedLecture.videoDuration || "-"}</p><div className="mt-3 flex gap-2"><button className="btn-outline" onClick={() => setVideoUpload((prev) => ({ ...prev, file: null }))} disabled={isContentBusy}>Replace Video</button><button className="rounded-full border border-rose-300 px-3 py-2 text-xs font-semibold text-rose-600" onClick={() => deleteLectureContentMutation.mutateAsync({ lectureId: selectedLecture.lectureId, contentId: "video", type: "video" }).then(() => invalidateCourse(contentCourseId)).then(() => toast.success("Content removed")).catch((error) => toast.error(error?.response?.data?.message || "Failed to delete"))} disabled={isContentBusy}>Delete Video</button></div></div>}</div><div className="rounded-2xl border border-slate-200 p-4"><div className="flex items-center justify-between"><h3 className="font-heading text-xl text-slate-900">Lecture Notes (PDF)</h3><button className="rounded-full border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700" onClick={() => { setResourceModal({ open: true, type: "pdf", lectureId: selectedLecture.lectureId }); setResourceTitle(""); setResourceFile(null); setResourceProgress(0); }} disabled={isContentBusy}>Add PDF Notes</button></div><div className="mt-3 space-y-2">{(selectedLecture.pdfNotes || []).map((item) => <div key={item.id} className="flex items-center justify-between rounded-xl border border-slate-200 p-2 text-sm"><div><p className="font-semibold text-slate-800">{item.title}</p><p className="text-xs text-slate-500">{formatFileSize(item.size)}</p></div><button className="rounded-full border border-rose-300 px-3 py-1 text-xs font-semibold text-rose-600" onClick={() => deleteLectureContentMutation.mutateAsync({ lectureId: selectedLecture.lectureId, contentId: item.id, type: "pdf" }).then(() => invalidateCourse(contentCourseId)).then(() => toast.success("Content removed")).catch((error) => toast.error(error?.response?.data?.message || "Failed to delete"))} disabled={isContentBusy}>Delete</button></div>)}</div></div><div className="rounded-2xl border border-slate-200 p-4"><div className="flex items-center justify-between"><h3 className="font-heading text-xl text-slate-900">Books</h3><button className="rounded-full border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700" onClick={() => { setResourceModal({ open: true, type: "book", lectureId: selectedLecture.lectureId }); setResourceTitle(""); setResourceFile(null); setResourceProgress(0); }} disabled={isContentBusy}>Add Book</button></div><div className="mt-3 space-y-2">{(selectedLecture.books || []).map((item) => <div key={item.id} className="flex items-center justify-between rounded-xl border border-slate-200 p-2 text-sm"><div><p className="font-semibold text-slate-800">{item.title}</p><p className="text-xs text-slate-500">{formatFileSize(item.size)}</p></div><button className="rounded-full border border-rose-300 px-3 py-1 text-xs font-semibold text-rose-600" onClick={() => deleteLectureContentMutation.mutateAsync({ lectureId: selectedLecture.lectureId, contentId: item.id, type: "book" }).then(() => invalidateCourse(contentCourseId)).then(() => toast.success("Content removed")).catch((error) => toast.error(error?.response?.data?.message || "Failed to delete"))} disabled={isContentBusy}>Delete</button></div>)}</div></div></div>}</section>
               </div>
-            ))}
-      </motion.section>
-
-      {drawerOpen && (
-        <div className="fixed inset-0 z-[60]">
-          <button
-            type="button"
-            className="absolute inset-0 bg-slate-900/40"
-            onClick={() => setDrawerOpen(false)}
-            aria-label="Close drawer"
-          />
-          <motion.div
-            initial={{ x: "100%" }}
-            animate={{ x: 0 }}
-            className="absolute right-0 top-0 h-full w-full max-w-2xl overflow-y-auto bg-white p-6 shadow-2xl"
-          >
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h2 className="font-heading text-2xl text-slate-900">
-                  {editingCourse ? "Edit Course" : "Create New Course"}
-                </h2>
-                <p className="text-sm text-slate-500">
-                  Manage course information and content.
-                </p>
+            </Motion.div>
+          </div>
+        ) : null}
+      </AnimatePresence>
+      <AnimatePresence>
+        {studentsCourseId ? (
+          <div className="fixed inset-0 z-[87]">
+            <Motion.button className="absolute inset-0 bg-slate-900/40" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => { setStudentsCourseId(""); setVideoAccessPanel({ open: false, student: null, map: {} }); }} disabled={updateVideoAccessMutation.isPending} />
+            <Motion.div initial={{ x: "100%" }} animate={{ x: 0 }} exit={{ x: "100%" }} className="absolute right-0 top-0 h-full w-full bg-white shadow-2xl lg:max-w-[980px]">
+              <div className="h-full overflow-y-auto p-5">
+                <p className="mb-3 rounded-2xl border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-800">You can only manage access for lectures in your assigned subjects.</p>
+                <div className="mb-4 flex items-center justify-between"><h2 className="font-heading text-3xl text-slate-900">Course Students</h2><button className="rounded-full border border-slate-300 px-3 py-1 text-sm font-semibold text-slate-600" onClick={() => setStudentsCourseId("")} disabled={updateVideoAccessMutation.isPending}>Close</button></div>
+                <div className="overflow-x-auto rounded-2xl border border-slate-200">
+                  <table className="min-w-full text-left text-sm"><thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500"><tr><th className="px-4 py-3">Student</th><th className="px-4 py-3">Email</th><th className="px-4 py-3">Progress</th><th className="px-4 py-3">Completed</th><th className="px-4 py-3">Video Access</th></tr></thead><tbody>{studentsQuery.isLoading ? <tr><td colSpan={5} className="px-4 py-6 text-center text-slate-500">Loading students...</td></tr> : (studentsQuery.data || []).map((student) => <tr key={student.studentId} className="border-t border-slate-100"><td className="px-4 py-3 font-semibold text-slate-800">{student.fullName}</td><td className="px-4 py-3 text-slate-600">{student.email || "-"}</td><td className="px-4 py-3">{Math.round(Number(student.progress || 0))}%</td><td className="px-4 py-3">{student.completedAt ? "Completed" : "-"}</td><td className="px-4 py-3"><button className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-700" onClick={() => { const map = {}; accessLectures.forEach((lecture) => { map[lecture.id] = false; }); setVideoAccessPanel({ open: true, student, map }); }} disabled={updateVideoAccessMutation.isPending}>Video Access</button></td></tr>)}</tbody></table>
+                </div>
+                {videoAccessPanel.open && videoAccessPanel.student ? <div className="mt-5 rounded-3xl border border-slate-200 bg-slate-50 p-4"><h3 className="font-heading text-2xl text-slate-900">{videoAccessPanel.student.fullName}</h3><div className="mt-3 space-y-2">{accessLectures.map((lecture) => <div key={lecture.id} className="flex items-center justify-between rounded-xl border border-slate-200 bg-white p-3"><span className="text-sm font-semibold text-slate-800">{lecture.title}</span><label className="flex items-center gap-2 text-xs font-semibold text-slate-600"><input type="checkbox" checked={Boolean(videoAccessPanel.map[lecture.id])} onChange={(e) => setVideoAccessPanel((prev) => ({ ...prev, map: { ...prev.map, [lecture.id]: e.target.checked } }))} />{videoAccessPanel.map[lecture.id] ? "Unlocked" : "Locked"}</label></div>)}</div><button className="btn-primary mt-4" onClick={async () => { try { for (const [lectureId, hasAccess] of Object.entries(videoAccessPanel.map)) { await updateVideoAccessMutation.mutateAsync({ courseId: studentsCourseId, studentId: videoAccessPanel.student.studentId, data: { lectureId, hasAccess } }); } toast.success("Student access updated"); setVideoAccessPanel({ open: false, student: null, map: {} }); } catch (error) { toast.error(error?.response?.data?.message || "Failed to update access"); } }} disabled={updateVideoAccessMutation.isPending}>{updateVideoAccessMutation.isPending ? "Saving..." : "Save Changes"}</button></div> : null}
               </div>
-              <button
-                className="rounded-full border border-slate-200 px-3 py-1 text-sm text-slate-500"
-                onClick={() => setDrawerOpen(false)}
-              >
-                Close
-              </button>
-            </div>
+            </Motion.div>
+          </div>
+        ) : null}
+      </AnimatePresence>
 
-            <div className="mt-4 flex gap-2">
-              {["Info", "Content", "Settings"].map((tab) => (
-                <button
-                  key={tab}
-                  className={`rounded-full px-4 py-2 text-xs font-semibold ${
-                    drawerTab === tab
-                      ? "bg-primary text-white"
-                      : "border border-slate-200 text-slate-600"
-                  }`}
-                  onClick={() => setDrawerTab(tab)}
-                >
-                  {tab}
-                </button>
-              ))}
-            </div>
-
-            {drawerTab === "Info" && (
-              <div className="mt-6 space-y-4">
-                <div>
-                  <label className="text-xs font-semibold uppercase text-slate-400">
-                    Course Title
-                  </label>
-                  <input
-                    type="text"
-                    value={courseInfo.title}
-                    onChange={(event) =>
-                      setCourseInfo((prev) => ({
-                        ...prev,
-                        title: event.target.value,
-                      }))
-                    }
-                    className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-semibold uppercase text-slate-400">
-                    Short Description
-                  </label>
-                  <textarea
-                    value={courseInfo.shortDescription}
-                    onChange={(event) =>
-                      setCourseInfo((prev) => ({
-                        ...prev,
-                        shortDescription: event.target.value.slice(0, 150),
-                      }))
-                    }
-                    className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                    rows={2}
-                  />
-                  <p className="mt-1 text-xs text-slate-400">
-                    {courseInfo.shortDescription.length}/150
-                  </p>
-                </div>
-                <div>
-                  <label className="text-xs font-semibold uppercase text-slate-400">
-                    Full Description
-                  </label>
-                  <textarea
-                    value={courseInfo.description}
-                    onChange={(event) =>
-                      setCourseInfo((prev) => ({
-                        ...prev,
-                        description: event.target.value,
-                      }))
-                    }
-                    className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                    rows={4}
-                  />
-                </div>
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div>
-                    <label className="text-xs font-semibold uppercase text-slate-400">
-                      Category
-                    </label>
-                    <select
-                      value={courseInfo.category}
-                      onChange={(event) =>
-                        setCourseInfo((prev) => ({
-                          ...prev,
-                          category: event.target.value,
-                        }))
-                      }
-                      className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                    >
-                      {categories
-                        .filter((item) => item.value !== "All")
-                        .map((item) => (
-                          <option key={item.value} value={item.value}>
-                            {item.label}
-                          </option>
-                        ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="text-xs font-semibold uppercase text-slate-400">
-                      Level
-                    </label>
-                    <select
-                      value={courseInfo.level}
-                      onChange={(event) =>
-                        setCourseInfo((prev) => ({
-                          ...prev,
-                          level: event.target.value,
-                        }))
-                      }
-                      className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                    >
-                      {["Beginner", "Intermediate", "Advanced"].map((level) => (
-                        <option key={level} value={level}>
-                          {level}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div>
-                    <label className="text-xs font-semibold uppercase text-slate-400">
-                      Price (PKR)
-                    </label>
-                    <input
-                      type="number"
-                      value={courseInfo.price}
-                      onChange={(event) =>
-                        setCourseInfo((prev) => ({
-                          ...prev,
-                          price: event.target.value,
-                        }))
-                      }
-                      className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs font-semibold uppercase text-slate-400">
-                      Discount %
-                    </label>
-                    <input
-                      type="number"
-                      value={courseInfo.discount}
-                      onChange={(event) =>
-                        setCourseInfo((prev) => ({
-                          ...prev,
-                          discount: event.target.value,
-                        }))
-                      }
-                      className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                    />
-                    <p className="mt-2 text-xs text-slate-500">
-                      Discounted Price: PKR {discountedPrice.toLocaleString()}
-                    </p>
-                  </div>
-                </div>
-                <div>
-                  <label className="text-xs font-semibold uppercase text-slate-400">
-                    Thumbnail Upload
-                  </label>
-                  <div
-                    className="mt-2 rounded-2xl border border-dashed border-slate-200 p-4 text-center text-sm text-slate-500"
-                    onDragOver={(event) => event.preventDefault()}
-                    onDrop={handleDropThumbnail}
-                  >
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={(event) =>
-                        setCourseInfo((prev) => ({
-                          ...prev,
-                          thumbnail: event.target.files?.[0]
-                            ? URL.createObjectURL(event.target.files[0])
-                            : prev.thumbnail,
-                        }))
-                      }
-                    />
-                    {courseInfo.thumbnail && (
-                      <img
-                        src={courseInfo.thumbnail}
-                        alt="Thumbnail preview"
-                        className="mx-auto mt-3 h-28 w-48 rounded-2xl object-cover"
-                      />
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {drawerTab === "Content" && (
-              <div className="mt-6 space-y-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="font-heading text-xl text-slate-900">Chapters</h3>
-                  <button className="btn-outline" onClick={handleAddChapter}>
-                    Add Chapter
-                  </button>
-                </div>
-                <div className="space-y-4">
-                  {chapters.map((chapter, chapterIndex) => (
-                    <div
-                      key={chapter.id}
-                      className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
-                      draggable
-                      onDragStart={(event) =>
-                        event.dataTransfer.setData("chapter", chapterIndex)
-                      }
-                      onDragOver={(event) => event.preventDefault()}
-                      onDrop={(event) => {
-                        const startIndex = Number(
-                          event.dataTransfer.getData("chapter")
-                        );
-                        handleDragChapter(startIndex, chapterIndex);
-                      }}
-                    >
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <input
-                          value={chapter.title}
-                          onChange={(event) =>
-                            setChapters((prev) =>
-                              prev.map((item) =>
-                                item.id === chapter.id
-                                  ? { ...item, title: event.target.value }
-                                  : item
-                              )
-                            )
-                          }
-                          className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700"
-                        />
-                        <div className="flex items-center gap-2">
-                          <button
-                            className="rounded-full border border-slate-200 px-3 py-1 text-xs"
-                            onClick={() =>
-                              setChapters((prev) =>
-                                prev.map((item) =>
-                                  item.id === chapter.id
-                                    ? { ...item, open: !item.open }
-                                    : item
-                                )
-                              )
-                            }
-                          >
-                            {chapter.open ? "Collapse" : "Expand"}
-                          </button>
-                          <button
-                            className="rounded-full border border-slate-200 px-3 py-1 text-xs text-rose-500"
-                            onClick={() => handleDeleteChapter(chapter.id)}
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      </div>
-                      {chapter.open && (
-                        <div className="mt-4 space-y-3">
-                          {chapter.lectures.map((lecture, lectureIndex) => (
-                            <div
-                              key={lecture.id}
-                              className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2"
-                              draggable
-                              onDragStart={(event) =>
-                                event.dataTransfer.setData(
-                                  "lecture",
-                                  lectureIndex.toString()
-                                )
-                              }
-                              onDragOver={(event) => event.preventDefault()}
-                              onDrop={(event) => {
-                                const startIndex = Number(
-                                  event.dataTransfer.getData("lecture")
-                                );
-                                handleDragLecture(
-                                  chapterIndex,
-                                  startIndex,
-                                  lectureIndex
-                                );
-                              }}
-                            >
-                              <span className="text-xs text-slate-400">::</span>
-                              <input
-                                value={lecture.title}
-                                onChange={(event) =>
-                                  setChapters((prev) =>
-                                    prev.map((item) =>
-                                      item.id === chapter.id
-                                        ? {
-                                            ...item,
-                                            lectures: item.lectures.map((lec) =>
-                                              lec.id === lecture.id
-                                                ? {
-                                                    ...lec,
-                                                    title: event.target.value,
-                                                  }
-                                                : lec
-                                            ),
-                                          }
-                                        : item
-                                    )
-                                  )
-                                }
-                                className="flex-1 rounded-lg border border-slate-200 px-2 py-1 text-sm"
-                              />
-                              <button
-                                className="rounded-full border border-slate-200 px-3 py-1 text-xs"
-                                onClick={() => openVideoModal(lecture)}
-                              >
-                                Upload Video
-                              </button>
-                              <button
-                                className="rounded-full border border-slate-200 px-3 py-1 text-xs"
-                                onClick={() => openPdfModal(lecture)}
-                              >
-                                Upload PDF
-                              </button>
-                              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-500">
-                                {lecture.duration}
-                              </span>
-                              <button
-                                className="rounded-full border border-slate-200 px-3 py-1 text-xs text-rose-500"
-                                onClick={() =>
-                                  handleDeleteLecture(chapter.id, lecture.id)
-                                }
-                              >
-                                Delete
-                              </button>
-                            </div>
-                          ))}
-                          <button
-                            className="btn-outline"
-                            onClick={() => handleAddLecture(chapterIndex)}
-                          >
-                            Add Lecture
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {drawerTab === "Settings" && (
-              <div className="mt-6 space-y-4">
-                <div className="flex items-center justify-between rounded-2xl border border-slate-200 px-4 py-3">
-                  <div>
-                    <p className="text-sm font-semibold text-slate-900">Status</p>
-                    <p className="text-xs text-slate-500">Draft / Published</p>
-                  </div>
-                  <button className="rounded-full border border-slate-200 px-3 py-1 text-xs">
-                    Draft
-                  </button>
-                </div>
-                <div className="flex items-center justify-between rounded-2xl border border-slate-200 px-4 py-3">
-                  <div>
-                    <p className="text-sm font-semibold text-slate-900">
-                      Certificate on completion
-                    </p>
-                  </div>
-                  <button className="rounded-full border border-slate-200 px-3 py-1 text-xs">
-                    Enabled
-                  </button>
-                </div>
-                <div>
-                  <label className="text-xs font-semibold uppercase text-slate-400">
-                    Prerequisites
-                  </label>
-                  <select className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm">
-                    <option>None</option>
-                    {initialCourses.map((course) => (
-                      <option key={course.id}>{course.title}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="text-xs font-semibold uppercase text-slate-400">
-                    Promo Code
-                  </label>
-                  <select className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm">
-                    <option>None</option>
-                    <option>SUMSAVE20</option>
-                    <option>BIO1000</option>
-                  </select>
-                </div>
-              </div>
-            )}
-
-            <div className="mt-6 flex items-center justify-between border-t border-slate-200 pt-4">
-              <button
-                className="btn-outline"
-                onClick={() => handleSaveCourse("Draft")}
-              >
-                Save Draft
-              </button>
-              <button
-                className="btn-primary"
-                onClick={() => handleSaveCourse("Published")}
-              >
-                Publish
-              </button>
-            </div>
-          </motion.div>
-        </div>
-      )}
-      {videoModal && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center px-4">
-          <button
-            type="button"
-            className="absolute inset-0 bg-slate-900/40"
-            onClick={() => setVideoModal(null)}
-            aria-label="Close"
-          />
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="relative w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl"
-          >
-            <h3 className="font-heading text-2xl text-slate-900">Upload Video</h3>
-            <p className="text-sm text-slate-500">MP4/AVI/MOV up to 2GB.</p>
-            <div className="mt-4 rounded-2xl border border-dashed border-slate-200 p-6 text-center text-sm text-slate-500">
-              Drag and drop video file here
-            </div>
-            <div className="mt-4">
-              <p className="text-xs text-slate-400">{videoStage}</p>
-              <div className="mt-2 h-2 w-full rounded-full bg-slate-100">
-                <div
-                  className="h-2 rounded-full bg-primary"
-                  style={{ width: `${videoProgress}%` }}
-                />
-              </div>
-            </div>
-            <div className="mt-6 flex items-center gap-2">
-              <button className="btn-outline" onClick={() => setVideoModal(null)}>
-                Cancel
-              </button>
-              <button
-                className="btn-primary"
-                onClick={() => {
-                  simulateVideoUpload();
-                  setToast({ type: "success", message: "Video upload started." });
-                }}
-              >
-                Save
-              </button>
-            </div>
-          </motion.div>
-        </div>
-      )}
-
-      {pdfModal && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center px-4">
-          <button
-            type="button"
-            className="absolute inset-0 bg-slate-900/40"
-            onClick={() => setPdfModal(null)}
-            aria-label="Close"
-          />
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="relative w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl"
-          >
-            <h3 className="font-heading text-2xl text-slate-900">Upload PDF</h3>
-            <p className="text-sm text-slate-500">PDF only, max 50MB.</p>
-            <div className="mt-4 rounded-2xl border border-dashed border-slate-200 p-6 text-center text-sm text-slate-500">
-              Drag and drop PDF file here
-            </div>
-            <div className="mt-4">
-              <div className="mt-2 h-2 w-full rounded-full bg-slate-100">
-                <div
-                  className="h-2 rounded-full bg-primary"
-                  style={{ width: `${pdfProgress}%` }}
-                />
-              </div>
-            </div>
-            <div className="mt-6 flex items-center gap-2">
-              <button className="btn-outline" onClick={() => setPdfModal(null)}>
-                Cancel
-              </button>
-              <button
-                className="btn-primary"
-                onClick={() => {
-                  simulatePdfUpload();
-                  setToast({ type: "success", message: "PDF upload started." });
-                }}
-              >
-                Save
-              </button>
-            </div>
-          </motion.div>
-        </div>
-      )}
-
-      {unlockModal && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center px-4">
-          <button
-            type="button"
-            className="absolute inset-0 bg-slate-900/40"
-            onClick={() => setUnlockModal(false)}
-            aria-label="Close"
-          />
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="relative w-full max-w-2xl rounded-3xl bg-white p-6 shadow-2xl"
-          >
-            <h3 className="font-heading text-2xl text-slate-900">
-              Video Unlocks
-            </h3>
-            <input
-              type="text"
-              value={searchStudent}
-              onChange={(event) => setSearchStudent(event.target.value)}
-              placeholder="Search student..."
-              className="mt-4 w-full rounded-full border border-slate-200 px-4 py-2 text-sm"
-            />
-            <div className="mt-4 space-y-3">
-              {filteredStudents.map((student) => (
-                <div
-                  key={student.id}
-                  className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3"
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="font-semibold text-slate-900">{student.name}</p>
-                      <p className="text-xs text-slate-500">
-                        Completed on {student.completedOn}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                    {lectureOptions.map((lecture) => {
-                      const key = `${student.id}-${lecture.id}`;
-                      const unlocked = unlockState[key];
-                      return (
-                        <div
-                          key={key}
-                          className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs"
-                        >
-                          <span className="text-slate-600">{lecture.title}</span>
-                          <button
-                            className={`rounded-full px-3 py-1 text-[11px] font-semibold ${
-                              unlocked
-                                ? "bg-emerald-50 text-emerald-600"
-                                : "bg-slate-100 text-slate-500"
-                            }`}
-                            onClick={() =>
-                              setUnlockState((prev) => ({
-                                ...prev,
-                                [key]: !prev[key],
-                              }))
-                            }
-                          >
-                            {unlocked ? "Unlocked" : "Locked"}
-                          </button>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className="mt-6 flex items-center justify-end gap-2">
-              <button className="btn-outline" onClick={() => setUnlockModal(false)}>
-                Cancel
-              </button>
-              <button
-                className="btn-primary"
-                onClick={() => {
-                  setToast({ type: "success", message: "Unlock changes saved." });
-                  setUnlockModal(false);
-                }}
-              >
-                Save Changes
-              </button>
-            </div>
-          </motion.div>
-        </div>
-      )}
-
-      {deleteTarget && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center px-4">
-          <button
-            type="button"
-            className="absolute inset-0 bg-slate-900/40"
-            onClick={() => setDeleteTarget(null)}
-            aria-label="Close"
-          />
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="relative w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl"
-          >
-            <h3 className="font-heading text-xl text-slate-900">Delete course?</h3>
-            <p className="mt-2 text-sm text-slate-500">
-              This action cannot be undone.
-            </p>
-            <div className="mt-6 flex gap-3">
-              <button
-                className="btn-outline flex-1"
-                onClick={() => setDeleteTarget(null)}
-              >
-                Cancel
-              </button>
-              <button className="btn-primary flex-1" onClick={handleDeleteCourse}>
-                Delete
-              </button>
-            </div>
-          </motion.div>
-        </div>
-      )}
-      {toast && (
-        <div
-          className={`fixed right-6 top-6 z-[80] rounded-2xl px-4 py-3 text-sm font-semibold text-white shadow-xl ${
-            toast.type === "success" ? "bg-emerald-500" : "bg-rose-500"
-          }`}
-        >
-          {toast.message}
-        </div>
-      )}
+      <AnimatePresence>{contentInputModal.open ? <div className="fixed inset-0 z-[89] flex items-center justify-center px-4"><Motion.button type="button" className="absolute inset-0 bg-slate-900/50" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setContentInputModal({ open: false, type: "chapter", chapterId: "", title: "" })} disabled={isContentBusy} /><Motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }} className="relative z-[1] w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl"><h3 className="font-heading text-2xl text-slate-900">{contentInputModal.type === "chapter" ? "Add Chapter" : "Add Lecture"}</h3><input value={contentInputModal.title} onChange={(e) => setContentInputModal((prev) => ({ ...prev, title: e.target.value }))} className="mt-4 w-full rounded-2xl border border-slate-200 px-4 py-2 text-sm" /><div className="mt-6 flex justify-end gap-2"><button className="rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600" onClick={() => setContentInputModal({ open: false, type: "chapter", chapterId: "", title: "" })} disabled={isContentBusy}>Cancel</button><button className="rounded-full bg-primary px-4 py-2 text-sm font-semibold text-white" onClick={submitContentInputModal} disabled={isContentBusy}>{isContentBusy ? "Saving..." : "Save"}</button></div></Motion.div></div> : null}</AnimatePresence>
+      <AnimatePresence>{chapterDeleteModal.open ? <div className="fixed inset-0 z-[89] flex items-center justify-center px-4"><Motion.button type="button" className="absolute inset-0 bg-slate-900/50" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setChapterDeleteModal({ open: false, chapterId: "" })} disabled={deleteChapterMutation.isPending} /><Motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }} className="relative z-[1] w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl"><h3 className="font-heading text-2xl text-slate-900">Delete Chapter</h3><p className="mt-2 text-sm text-slate-600">Delete this chapter and its lectures? This action cannot be undone.</p><div className="mt-6 flex justify-end gap-2"><button className="rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600" onClick={() => setChapterDeleteModal({ open: false, chapterId: "" })} disabled={deleteChapterMutation.isPending}>Cancel</button><button className="rounded-full bg-rose-600 px-4 py-2 text-sm font-semibold text-white" onClick={() => deleteChapterMutation.mutateAsync(chapterDeleteModal.chapterId).then(() => invalidateCourse(contentCourseId)).then(() => toast.success("Chapter deleted")).finally(() => setChapterDeleteModal({ open: false, chapterId: "" }))} disabled={deleteChapterMutation.isPending}>{deleteChapterMutation.isPending ? "Deleting..." : "Delete"}</button></div></Motion.div></div> : null}</AnimatePresence>
+      <AnimatePresence>{resourceModal.open ? <div className="fixed inset-0 z-[90] flex items-center justify-center px-4"><Motion.button type="button" className="absolute inset-0 bg-slate-900/50" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setResourceModal({ open: false, type: "pdf", lectureId: "" })} disabled={saveLectureContentMutation.isPending} /><Motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }} className="relative z-[1] w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl"><h3 className="font-heading text-2xl text-slate-900">{resourceModal.type === "pdf" ? "Add PDF Notes" : "Add Book"}</h3><input value={resourceTitle} onChange={(e) => setResourceTitle(e.target.value)} className="mt-4 w-full rounded-2xl border border-slate-200 px-4 py-2 text-sm" placeholder="Title" /><label className="mt-4 block rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 p-6 text-center"><input type="file" className="hidden" accept="application/pdf" onChange={(e) => setResourceFile(e.target.files?.[0] || null)} /><p className="text-sm font-semibold text-slate-700">{resourceFile ? resourceFile.name : "Select PDF file"}</p></label><div className="mt-4 h-2 rounded-full bg-slate-200"><div className="h-2 rounded-full bg-primary" style={{ width: `${resourceProgress}%` }} /></div><div className="mt-6 flex justify-end gap-2"><button className="rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600" onClick={() => setResourceModal({ open: false, type: "pdf", lectureId: "" })} disabled={saveLectureContentMutation.isPending}>Cancel</button><button className="rounded-full bg-primary px-4 py-2 text-sm font-semibold text-white" onClick={saveResource} disabled={saveLectureContentMutation.isPending}>{saveLectureContentMutation.isPending ? "Saving..." : "Save"}</button></div></Motion.div></div> : null}</AnimatePresence>
     </div>
   );
 }

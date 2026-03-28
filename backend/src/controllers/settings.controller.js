@@ -212,15 +212,21 @@ const DEFAULT_SETTINGS = {
   payment: {
     jazzcash: {
       merchantId: "",
+      accountTitle: "SUM Academy",
       password: "",
       integritySalt: "",
-      enabled: false,
+      instructions:
+        "Send payment to JazzCash merchant and upload the transaction receipt.",
+      enabled: true,
     },
     easypaisa: {
       accountNumber: "",
+      accountTitle: "SUM Academy",
       username: "",
       password: "",
-      enabled: false,
+      instructions:
+        "Send payment to EasyPaisa account and upload the transaction receipt.",
+      enabled: true,
     },
     bankTransfer: {
       bankName: process.env.BANK_NAME || "Meezan Bank",
@@ -817,11 +823,15 @@ export const updatePaymentSettings = async (req, res) => {
     const settings = await saveSection("payment", nextPayment);
 
     process.env.JAZZCASH_MERCHANT_ID = nextPayment.jazzcash.merchantId || "";
+    process.env.JAZZCASH_ACCOUNT_TITLE = nextPayment.jazzcash.accountTitle || "";
     process.env.JAZZCASH_PASSWORD = nextPayment.jazzcash.password || "";
     process.env.JAZZCASH_INTEGRITY_SALT = nextPayment.jazzcash.integritySalt || "";
+    process.env.JAZZCASH_INSTRUCTIONS = nextPayment.jazzcash.instructions || "";
     process.env.EASYPAISA_ACCOUNT = nextPayment.easypaisa.accountNumber || "";
+    process.env.EASYPAISA_ACCOUNT_TITLE = nextPayment.easypaisa.accountTitle || "";
     process.env.EASYPAISA_USERNAME = nextPayment.easypaisa.username || "";
     process.env.EASYPAISA_PASSWORD = nextPayment.easypaisa.password || "";
+    process.env.EASYPAISA_INSTRUCTIONS = nextPayment.easypaisa.instructions || "";
     process.env.BANK_NAME = nextPayment.bankTransfer.bankName || "";
     process.env.BANK_ACCOUNT_TITLE = nextPayment.bankTransfer.accountTitle || "";
     process.env.BANK_ACCOUNT_NUMBER = nextPayment.bankTransfer.accountNumber || "";

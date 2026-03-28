@@ -151,6 +151,8 @@ const normalizeStudents = (students = []) =>
       assignedWebIp: student.assignedWebIp || student.lastKnownWebIp || "",
       lastLoginAt: student.lastLoginAt || null,
       createdAt: student.createdAt || null,
+      avgProgress: Number(student.avgProgress || 0),
+      completedCourses: Number(student.completedCourses || 0),
     };
   });
 
@@ -1007,9 +1009,11 @@ function Students() {
               </div>
               <div className="mt-6">
                 <h4 className="text-sm font-semibold uppercase tracking-[0.12em] text-slate-400">Academic Info</h4>
-                <div className="mt-3 grid grid-cols-2 gap-3">
+                <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
                   <div className="rounded-2xl border border-blue-100 bg-blue-50 p-3"><p className="text-xs text-blue-700">Enrolled Courses</p><p className="mt-1 text-xl font-semibold text-blue-900">{profileStudent.enrolledCourses.length}</p></div>
                   <div className="rounded-2xl border border-violet-100 bg-violet-50 p-3"><p className="text-xs text-violet-700">Certificates Earned</p><p className="mt-1 text-xl font-semibold text-violet-900">{profileStudent.certificates.length}</p></div>
+                  <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-3"><p className="text-xs text-emerald-700">Avg Progress</p><p className="mt-1 text-xl font-semibold text-emerald-900">{Math.max(0, Math.min(100, Number(profileStudent.avgProgress || 0)))}%</p></div>
+                  <div className="rounded-2xl border border-amber-100 bg-amber-50 p-3"><p className="text-xs text-amber-700">Completed Courses</p><p className="mt-1 text-xl font-semibold text-amber-900">{Number(profileStudent.completedCourses || 0)}</p></div>
                 </div>
               </div>
               <div className="mt-6">
