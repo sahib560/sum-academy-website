@@ -1,129 +1,24 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { motion, useInView } from "framer-motion";
+import { motion as Motion, useInView } from "framer-motion";
+import { useQuery } from "@tanstack/react-query";
 import {
   SkeletonCard,
   SkeletonTeacherCard,
 } from "../components/Skeleton.jsx";
 import { useSettings } from "../hooks/useSettings.js";
+import { exploreCourses } from "../services/student.service.js";
 
 const fadeUp = {
   hidden: { opacity: 0, y: 24 },
   visible: { opacity: 1, y: 0, transition: { duration: 0.6 } },
 };
 
-const defaultHeroBadges = [
-  { label: "500+ Students" },
-  { label: "50+ Courses" },
-  { label: "20+ Teachers" },
-];
-
-const defaultStats = [
-  { label: "Total Students", value: 12500, suffix: "+" },
-  { label: "Courses", value: 320, suffix: "+" },
-  { label: "Teachers", value: 85, suffix: "+" },
-  { label: "Completion Rate", value: 96, suffix: "%" },
-];
-
-const courseData = [
-  {
-    title: "Class XI - Pre-Medical",
-    category: "Subject of Study",
-    lessons: "Biology, Chemistry, Physics, English",
-    level: "Pre-Medical",
-    duration: "Academic Session",
-    teacher: "Faculty Team",
-    description:
-      "Structured learning plan for Class XI pre-medical students with core subjects.",
-  },
-  {
-    title: "Class XII - Pre-Medical",
-    category: "Subject of Study",
-    lessons: "Biology, Chemistry, Physics, English",
-    level: "Pre-Medical",
-    duration: "Academic Session",
-    teacher: "Faculty Team",
-    description:
-      "Advanced subject coverage for Class XII with board-focused preparation.",
-  },
-  {
-    title: "Pre-Entrance Test",
-    category: "Subject of Study",
-    lessons: "Biology, Chemistry, Physics, English",
-    level: "Test Prep",
-    duration: "Prep Cycle",
-    teacher: "Faculty Team",
-    description:
-      "Entrance test preparation with concept revision and practice drills.",
-  },
-];
-
-const teacherData = [
-  {
-    name: "Mr. Sikander Ali Qureshi",
-    role: "Founder & Director, Associate Professor of Chemistry",
-    courses: "Chemistry",
-  },
-  {
-    name: "Mr. Shah Mohammad Pathan",
-    role: "Associate Professor of Botany",
-    courses: "Botany",
-  },
-  {
-    name: "Mr. Mansoor Ahmed Mangi",
-    role: "Lecturer Chemistry",
-    courses: "Chemistry",
-  },
-  {
-    name: "Mr. Muhammad Idress Mahar",
-    role: "Lecturer Physics",
-    courses: "Physics",
-  },
-  {
-    name: "Mr. Waseem Ahmed Soomro",
-    role: "Lecturer English",
-    courses: "English",
-  },
-];
-
-const defaultTestimonials = [
-  {
-    name: "Hassan Khan",
-    course: "ECAT Physics Prep",
-    review:
-      "SUM Academy helped me structure my prep. The lessons are crisp and the tests feel real.",
-  },
-  {
-    name: "Areeba Syed",
-    course: "English Language Fluency",
-    review:
-      "I loved the bite-sized practice and teacher feedback. My confidence improved fast.",
-  },
-  {
-    name: "Ali Zain",
-    course: "ICS Programming Bootcamp",
-    review:
-      "The LMS tracking kept me consistent. I finally built the projects I wanted.",
-  },
-];
-
-const defaultSettingsSteps = [
-  {
-    number: 1,
-    title: "Browse Courses",
-    description: "Explore curated paths for every board and test prep goal.",
-  },
-  {
-    number: 2,
-    title: "Enroll & Pay",
-    description: "Secure payments and flexible plans built for Pakistani academies.",
-  },
-  {
-    number: 3,
-    title: "Learn & Certify",
-    description: "Track progress, take assessments, and earn verified certificates.",
-  },
-];
+const NOT_ADDED = "Not added yet";
+const textOrNotAdded = (value) => {
+  const cleaned = String(value || "").trim();
+  return cleaned || NOT_ADDED;
+};
 
 function CountUp({ value, suffix = "", duration = 1200 }) {
   const ref = useRef(null);
@@ -172,19 +67,20 @@ function CourseCard({ course }) {
       </div>
       <div className="flex items-center justify-between text-sm text-slate-600 dark:text-slate-200">
         <span>{course.lessons}</span>
-        <span className="text-primary">PKR 2,500</span>
+        <span className="text-primary">{course.priceLabel}</span>
       </div>
     </div>
   );
 }
 
 function TeacherCard({ teacher }) {
+  const initial = String(teacher.name || "N").trim()[0] || "N";
   return (
     <div className="relative flex h-[220px] min-w-[240px] flex-col snap-center overflow-hidden rounded-3xl border border-slate-200/70 bg-white p-5 shadow-lg shadow-slate-200/50 transition hover:-translate-y-1 hover:shadow-2xl dark:border-white/10 dark:bg-white/5 dark:shadow-black/40">
       <div className="absolute -right-8 -top-8 h-20 w-20 rounded-full bg-primary/10 blur-2xl dark:bg-primary/20" />
       <div className="flex items-center gap-4">
         <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-accent text-base font-semibold text-white shadow-lg shadow-primary/30">
-          {teacher.name[0]}
+          {initial}
         </div>
         <div>
           <h4 className="font-heading text-lg text-slate-900 dark:text-white">
@@ -238,42 +134,78 @@ function StarRow() {
 }
 
 function Home() {
-  const { settings } = useSettings();
+  const { settings, loading: settingsLoading } = useSettings();
   const hero = settings.hero || {};
   const howItWorks = settings.howItWorks || {};
   const features = settings.features || {};
   const testimonials = settings.testimonials || {};
-  const siteName = settings.general.siteName || "SUM Academy";
+  const about = settings.about || {};
+  const siteName = textOrNotAdded(settings.general?.siteName);
   const heroBadges = (hero.stats || []).map((item) => ({
-    label: `${item.value} ${item.label}`.trim(),
+    label: textOrNotAdded(`${item.value || ""} ${item.label || ""}`.trim()),
   }));
-  const stats =
-    (hero.stats || []).map((item) => {
-      const numeric = Number(String(item.value || "").replace(/[^\d]/g, ""));
-      const suffix = String(item.value || "").replace(/[\d\s]/g, "");
-      return {
-        label: item.label,
-        value: Number.isFinite(numeric) && numeric > 0 ? numeric : 0,
-        suffix,
-      };
-    }) || [];
-  const safeHeroBadges = heroBadges.length ? heroBadges : defaultHeroBadges;
-  const safeStats = stats.length ? stats : defaultStats;
-  const safeTestimonials =
-    testimonials.items?.length > 0 ? testimonials.items : defaultTestimonials;
-  const [coursesLoading, setCoursesLoading] = useState(true);
-  const [teachersLoading, setTeachersLoading] = useState(true);
+  const stats = (hero.stats || []).map((item) => {
+    const numeric = Number(String(item.value || "").replace(/[^\d]/g, ""));
+    const suffix = String(item.value || "").replace(/[\d\s]/g, "");
+    return {
+      label: textOrNotAdded(item.label),
+      value: Number.isFinite(numeric) && numeric > 0 ? numeric : 0,
+      suffix,
+      rawValue: textOrNotAdded(item.value),
+    };
+  });
+  const safeHeroBadges = heroBadges;
+  const safeStats = stats;
+  const safeTestimonials = Array.isArray(testimonials.items)
+    ? testimonials.items
+    : [];
   const [selectedCourse, setSelectedCourse] = useState(null);
   const teacherTrackRef = useRef(null);
+  const coursesQuery = useQuery({
+    queryKey: ["public-home-courses"],
+    queryFn: () => exploreCourses({}),
+    staleTime: 60000,
+  });
 
-  useEffect(() => {
-    const courseTimer = setTimeout(() => setCoursesLoading(false), 1500);
-    const teacherTimer = setTimeout(() => setTeachersLoading(false), 1500);
-    return () => {
-      clearTimeout(courseTimer);
-      clearTimeout(teacherTimer);
-    };
-  }, []);
+  const featuredCourses = useMemo(() => {
+    const rows = Array.isArray(coursesQuery.data) ? coursesQuery.data : [];
+    return rows.slice(0, 3).map((course, index) => {
+      const subjects = Array.isArray(course.subjects)
+        ? course.subjects
+            .map((subject) =>
+              typeof subject === "string"
+                ? subject
+                : subject?.name || subject?.title || ""
+            )
+            .filter(Boolean)
+        : [];
+      const price = Number(course.price);
+      return {
+        id: course.id || `course-${index}`,
+        title: textOrNotAdded(course.title),
+        category: textOrNotAdded(course.category),
+        lessons: subjects.length ? subjects.join(", ") : NOT_ADDED,
+        level: textOrNotAdded(course.level),
+        duration: textOrNotAdded(course.duration),
+        teacher: textOrNotAdded(course.teacherName),
+        description: textOrNotAdded(course.description),
+        priceLabel:
+          Number.isFinite(price) && price >= 0
+            ? `PKR ${price.toLocaleString()}`
+            : NOT_ADDED,
+      };
+    });
+  }, [coursesQuery.data]);
+
+  const featuredTeachers = useMemo(() => {
+    const rows = Array.isArray(about.team) ? about.team : [];
+    return rows.map((teacher, index) => ({
+      id: teacher.id || `teacher-${index}`,
+      name: textOrNotAdded(teacher.name),
+      role: textOrNotAdded(teacher.role),
+      courses: textOrNotAdded(teacher.subject || teacher.courses),
+    }));
+  }, [about.team]);
 
   useEffect(() => {
     if (!selectedCourse) return;
@@ -291,7 +223,7 @@ function Home() {
   }, [selectedCourse]);
 
   useEffect(() => {
-    if (teachersLoading) return;
+    if (settingsLoading) return;
     const track = teacherTrackRef.current;
     if (!track) return;
 
@@ -315,11 +247,11 @@ function Home() {
 
     const autoSlide = setInterval(step, 2400);
     return () => clearInterval(autoSlide);
-  }, [teachersLoading]);
+  }, [settingsLoading, featuredTeachers.length]);
 
   return (
     <main className="pt-24">
-      <motion.section
+      <Motion.section
         className="section relative overflow-hidden"
         initial="hidden"
         whileInView="visible"
@@ -335,46 +267,51 @@ function Home() {
         <div className="mx-auto flex max-w-7xl flex-col gap-12 lg:flex-row lg:items-center lg:justify-between">
           <div className="relative z-10 max-w-2xl">
             <p className="text-sm font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-200">
-              {hero.badge || "SUM Academy Pakistan"}
+              {textOrNotAdded(hero.badge)}
             </p>
             <h1 className="mt-4 font-heading text-4xl leading-tight text-slate-900 dark:text-white sm:text-5xl lg:text-6xl">
               <span className="gradient-text">
-                {hero.heading || "Learn Without Limits"}
+                {textOrNotAdded(hero.heading)}
               </span>
             </h1>
             <p className="mt-4 text-base text-slate-600 dark:text-slate-100 sm:text-lg">
-              {hero.subheading ||
-                "Empowering Pakistani academies with a premium LMS experience, personalized learning paths, and real-time performance insights."}
+              {textOrNotAdded(hero.subheading)}
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-4">
               <Link
                 to="/courses"
                 className="btn-primary"
               >
-                {hero.ctaPrimary || "Browse Courses"}
+                {textOrNotAdded(hero.ctaPrimary)}
               </Link>
               <Link to="/" className="btn-outline">
-                {hero.ctaSecondary || "Watch Demo"}
+                {textOrNotAdded(hero.ctaSecondary)}
               </Link>
             </div>
           </div>
 
           <div className="relative z-10 grid gap-4 sm:grid-cols-2 lg:w-[420px]">
-            {safeHeroBadges.map((badge, index) => (
-              <div
-                key={badge.label}
-                className={`glass-card card-hover flex items-center justify-center px-5 py-4 text-sm font-semibold text-slate-700 shadow-lg shadow-slate-200/60 dark:text-slate-100 dark:shadow-black/50 ${
-                  index === 0 ? "animate-float" : ""
-                }`}
-              >
-                {badge.label}
+            {safeHeroBadges.length ? (
+              safeHeroBadges.map((badge, index) => (
+                <div
+                  key={badge.label}
+                  className={`glass-card card-hover flex items-center justify-center px-5 py-4 text-sm font-semibold text-slate-700 shadow-lg shadow-slate-200/60 dark:text-slate-100 dark:shadow-black/50 ${
+                    index === 0 ? "animate-float" : ""
+                  }`}
+                >
+                  {badge.label}
+                </div>
+              ))
+            ) : (
+              <div className="glass-card flex items-center justify-center px-5 py-4 text-sm font-semibold text-slate-500 dark:text-slate-300 sm:col-span-2">
+                {NOT_ADDED}
               </div>
-            ))}
+            )}
           </div>
         </div>
-      </motion.section>
+      </Motion.section>
 
-      <motion.section
+      <Motion.section
         className="section"
         initial="hidden"
         whileInView="visible"
@@ -383,29 +320,39 @@ function Home() {
       >
         <div className="mx-auto max-w-7xl rounded-3xl border border-slate-200/70 bg-gradient-to-r from-white via-slate-50 to-white p-1 shadow-2xl shadow-slate-200/60 backdrop-blur dark:border-white/10 dark:bg-none dark:bg-white/5 dark:shadow-black/60">
           <div className="grid gap-6 rounded-[1.4rem] bg-white/80 p-6 backdrop-blur sm:grid-cols-2 lg:grid-cols-4 dark:bg-white/5">
-            {safeStats.map((stat, index) => (
-              <div
-                key={stat.label}
-                className={`relative overflow-hidden rounded-2xl border border-slate-200/70 bg-white/70 p-5 shadow-lg shadow-slate-200/40 transition hover:-translate-y-1 dark:border-white/15 dark:bg-slate-900/70 dark:shadow-black/70 ${
-                  index !== stats.length - 1
-                    ? "after:absolute after:-right-3 after:top-1/2 after:hidden after:h-10 after:w-[1px] after:-translate-y-1/2 after:bg-slate-200/70 lg:after:block dark:after:bg-white/15"
-                    : ""
-                }`}
-              >
-                <p className="text-3xl font-semibold text-slate-900 dark:text-white">
-                  <CountUp value={stat.value} suffix={stat.suffix} />
-                </p>
-                <p className="mt-2 text-sm text-slate-500 dark:text-slate-300">
-                  {stat.label}
-                </p>
-                <div className="absolute -right-6 -top-6 h-16 w-16 rounded-full bg-primary/10 blur-2xl dark:bg-primary/20" />
+            {safeStats.length ? (
+              safeStats.map((stat, index) => (
+                <div
+                  key={stat.label}
+                  className={`relative overflow-hidden rounded-2xl border border-slate-200/70 bg-white/70 p-5 shadow-lg shadow-slate-200/40 transition hover:-translate-y-1 dark:border-white/15 dark:bg-slate-900/70 dark:shadow-black/70 ${
+                    index !== safeStats.length - 1
+                      ? "after:absolute after:-right-3 after:top-1/2 after:hidden after:h-10 after:w-[1px] after:-translate-y-1/2 after:bg-slate-200/70 lg:after:block dark:after:bg-white/15"
+                      : ""
+                  }`}
+                >
+                  <p className="text-3xl font-semibold text-slate-900 dark:text-white">
+                    {stat.value > 0 ? (
+                      <CountUp value={stat.value} suffix={stat.suffix} />
+                    ) : (
+                      stat.rawValue
+                    )}
+                  </p>
+                  <p className="mt-2 text-sm text-slate-500 dark:text-slate-300">
+                    {stat.label}
+                  </p>
+                  <div className="absolute -right-6 -top-6 h-16 w-16 rounded-full bg-primary/10 blur-2xl dark:bg-primary/20" />
+                </div>
+              ))
+            ) : (
+              <div className="rounded-2xl border border-dashed border-slate-200/70 bg-white/70 p-5 text-center text-sm text-slate-500 dark:border-white/15 dark:bg-slate-900/70 dark:text-slate-300 sm:col-span-2 lg:col-span-4">
+                {NOT_ADDED}
               </div>
-            ))}
+            )}
           </div>
         </div>
-      </motion.section>
+      </Motion.section>
 
-      <motion.section
+      <Motion.section
         className="section"
         initial="hidden"
         whileInView="visible"
@@ -428,25 +375,31 @@ function Home() {
           </div>
 
           <div className="mt-8 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-            {coursesLoading
-              ? Array.from({ length: courseData.length }).map((_, index) => (
+            {coursesQuery.isLoading
+              ? Array.from({ length: 3 }).map((_, index) => (
                   <SkeletonCard key={`course-skeleton-${index}`} />
                 ))
-              : courseData.map((course) => (
+              : featuredCourses.length
+                ? featuredCourses.map((course) => (
                   <button
-                    key={course.title}
+                    key={course.id}
                     type="button"
                     onClick={() => setSelectedCourse(course)}
                     className="text-left"
                   >
                     <CourseCard course={course} />
                   </button>
-                ))}
+                  ))
+                : (
+                  <div className="rounded-2xl border border-dashed border-slate-200 bg-white/80 p-8 text-center text-sm text-slate-500 dark:border-white/10 dark:bg-slate-900/70 dark:text-slate-300 md:col-span-2 lg:col-span-3">
+                    {NOT_ADDED}
+                  </div>
+                )}
           </div>
         </div>
-      </motion.section>
+      </Motion.section>
 
-      <motion.section
+      <Motion.section
         className="section"
         initial="hidden"
         whileInView="visible"
@@ -456,31 +409,36 @@ function Home() {
         <div className="mx-auto max-w-7xl">
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.3em] text-slate-500">
-              {howItWorks.heading || "How It Works"}
+              {textOrNotAdded(howItWorks.heading)}
             </p>
             <h2 className="mt-3 font-heading text-3xl text-slate-900">
-              Learn smarter in simple steps
+              {textOrNotAdded(howItWorks.subheading)}
             </h2>
           </div>
 
           <div className="mt-8 grid gap-6 md:grid-cols-3">
-            {(howItWorks.steps?.length ? howItWorks.steps : defaultSettingsSteps).map(
-              (step, index) => (
+            {Array.isArray(howItWorks.steps) && howItWorks.steps.length ? (
+              howItWorks.steps.map((step, index) => (
                 <StepCard
                   key={`${step.title}-${index}`}
-                  title={step.title}
-                  description={step.description}
+                  title={textOrNotAdded(step.title)}
+                  description={textOrNotAdded(step.description)}
                   icon={
                     <span className="text-base font-bold">{step.number || index + 1}</span>
                   }
                 />
               )
+              )
+            ) : (
+              <div className="rounded-2xl border border-dashed border-slate-200 bg-white/80 p-8 text-center text-sm text-slate-500 dark:border-white/10 dark:bg-slate-900/70 dark:text-slate-300 md:col-span-3">
+                {NOT_ADDED}
+              </div>
             )}
           </div>
         </div>
-      </motion.section>
+      </Motion.section>
 
-      <motion.section
+      <Motion.section
         className="section pt-0"
         initial="hidden"
         whileInView="visible"
@@ -490,21 +448,27 @@ function Home() {
         <div className="mx-auto max-w-7xl">
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.3em] text-slate-500">
-              {features.heading || "Why Choose SUM Academy"}
+              {textOrNotAdded(features.heading)}
             </p>
           </div>
           <div className="mt-8 grid gap-6 md:grid-cols-2 lg:grid-cols-4">
-            {(features.items || []).map((item, index) => (
+            {Array.isArray(features.items) && features.items.length ? (
+              features.items.map((item, index) => (
               <div key={`${item.title}-${index}`} className="glass-card card-hover">
-                <h3 className="font-heading text-xl text-slate-900">{item.title}</h3>
-                <p className="mt-2 text-sm text-slate-600">{item.description}</p>
+                <h3 className="font-heading text-xl text-slate-900">{textOrNotAdded(item.title)}</h3>
+                <p className="mt-2 text-sm text-slate-600">{textOrNotAdded(item.description)}</p>
               </div>
-            ))}
+              ))
+            ) : (
+              <div className="rounded-2xl border border-dashed border-slate-200 bg-white/80 p-8 text-center text-sm text-slate-500 dark:border-white/10 dark:bg-slate-900/70 dark:text-slate-300 md:col-span-2 lg:col-span-4">
+                {NOT_ADDED}
+              </div>
+            )}
           </div>
         </div>
-      </motion.section>
+      </Motion.section>
 
-      <motion.section
+      <Motion.section
         className="section"
         initial="hidden"
         whileInView="visible"
@@ -533,22 +497,28 @@ function Home() {
               ref={teacherTrackRef}
               className="no-scrollbar flex gap-6 overflow-x-auto pb-4 pt-1 scroll-smooth snap-x snap-mandatory"
             >
-              {teachersLoading
-                ? Array.from({ length: teacherData.length }).map((_, index) => (
+              {settingsLoading
+                ? Array.from({ length: 4 }).map((_, index) => (
                     <SkeletonTeacherCard
                       key={`teacher-skeleton-${index}`}
                       className="min-w-[240px] h-[220px] snap-center rounded-3xl border border-slate-200/70 bg-white/80 p-5 shadow-lg shadow-slate-200/40 dark:border-white/10 dark:bg-white/5 dark:shadow-black/40"
                     />
                   ))
-                : teacherData.map((teacher) => (
+                : featuredTeachers.length
+                  ? featuredTeachers.map((teacher) => (
                     <TeacherCard key={teacher.name} teacher={teacher} />
-                  ))}
+                    ))
+                  : (
+                    <div className="min-w-full rounded-2xl border border-dashed border-slate-200 bg-white/80 p-8 text-center text-sm text-slate-500 dark:border-white/10 dark:bg-slate-900/70 dark:text-slate-300">
+                      {NOT_ADDED}
+                    </div>
+                  )}
             </div>
           </div>
         </div>
-      </motion.section>
+      </Motion.section>
 
-      <motion.section
+      <Motion.section
         className="section"
         initial="hidden"
         whileInView="visible"
@@ -558,39 +528,43 @@ function Home() {
         <div className="mx-auto max-w-7xl">
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.3em] text-slate-500">
-              {testimonials.heading || "Testimonials"}
+              {textOrNotAdded(testimonials.heading)}
             </p>
             <h2 className="mt-3 font-heading text-3xl text-slate-900">
               Students love learning with {siteName}
             </h2>
           </div>
           <div className="mt-8 grid gap-6 md:grid-cols-3">
-            {safeTestimonials.map((item) => (
+            {safeTestimonials.length ? safeTestimonials.map((item) => (
               <div key={item.name} className="glass-card card-hover">
                 <div className="flex items-center gap-3">
                   <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
-                    {item.name[0]}
+                    {(String(item.name || "").trim()[0] || "N").toUpperCase()}
                   </div>
                   <div>
                     <p className="font-semibold text-slate-900 dark:text-white">
-                      {item.name}
+                      {textOrNotAdded(item.name)}
                     </p>
                     <p className="text-xs uppercase tracking-[0.2em] text-slate-400 dark:text-slate-400">
-                      {item.course}
+                      {textOrNotAdded(item.course)}
                     </p>
                   </div>
                 </div>
                 <StarRow />
                 <p className="mt-4 text-sm text-slate-600 dark:text-slate-200">
-                  {item.review}
+                  {textOrNotAdded(item.review)}
                 </p>
               </div>
-            ))}
+            )) : (
+              <div className="rounded-2xl border border-dashed border-slate-200 bg-white/80 p-8 text-center text-sm text-slate-500 dark:border-white/10 dark:bg-slate-900/70 dark:text-slate-300 md:col-span-3">
+                {NOT_ADDED}
+              </div>
+            )}
           </div>
         </div>
-      </motion.section>
+      </Motion.section>
 
-      <motion.section
+      <Motion.section
         className="section"
         initial="hidden"
         whileInView="visible"
@@ -611,8 +585,7 @@ function Home() {
                     Start Your Journey Today
                   </h2>
                   <p className="mt-3 text-sm text-slate-600 dark:text-slate-200 sm:text-base">
-                    {settings.footer?.description ||
-                      `Join ${siteName} and unlock personalized learning paths built for Pakistan's top boards.`}
+                    {textOrNotAdded(settings.footer?.description)}
                   </p>
                 </div>
                 <Link
@@ -625,7 +598,7 @@ function Home() {
             </div>
           </div>
         </div>
-      </motion.section>
+      </Motion.section>
 
       {selectedCourse && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center px-4">
@@ -687,7 +660,7 @@ function Home() {
             </div>
             <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
               <span className="text-sm font-semibold text-primary">
-                PKR 2,500
+                {selectedCourse.priceLabel}
               </span>
               <div className="flex gap-3">
                 <Link to="/courses" className="btn-outline">
@@ -706,3 +679,4 @@ function Home() {
 }
 
 export default Home;
+

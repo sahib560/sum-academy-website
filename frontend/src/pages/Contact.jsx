@@ -1,35 +1,11 @@
 import { useEffect, useState } from "react";
 import { useSettings } from "../hooks/useSettings.js";
 
-const subjects = ["Admissions", "Courses", "Technical Support", "Payments", "Other"];
-
-const faqs = [
-  {
-    question: "How do I enroll in a course?",
-    answer:
-      "Browse the Courses page, select your program, and click Enroll Now to start.",
-  },
-  {
-    question: "Which payment methods are supported in Pakistan?",
-    answer:
-      "We support bank transfers, Easypaisa, and JazzCash for convenient payments.",
-  },
-  {
-    question: "Can I access courses on mobile?",
-    answer:
-      "Yes, SUM Academy is fully responsive and optimized for mobile learning.",
-  },
-  {
-    question: "Do you provide certificates?",
-    answer:
-      "Certificates are issued after successful completion with a verifiable ID.",
-  },
-  {
-    question: "How can I contact a teacher?",
-    answer:
-      "Use the in-platform messaging tools or reach out via the Contact form.",
-  },
-];
+const NOT_ADDED = "Not added yet";
+const textOrNotAdded = (value) => {
+  const cleaned = String(value || "").trim();
+  return cleaned || NOT_ADDED;
+};
 
 const initialForm = {
   name: "",
@@ -42,7 +18,8 @@ function Contact() {
   const { settings } = useSettings();
   const contact = settings.contact || {};
   const social = settings.general?.socialLinks || {};
-  const faqItems = contact.faq?.length ? contact.faq : faqs;
+  const faqItems = Array.isArray(contact.faq) ? contact.faq : [];
+  const subjectOptions = Array.isArray(contact.subjects) ? contact.subjects : [];
   const [form, setForm] = useState(initialForm);
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
@@ -86,14 +63,13 @@ function Contact() {
         <div className="mx-auto max-w-7xl">
           <div className="flex flex-col gap-4 rounded-3xl border border-slate-200/70 bg-white/80 p-8 shadow-2xl shadow-slate-200/50 backdrop-blur dark:border-white/10 dark:bg-slate-900/70 dark:shadow-black/40">
             <p className="text-xs font-semibold uppercase tracking-[0.4em] text-slate-500 dark:text-slate-300">
-              {settings.general.siteName || "SUM Academy"}
+              {textOrNotAdded(settings.general?.siteName)}
             </p>
             <h1 className="font-heading text-4xl text-slate-900 dark:text-white">
-              {contact.heading || "Get In Touch"}
+              {textOrNotAdded(contact.heading)}
             </h1>
             <p className="text-sm text-slate-600 dark:text-slate-200">
-              {contact.subheading ||
-                "We are here to help with admissions, course guidance, and support."}
+              {textOrNotAdded(contact.subheading)}
             </p>
           </div>
         </div>
@@ -153,7 +129,7 @@ function Contact() {
                 className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 dark:border-white/10 dark:bg-dark dark:text-slate-200"
               >
                 <option value="">Select a subject</option>
-                {subjects.map((subject) => (
+                {(subjectOptions.length ? subjectOptions : [NOT_ADDED]).map((subject) => (
                   <option key={subject} value={subject}>
                     {subject}
                   </option>
@@ -198,7 +174,7 @@ function Contact() {
                     Address
                   </p>
                   <p className="mt-2 font-semibold text-slate-900 dark:text-white">
-                    {settings.general.address || "Karachi, Pakistan"}
+                    {textOrNotAdded(settings.general?.address)}
                   </p>
                 </div>
                 <div className="rounded-2xl border border-slate-200/70 bg-white/70 p-4 dark:border-white/10 dark:bg-white/5">
@@ -206,7 +182,7 @@ function Contact() {
                     Email
                   </p>
                   <p className="mt-2 font-semibold text-slate-900 dark:text-white">
-                    {contact.email || settings.general.contactEmail || "info@sumacademy.pk"}
+                    {textOrNotAdded(contact.email || settings.general?.contactEmail)}
                   </p>
                 </div>
                 <div className="rounded-2xl border border-slate-200/70 bg-white/70 p-4 dark:border-white/10 dark:bg-white/5">
@@ -214,7 +190,7 @@ function Contact() {
                     Phone
                   </p>
                   <p className="mt-2 font-semibold text-slate-900 dark:text-white">
-                    {contact.phone || settings.general.contactPhone || "+92 300 123 4567"}
+                    {textOrNotAdded(contact.phone || settings.general?.contactPhone)}
                   </p>
                 </div>
                 <div className="rounded-2xl border border-slate-200/70 bg-white/70 p-4 dark:border-white/10 dark:bg-white/5">
@@ -222,7 +198,7 @@ function Contact() {
                     WhatsApp
                   </p>
                   <p className="mt-2 font-semibold text-slate-900 dark:text-white">
-                    {contact.whatsapp || settings.general.contactPhone || "+92 300 123 4567"}
+                    {textOrNotAdded(contact.whatsapp || settings.general?.contactPhone)}
                   </p>
                 </div>
               </div>
@@ -233,7 +209,7 @@ function Contact() {
                 Office Hours
               </h3>
               <p className="mt-3 text-sm text-slate-600 dark:text-slate-200">
-                {contact.officeHours || "Mon-Sat, 9AM - 6PM PKT"}
+                {textOrNotAdded(contact.officeHours)}
               </p>
             </div>
 
@@ -247,11 +223,16 @@ function Contact() {
                   { label: "Instagram", to: social.instagram || "#" },
                   { label: "WhatsApp", to: social.whatsapp || "#" },
                   { label: "YouTube", to: social.youtube || "#" },
-                ].map((item) => (
-                  <a key={item.label} href={item.to} target="_blank" rel="noreferrer" className="tag">
-                    {item.label}
-                  </a>
-                ))}
+                ].map((item) =>
+                  item.to && item.to !== "#" ? (
+                    <a key={item.label} href={item.to} target="_blank" rel="noreferrer" className="tag">
+                      {item.label}
+                    </a>
+                  ) : null
+                )}
+                {!social.facebook && !social.instagram && !social.whatsapp && !social.youtube ? (
+                  <span className="tag">{NOT_ADDED}</span>
+                ) : null}
               </div>
             </div>
 
@@ -264,7 +245,7 @@ function Contact() {
                   <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
                     <path d="M12 2a7 7 0 0 0-7 7c0 5.2 7 13 7 13s7-7.8 7-13a7 7 0 0 0-7-7zm0 9.5a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5z" />
                   </svg>
-                  {contact.address || settings.general.address || "Karachi, Pakistan"}
+                  {textOrNotAdded(contact.address || settings.general?.address)}
                 </div>
               </div>
             </div>
@@ -283,7 +264,7 @@ function Contact() {
             </h2>
           </div>
           <div className="grid gap-4">
-            {faqItems.map((faq, index) => {
+            {faqItems.length ? faqItems.map((faq, index) => {
               const isOpen = openFaq === index;
               return (
                 <button
@@ -294,7 +275,7 @@ function Contact() {
                 >
                   <div className="flex items-center justify-between">
                     <span className="font-semibold text-slate-900 dark:text-white">
-                      {faq.question}
+                      {textOrNotAdded(faq.question)}
                     </span>
                     <span className="text-slate-400 dark:text-slate-300">
                       {isOpen ? "-" : "+"}
@@ -302,12 +283,16 @@ function Contact() {
                   </div>
                   {isOpen && (
                     <p className="mt-3 text-sm text-slate-600 dark:text-slate-200">
-                      {faq.answer}
+                      {textOrNotAdded(faq.answer)}
                     </p>
                   )}
                 </button>
               );
-            })}
+            }) : (
+              <div className="rounded-2xl border border-dashed border-slate-200 bg-white/80 p-8 text-center text-sm text-slate-500 dark:border-white/10 dark:bg-slate-900/70 dark:text-slate-300">
+                {NOT_ADDED}
+              </div>
+            )}
           </div>
         </div>
       </section>

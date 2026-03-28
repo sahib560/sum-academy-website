@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { motion } from "framer-motion";
+import { motion as Motion } from "framer-motion";
 import { useSettings } from "../hooks/useSettings.js";
 
 const fadeUp = {
@@ -7,110 +7,27 @@ const fadeUp = {
   visible: { opacity: 1, y: 0, transition: { duration: 0.6 } },
 };
 
-const factItems = [
-  { label: "Founded", value: "2014" },
-  { label: "Students", value: "12,500+" },
-  { label: "Courses", value: "120+" },
-  { label: "Pass Rate", value: "96%" },
-];
-
-const features = [
-  {
-    title: "Certified Teachers",
-    description: "Experienced faculty with strong academic and mentoring records.",
-    icon: (
-      <svg viewBox="0 0 24 24" className="h-6 w-6" fill="currentColor">
-        <path d="M12 3 1 9l11 6 9-4.9V17h2V9L12 3zm0 9.7L5.1 9 12 5.3 18.9 9 12 12.7z" />
-        <path d="M5 12.3v4.2c0 2.2 3.1 4 7 4s7-1.8 7-4v-4.2l-7 3.8-7-3.8z" />
-      </svg>
-    ),
-  },
-  {
-    title: "Secure Platform",
-    description: "Data protection, safe payments, and privacy-first LMS features.",
-    icon: (
-      <svg viewBox="0 0 24 24" className="h-6 w-6" fill="currentColor">
-        <path d="M12 3 4 6v6c0 5 3.4 9.5 8 10 4.6-.5 8-5 8-10V6l-8-3zm0 9.5 3.5-3.5 1.5 1.5-5 5-3-3 1.5-1.5 1.5 1.5z" />
-      </svg>
-    ),
-  },
-  {
-    title: "Mobile App",
-    description: "Learn anywhere with offline access and progress sync.",
-    icon: (
-      <svg viewBox="0 0 24 24" className="h-6 w-6" fill="currentColor">
-        <path d="M7 2h10a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2zm4 17h2v-1h-2v1z" />
-      </svg>
-    ),
-  },
-  {
-    title: "Pakistani Payment Methods",
-    description: "Easypaisa, JazzCash, and bank transfers supported.",
-    icon: (
-      <svg viewBox="0 0 24 24" className="h-6 w-6" fill="currentColor">
-        <path d="M3 7a3 3 0 0 1 3-3h12a3 3 0 0 1 3 3v10a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V7zm3-1a1 1 0 0 0-1 1v2h16V7a1 1 0 0 0-1-1H6z" />
-      </svg>
-    ),
-  },
-];
-
-const values = [
-  {
-    title: "Excellence",
-    description: "We uphold high academic standards and continuous improvement.",
-    icon: (
-      <svg viewBox="0 0 24 24" className="h-6 w-6" fill="currentColor">
-        <path d="M12 2 9 9H2l5.7 4.1L5.5 21 12 16.9 18.5 21l-2.2-7.9L22 9h-7z" />
-      </svg>
-    ),
-  },
-  {
-    title: "Accessibility",
-    description: "Quality learning designed for students across Pakistan.",
-    icon: (
-      <svg viewBox="0 0 24 24" className="h-6 w-6" fill="currentColor">
-        <path d="M12 2a3 3 0 1 1 0 6 3 3 0 0 1 0-6zm-7 8h6v12H9v-4H7v4H5V10zm8 0h6v12h-2v-4h-2v4h-2V10z" />
-      </svg>
-    ),
-  },
-  {
-    title: "Innovation",
-    description: "Modern tools that make learning more engaging and effective.",
-    icon: (
-      <svg viewBox="0 0 24 24" className="h-6 w-6" fill="currentColor">
-        <path d="M9 21h6v-1H9v1zm3-20C7.9 1 5 3.9 5 7c0 2.4 1.4 4.5 3.5 5.5L9 16h6l.5-3.5C17.6 11.5 19 9.4 19 7c0-3.1-2.9-6-7-6z" />
-      </svg>
-    ),
-  },
-];
-
-const founders = [
-  { name: "Mr. Sikander Ali Qureshi", role: "Founder & Director" },
-  { name: "Mr. Shah Mohammad Pathan", role: "Academic Lead" },
-  { name: "Mr. Mansoor Ahmed Mangi", role: "Operations Lead" },
-];
+const NOT_ADDED = "Not added yet";
+const textOrNotAdded = (value) => {
+  const cleaned = String(value || "").trim();
+  return cleaned || NOT_ADDED;
+};
 
 function About() {
   const { settings } = useSettings();
   const about = settings.about || {};
   const featuresSection = settings.features || {};
-  const siteName = settings.general.siteName || "SUM Academy";
-  const aboutValues = about.values?.length ? about.values : values;
-  const leadership = about.team?.length ? about.team : founders;
-  const whyChooseItems = featuresSection.items?.length
-    ? featuresSection.items.map((item) => ({
-        title: item.title,
-        description: item.description,
-        icon: (
-          <svg viewBox="0 0 24 24" className="h-6 w-6" fill="currentColor">
-            <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-1 14-4-4 1.4-1.4L11 13.2l4.6-4.6L17 10l-6 6z" />
-          </svg>
-        ),
-      }))
-    : features;
+  const hero = settings.hero || {};
+  const siteName = textOrNotAdded(settings.general?.siteName);
+  const aboutValues = Array.isArray(about.values) ? about.values : [];
+  const leadership = Array.isArray(about.team) ? about.team : [];
+  const factItems = Array.isArray(about.facts) ? about.facts : hero.stats || [];
+  const whyChooseItems = Array.isArray(featuresSection.items)
+    ? featuresSection.items
+    : [];
   return (
     <main className="pt-24">
-      <motion.section
+      <Motion.section
         className="section relative overflow-hidden"
         initial="hidden"
         whileInView="visible"
@@ -126,16 +43,15 @@ function About() {
             {siteName}
           </p>
           <h1 className="mt-4 font-heading text-4xl text-slate-900 dark:text-white sm:text-5xl">
-            {about.heading || `About ${siteName}`}
+            {textOrNotAdded(about.heading)}
           </h1>
           <p className="mt-4 max-w-2xl text-base text-slate-600 dark:text-slate-200 sm:text-lg">
-            {about.mission ||
-              "Our mission is to deliver a modern, student-first learning experience for Pakistani academies with powerful tools and trusted educators."}
+            {textOrNotAdded(about.mission)}
           </p>
         </div>
-      </motion.section>
+      </Motion.section>
 
-      <motion.section
+      <Motion.section
         className="section pt-0"
         initial="hidden"
         whileInView="visible"
@@ -145,19 +61,16 @@ function About() {
         <div className="mx-auto grid max-w-7xl gap-8 lg:grid-cols-[1.2fr_0.8fr]">
           <div className="glass-card flex flex-col gap-4">
             <h2 className="font-heading text-3xl text-slate-900 dark:text-white">
-              Our Story
+              {textOrNotAdded(about.storyHeading)}
             </h2>
             <p className="text-sm text-slate-600 dark:text-slate-200">
-              {about.story ||
-                "SUM Academy was founded to make high-quality education accessible across Pakistan. We combine structured curricula with technology to keep students engaged and confident."}
+              {textOrNotAdded(about.story)}
             </p>
             <p className="text-sm text-slate-600 dark:text-slate-200">
-              {about.vision ||
-                "Our vision is to empower academies with data-driven insights, personalized learning, and a community of committed educators."}
+              {textOrNotAdded(about.vision)}
             </p>
             <p className="text-sm text-slate-600 dark:text-slate-200">
-              {about.mission ||
-                "Our mission is to deliver measurable academic outcomes while building lifelong learning habits."}
+              {textOrNotAdded(about.mission)}
             </p>
           </div>
           <div className="glass-card">
@@ -165,25 +78,31 @@ function About() {
               Key Facts
             </p>
             <div className="mt-6 grid gap-4 sm:grid-cols-2">
-              {factItems.map((fact) => (
-                <div
-                  key={fact.label}
-                  className="rounded-2xl border border-slate-200/70 bg-white/80 p-4 text-center shadow-lg shadow-slate-200/40 dark:border-white/10 dark:bg-white/5 dark:shadow-black/40"
-                >
-                  <p className="text-2xl font-semibold text-slate-900 dark:text-white">
-                    {fact.value}
-                  </p>
-                  <p className="mt-2 text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-300">
-                    {fact.label}
-                  </p>
+              {factItems.length ? (
+                factItems.map((fact, index) => (
+                  <div
+                    key={`${fact.label || "fact"}-${index}`}
+                    className="rounded-2xl border border-slate-200/70 bg-white/80 p-4 text-center shadow-lg shadow-slate-200/40 dark:border-white/10 dark:bg-white/5 dark:shadow-black/40"
+                  >
+                    <p className="text-2xl font-semibold text-slate-900 dark:text-white">
+                      {textOrNotAdded(fact.value)}
+                    </p>
+                    <p className="mt-2 text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-300">
+                      {textOrNotAdded(fact.label)}
+                    </p>
+                  </div>
+                ))
+              ) : (
+                <div className="rounded-2xl border border-dashed border-slate-200/70 bg-white/80 p-4 text-center text-sm text-slate-500 dark:border-white/10 dark:bg-white/5 dark:text-slate-300 sm:col-span-2">
+                  {NOT_ADDED}
                 </div>
-              ))}
+              )}
             </div>
           </div>
         </div>
-      </motion.section>
+      </Motion.section>
 
-      <motion.section
+      <Motion.section
         className="section pt-0"
         initial="hidden"
         whileInView="visible"
@@ -193,31 +112,39 @@ function About() {
         <div className="mx-auto max-w-7xl">
           <div className="mb-8">
             <p className="text-sm font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-300">
-              Why Choose Us
+              {textOrNotAdded(featuresSection.heading)}
             </p>
             <h2 className="mt-3 font-heading text-3xl text-slate-900 dark:text-white">
               Built for modern Pakistani academies
             </h2>
           </div>
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-            {whyChooseItems.map((feature) => (
-              <div key={feature.title} className="glass-card card-hover">
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-                  {feature.icon}
+            {whyChooseItems.length ? (
+              whyChooseItems.map((feature, index) => (
+                <div key={`${feature.title || "feature"}-${index}`} className="glass-card card-hover">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                    <svg viewBox="0 0 24 24" className="h-6 w-6" fill="currentColor">
+                      <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-1 14-4-4 1.4-1.4L11 13.2l4.6-4.6L17 10l-6 6z" />
+                    </svg>
+                  </div>
+                  <h3 className="mt-4 font-heading text-xl text-slate-900 dark:text-white">
+                    {textOrNotAdded(feature.title)}
+                  </h3>
+                  <p className="mt-2 text-sm text-slate-600 dark:text-slate-200">
+                    {textOrNotAdded(feature.description)}
+                  </p>
                 </div>
-                <h3 className="mt-4 font-heading text-xl text-slate-900 dark:text-white">
-                  {feature.title}
-                </h3>
-                <p className="mt-2 text-sm text-slate-600 dark:text-slate-200">
-                  {feature.description}
-                </p>
+              ))
+            ) : (
+              <div className="rounded-2xl border border-dashed border-slate-200/70 bg-white/80 p-6 text-center text-sm text-slate-500 dark:border-white/10 dark:bg-white/5 dark:text-slate-300 sm:col-span-2 lg:col-span-4">
+                {NOT_ADDED}
               </div>
-            ))}
+            )}
           </div>
         </div>
-      </motion.section>
+      </Motion.section>
 
-      <motion.section
+      <Motion.section
         className="section pt-0"
         initial="hidden"
         whileInView="visible"
@@ -227,31 +154,39 @@ function About() {
         <div className="mx-auto max-w-7xl">
           <div className="mb-8">
             <p className="text-sm font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-300">
-              Our Values
+              {textOrNotAdded(about.valuesHeading)}
             </p>
             <h2 className="mt-3 font-heading text-3xl text-slate-900 dark:text-white">
               Principles that shape every lesson
             </h2>
           </div>
           <div className="grid gap-6 md:grid-cols-3">
-            {aboutValues.map((value) => (
-              <div key={value.title} className="glass-card card-hover">
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-                  {value.icon}
+            {aboutValues.length ? (
+              aboutValues.map((value, index) => (
+                <div key={`${value.title || "value"}-${index}`} className="glass-card card-hover">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                    <svg viewBox="0 0 24 24" className="h-6 w-6" fill="currentColor">
+                      <path d="M12 2 9 9H2l5.7 4.1L5.5 21 12 16.9 18.5 21l-2.2-7.9L22 9h-7z" />
+                    </svg>
+                  </div>
+                  <h3 className="mt-4 font-heading text-xl text-slate-900 dark:text-white">
+                    {textOrNotAdded(value.title)}
+                  </h3>
+                  <p className="mt-2 text-sm text-slate-600 dark:text-slate-200">
+                    {textOrNotAdded(value.description)}
+                  </p>
                 </div>
-                <h3 className="mt-4 font-heading text-xl text-slate-900 dark:text-white">
-                  {value.title}
-                </h3>
-                <p className="mt-2 text-sm text-slate-600 dark:text-slate-200">
-                  {value.description}
-                </p>
+              ))
+            ) : (
+              <div className="rounded-2xl border border-dashed border-slate-200/70 bg-white/80 p-6 text-center text-sm text-slate-500 dark:border-white/10 dark:bg-white/5 dark:text-slate-300 md:col-span-3">
+                {NOT_ADDED}
               </div>
-            ))}
+            )}
           </div>
         </div>
-      </motion.section>
+      </Motion.section>
 
-      <motion.section
+      <Motion.section
         className="section pt-0"
         initial="hidden"
         whileInView="visible"
@@ -264,20 +199,20 @@ function About() {
               Certification
             </p>
             <h2 className="mt-3 font-heading text-3xl text-slate-900 dark:text-white">
-              Recognized achievement certificates
+              {textOrNotAdded(about.certificateHeading)}
             </h2>
           </div>
           <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
             <div className="glass-card card-hover">
               <div className="rounded-2xl border border-dashed border-slate-200/80 bg-white/70 p-6 dark:border-white/10 dark:bg-white/5">
                 <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">
-                  SUM Academy Certificate
+                  {textOrNotAdded(about.certificateLabel)}
                 </p>
                 <h3 className="mt-4 font-heading text-2xl text-slate-900 dark:text-white">
-                  Certificate of Excellence
+                  {textOrNotAdded(about.certificateTitle)}
                 </h3>
                 <p className="mt-2 text-sm text-slate-600 dark:text-slate-200">
-                  Awarded to students who complete the program with distinction.
+                  {textOrNotAdded(about.certificateDescription)}
                 </p>
                 <div className="mt-6 flex flex-wrap items-center justify-between gap-4">
                   <div>
@@ -285,7 +220,7 @@ function About() {
                       Unique ID
                     </p>
                     <p className="mt-2 text-sm font-semibold text-slate-900 dark:text-white">
-                      SUM-2026-00123
+                      {textOrNotAdded(about.certificateSampleId)}
                     </p>
                   </div>
                   <div className="flex h-20 w-20 items-center justify-center rounded-2xl border border-slate-200 bg-white text-xs text-slate-400 dark:border-white/10 dark:bg-white/5">
@@ -296,11 +231,10 @@ function About() {
             </div>
             <div className="glass-card card-hover">
               <h3 className="font-heading text-2xl text-slate-900 dark:text-white">
-                Verified and shareable
+                {textOrNotAdded(about.certificateSideTitle)}
               </h3>
               <p className="mt-2 text-sm text-slate-600 dark:text-slate-200">
-                Students receive verifiable certificates with QR codes and unique
-                IDs that can be shared with institutions and employers.
+                {textOrNotAdded(about.certificateSideDescription)}
               </p>
               <div className="mt-6 flex items-center gap-3 text-sm text-slate-500 dark:text-slate-300">
                 <span className="h-2 w-2 rounded-full bg-accent" />
@@ -317,9 +251,9 @@ function About() {
             </div>
           </div>
         </div>
-      </motion.section>
+      </Motion.section>
 
-      <motion.section
+      <Motion.section
         className="section pt-0"
         initial="hidden"
         whileInView="visible"
@@ -332,35 +266,39 @@ function About() {
               Leadership
             </p>
             <h2 className="mt-3 font-heading text-3xl text-slate-900 dark:text-white">
-              {about.teamHeading || "Meet the founders"}
+              {textOrNotAdded(about.teamHeading)}
             </h2>
           </div>
           <div className="grid gap-6 md:grid-cols-3">
-            {leadership.map((leader) => {
+            {leadership.length ? leadership.map((leader, index) => {
               const initials = leader.name
                 .split(" ")
                 .slice(0, 2)
                 .map((word) => word[0])
                 .join("");
               return (
-                <div key={leader.name} className="glass-card card-hover">
+                <div key={`${leader.name || "leader"}-${index}`} className="glass-card card-hover">
                   <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-accent text-sm font-semibold text-white shadow-lg shadow-primary/30">
-                    {initials}
+                    {initials || "N"}
                   </div>
                   <h3 className="mt-4 font-heading text-xl text-slate-900 dark:text-white">
-                    {leader.name}
+                    {textOrNotAdded(leader.name)}
                   </h3>
                   <p className="mt-2 text-sm text-slate-600 dark:text-slate-200">
-                    {leader.role}
+                    {textOrNotAdded(leader.role)}
                   </p>
                 </div>
               );
-            })}
+            }) : (
+              <div className="rounded-2xl border border-dashed border-slate-200/70 bg-white/80 p-6 text-center text-sm text-slate-500 dark:border-white/10 dark:bg-white/5 dark:text-slate-300 md:col-span-3">
+                {NOT_ADDED}
+              </div>
+            )}
           </div>
         </div>
-      </motion.section>
+      </Motion.section>
 
-      <motion.section
+      <Motion.section
         className="section pt-0"
         initial="hidden"
         whileInView="visible"
@@ -375,29 +313,29 @@ function About() {
               <div className="relative z-10 flex flex-col items-start justify-between gap-6 sm:flex-row sm:items-center">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.4em] text-slate-500 dark:text-slate-300">
-                    Join Us
+                    {textOrNotAdded(about.ctaBadge)}
                   </p>
                   <h2 className="mt-3 font-heading text-3xl text-slate-900 dark:text-white sm:text-4xl">
-                    Join {siteName} Today
+                    {textOrNotAdded(about.ctaHeading)}
                   </h2>
                   <p className="mt-3 text-sm text-slate-600 dark:text-slate-200 sm:text-base">
-                    Empower your academy with modern tools and student-first
-                    learning experiences.
+                    {textOrNotAdded(about.ctaDescription)}
                   </p>
                 </div>
                 <Link
                   to="/enroll"
                   className="inline-flex items-center justify-center rounded-full bg-gradient-to-r from-primary to-accent px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-primary/30 transition hover:-translate-y-0.5"
                 >
-                  Enroll for Free
+                  {textOrNotAdded(about.ctaLabel)}
                 </Link>
               </div>
             </div>
           </div>
         </div>
-      </motion.section>
+      </Motion.section>
     </main>
   );
 }
 
 export default About;
+

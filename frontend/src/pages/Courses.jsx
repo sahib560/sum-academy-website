@@ -1,68 +1,17 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import { SkeletonCard } from "../components/Skeleton.jsx";
 import { useSiteSettings } from "../context/SiteSettingsContext.jsx";
+import { exploreCourses } from "../services/student.service.js";
 
-const courseData = [
-  {
-    id: 1,
-    title: "Class XI - Pre-Medical",
-    category: "Pre-Medical",
-    categories: ["Science", "Biology", "Chemistry", "Physics", "English"],
-    subjects: ["Biology", "Chemistry", "Physics", "English"],
-    level: "Intermediate",
-    duration: "Academic Session",
-    teacher: "Mr. Sikander Ali Qureshi",
-    price: 3500,
-    rating: 4.9,
-    students: 850,
-    description:
-      "Structured learning plan for Class XI pre-medical students with core subjects and topic-wise assessments.",
-  },
-  {
-    id: 2,
-    title: "Class XII - Pre-Medical",
-    category: "Pre-Medical",
-    categories: ["Science", "Biology", "Chemistry", "Physics", "English"],
-    subjects: ["Biology", "Chemistry", "Physics", "English"],
-    level: "Advanced",
-    duration: "Academic Session",
-    teacher: "Mr. Shah Mohammad Pathan",
-    price: 3800,
-    rating: 4.8,
-    students: 720,
-    description:
-      "Advanced board-focused preparation with revision modules, practice tests, and performance tracking.",
-  },
-  {
-    id: 3,
-    title: "Pre-Entrance Test",
-    category: "Test Prep",
-    categories: ["Science", "Biology", "Chemistry", "Physics", "English"],
-    subjects: ["Biology", "Chemistry", "Physics", "English"],
-    level: "Advanced",
-    duration: "Prep Cycle",
-    teacher: "Mr. Muhammad Idress Mahar",
-    price: 4200,
-    rating: 4.9,
-    students: 640,
-    description:
-      "Intensive entrance test preparation with concept revision, timed practice, and exam strategy sessions.",
-  },
-];
-
-const categories = [
-  "Math",
-  "Science",
-  "English",
-  "Computer",
-  "Biology",
-  "Chemistry",
-  "Physics",
-];
-const levels = ["Beginner", "Intermediate", "Advanced"];
-
-const formatPKR = (value) => `PKR ${value.toLocaleString()}`;
+const NOT_ADDED = "Not added yet";
+const textOrNotAdded = (value) => {
+  const cleaned = String(value || "").trim();
+  return cleaned || NOT_ADDED;
+};
+const formatPKR = (value) =>
+  Number.isFinite(Number(value)) ? `PKR ${Number(value).toLocaleString()}` : NOT_ADDED;
 
 function StarRating({ rating }) {
   return (
@@ -112,18 +61,18 @@ function CourseCard({ course, onSelect }) {
         <div>
           <p className="tag">{course.category}</p>
           <h3 className="mt-3 font-heading text-xl text-slate-900 dark:text-white">
-            {course.title}
+            {textOrNotAdded(course.title)}
           </h3>
         </div>
         <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary dark:bg-primary/20">
-          {course.level}
+          {textOrNotAdded(course.level)}
         </span>
       </div>
       <div className="flex items-center gap-3">
         <TeacherAvatar name={course.teacher} />
         <div>
           <p className="text-sm font-semibold text-slate-900 dark:text-white">
-            {course.teacher}
+            {textOrNotAdded(course.teacher)}
           </p>
           <p className="text-xs text-slate-500 dark:text-slate-300">
             Lead Instructor
@@ -132,7 +81,7 @@ function CourseCard({ course, onSelect }) {
       </div>
       <div className="flex items-center justify-between text-sm text-slate-600 dark:text-slate-200">
         <StarRating rating={course.rating} />
-        <span>{course.students}+ students</span>
+        <span>{course.students > 0 ? `${course.students}+ students` : NOT_ADDED}</span>
       </div>
       <div className="mt-auto flex items-center justify-between">
         <span className="text-sm font-semibold text-primary">
@@ -150,81 +99,44 @@ function CourseCard({ course, onSelect }) {
   );
 }
 
-function Courses() {
-  const { settings } = useSiteSettings();
-  const siteName = settings.general.siteName || "SUM Academy";
-  const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState("");
-  const [selectedCategories, setSelectedCategories] = useState([]);
-  const [level, setLevel] = useState("All");
-  const [priceMin, setPriceMin] = useState(0);
-  const [priceMax, setPriceMax] = useState(5000);
-  const [filterOpen, setFilterOpen] = useState(false);
-  const [selectedCourse, setSelectedCourse] = useState(null);
-
-  useEffect(() => {
-    const timer = setTimeout(() => setLoading(false), 1500);
-    return () => clearTimeout(timer);
-  }, []);
-
-  const filteredCourses = useMemo(() => {
-    const query = search.trim().toLowerCase().replace(/-/g, " ");
-    return courseData.filter((course) => {
-      const title = course.title.toLowerCase().replace(/-/g, " ");
-      const matchesSearch =
-        !query ||
-        title.includes(query) ||
-        course.teacher.toLowerCase().includes(query) ||
-        course.subjects.join(" ").toLowerCase().includes(query);
-      const matchesCategory =
-        selectedCategories.length === 0 ||
-        selectedCategories.some((category) =>
-          course.categories.includes(category)
-        );
-      const matchesLevel = level === "All" || course.level === level;
-      const matchesPrice =
-        course.price >= priceMin && course.price <= priceMax;
-      return matchesSearch && matchesCategory && matchesLevel && matchesPrice;
-    });
-  }, [level, priceMax, priceMin, search, selectedCategories]);
-
-  const toggleCategory = (category) => {
-    setSelectedCategories((prev) =>
-      prev.includes(category)
-        ? prev.filter((item) => item !== category)
-        : [...prev, category]
-    );
-  };
-
-  const resetFilters = () => {
-    setSearch("");
-    setSelectedCategories([]);
-    setLevel("All");
-    setPriceMin(0);
-    setPriceMax(5000);
-  };
-
-  const FilterPanel = () => (
+function FilterPanel({
+  categories,
+  selectedCategories,
+  onToggleCategory,
+  levels,
+  level,
+  onLevelChange,
+  priceMin,
+  priceMax,
+  maxDetectedPrice,
+  onPriceMinChange,
+  onPriceMaxChange,
+}) {
+  return (
     <div className="space-y-6">
       <div>
         <p className="text-sm font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-300">
           Category
         </p>
         <div className="mt-4 grid gap-2">
-          {categories.map((category) => (
-            <label
-              key={category}
-              className="flex items-center gap-3 text-sm text-slate-700 dark:text-slate-200"
-            >
-              <input
-                type="checkbox"
-                className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary"
-                checked={selectedCategories.includes(category)}
-                onChange={() => toggleCategory(category)}
-              />
-              {category}
-            </label>
-          ))}
+          {categories.length ? (
+            categories.map((category) => (
+              <label
+                key={category}
+                className="flex items-center gap-3 text-sm text-slate-700 dark:text-slate-200"
+              >
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary"
+                  checked={selectedCategories.includes(category)}
+                  onChange={() => onToggleCategory(category)}
+                />
+                {category}
+              </label>
+            ))
+          ) : (
+            <p className="text-xs text-slate-500 dark:text-slate-300">{NOT_ADDED}</p>
+          )}
         </div>
       </div>
 
@@ -239,25 +151,29 @@ function Courses() {
               name="level"
               className="h-4 w-4 text-primary focus:ring-primary"
               checked={level === "All"}
-              onChange={() => setLevel("All")}
+              onChange={() => onLevelChange("All")}
             />
             All Levels
           </label>
-          {levels.map((item) => (
-            <label
-              key={item}
-              className="flex items-center gap-3 text-sm text-slate-700 dark:text-slate-200"
-            >
-              <input
-                type="radio"
-                name="level"
-                className="h-4 w-4 text-primary focus:ring-primary"
-                checked={level === item}
-                onChange={() => setLevel(item)}
-              />
-              {item}
-            </label>
-          ))}
+          {levels.length ? (
+            levels.map((item) => (
+              <label
+                key={item}
+                className="flex items-center gap-3 text-sm text-slate-700 dark:text-slate-200"
+              >
+                <input
+                  type="radio"
+                  name="level"
+                  className="h-4 w-4 text-primary focus:ring-primary"
+                  checked={level === item}
+                  onChange={() => onLevelChange(item)}
+                />
+                {item}
+              </label>
+            ))
+          ) : (
+            <p className="text-xs text-slate-500 dark:text-slate-300">{NOT_ADDED}</p>
+          )}
         </div>
       </div>
 
@@ -272,36 +188,156 @@ function Courses() {
               min={0}
               max={priceMax}
               value={priceMin}
-              onChange={(event) =>
-                setPriceMin(
-                  Math.min(Number(event.target.value) || 0, priceMax)
-                )
-              }
+              onChange={(event) => onPriceMinChange(event.target.value)}
               className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 dark:border-white/10 dark:bg-dark dark:text-slate-200"
               placeholder="Min"
             />
             <input
               type="number"
               min={priceMin}
-              max={5000}
+              max={maxDetectedPrice}
               value={priceMax}
-              onChange={(event) =>
-                setPriceMax(
-                  Math.max(Number(event.target.value) || 0, priceMin)
-                )
-              }
+              onChange={(event) => onPriceMaxChange(event.target.value)}
               className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 dark:border-white/10 dark:bg-dark dark:text-slate-200"
               placeholder="Max"
             />
           </div>
           <div className="text-xs text-slate-500 dark:text-slate-300">
-            Showing courses between {formatPKR(priceMin)} and{" "}
-            {formatPKR(priceMax)}
+            Showing courses between {formatPKR(priceMin)} and {formatPKR(priceMax)}
           </div>
         </div>
       </div>
     </div>
   );
+}
+
+function Courses() {
+  const { settings, loading: settingsLoading } = useSiteSettings();
+  const siteName = textOrNotAdded(settings.general?.siteName);
+  const [search, setSearch] = useState("");
+  const [selectedCategories, setSelectedCategories] = useState([]);
+  const [level, setLevel] = useState("All");
+  const [priceMin, setPriceMin] = useState(0);
+  const [priceMax, setPriceMax] = useState(5000);
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [selectedCourse, setSelectedCourse] = useState(null);
+
+  const coursesQuery = useQuery({
+    queryKey: ["public-courses-page"],
+    queryFn: () => exploreCourses({}),
+    staleTime: 60000,
+  });
+
+  const allCourses = useMemo(() => {
+    const rows = Array.isArray(coursesQuery.data) ? coursesQuery.data : [];
+    return rows.map((course, index) => {
+      const subjects = Array.isArray(course.subjects)
+        ? course.subjects
+            .map((subject) =>
+              typeof subject === "string"
+                ? subject
+                : subject?.name || subject?.title || ""
+            )
+            .filter(Boolean)
+        : [];
+      const category = textOrNotAdded(course.category);
+      return {
+        id: course.id || `course-${index}`,
+        title: textOrNotAdded(course.title),
+        category,
+        categories: [category, ...subjects].filter(Boolean),
+        subjects: subjects.length ? subjects : [NOT_ADDED],
+        level: textOrNotAdded(course.level),
+        duration: textOrNotAdded(course.duration),
+        teacher: textOrNotAdded(course.teacherName),
+        price: Number.isFinite(Number(course.price)) ? Number(course.price) : 0,
+        rating: Number(course.rating) || 0,
+        students: Number(course.enrollmentCount) || 0,
+        description: textOrNotAdded(course.description),
+      };
+    });
+  }, [coursesQuery.data]);
+
+  const categories = useMemo(
+    () =>
+      [...new Set(allCourses.flatMap((course) => course.categories))]
+        .filter((item) => item && item !== NOT_ADDED)
+        .sort((a, b) => a.localeCompare(b)),
+    [allCourses]
+  );
+
+  const levels = useMemo(
+    () =>
+      [...new Set(allCourses.map((course) => course.level))]
+        .filter((item) => item && item !== NOT_ADDED)
+        .sort((a, b) => a.localeCompare(b)),
+    [allCourses]
+  );
+
+  const isLoading = settingsLoading || coursesQuery.isLoading;
+  const maxDetectedPrice = useMemo(() => {
+    const max = allCourses.reduce((highest, course) => {
+      const current = Number.isFinite(course.price) ? course.price : 0;
+      return Math.max(highest, current);
+    }, 0);
+    return max > 0 ? max : 5000;
+  }, [allCourses]);
+  const clampedPriceMax = Math.min(priceMax, maxDetectedPrice);
+  const clampedPriceMin = Math.min(priceMin, clampedPriceMax);
+
+  const filteredCourses = useMemo(() => {
+    const query = search.trim().toLowerCase().replace(/-/g, " ");
+    return allCourses.filter((course) => {
+      const title = course.title.toLowerCase().replace(/-/g, " ");
+      const matchesSearch =
+        !query ||
+        title.includes(query) ||
+        course.teacher.toLowerCase().includes(query) ||
+        course.subjects.join(" ").toLowerCase().includes(query);
+      const matchesCategory =
+        selectedCategories.length === 0 ||
+        selectedCategories.some((category) =>
+          course.categories.includes(category)
+        );
+      const matchesLevel = level === "All" || course.level === level;
+      const matchesPrice =
+        course.price >= clampedPriceMin && course.price <= clampedPriceMax;
+      return matchesSearch && matchesCategory && matchesLevel && matchesPrice;
+    });
+  }, [
+    allCourses,
+    clampedPriceMax,
+    clampedPriceMin,
+    level,
+    search,
+    selectedCategories,
+  ]);
+
+  const toggleCategory = (category) => {
+    setSelectedCategories((prev) =>
+      prev.includes(category)
+        ? prev.filter((item) => item !== category)
+        : [...prev, category]
+    );
+  };
+
+  const resetFilters = () => {
+    setSearch("");
+    setSelectedCategories([]);
+    setLevel("All");
+    setPriceMin(0);
+    setPriceMax(maxDetectedPrice);
+  };
+
+  const handlePriceMinChange = (nextValue) => {
+    const parsed = Number(nextValue) || 0;
+    setPriceMin(Math.max(0, Math.min(parsed, clampedPriceMax)));
+  };
+
+  const handlePriceMaxChange = (nextValue) => {
+    const parsed = Number(nextValue) || 0;
+    setPriceMax(Math.min(maxDetectedPrice, Math.max(parsed, clampedPriceMin)));
+  };
 
   return (
     <main className="pt-24">
@@ -313,10 +349,12 @@ function Courses() {
                 {siteName}
               </p>
               <h1 className="mt-3 font-heading text-4xl text-slate-900 dark:text-white">
-                Explore Our Courses
+                {textOrNotAdded(settings.content?.coursesHeroTitle || settings.general?.tagline)}
               </h1>
               <p className="mt-2 text-sm text-slate-600 dark:text-slate-200">
-                Find the perfect learning path for your academic journey.
+                {textOrNotAdded(
+                  settings.content?.coursesHeroSubtitle || settings.general?.description
+                )}
               </p>
             </div>
             <div className="flex w-full flex-col gap-3 md:max-w-md">
@@ -347,15 +385,41 @@ function Courses() {
       <section className="section pt-0">
         <div className="mx-auto grid max-w-7xl gap-8 lg:grid-cols-[260px_1fr]">
           <aside className="hidden rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-xl shadow-slate-200/40 backdrop-blur dark:border-white/10 dark:bg-slate-900/70 dark:shadow-black/40 lg:block">
-            <FilterPanel />
+            <FilterPanel
+              categories={categories}
+              selectedCategories={selectedCategories}
+              onToggleCategory={toggleCategory}
+              levels={levels}
+              level={level}
+              onLevelChange={setLevel}
+              priceMin={clampedPriceMin}
+              priceMax={clampedPriceMax}
+              maxDetectedPrice={maxDetectedPrice}
+              onPriceMinChange={handlePriceMinChange}
+              onPriceMaxChange={handlePriceMaxChange}
+            />
           </aside>
 
           <div>
-            {loading ? (
+            {isLoading ? (
               <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
                 {Array.from({ length: 6 }).map((_, index) => (
                   <SkeletonCard key={`course-skeleton-${index}`} />
                 ))}
+              </div>
+            ) : allCourses.length === 0 ? (
+              <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-slate-200 bg-white/80 px-6 py-16 text-center dark:border-white/10 dark:bg-slate-900/70">
+                <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 text-primary">
+                  <svg viewBox="0 0 24 24" className="h-7 w-7" fill="currentColor">
+                    <path d="M10 3a7 7 0 1 1 0 14A7 7 0 0 1 10 3zm0 2a5 5 0 1 0 0 10A5 5 0 0 0 10 5zm8.6 13.2 2.2 2.2-1.4 1.4-2.2-2.2a9 9 0 0 1-5.2 1.6v-2a7 7 0 0 0 4.4-1.5z" />
+                  </svg>
+                </div>
+                <h3 className="mt-4 font-heading text-2xl text-slate-900 dark:text-white">
+                  {NOT_ADDED}
+                </h3>
+                <p className="mt-2 text-sm text-slate-600 dark:text-slate-200">
+                  {NOT_ADDED}
+                </p>
               </div>
             ) : filteredCourses.length === 0 ? (
               <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-slate-200 bg-white/80 px-6 py-16 text-center dark:border-white/10 dark:bg-slate-900/70">
@@ -414,7 +478,19 @@ function Courses() {
                 Done
               </button>
             </div>
-            <FilterPanel />
+            <FilterPanel
+              categories={categories}
+              selectedCategories={selectedCategories}
+              onToggleCategory={toggleCategory}
+              levels={levels}
+              level={level}
+              onLevelChange={setLevel}
+              priceMin={clampedPriceMin}
+              priceMax={clampedPriceMax}
+              maxDetectedPrice={maxDetectedPrice}
+              onPriceMinChange={handlePriceMinChange}
+              onPriceMaxChange={handlePriceMaxChange}
+            />
             <button
               type="button"
               className="btn-outline mt-6 w-full"
@@ -443,7 +519,7 @@ function Courses() {
               <div>
                 <p className="tag">{selectedCourse.category}</p>
                 <h3 className="mt-3 font-heading text-2xl text-slate-900 dark:text-white">
-                  {selectedCourse.title}
+                  {textOrNotAdded(selectedCourse.title)}
                 </h3>
               </div>
               <button
@@ -456,7 +532,7 @@ function Courses() {
               </button>
             </div>
             <p className="mt-4 text-sm text-slate-600 dark:text-slate-200">
-              {selectedCourse.description}
+              {textOrNotAdded(selectedCourse.description)}
             </p>
             <div className="mt-6 grid gap-4 rounded-2xl bg-slate-50 p-4 text-sm text-slate-600 dark:bg-white/5 dark:text-slate-200 sm:grid-cols-3">
               <div>
@@ -464,7 +540,7 @@ function Courses() {
                   Teacher
                 </p>
                 <p className="mt-1 font-semibold text-slate-900 dark:text-white">
-                  {selectedCourse.teacher}
+                  {textOrNotAdded(selectedCourse.teacher)}
                 </p>
               </div>
               <div>
@@ -472,7 +548,7 @@ function Courses() {
                   Duration
                 </p>
                 <p className="mt-1 font-semibold text-slate-900 dark:text-white">
-                  {selectedCourse.duration}
+                  {textOrNotAdded(selectedCourse.duration)}
                 </p>
               </div>
               <div>
@@ -480,7 +556,9 @@ function Courses() {
                   Subjects
                 </p>
                 <p className="mt-1 font-semibold text-slate-900 dark:text-white">
-                  {selectedCourse.subjects.join(", ")}
+                  {Array.isArray(selectedCourse.subjects) && selectedCourse.subjects.length
+                    ? selectedCourse.subjects.join(", ")
+                    : NOT_ADDED}
                 </p>
               </div>
             </div>
