@@ -109,71 +109,56 @@ const loginUser = async (req, res) => {
       );
     }
 
-    // ── DEVICE + IP CHECK ──────────────────────────────────
-    // Only run check if assignedWebDevice and assignedWebIp
-    // are already saved (means user registered from web before)
-    if (
-      userData.assignedWebDevice &&
-      userData.assignedWebDevice !== "" &&
-      userData.assignedWebIp &&
-      userData.assignedWebIp !== ""
-    ) {
-      const currentDevice = req.clientDevice;
-      const currentIP = req.clientIP;
+    // Device + IP check
+    if (userData.role === "student") {
+      // Run device and IP check only for students
+      if (userData.assignedWebDevice && userData.assignedWebIp) {
+        const currentDevice = req.clientDevice;
+        const currentIP = req.clientIP;
 
-      const deviceMatch =
-        userData.assignedWebDevice === currentDevice;
-      const ipMatch =
-        userData.assignedWebIp === currentIP;
+        const deviceMatch = userData.assignedWebDevice === currentDevice;
+        const ipMatch = userData.assignedWebIp === currentIP;
 
-      console.log(`[Security Check]`);
-      console.log(`  Assigned Device : ${userData.assignedWebDevice}`);
-      console.log(`  Current Device  : ${currentDevice}`);
-      console.log(`  Device Match    : ${deviceMatch}`);
-      console.log(`  Assigned IP     : ${userData.assignedWebIp}`);
-      console.log(`  Current IP      : ${currentIP}`);
-      console.log(`  IP Match        : ${ipMatch}`);
+        console.log(`[Security Check]`);
+        console.log(`  Assigned Device : ${userData.assignedWebDevice}`);
+        console.log(`  Current Device  : ${currentDevice}`);
+        console.log(`  Device Match    : ${deviceMatch}`);
+        console.log(`  Assigned IP     : ${userData.assignedWebIp}`);
+        console.log(`  Current IP      : ${currentIP}`);
+        console.log(`  IP Match        : ${ipMatch}`);
 
-      if (!deviceMatch || !ipMatch) {
-        // Log the blocked attempt in auditLogs
-        // Do NOT update any user fields
-        await db.collection("auditLogs").add({
-          uid,
-          email: userData.email,
-          action: "blocked_login",
-          reason: !deviceMatch && !ipMatch
-            ? "device_and_ip_mismatch"
-            : !deviceMatch
-              ? "device_mismatch"
-              : "ip_mismatch",
-          assignedDevice: userData.assignedWebDevice,
-          attemptDevice: currentDevice,
-          assignedIP: userData.assignedWebIp,
-          attemptIP: currentIP,
-          timestamp: admin.firestore.FieldValue.serverTimestamp(),
+        if (!deviceMatch || !ipMatch) {
+          await db.collection("auditLogs").add({
+            uid,
+            email: userData.email,
+            action: "blocked_login",
+            reason: !deviceMatch ? "device_mismatch" : "ip_mismatch",
+            assignedDevice: userData.assignedWebDevice,
+            attemptDevice: currentDevice,
+            assignedIP: userData.assignedWebIp,
+            attemptIP: currentIP,
+            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+          });
+
+          return errorResponse(
+            res,
+            "You are trying to login from another device or network. Contact your admin or teacher.",
+            403,
+            { code: "DEVICE_IP_MISMATCH", contactAdmin: true }
+          );
+        }
+      } else {
+        // First login for student - save device and IP
+        await db.collection("users").doc(uid).update({
+          assignedWebDevice: req.clientDevice,
+          assignedWebIp: req.clientIP,
+          lastKnownWebIp: req.clientIP,
         });
-
-        return errorResponse(
-          res,
-          "You are not allowed to login from a new device. Please login from your own device or contact your teacher.",
-          403,
-          { code: "DEVICE_IP_MISMATCH", contactAdmin: true }
-        );
+        console.log(`[Security] First web login - device and IP saved`);
       }
-    } else {
-      // assignedWebDevice or assignedWebIp is empty
-      // This means account was created by admin
-      // First web login — save device and IP now
-      await db.collection("users").doc(uid).update({
-        assignedWebDevice: req.clientDevice,
-        assignedWebIp: req.clientIP,
-        lastKnownWebIp: req.clientIP,
-      });
-      console.log(
-        `[Security] First web login — device and IP saved`
-      );
+    } else if (userData.role === "admin" || userData.role === "teacher") {
+      console.log("[Security] Role is admin/teacher - device check skipped");
     }
-    // ── END CHECK ──────────────────────────────────────────
 
     // Single device enforcement — deactivate old sessions
     const sessionsSnap = await db
@@ -360,3 +345,5 @@ const setUserRole = async (req, res) => {
 };
 
 export { registerUser, loginUser, logoutUser, getMe, setUserRole };
+
+
