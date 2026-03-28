@@ -132,7 +132,7 @@ app.get("/api/test", async (req, res) => {
 });
 
 // ── Serve React Frontend ───────────────────────────────────────
-const frontendDist = path.join(__dirname, "../../frontend/dist");
+const frontendDist = path.join(__dirname, "../../../frontend/dist");
 app.use(express.static(frontendDist));
 app.get("/{*path}", (req, res) => {
   res.sendFile(path.join(frontendDist, "index.html"));
