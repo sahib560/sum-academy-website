@@ -64,7 +64,7 @@ app.use(cors({
 }));
 
 // Handle preflight requests for all routes
-app.options("*", cors());
+app.options("/{*path}", cors());
 
 // ── Rate Limiting ─────────────────────────────────────────────
 const limiter = rateLimit({
@@ -134,7 +134,7 @@ app.get("/api/test", async (req, res) => {
 // ── Serve React Frontend ───────────────────────────────────────
 const frontendDist = path.join(__dirname, "../../frontend/dist");
 app.use(express.static(frontendDist));
-app.get("*", (req, res) => {
+app.get("/{*path}", (req, res) => {
   res.sendFile(path.join(frontendDist, "index.html"));
 });
 
