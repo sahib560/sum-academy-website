@@ -3,15 +3,19 @@
   "version": "1.0.0",
   "description": "",
   "main": "src/index.js",
+  "type": "module",
   "scripts": {
     "dev": "nodemon src/index.js",
     "start": "node src/index.js",
-    "seed":  "node src/seed.js"
+    "seed": "node src/seed.js",
+    "build": "cd ../frontend && npm install && npm run build"
+  },
+  "engines": {
+    "node": "20.x"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "module",
   "dependencies": {
     "bcryptjs": "^3.0.3",
     "cookie-parser": "^1.4.7",
