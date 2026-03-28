@@ -24,7 +24,7 @@ import { validatePromoCode } from "./controllers/admin.controller.js";
 import { exploreCourses }    from "./controllers/student.controller.js";
 
 if (process.env.NODE_ENV !== "production") {
-  dotenv.config(); // only load .env file in development
+  dotenv.config();
 }
 
 // ── ES6 __dirname fix ──────────────────────────────────────────
@@ -152,3 +152,10 @@ app.listen(PORT, () => {
   console.log(`🌐 Domain: https://sumacademy.net`);
   console.log(`🔧 Environment: ${process.env.NODE_ENV}`);
 });
+
+
+console.log("🚀 Starting server...");
+console.log("NODE_ENV:", process.env.NODE_ENV);
+console.log("PORT:", process.env.PORT);
+console.log("FIREBASE_PROJECT_ID:", process.env.FIREBASE_PROJECT_ID ? "✅" : "❌");
+console.log("FIREBASE_PRIVATE_KEY:", process.env.FIREBASE_PRIVATE_KEY ? "✅" : "❌");
