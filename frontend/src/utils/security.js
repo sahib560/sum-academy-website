@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { createElement, useEffect, useMemo, useState } from "react";
 
 const STYLE_ID = "sum-content-protection-style";
 const DEVTOOLS_THRESHOLD = 160;
@@ -152,9 +152,10 @@ export const WatermarkOverlay = ({ studentName = "", email = "" }) => {
     return () => window.clearInterval(interval);
   }, [positions]);
 
-  return (
-    <div
-      style={{
+  return createElement(
+    "div",
+    {
+      style: {
         position: "absolute",
         ...position,
         opacity: 0.12,
@@ -167,9 +168,8 @@ export const WatermarkOverlay = ({ studentName = "", email = "" }) => {
         fontWeight: "700",
         transform: "rotate(-15deg)",
         whiteSpace: "nowrap",
-      }}
-    >
-      {`${studentName || "Student"} - ${maskEmail(email)}`}
-    </div>
+      },
+    },
+    `${studentName || "Student"} - ${maskEmail(email)}`
   );
 };
