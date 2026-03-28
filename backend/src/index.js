@@ -23,7 +23,9 @@ import { verifyToken } from "./middlewares/auth.middleware.js";
 import { validatePromoCode } from "./controllers/admin.controller.js";
 import { exploreCourses }    from "./controllers/student.controller.js";
 
-dotenv.config();
+if (process.env.NODE_ENV !== "production") {
+  dotenv.config(); // only load .env file in development
+}
 
 // ── ES6 __dirname fix ──────────────────────────────────────────
 const __filename = fileURLToPath(import.meta.url);
