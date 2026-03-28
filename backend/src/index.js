@@ -33,6 +33,8 @@ const __dirname  = path.dirname(__filename);
 
 const app  = express();
 const PORT = process.env.PORT || 5000;
+// ── Trust Proxy (required for Hostinger) ──────────────────────
+app.set('trust proxy', 1);
 
 // ── Allowed origins (Web + Android app) ───────────────────────
 const allowedOrigins = [
