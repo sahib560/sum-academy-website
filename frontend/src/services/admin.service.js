@@ -44,6 +44,33 @@ export const getTeachers = () =>
 export const getStudents = () =>
   api.get("/admin/students").then((r) => r.data.data);
 
+export const downloadStudentsBulkTemplate = async () => {
+  const response = await api.get("/admin/students/template", {
+    responseType: "blob",
+  });
+  const blob = new Blob([response.data], { type: "text/csv;charset=utf-8" });
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  const disposition = response.headers?.["content-disposition"] || "";
+  const nameMatch = disposition.match(/filename="?([^"]+)"?/i);
+  link.href = url;
+  link.download = nameMatch?.[1] || "Students_Bulk_Template.csv";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(url);
+};
+
+export const bulkUploadStudents = (file) => {
+  const formData = new FormData();
+  formData.append("file", file);
+  return api
+    .post("/admin/students/bulk-upload", formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+    })
+    .then((r) => r.data);
+};
+
 export const getCourses = () =>
   api.get("/admin/courses").then((r) => r.data.data);
 
@@ -266,6 +293,9 @@ export const updateSecuritySettings = (data) =>
 export const updateAppearanceSettings = (data) =>
   api.put("/admin/settings/appearance", data).then((r) => r.data);
 
+export const updateCertificateSettings = (data) =>
+  api.put("/admin/settings/certificate", data).then((r) => r.data);
+
 export const updateMaintenanceSettings = (data) =>
   api.put("/admin/settings/maintenance", data).then((r) => r.data);
 
@@ -283,5 +313,6 @@ export const updateSiteSettings = (data) => {
   }
   if (data?.security) return updateSecuritySettings(data.security);
   if (data?.appearance) return updateAppearanceSettings(data.appearance);
+  if (data?.certificate) return updateCertificateSettings(data.certificate);
   return updateGeneralSettings(data);
 };

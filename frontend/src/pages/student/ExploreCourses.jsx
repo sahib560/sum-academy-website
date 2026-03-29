@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
+import { FiSearch } from "react-icons/fi";
 import { SkeletonCard } from "../../components/Skeleton.jsx";
 import { exploreCourses } from "../../services/student.service.js";
 import { useAuth } from "../../hooks/useAuth.js";
@@ -250,9 +251,7 @@ function StudentExploreCourses() {
               className="w-full rounded-full border border-slate-200 bg-white px-14 py-4 text-base text-slate-700 shadow-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
             />
             <span className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400">
-              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-                <path d="M10 2a8 8 0 1 1 0 16 8 8 0 0 1 0-16zm0 2a6 6 0 1 0 0 12 6 6 0 0 0 0-12zm7.7 12.3 4 4-1.4 1.4-4-4 1.4-1.4z" />
-              </svg>
+              <FiSearch className="h-4 w-4" />
             </span>
           </div>
         </div>

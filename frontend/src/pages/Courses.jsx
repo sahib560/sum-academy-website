@@ -1,6 +1,8 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
+import { FaStar } from "react-icons/fa";
+import { FiSearch } from "react-icons/fi";
 import { SkeletonCard } from "../components/Skeleton.jsx";
 import { useSiteSettings } from "../context/SiteSettingsContext.jsx";
 import { exploreCourses } from "../services/student.service.js";
@@ -17,17 +19,13 @@ function StarRating({ rating }) {
   return (
     <div className="flex items-center gap-1">
       {Array.from({ length: 5 }).map((_, index) => (
-        <svg
+        <FaStar
           key={`rating-${index}`}
-          viewBox="0 0 24 24"
           className={`h-4 w-4 ${
             index < Math.round(rating) ? "text-accent" : "text-slate-300"
           }`}
-          fill="currentColor"
           aria-hidden="true"
-        >
-          <path d="M12 3.4l2.7 5.5 6.1.9-4.4 4.3 1 6.1L12 17.7l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9L12 3.4z" />
-        </svg>
+        />
       ))}
       <span className="ml-1 text-xs font-semibold text-slate-500 dark:text-slate-300">
         {rating.toFixed(1)}
@@ -365,9 +363,8 @@ function Courses() {
                   onChange={(event) => setSearch(event.target.value)}
                   placeholder="Search courses, subjects, teachers..."
                   className="w-full rounded-full border border-slate-200 bg-white px-5 py-3 text-sm text-slate-700 shadow-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 dark:border-white/10 dark:bg-dark dark:text-slate-200"
-                />
-                <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-slate-400">
-                  🔍
+                />                <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-slate-400">
+                  <FiSearch className="h-4 w-4" />
                 </span>
               </div>
               <button
@@ -409,10 +406,8 @@ function Courses() {
               </div>
             ) : allCourses.length === 0 ? (
               <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-slate-200 bg-white/80 px-6 py-16 text-center dark:border-white/10 dark:bg-slate-900/70">
-                <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 text-primary">
-                  <svg viewBox="0 0 24 24" className="h-7 w-7" fill="currentColor">
-                    <path d="M10 3a7 7 0 1 1 0 14A7 7 0 0 1 10 3zm0 2a5 5 0 1 0 0 10A5 5 0 0 0 10 5zm8.6 13.2 2.2 2.2-1.4 1.4-2.2-2.2a9 9 0 0 1-5.2 1.6v-2a7 7 0 0 0 4.4-1.5z" />
-                  </svg>
+              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 text-primary">
+                  <FiSearch className="h-7 w-7" />
                 </div>
                 <h3 className="mt-4 font-heading text-2xl text-slate-900 dark:text-white">
                   {NOT_ADDED}
@@ -423,10 +418,8 @@ function Courses() {
               </div>
             ) : filteredCourses.length === 0 ? (
               <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-slate-200 bg-white/80 px-6 py-16 text-center dark:border-white/10 dark:bg-slate-900/70">
-                <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 text-primary">
-                  <svg viewBox="0 0 24 24" className="h-7 w-7" fill="currentColor">
-                    <path d="M10 3a7 7 0 1 1 0 14A7 7 0 0 1 10 3zm0 2a5 5 0 1 0 0 10A5 5 0 0 0 10 5zm8.6 13.2 2.2 2.2-1.4 1.4-2.2-2.2a9 9 0 0 1-5.2 1.6v-2a7 7 0 0 0 4.4-1.5z" />
-                  </svg>
+              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 text-primary">
+                  <FiSearch className="h-7 w-7" />
                 </div>
                 <h3 className="mt-4 font-heading text-2xl text-slate-900 dark:text-white">
                   No courses found
@@ -580,3 +573,4 @@ function Courses() {
 }
 
 export default Courses;
+

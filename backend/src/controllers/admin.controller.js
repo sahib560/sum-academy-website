@@ -6,11 +6,89 @@ import { sendRegistrationOTP } from "../services/email.service.js";
 import { v4 as uuidv4 } from "uuid";
 
 const normalizeSubjectName = (value = "") => String(value).trim();
+const STUDENT_BULK_HEADERS = ["name", "email", "password", "phone", "address"];
 
 const toSafeNumber = (value, fallback = 0) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
 };
+
+const parseCsvLine = (line = "") => {
+  const row = [];
+  let current = "";
+  let insideQuotes = false;
+
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index];
+    if (char === '"') {
+      if (insideQuotes && line[index + 1] === '"') {
+        current += '"';
+        index += 1;
+      } else {
+        insideQuotes = !insideQuotes;
+      }
+      continue;
+    }
+    if (char === "," && !insideQuotes) {
+      row.push(current);
+      current = "";
+      continue;
+    }
+    current += char;
+  }
+
+  row.push(current);
+  return row.map((cell) => String(cell || "").trim());
+};
+
+const parseCsvWithHeader = (csvText = "") => {
+  const lines = String(csvText || "").split(/\r?\n/);
+  if (!lines.length) return { headers: [], rows: [] };
+
+  let headers = [];
+  let headerSet = false;
+  const rows = [];
+
+  lines.forEach((line, lineIndex) => {
+    const lineNo = lineIndex + 1;
+    const trimmed = String(line || "").trim();
+    if (!trimmed) return;
+    if (trimmed.startsWith("#")) return;
+
+    if (!headerSet) {
+      headers = parseCsvLine(line).map((header) =>
+        String(header || "").trim().toLowerCase()
+      );
+      headerSet = true;
+      return;
+    }
+
+    const values = parseCsvLine(line);
+    const row = { __row: lineNo };
+    headers.forEach((header, headerIndex) => {
+      row[header] = values[headerIndex] || "";
+    });
+
+    const hasAnyData = headers.some((header) => String(row[header] || "").trim());
+    if (hasAnyData) rows.push(row);
+  });
+
+  return { headers, rows };
+};
+
+const csvEscapeCell = (value = "") => {
+  const raw = String(value ?? "");
+  if (!/[",\r\n]/.test(raw)) return raw;
+  return `"${raw.replace(/"/g, '""')}"`;
+};
+
+const buildCsv = (rows = []) =>
+  rows.map((row) => row.map((cell) => csvEscapeCell(cell)).join(",")).join("\n");
+
+const normalizeBulkPhone = (value = "") =>
+  String(value || "")
+    .trim()
+    .replace(/[^\d+]/g, "");
 
 const buildCourseSubjects = async (subjects = []) => {
   if (!Array.isArray(subjects)) return [];
@@ -368,6 +446,218 @@ export const getStudents = async (req, res) => {
     return successResponse(res, data, "Students fetched");
   } catch (e) {
     return errorResponse(res, "Failed to fetch students", 500);
+  }
+};
+
+export const downloadStudentsBulkTemplate = async (_req, res) => {
+  try {
+    const commentRow =
+      "# Fill only: name,email,password,phone,address. Do not add id column.";
+    const headerRow = ["name", "email", "password", "phone", "address"];
+    const sampleRows = [
+      ["Ali Raza", "ali.raza@example.com", "Ali@12345", "+923001234567", "Lahore"],
+      ["Ayesha Khan", "ayesha.khan@example.com", "Ayesha@123", "+923121112233", "Karachi"],
+      ["", "", "", "", ""],
+      ["", "", "", "", ""],
+    ];
+    const csvContent = [commentRow, buildCsv([headerRow, ...sampleRows])].join("\n");
+
+    res.setHeader("Content-Type", "text/csv");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="Students_Bulk_Template.csv"`
+    );
+    return res.status(200).send(csvContent);
+  } catch (error) {
+    console.error("downloadStudentsBulkTemplate error:", error);
+    return errorResponse(res, "Failed to download students template", 500);
+  }
+};
+
+export const bulkUploadStudents = async (req, res) => {
+  try {
+    const fileBuffer = req.file?.buffer;
+    const csvText = fileBuffer
+      ? fileBuffer.toString("utf8")
+      : String(req.body?.csvText || "").trim();
+
+    if (!csvText) {
+      return errorResponse(res, "CSV file is required", 400);
+    }
+
+    const parsed = parseCsvWithHeader(csvText);
+    if (!parsed.headers.length) {
+      return errorResponse(res, "CSV header row not found", 400);
+    }
+
+    const hasNameHeader =
+      parsed.headers.includes("name") || parsed.headers.includes("fullname");
+    if (!hasNameHeader) {
+      return errorResponse(res, "CSV must include name column", 400);
+    }
+
+    const missingHeaders = STUDENT_BULK_HEADERS.filter(
+      (header) => header !== "name" && !parsed.headers.includes(header)
+    );
+    if (missingHeaders.length) {
+      return errorResponse(
+        res,
+        `CSV missing required columns: ${missingHeaders.join(", ")}`,
+        400
+      );
+    }
+
+    if (!parsed.rows.length) {
+      return errorResponse(res, "No student rows found in CSV", 400);
+    }
+
+    const emailSeen = new Set();
+    const rows = [];
+    const validationErrors = [];
+
+    parsed.rows.forEach((row) => {
+      const lineNo = row.__row || 0;
+      const fullName = String(row.name || row.fullname || "").trim();
+      const email = String(row.email || "")
+        .trim()
+        .toLowerCase();
+      const password = String(row.password || "").trim();
+      const phone = normalizeBulkPhone(row.phone || "");
+      const address = String(row.address || "").trim();
+
+      if (!fullName) {
+        validationErrors.push({ row: lineNo, message: "Name is required" });
+      }
+      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        validationErrors.push({ row: lineNo, message: "Valid email is required" });
+      }
+      if (!password || password.length < 6) {
+        validationErrors.push({
+          row: lineNo,
+          message: "Password must be at least 6 characters",
+        });
+      }
+      if (email && emailSeen.has(email)) {
+        validationErrors.push({
+          row: lineNo,
+          message: "Duplicate email in CSV",
+        });
+      }
+      if (email) emailSeen.add(email);
+
+      rows.push({
+        row: lineNo,
+        fullName,
+        email,
+        password,
+        phone,
+        address,
+      });
+    });
+
+    if (validationErrors.length) {
+      return errorResponse(res, "CSV validation failed", 400, validationErrors);
+    }
+
+    const created = [];
+    const failed = [];
+
+    for (const row of rows) {
+      let newUid = "";
+      try {
+        const firebaseUser = await admin.auth().createUser({
+          email: row.email,
+          password: row.password,
+          displayName: row.fullName,
+          emailVerified: true,
+        });
+        newUid = firebaseUser.uid;
+
+        await admin.auth().setCustomUserClaims(newUid, { role: "student" });
+
+        const batch = db.batch();
+        batch.set(db.collection(COLLECTIONS.USERS).doc(newUid), {
+          uid: newUid,
+          email: row.email,
+          fullName: row.fullName,
+          name: row.fullName,
+          phoneNumber: row.phone || "",
+          address: row.address || "",
+          role: "student",
+          isActive: true,
+          assignedWebDevice: "",
+          assignedWebIp: "",
+          lastKnownWebIp: "",
+          lastLoginAt: null,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        batch.set(db.collection(COLLECTIONS.STUDENTS).doc(newUid), {
+          uid: newUid,
+          email: row.email,
+          fullName: row.fullName,
+          phoneNumber: row.phone || "",
+          address: row.address || "",
+          enrolledCourses: [],
+          certificates: [],
+          fatherName: "",
+          fatherPhone: "",
+          fatherOccupation: "",
+          district: "",
+          domicile: "",
+          caste: "",
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        await batch.commit();
+
+        created.push({
+          row: row.row,
+          uid: newUid,
+          fullName: row.fullName,
+          email: row.email,
+        });
+      } catch (error) {
+        if (newUid) {
+          try {
+            await admin.auth().deleteUser(newUid);
+          } catch {
+            // ignore rollback failures
+          }
+        }
+        const message =
+          error?.code === "auth/email-already-exists"
+            ? "Email already exists"
+            : error?.message || "Failed to create student";
+        failed.push({
+          row: row.row,
+          email: row.email,
+          message,
+        });
+      }
+    }
+
+    if (!created.length) {
+      return errorResponse(res, "No students were created", 400, failed);
+    }
+
+    return successResponse(
+      res,
+      {
+        totalRows: rows.length,
+        createdCount: created.length,
+        failedCount: failed.length,
+        created,
+        failed,
+      },
+      failed.length
+        ? "Students bulk upload completed with some failures"
+        : "Students bulk upload completed",
+      201
+    );
+  } catch (error) {
+    console.error("bulkUploadStudents error:", error);
+    return errorResponse(res, "Failed to bulk upload students", 500);
   }
 };
 

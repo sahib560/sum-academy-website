@@ -1,6 +1,7 @@
-﻿import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { AnimatePresence, motion as Motion } from "framer-motion";
+import { FiLock, FiMail, FiShield } from "react-icons/fi";
 import {
   sendForgotPasswordOtp,
   verifyForgotPasswordOtp,
@@ -234,9 +235,7 @@ function ForgotPassword() {
                 className="mt-8 space-y-6"
               >
                 <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-                  <svg viewBox="0 0 24 24" className="h-8 w-8" fill="currentColor">
-                    <path d="M12 2a5 5 0 0 0-5 5v3H6a2 2 0 0 0-2 2v7a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-7a2 2 0 0 0-2-2h-1V7a5 5 0 0 0-5-5zm-3 8V7a3 3 0 0 1 6 0v3H9z" />
-                  </svg>
+                  <FiLock className="h-8 w-8" />
                 </div>
                 <div>
                   <h1 className="font-heading text-3xl text-slate-900">
@@ -284,9 +283,7 @@ function ForgotPassword() {
                 className="mt-8 space-y-6"
               >
                 <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-                  <svg viewBox="0 0 24 24" className="h-8 w-8" fill="currentColor">
-                    <path d="M4 6h16a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2zm0 2 8 5 8-5H4zm0 8h16V10l-8 5-8-5v6z" />
-                  </svg>
+                  <FiMail className="h-8 w-8" />
                 </div>
                 <div>
                   <h1 className="font-heading text-3xl text-slate-900">
@@ -354,9 +351,7 @@ function ForgotPassword() {
                 className="mt-8 space-y-6"
               >
                 <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-                  <svg viewBox="0 0 24 24" className="h-8 w-8" fill="currentColor">
-                    <path d="M12 2a7 7 0 0 0-7 7v3h14V9a7 7 0 0 0-7-7zm-5 12h10v7H7v-7zm5-8a4 4 0 0 1 4 4H8a4 4 0 0 1 4-4z" />
-                  </svg>
+                  <FiShield className="h-8 w-8" />
                 </div>
                 <div>
                   <h1 className="font-heading text-3xl text-slate-900">
@@ -418,7 +413,7 @@ function ForgotPassword() {
                 {success && (
                   <div className="flex items-center gap-2 text-sm text-emerald-600">
                     <span className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-100">
-                      âœ“
+                      ✓
                     </span>
                     Password updated. Redirecting to login...
                   </div>
@@ -433,4 +428,6 @@ function ForgotPassword() {
 }
 
 export default ForgotPassword;
+
+
 

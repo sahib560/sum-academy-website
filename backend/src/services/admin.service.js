@@ -217,7 +217,7 @@ export const getDashboardStats = async () => {
     enrollmentsSnap,
     pendingPaymentsSnap,
   ] = await Promise.all([
-    db.collection(COLLECTIONS.STUDENTS).count().get(),
+    db.collection(COLLECTIONS.USERS).where("role", "==", "student").count().get(),
     db.collection(COLLECTIONS.TEACHERS).count().get(),
     db.collection(COLLECTIONS.COURSES).count().get(),
     db.collection(COLLECTIONS.CLASSES).count().get(),

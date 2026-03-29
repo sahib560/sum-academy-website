@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { FiMapPin } from "react-icons/fi";
 import { useSettings } from "../hooks/useSettings.js";
 
 const NOT_ADDED = "Not added yet";
@@ -242,9 +243,7 @@ function Contact() {
               </h3>
               <div className="mt-4 flex h-40 items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50 text-slate-400 dark:border-white/10 dark:bg-white/5">
                 <div className="flex items-center gap-2 text-sm">
-                  <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
-                    <path d="M12 2a7 7 0 0 0-7 7c0 5.2 7 13 7 13s7-7.8 7-13a7 7 0 0 0-7-7zm0 9.5a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5z" />
-                  </svg>
+                  <FiMapPin className="h-5 w-5" />
                   {textOrNotAdded(contact.address || settings.general?.address)}
                 </div>
               </div>

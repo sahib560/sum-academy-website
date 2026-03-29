@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { SkeletonTeacherCard } from "../components/Skeleton.jsx";
+import { FaRegUserCircle, FaStar } from "react-icons/fa";
+import { IoClose } from "react-icons/io5";
 import { useSiteSettings } from "../context/SiteSettingsContext.jsx";
 const NOT_ADDED = "Not added yet";
 const textOrNotAdded = (value) => {
@@ -7,22 +9,36 @@ const textOrNotAdded = (value) => {
   return cleaned || NOT_ADDED;
 };
 
+const isDefaultFounderPlaceholder = (teacher = {}) => {
+  const name = String(teacher?.name || "").trim().toLowerCase();
+  const role = String(teacher?.role || teacher?.title || "")
+    .trim()
+    .toLowerCase();
+  const subject = String(teacher?.subject || "").trim();
+  const courses = String(teacher?.courses || "").trim();
+  const bio = String(teacher?.bio || teacher?.description || "").trim();
+
+  return (
+    name === "sum founder" &&
+    role === "founder & ceo" &&
+    !subject &&
+    !courses &&
+    !bio
+  );
+};
+
 function StarRating({ rating }) {
   const safeRating = Number.isFinite(Number(rating)) ? Number(rating) : 0;
   return (
     <div className="flex items-center gap-1">
       {Array.from({ length: 5 }).map((_, index) => (
-        <svg
+        <FaStar
           key={`teacher-rating-${index}`}
-          viewBox="0 0 24 24"
           className={`h-4 w-4 ${
             index < Math.round(safeRating) ? "text-accent" : "text-slate-300"
           }`}
-          fill="currentColor"
           aria-hidden="true"
-        >
-          <path d="M12 3.4l2.7 5.5 6.1.9-4.4 4.3 1 6.1L12 17.7l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9L12 3.4z" />
-        </svg>
+        />
       ))}
       <span className="ml-1 text-xs font-semibold text-slate-500 dark:text-slate-300">
         {safeRating > 0 ? safeRating.toFixed(1) : NOT_ADDED}
@@ -77,7 +93,9 @@ function Teachers() {
   const { settings, loading } = useSiteSettings();
   const siteName = textOrNotAdded(settings.general?.siteName);
   const [selectedTeacher, setSelectedTeacher] = useState(null);
-  const rows = Array.isArray(settings.about?.team) ? settings.about.team : [];
+  const rows = (Array.isArray(settings.about?.team) ? settings.about.team : []).filter(
+    (teacher) => !isDefaultFounderPlaceholder(teacher)
+  );
   const teachers = rows.map((teacher, index) => ({
     id: teacher.id || `teacher-${index}`,
     name: textOrNotAdded(teacher.name),
@@ -140,9 +158,7 @@ function Teachers() {
           ) : teachers.length === 0 ? (
             <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-slate-200 bg-white/80 px-6 py-16 text-center dark:border-white/10 dark:bg-slate-900/70">
               <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 text-primary">
-                <svg viewBox="0 0 24 24" className="h-7 w-7" fill="currentColor">
-                  <path d="M12 12a4 4 0 1 1 0-8 4 4 0 0 1 0 8zm-6 8a6 6 0 1 1 12 0H6z" />
-                </svg>
+                <FaRegUserCircle className="h-7 w-7" />
               </div>
               <h3 className="mt-4 font-heading text-2xl text-slate-900 dark:text-white">
                 {NOT_ADDED}
@@ -202,7 +218,7 @@ function Teachers() {
                 className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 text-slate-500 transition hover:border-slate-300 hover:text-slate-900 dark:border-white/10 dark:text-slate-300 dark:hover:text-white"
                 aria-label="Close"
               >
-                x
+                <IoClose className="h-5 w-5" />
               </button>
             </div>
             <div className="mt-6 grid gap-4 rounded-2xl bg-slate-50 p-4 text-sm text-slate-600 dark:bg-white/5 dark:text-slate-200 sm:grid-cols-2">

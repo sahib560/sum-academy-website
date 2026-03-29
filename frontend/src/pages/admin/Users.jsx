@@ -9,6 +9,15 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Toaster, toast } from "react-hot-toast";
 import { jsPDF } from "jspdf";
 import {
+  FiEdit3,
+  FiEye,
+  FiEyeOff,
+  FiRefreshCcw,
+  FiSearch,
+  FiTrash2,
+  FiX,
+} from "react-icons/fi";
+import {
   createUser,
   deleteUser,
   getStudents,
@@ -81,6 +90,14 @@ const emptyResetForm = {
   webIp: "",
 };
 
+const normalizeRoleValue = (value = "") => {
+  const role = String(value || "").trim().toLowerCase();
+  if (role === "student" || role === "teacher" || role === "admin") {
+    return role;
+  }
+  return "";
+};
+
 const parseDate = (value) => {
   if (!value) return null;
   if (typeof value?.toDate === "function") return value.toDate();
@@ -129,9 +146,15 @@ const normalizeUsers = (users = [], teachers = [], students = []) => {
 
   return users.map((user) => {
     const uid = user.uid || user.id;
+    const normalizedRole = normalizeRoleValue(user.role);
     const teacher = teacherMap.get(uid);
     const student = studentMap.get(uid);
-    const roleProfile = user.role === "teacher" ? teacher || {} : user.role === "student" ? student || {} : {};
+    const roleProfile =
+      normalizedRole === "teacher"
+        ? teacher || {}
+        : normalizedRole === "student"
+          ? student || {}
+          : {};
     const fullName =
       roleProfile?.fullName ||
       user.fullName ||
@@ -149,6 +172,7 @@ const normalizeUsers = (users = [], teachers = [], students = []) => {
       ...user,
       ...roleProfile,
       uid,
+      role: normalizedRole || normalizeRoleValue(roleProfile?.role),
       fullName,
       phone,
       email: user.email || roleProfile.email || "",
@@ -302,9 +326,7 @@ function ModalShell({ open, title, onClose, children, maxWidth = "max-w-lg" }) {
                 className="rounded-full border border-slate-200 p-2 text-slate-500 transition hover:text-slate-900"
                 aria-label="Close"
               >
-                <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-                  <path d="M18.3 5.7 12 12l6.3 6.3-1.4 1.4L10.6 13.4 4.3 19.7l-1.4-1.4L9.2 12 2.9 5.7l1.4-1.4 6.3 6.3 6.3-6.3z" />
-                </svg>
+                <FiX className="h-4 w-4" />
               </button>
             </div>
             <div className="overflow-y-auto pr-1">{children}</div>
@@ -611,6 +633,7 @@ function Users() {
   };
 
   const openEditModal = (user) => {
+    const normalizedRole = normalizeRoleValue(user.role);
     setSelectedUser(user);
     setEditForm({
       uid: user.uid,
@@ -627,7 +650,7 @@ function Users() {
       domicile: user.domicile || "",
       caste: user.caste || "",
       isActive: user.isActive,
-      role: user.role,
+      role: normalizedRole,
     });
     setEditTouched({});
     setIsEditOpen(true);
@@ -772,9 +795,7 @@ function Users() {
       <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="relative max-w-md">
           <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
-            <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
-              <path d="M10 4a6 6 0 1 0 3.9 10.6l4.7 4.7 1.4-1.4-4.7-4.7A6 6 0 0 0 10 4zm0 2a4 4 0 1 1 0 8 4 4 0 0 1 0-8z" />
-            </svg>
+            <FiSearch className="h-5 w-5" />
           </span>
           <input
             type="text"
@@ -907,9 +928,7 @@ function Users() {
                             className="rounded-full border border-slate-200 p-2 text-slate-500 transition hover:text-primary"
                             aria-label="Edit user"
                           >
-                            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-                              <path d="M3 17.2V21h3.8l11-11-3.8-3.8-11 11zm17.7-10.5a1 1 0 0 0 0-1.4l-2-2a1 1 0 0 0-1.4 0l-1.6 1.6 3.8 3.8 1.2-1z" />
-                            </svg>
+                            <FiEdit3 className="h-4 w-4" />
                           </button>
                           <button
                             type="button"
@@ -917,9 +936,7 @@ function Users() {
                             className="rounded-full border border-slate-200 p-2 text-rose-500 transition hover:text-rose-600"
                             aria-label="Delete user"
                           >
-                            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-                              <path d="M6 7h12l-1 14H7L6 7zm3-3h6l1 2H8l1-2z" />
-                            </svg>
+                            <FiTrash2 className="h-4 w-4" />
                           </button>
                           <button
                             type="button"
@@ -927,9 +944,7 @@ function Users() {
                             className="rounded-full border border-slate-200 p-2 text-orange-500 transition hover:text-orange-600"
                             aria-label="Reset device"
                           >
-                            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-                              <path d="M12 6V3L8 7l4 4V8c2.8 0 5 2.2 5 5a5 5 0 0 1-9.9 1H5a7 7 0 1 0 7-8z" />
-                            </svg>
+                            <FiRefreshCcw className="h-4 w-4" />
                           </button>
                         </div>
                       </td>
@@ -1143,13 +1158,9 @@ function Users() {
                 aria-label={showAddPassword ? "Hide password" : "Show password"}
               >
                 {showAddPassword ? (
-                  <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
-                    <path d="M12 5c5 0 9.3 3.1 11 7-1.7 3.9-6 7-11 7S2.7 15.9 1 12c1.7-3.9 6-7 11-7zm0 3.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7z" />
-                  </svg>
+                  <FiEyeOff className="h-5 w-5" />
                 ) : (
-                  <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
-                    <path d="M2 5.3 3.3 4 20 20.7 18.7 22l-3.2-3.2A12.4 12.4 0 0 1 12 19C7 19 2.7 15.9 1 12c.8-1.8 2-3.4 3.5-4.7L2 5.3zm9.9 9.9a3.5 3.5 0 0 1-3.1-3.1l3.1 3.1zm7.2-1.7-2.2-2.2a3.5 3.5 0 0 0-4.2-4.2L9.3 6.4A8.7 8.7 0 0 1 12 5c5 0 9.3 3.1 11 7-.9 2.1-2.5 4-4.6 5.5z" />
-                  </svg>
+                  <FiEye className="h-5 w-5" />
                 )}
               </button>
             </div>

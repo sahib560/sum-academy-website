@@ -1,9 +1,10 @@
 import { createContext, useEffect, useMemo, useState } from "react";
-import { onAuthStateChanged } from "firebase/auth";
+import { onAuthStateChanged, signOut } from "firebase/auth";
 import { firebaseAuth } from "../config/firebase.js";
 import api from "../api/axios.js";
 
 const AuthContext = createContext(null);
+const LOGIN_ALERT_STORAGE_KEY = "sumacademy:login-alert";
 
 function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
@@ -42,6 +43,39 @@ function AuthProvider({ children }) {
       } catch (error) {
         if (cancelled) return;
         const status = error?.response?.status;
+        const mismatchCode =
+          error?.response?.data?.errors?.code || error?.response?.data?.code;
+
+        if ((status === 401 || status === 403) && firebaseAuth.currentUser) {
+          if (
+            mismatchCode === "DEVICE_IP_MISMATCH" &&
+            typeof window !== "undefined"
+          ) {
+            const message =
+              error?.response?.data?.error ||
+              error?.response?.data?.message ||
+              "You are trying to login from another device or network.";
+            const warning =
+              error?.response?.data?.errors?.warning ||
+              "Do not try again from another device/IP, otherwise your account may be blocked.";
+            window.sessionStorage.setItem(
+              LOGIN_ALERT_STORAGE_KEY,
+              JSON.stringify({
+                type: "device_ip_mismatch",
+                message,
+                warning,
+                contactAdmin: true,
+              })
+            );
+          }
+
+          try {
+            await signOut(firebaseAuth);
+          } catch {
+            // ignore sign out errors
+          }
+        }
+
         if (status === 404 && attempt < 8) {
           retryTimer = setTimeout(
             () => fetchProfile(firebaseUser, attempt + 1),

@@ -2,6 +2,16 @@ import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import {
+  FiActivity,
+  FiAward,
+  FiBookOpen,
+  FiCreditCard,
+  FiTrendingUp,
+  FiUserPlus,
+  FiUsers,
+  FiUser,
+} from "react-icons/fi";
+import {
   CartesianGrid,
   Line,
   LineChart,
@@ -24,57 +34,16 @@ const fadeUp = {
 };
 
 const iconMap = {
-  users: (
-    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
-      <path d="M7 12a4 4 0 1 1 0-8 4 4 0 0 1 0 8zm10 0a3 3 0 1 1 0-6 3 3 0 0 1 0 6zM2 20a5 5 0 0 1 10 0H2zm12 0a4 4 0 0 1 8 0h-8z" />
-    </svg>
-  ),
-  trend: (
-    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
-      <path d="M3 17l6-6 4 4 7-7v4h2V4h-8v2h4l-5 5-4-4-7 7z" />
-    </svg>
-  ),
-  book: (
-    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
-      <path d="M6 4h11a3 3 0 0 1 3 3v12a2 2 0 0 1-2 2H7a3 3 0 0 0-3 3V7a3 3 0 0 1 2-3z" />
-    </svg>
-  ),
-  "user-plus": (
-    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
-      <path d="M15 14a4 4 0 1 0-4-4 4 4 0 0 0 4 4zm-9 6a6 6 0 0 1 9-5.2 6.4 6.4 0 0 0-.8 3.2V20H6zm12-4v-3h-2v3h-3v2h3v3h2v-3h3v-2z" />
-    </svg>
-  ),
-  activity: (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-      <path d="M3 12h3l3 7 4-14 3 7h5" />
-    </svg>
-  ),
-  enroll: (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-      <path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm6 8H6a6 6 0 0 1 12 0z" />
-    </svg>
-  ),
-  payment: (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-      <path d="M3 7a3 3 0 0 1 3-3h12a3 3 0 0 1 3 3v10a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V7zm3-1a1 1 0 0 0-1 1v2h16V7a1 1 0 0 0-1-1H6z" />
-    </svg>
-  ),
-  teacher: (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-      <path d="M12 3 1 9l11 6 9-4.9V17h2V9L12 3z" />
-      <path d="M5 12.3v4.2c0 2.2 3.1 4 7 4s7-1.8 7-4v-4.2l-7 3.8-7-3.8z" />
-    </svg>
-  ),
-  course: (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-      <path d="M6 4h11a3 3 0 0 1 3 3v12a2 2 0 0 1-2 2H7a3 3 0 0 0-3 3V7a3 3 0 0 1 2-3z" />
-    </svg>
-  ),
-  certificate: (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-      <path d="M12 2a6 6 0 1 0 0 12A6 6 0 0 0 12 2zm-3 14h6l2 6-5-2-5 2 2-6z" />
-    </svg>
-  ),
+  users: <FiUsers className="h-5 w-5" />,
+  trend: <FiTrendingUp className="h-5 w-5" />,
+  book: <FiBookOpen className="h-5 w-5" />,
+  "user-plus": <FiUserPlus className="h-5 w-5" />,
+  activity: <FiActivity className="h-4 w-4" />,
+  enroll: <FiUser className="h-4 w-4" />,
+  payment: <FiCreditCard className="h-4 w-4" />,
+  teacher: <FiUsers className="h-4 w-4" />,
+  course: <FiBookOpen className="h-4 w-4" />,
+  certificate: <FiAward className="h-4 w-4" />,
 };
 
 const parseTimestamp = (value) => {

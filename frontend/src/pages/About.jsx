@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { motion as Motion } from "framer-motion";
+import { FaCheckCircle, FaStar } from "react-icons/fa";
 import { useSettings } from "../hooks/useSettings.js";
 
 const fadeUp = {
@@ -13,6 +14,14 @@ const textOrNotAdded = (value) => {
   return cleaned || NOT_ADDED;
 };
 
+const isDefaultFounderPlaceholder = (person = {}) => {
+  const name = String(person?.name || "").trim().toLowerCase();
+  const role = String(person?.role || person?.title || "").trim().toLowerCase();
+  const bio = String(person?.bio || person?.description || "").trim();
+
+  return name === "sum founder" && role === "founder & ceo" && !bio;
+};
+
 function About() {
   const { settings } = useSettings();
   const about = settings.about || {};
@@ -20,7 +29,9 @@ function About() {
   const hero = settings.hero || {};
   const siteName = textOrNotAdded(settings.general?.siteName);
   const aboutValues = Array.isArray(about.values) ? about.values : [];
-  const leadership = Array.isArray(about.team) ? about.team : [];
+  const leadership = (Array.isArray(about.team) ? about.team : []).filter(
+    (person) => !isDefaultFounderPlaceholder(person)
+  );
   const factItems = Array.isArray(about.facts) ? about.facts : hero.stats || [];
   const whyChooseItems = Array.isArray(featuresSection.items)
     ? featuresSection.items
@@ -123,9 +134,7 @@ function About() {
               whyChooseItems.map((feature, index) => (
                 <div key={`${feature.title || "feature"}-${index}`} className="glass-card card-hover">
                   <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-                    <svg viewBox="0 0 24 24" className="h-6 w-6" fill="currentColor">
-                      <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-1 14-4-4 1.4-1.4L11 13.2l4.6-4.6L17 10l-6 6z" />
-                    </svg>
+                    <FaCheckCircle className="h-6 w-6" />
                   </div>
                   <h3 className="mt-4 font-heading text-xl text-slate-900 dark:text-white">
                     {textOrNotAdded(feature.title)}
@@ -165,9 +174,7 @@ function About() {
               aboutValues.map((value, index) => (
                 <div key={`${value.title || "value"}-${index}`} className="glass-card card-hover">
                   <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-                    <svg viewBox="0 0 24 24" className="h-6 w-6" fill="currentColor">
-                      <path d="M12 2 9 9H2l5.7 4.1L5.5 21 12 16.9 18.5 21l-2.2-7.9L22 9h-7z" />
-                    </svg>
+                    <FaStar className="h-6 w-6" />
                   </div>
                   <h3 className="mt-4 font-heading text-xl text-slate-900 dark:text-white">
                     {textOrNotAdded(value.title)}

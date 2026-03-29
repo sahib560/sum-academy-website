@@ -28,7 +28,7 @@ router.post("/forgot-password/send-otp", sendForgotPasswordOtp);
 router.post("/forgot-password/verify-otp", verifyForgotPasswordOtp);
 router.post("/forgot-password/reset", resetForgotPassword);
 router.post("/logout", verifyToken, logoutUser);
-router.get("/me", verifyToken, getMe);
+router.get("/me", verifyToken, detectDevice, getMe);
 router.patch(
   "/set-role",
   verifyToken,

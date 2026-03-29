@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, NavLink } from "react-router-dom";
 import { Toaster, toast } from "react-hot-toast";
+import { FaDownload } from "react-icons/fa";
 import logo from "../assets/logo.jpeg";
 import { useSettings } from "../hooks/useSettings.js";
 
@@ -16,7 +17,10 @@ function Navbar() {
   const { settings } = useSettings();
   const [isScrolled, setIsScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [theme, setTheme] = useState("light");
+  const [theme, setTheme] = useState(() => {
+    if (typeof window === "undefined") return "light";
+    return localStorage.getItem("sum-theme") === "dark" ? "dark" : "light";
+  });
 
   useEffect(() => {
     const handleScroll = () => setIsScrolled(window.scrollY > 8);
@@ -26,12 +30,9 @@ function Navbar() {
   }, []);
 
   useEffect(() => {
-    const savedTheme = localStorage.getItem("sum-theme");
-    const resolvedTheme = savedTheme === "dark" ? "dark" : "light";
-    setTheme(resolvedTheme);
-    document.documentElement.classList.toggle("dark", resolvedTheme === "dark");
-    localStorage.setItem("sum-theme", resolvedTheme);
-  }, []);
+    document.documentElement.classList.toggle("dark", theme === "dark");
+    localStorage.setItem("sum-theme", theme);
+  }, [theme]);
 
   useEffect(() => {
     const handleResize = () => {
@@ -46,8 +47,6 @@ function Navbar() {
   const toggleTheme = () => {
     const nextTheme = theme === "dark" ? "light" : "dark";
     setTheme(nextTheme);
-    localStorage.setItem("sum-theme", nextTheme);
-    document.documentElement.classList.toggle("dark", nextTheme === "dark");
   };
 
   const isDark = theme === "dark";
@@ -129,9 +128,7 @@ function Navbar() {
             onClick={handleAppDownloadClick}
             className="inline-flex items-center gap-2 rounded-full border border-slate-200/80 bg-white/70 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-700 transition hover:-translate-y-0.5 hover:border-primary hover:text-primary dark:border-white/10 dark:bg-white/5 dark:text-white"
           >
-            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-              <path d="M12 3a1 1 0 0 1 1 1v8.6l2.3-2.3 1.4 1.4-4.7 4.7-4.7-4.7 1.4-1.4L11 12.6V4a1 1 0 0 1 1-1zm-7 14h14v2H5v-2z" />
-            </svg>
+            <FaDownload className="h-4 w-4" />
             Download App
           </button>
           <Link to="/lms-login" className="btn-lms">
@@ -206,9 +203,7 @@ function Navbar() {
               onClick={handleAppDownloadClick}
               className="inline-flex items-center justify-center gap-2 rounded-full border border-slate-200/80 bg-white/70 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-700 transition hover:-translate-y-0.5 hover:text-primary dark:border-white/10 dark:bg-white/10 dark:text-white"
             >
-              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-                <path d="M12 3a1 1 0 0 1 1 1v8.6l2.3-2.3 1.4 1.4-4.7 4.7-4.7-4.7 1.4-1.4L11 12.6V4a1 1 0 0 1 1-1zm-7 14h14v2H5v-2z" />
-              </svg>
+              <FaDownload className="h-4 w-4" />
               Download App
             </button>
             <Link to="/lms-login" className="btn-lms" onClick={closeMenu}>

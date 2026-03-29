@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion as Motion } from "framer-motion";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Toaster, toast } from "react-hot-toast";
+import { FiX } from "react-icons/fi";
 import {
   addClassCourse,
   addClassShift,
@@ -374,9 +375,7 @@ function ModalShell({
                 className="rounded-full border border-slate-200 p-2 text-slate-500 transition hover:text-slate-900"
                 aria-label="Close"
               >
-                <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-                  <path d="M18.3 5.7 12 12l6.3 6.3-1.4 1.4L10.6 13.4 4.3 19.7l-1.4-1.4L9.2 12 2.9 5.7l1.4-1.4 6.3 6.3 6.3-6.3z" />
-                </svg>
+                <FiX className="h-4 w-4" />
               </button>
             </div>
             <div className="mt-4 overflow-y-auto pr-1">{children}</div>

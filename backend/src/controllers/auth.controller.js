@@ -21,6 +21,42 @@ const createOtp = () => String(Math.floor(100000 + Math.random() * 900000));
 const createVerificationToken = () => crypto.randomUUID();
 const otpDocId = (purpose, email) => `${purpose}:${normalizeEmail(email)}`;
 const getNameFromEmail = (email = "") => normalizeEmail(email).split("@")[0] || "User";
+const resolveClientContext = (req) => {
+  const forwarded = req.headers?.["x-forwarded-for"];
+  const realIP = forwarded
+    ? String(forwarded).split(",")[0].trim()
+    : req.connection?.remoteAddress ||
+      req.socket?.remoteAddress ||
+      req.ip ||
+      "unknown";
+
+  const cleanIP =
+    realIP === "::1"
+      ? "127.0.0.1"
+      : String(realIP).startsWith("::ffff:")
+        ? String(realIP).replace("::ffff:", "")
+        : String(realIP);
+
+  const userAgent = req.headers?.["user-agent"] || "unknown";
+  let browser = "Unknown Browser";
+  if (/chrome/i.test(userAgent) && !/edg/i.test(userAgent)) browser = "Chrome";
+  else if (/firefox/i.test(userAgent)) browser = "Firefox";
+  else if (/safari/i.test(userAgent) && !/chrome/i.test(userAgent)) browser = "Safari";
+  else if (/edg/i.test(userAgent)) browser = "Edge";
+  else if (/opera|opr/i.test(userAgent)) browser = "Opera";
+
+  let os = "Unknown OS";
+  if (/windows/i.test(userAgent)) os = "Windows";
+  else if (/macintosh|mac os/i.test(userAgent)) os = "MacOS";
+  else if (/linux/i.test(userAgent)) os = "Linux";
+  else if (/android/i.test(userAgent)) os = "Android";
+  else if (/iphone|ipad/i.test(userAgent)) os = "iOS";
+
+  return {
+    clientIP: req.clientIP || cleanIP,
+    clientDevice: req.clientDevice || `${browser} on ${os}`,
+  };
+};
 
 const getOtpRef = (purpose, email) =>
   db.collection(OTP_COLLECTION).doc(otpDocId(purpose, email));
@@ -803,13 +839,61 @@ const getMe = async (req, res) => {
     }
 
     const userData = userSnap.data();
+    const role = String(userData.role || "").toLowerCase();
+    const { clientIP, clientDevice } = resolveClientContext(req);
+
+    if (role === "student") {
+      const assignedDevice = trimText(userData.assignedWebDevice);
+      const assignedIp = trimText(userData.assignedWebIp);
+
+      if (assignedDevice && assignedIp) {
+        const deviceMatch = assignedDevice === clientDevice;
+        const ipMatch = assignedIp === clientIP;
+
+        if (!deviceMatch || !ipMatch) {
+          await db.collection("auditLogs").add({
+            uid,
+            email: userData.email || "",
+            action: "blocked_login",
+            reason: !deviceMatch ? "device_mismatch" : "ip_mismatch",
+            assignedDevice,
+            attemptDevice: clientDevice,
+            assignedIP: assignedIp,
+            attemptIP: clientIP,
+            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+          });
+
+          return errorResponse(
+            res,
+            "You are trying to login from another device or network. Do not try again from another device/IP, otherwise your account may be blocked. Contact your admin or teacher.",
+            403,
+            {
+              code: "DEVICE_IP_MISMATCH",
+              contactAdmin: true,
+              warning:
+                "Do not try again from another device/IP, otherwise your account may be blocked.",
+            }
+          );
+        }
+      } else if (clientDevice && clientIP) {
+        await db.collection("users").doc(uid).set(
+          {
+            assignedWebDevice: clientDevice,
+            assignedWebIp: clientIP,
+            lastKnownWebIp: clientIP,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
+      }
+    }
 
     const roleCollection =
-      userData.role === "student"
+      role === "student"
         ? "students"
-        : userData.role === "teacher"
+        : role === "teacher"
           ? "teachers"
-          : userData.role === "admin"
+          : role === "admin"
             ? "admins"
             : null;
 

@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { motion as Motion, useInView } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
+import { FaStar } from "react-icons/fa";
+import { IoClose } from "react-icons/io5";
 import {
   SkeletonCard,
   SkeletonTeacherCard,
@@ -18,6 +20,24 @@ const NOT_ADDED = "Not added yet";
 const textOrNotAdded = (value) => {
   const cleaned = String(value || "").trim();
   return cleaned || NOT_ADDED;
+};
+
+const isDefaultFounderPlaceholder = (teacher = {}) => {
+  const name = String(teacher?.name || "").trim().toLowerCase();
+  const role = String(teacher?.role || teacher?.title || "")
+    .trim()
+    .toLowerCase();
+  const subject = String(teacher?.subject || "").trim();
+  const courses = String(teacher?.courses || "").trim();
+  const bio = String(teacher?.bio || teacher?.description || "").trim();
+
+  return (
+    name === "sum founder" &&
+    role === "founder & ceo" &&
+    !subject &&
+    !courses &&
+    !bio
+  );
 };
 
 function CountUp({ value, suffix = "", duration = 1200 }) {
@@ -119,15 +139,7 @@ function StarRow() {
   return (
     <div className="flex items-center gap-1">
       {Array.from({ length: 5 }).map((_, index) => (
-        <svg
-          key={`star-${index}`}
-          viewBox="0 0 24 24"
-          className="h-4 w-4 text-accent"
-          fill="currentColor"
-          aria-hidden="true"
-        >
-          <path d="M12 3.4l2.7 5.5 6.1.9-4.4 4.3 1 6.1L12 17.7l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9L12 3.4z" />
-        </svg>
+        <FaStar key={`star-${index}`} className="h-4 w-4 text-accent" aria-hidden="true" />
       ))}
     </div>
   );
@@ -199,12 +211,19 @@ function Home() {
 
   const featuredTeachers = useMemo(() => {
     const rows = Array.isArray(about.team) ? about.team : [];
-    return rows.map((teacher, index) => ({
-      id: teacher.id || `teacher-${index}`,
-      name: textOrNotAdded(teacher.name),
-      role: textOrNotAdded(teacher.role),
-      courses: textOrNotAdded(teacher.subject || teacher.courses),
-    }));
+    return rows
+      .filter((teacher) => {
+        if (isDefaultFounderPlaceholder(teacher)) return false;
+        const name = String(teacher?.name || "").trim();
+        const role = String(teacher?.role || "").trim();
+        return Boolean(name && role);
+      })
+      .map((teacher, index) => ({
+        id: teacher.id || `teacher-${index}`,
+        name: textOrNotAdded(teacher.name),
+        role: textOrNotAdded(teacher.role),
+        courses: textOrNotAdded(teacher.subject || teacher.courses),
+      }));
   }, [about.team]);
 
   useEffect(() => {
@@ -506,7 +525,7 @@ function Home() {
                   ))
                 : featuredTeachers.length
                   ? featuredTeachers.map((teacher) => (
-                    <TeacherCard key={teacher.name} teacher={teacher} />
+                    <TeacherCard key={teacher.id} teacher={teacher} />
                     ))
                   : (
                     <div className="min-w-full rounded-2xl border border-dashed border-slate-200 bg-white/80 p-8 text-center text-sm text-slate-500 dark:border-white/10 dark:bg-slate-900/70 dark:text-slate-300">
@@ -626,7 +645,7 @@ function Home() {
                 className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 text-slate-500 transition hover:border-slate-300 hover:text-slate-900 dark:border-white/10 dark:text-slate-300 dark:hover:text-white"
                 aria-label="Close"
               >
-                ✕
+                <IoClose className="h-5 w-5" />
               </button>
             </div>
             <p className="mt-4 text-sm text-slate-600 dark:text-slate-200">

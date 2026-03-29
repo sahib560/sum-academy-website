@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
+import { FiBell, FiEdit3, FiPaperclip, FiTrash2 } from "react-icons/fi";
 import {
   createAnnouncement,
   deleteAnnouncement,
@@ -459,9 +460,7 @@ function Announcements() {
         ) : filteredAnnouncements.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-14 text-center">
             <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-slate-100 text-slate-500">
-              <svg viewBox="0 0 24 24" className="h-7 w-7" fill="currentColor">
-                <path d="M12 22a2 2 0 0 0 2-2H10a2 2 0 0 0 2 2zm6-6V11a6 6 0 0 0-5-5.9V4a1 1 0 1 0-2 0v1.1A6 6 0 0 0 6 11v5l-2 2v1h16v-1l-2-2z" />
-              </svg>
+              <FiBell className="h-7 w-7" />
             </div>
             <p className="text-lg font-semibold text-slate-700">No announcements yet</p>
             <button className="btn-primary mt-4" onClick={openCreateModal}>
@@ -511,27 +510,21 @@ function Announcements() {
                       }
                       title={item.isPinned ? "Unpin" : "Pin"}
                     >
-                      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-                        <path d="M14 2 9 7l-4 1 7 7 1-4 5-5-4-4zM5 19l5-5 1 1-5 5H5v-1z" />
-                      </svg>
+                      <FiPaperclip className="h-4 w-4" />
                     </button>
                     <button
                       className="rounded-full border border-slate-200 p-2 text-slate-500 hover:text-primary"
                       onClick={() => openEditModal(item)}
                       title="Edit"
                     >
-                      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-                        <path d="m3 17.3 10-10 3.7 3.7-10 10H3v-3.7zM14.4 5.8l1.4-1.4a2 2 0 0 1 2.8 0l1 1a2 2 0 0 1 0 2.8L18.2 9l-3.8-3.2z" />
-                      </svg>
+                      <FiEdit3 className="h-4 w-4" />
                     </button>
                     <button
                       className="rounded-full border border-slate-200 p-2 text-slate-500 hover:text-rose-500"
                       onClick={() => setDeleteItem(item)}
                       title="Delete"
                     >
-                      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-                        <path d="M7 4h10l1 2h4v2H2V6h4l1-2zm1 6h2v8H8v-8zm6 0h2v8h-2v-8z" />
-                      </svg>
+                      <FiTrash2 className="h-4 w-4" />
                     </button>
                   </div>
                 </div>

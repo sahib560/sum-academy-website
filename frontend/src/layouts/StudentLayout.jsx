@@ -2,6 +2,20 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
+import {
+  FiAward,
+  FiBell,
+  FiBookOpen,
+  FiCalendar,
+  FiClipboard,
+  FiCompass,
+  FiCreditCard,
+  FiGrid,
+  FiHelpCircle,
+  FiLogOut,
+  FiSettings,
+  FiUser,
+} from "react-icons/fi";
 import { logout } from "../services/auth.service.js";
 import { useAuth } from "../hooks/useAuth.js";
 import { getMyAnnouncements } from "../services/admin.service.js";
@@ -31,61 +45,17 @@ const mobileTabs = [
 ];
 
 const iconMap = {
-  grid: (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-      <path d="M3 3h8v8H3V3zm10 0h8v5h-8V3zM3 13h5v8H3v-8zm7 5h11v3H10v-3zm0-5h11v3H10v-3z" />
-    </svg>
-  ),
-  book: (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-      <path d="M6 4h11a3 3 0 0 1 3 3v12a2 2 0 0 1-2 2H7a3 3 0 0 0-3 3V7a3 3 0 0 1 2-3z" />
-    </svg>
-  ),
-  compass: (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-      <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm3.9 6.1-1.9 5.1-5.1 1.9 1.9-5.1 5.1-1.9z" />
-    </svg>
-  ),
-  award: (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-      <path d="M12 2a6 6 0 0 1 6 6c0 2.2-1.2 4.2-3 5.2V22l-3-1.6L9 22v-8.8A6 6 0 0 1 12 2z" />
-    </svg>
-  ),
-  clipboard: (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-      <path d="M9 2h6a2 2 0 0 1 2 2h2v18H5V4h2a2 2 0 0 1 2-2zm0 4h6V4H9v2z" />
-    </svg>
-  ),
-  credit: (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-      <path d="M3 5h18a2 2 0 0 1 2 2v2H1V7a2 2 0 0 1 2-2zm-2 6h22v6a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2v-6zm4 2v2h6v-2H5z" />
-    </svg>
-  ),
-  bell: (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-      <path d="M12 22a2 2 0 0 0 2-2H10a2 2 0 0 0 2 2zm6-6V11a6 6 0 0 0-5-5.9V4a1 1 0 1 0-2 0v1.1A6 6 0 0 0 6 11v5l-2 2v1h16v-1l-2-2z" />
-    </svg>
-  ),
-  calendar: (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-      <path d="M7 2h2v3H7V2zm8 0h2v3h-2V2zM4 6h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2zm0 4v10h16V10H4z" />
-    </svg>
-  ),
-  help: (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-      <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 15a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm1.1-6.1-.6.5v.6h-1.6v-1.3l1.2-1c.5-.4.8-.8.8-1.3a1.6 1.6 0 0 0-3.2 0H7.8a3.4 3.4 0 0 1 6.8 0c0 .9-.4 1.7-1.5 2.4z" />
-    </svg>
-  ),
-  settings: (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-      <path d="M19.4 13.5a7.8 7.8 0 0 0 .1-1.5 7.8 7.8 0 0 0-.1-1.5l2-1.5-2-3.4-2.4 1a7.5 7.5 0 0 0-2.6-1.5l-.4-2.5h-4l-.4 2.5a7.5 7.5 0 0 0-2.6 1.5l-2.4-1-2 3.4 2 1.5a7.8 7.8 0 0 0-.1 1.5 7.8 7.8 0 0 0 .1 1.5l-2 1.5 2 3.4 2.4-1a7.5 7.5 0 0 0 2.6 1.5l.4 2.5h4l.4-2.5a7.5 7.5 0 0 0 2.6-1.5l2.4 1 2-3.4-2-1.5zM12 15.2A3.2 3.2 0 1 1 12 8.8a3.2 3.2 0 0 1 0 6.4z" />
-    </svg>
-  ),
-  user: (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-      <path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm0 2c-4.4 0-8 2-8 4.5V21h16v-2.5c0-2.5-3.6-4.5-8-4.5z" />
-    </svg>
-  ),
+  grid: <FiGrid className="h-4 w-4" />,
+  book: <FiBookOpen className="h-4 w-4" />,
+  compass: <FiCompass className="h-4 w-4" />,
+  award: <FiAward className="h-4 w-4" />,
+  clipboard: <FiClipboard className="h-4 w-4" />,
+  credit: <FiCreditCard className="h-4 w-4" />,
+  bell: <FiBell className="h-4 w-4" />,
+  calendar: <FiCalendar className="h-4 w-4" />,
+  help: <FiHelpCircle className="h-4 w-4" />,
+  settings: <FiSettings className="h-4 w-4" />,
+  user: <FiUser className="h-4 w-4" />,
 };
 
 function StudentLayout() {
@@ -222,9 +192,7 @@ function StudentLayout() {
               className="rounded-full border border-slate-200 p-2 text-slate-500"
               onClick={handleLogout}
             >
-              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-                <path d="M10 4h8a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-8v-2h8V6h-8V4zM4 12l4-4v3h8v2H8v3l-4-4z" />
-              </svg>
+              <FiLogOut className="h-4 w-4" />
             </button>
           </div>
         </div>

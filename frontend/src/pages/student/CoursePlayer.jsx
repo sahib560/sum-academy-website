@@ -3,6 +3,7 @@ import { AnimatePresence, motion as Motion } from "framer-motion";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import toast, { Toaster } from "react-hot-toast";
+import { FiLock } from "react-icons/fi";
 import { Skeleton } from "../../components/Skeleton.jsx";
 import { useAuth } from "../../hooks/useAuth.js";
 import {
@@ -447,9 +448,7 @@ function StudentCoursePlayer() {
 
               {showLockedOverlay && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-slate-900/75 text-center text-white backdrop-blur-sm">
-                  <svg viewBox="0 0 24 24" className="h-8 w-8" fill="currentColor">
-                    <path d="M6 10V8a6 6 0 1 1 12 0v2h1a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V11a1 1 0 0 1 1-1h1zm2 0h8V8a4 4 0 1 0-8 0v2z" />
-                  </svg>
+                  <FiLock className="h-8 w-8" />
                   <p className="text-sm font-semibold">This video is locked</p>
                   <p className="text-xs text-slate-200">Contact your teacher to unlock</p>
                 </div>

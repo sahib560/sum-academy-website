@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
+import { FiMail } from "react-icons/fi";
 
 const floatAnim = {
   animate: {
@@ -115,9 +116,7 @@ function VerifyOTP() {
             variants={floatAnim}
             animate="animate"
           >
-            <svg viewBox="0 0 24 24" className="h-8 w-8" fill="currentColor">
-              <path d="M4 6h16a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2zm0 2 8 5 8-5H4zm0 8h16V10l-8 5-8-5v6z" />
-            </svg>
+            <FiMail className="h-8 w-8" />
           </motion.div>
           <h1 className="mt-6 font-heading text-3xl text-slate-900">
             Verify Your Email

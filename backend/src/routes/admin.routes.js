@@ -1,4 +1,5 @@
 import { Router } from "express";
+import multer from "multer";
 import {
   verifyToken,
   requireRole,
@@ -7,6 +8,10 @@ import * as adminController from "../controllers/admin.controller.js";
 import * as paymentController from "../controllers/payment.controller.js";
 
 const router = Router();
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+});
 const adminOnly = [verifyToken, requireRole("admin")];
 const adminOrStudent = [verifyToken, requireRole("admin", "student")];
 
@@ -50,6 +55,17 @@ router.patch(
 
 router.get("/teachers", adminOnly, adminController.getTeachers);
 router.get("/students", adminOnly, adminController.getStudents);
+router.get(
+  "/students/template",
+  adminOnly,
+  adminController.downloadStudentsBulkTemplate
+);
+router.post(
+  "/students/bulk-upload",
+  adminOnly,
+  upload.single("file"),
+  adminController.bulkUploadStudents
+);
 
 router.get("/courses", adminOnly, adminController.getCourses);
 router.post("/courses", adminOnly, adminController.createCourse);

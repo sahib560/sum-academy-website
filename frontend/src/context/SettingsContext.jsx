@@ -191,8 +191,31 @@ export const defaultSettings = {
   appearance: {
     primaryColor: "#4a63f5",
     accentColor: "#ff6f0f",
+    secondaryColor: "#12b981",
+    successColor: "#16a34a",
+    warningColor: "#f59e0b",
+    dangerColor: "#ef4444",
+    infoColor: "#0ea5e9",
+    surfaceColor: "#ffffff",
+    backgroundColor: "#f8fafc",
+    textColor: "#0f172a",
+    mutedTextColor: "#64748b",
+    borderColor: "#e2e8f0",
     darkModeDefault: false,
     fontFamily: "DM Sans",
+  },
+  certificate: {
+    borderColor: "#4a63f5",
+    headingColor: "#1f2937",
+    nameColor: "#4a63f5",
+    bodyColor: "#334155",
+    backgroundColor: "#ffffff",
+    showQr: true,
+    showLogo: true,
+    showSignature: true,
+    logoUrl: "",
+    signatureUrl: "",
+    signatureLabel: "Authorized Signature",
   },
   maintenance: {
     enabled: false,
@@ -280,6 +303,46 @@ const applySettingsToDom = (settings) => {
   root.style.setProperty(
     "--brand-accent",
     appearance.accentColor || defaultSettings.appearance.accentColor
+  );
+  root.style.setProperty(
+    "--brand-secondary",
+    appearance.secondaryColor || defaultSettings.appearance.secondaryColor
+  );
+  root.style.setProperty(
+    "--brand-success",
+    appearance.successColor || defaultSettings.appearance.successColor
+  );
+  root.style.setProperty(
+    "--brand-warning",
+    appearance.warningColor || defaultSettings.appearance.warningColor
+  );
+  root.style.setProperty(
+    "--brand-danger",
+    appearance.dangerColor || defaultSettings.appearance.dangerColor
+  );
+  root.style.setProperty(
+    "--brand-info",
+    appearance.infoColor || defaultSettings.appearance.infoColor
+  );
+  root.style.setProperty(
+    "--brand-surface",
+    appearance.surfaceColor || defaultSettings.appearance.surfaceColor
+  );
+  root.style.setProperty(
+    "--brand-bg",
+    appearance.backgroundColor || defaultSettings.appearance.backgroundColor
+  );
+  root.style.setProperty(
+    "--brand-text",
+    appearance.textColor || defaultSettings.appearance.textColor
+  );
+  root.style.setProperty(
+    "--brand-muted",
+    appearance.mutedTextColor || defaultSettings.appearance.mutedTextColor
+  );
+  root.style.setProperty(
+    "--brand-border",
+    appearance.borderColor || defaultSettings.appearance.borderColor
   );
   root.style.setProperty(
     "--font-body",

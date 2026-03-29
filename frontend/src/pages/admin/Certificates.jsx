@@ -3,6 +3,8 @@ import { AnimatePresence, motion } from "framer-motion";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import jsPDF from "jspdf";
 import toast, { Toaster } from "react-hot-toast";
+import { useSettings } from "../../hooks/useSettings.js";
+import { defaultSettings } from "../../context/SettingsContext.jsx";
 import {
   generateCertificate,
   getCertificates,
@@ -65,73 +67,126 @@ const normalizeStudentEnrollments = (student) =>
         .filter(Boolean)
     : [];
 
-function downloadCertPdf(cert) {
+const hexToRgb = (value = "") => {
+  const hex = String(value || "").replace("#", "");
+  if (hex.length !== 6) return [0, 0, 0];
+  const r = parseInt(hex.slice(0, 2), 16);
+  const g = parseInt(hex.slice(2, 4), 16);
+  const b = parseInt(hex.slice(4, 6), 16);
+  return [r, g, b];
+};
+
+const loadImageAsDataUrl = (url) =>
+  new Promise((resolve) => {
+    if (!url) return resolve(null);
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      try {
+        const canvas = document.createElement("canvas");
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0);
+        resolve(canvas.toDataURL("image/png"));
+      } catch {
+        resolve(null);
+      }
+    };
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+
+async function downloadCertPdf(cert, certSettings) {
   const doc = new jsPDF("landscape", "mm", "a4");
   const pageW = 297;
   const pageH = 210;
 
-  doc.setDrawColor(74, 99, 245);
+  const borderColor = hexToRgb(certSettings.borderColor);
+  const headingColor = hexToRgb(certSettings.headingColor);
+  const nameColor = hexToRgb(certSettings.nameColor);
+  const bodyColor = hexToRgb(certSettings.bodyColor);
+  const bgColor = hexToRgb(certSettings.backgroundColor);
+
+  doc.setFillColor(...bgColor);
+  doc.rect(0, 0, pageW, pageH, "F");
+
+  doc.setDrawColor(...borderColor);
   doc.setLineWidth(1);
   doc.rect(10, 10, pageW - 20, pageH - 20);
   doc.setLineWidth(0.5);
   doc.rect(14, 14, pageW - 28, pageH - 28);
 
   doc.setFont("helvetica", "bold");
-  doc.setTextColor(74, 99, 245);
+  doc.setTextColor(...headingColor);
   doc.setFontSize(30);
   doc.text("SUM ACADEMY", pageW / 2, 34, { align: "center" });
 
-  doc.setTextColor(55, 65, 81);
+  doc.setTextColor(...headingColor);
   doc.setFontSize(20);
   doc.text("Certificate of Completion", pageW / 2, 48, { align: "center" });
 
   doc.setFont("times", "italic");
   doc.setFontSize(12);
-  doc.setTextColor(107, 114, 128);
+  doc.setTextColor(...bodyColor);
   doc.text("This is to certify that", pageW / 2, 66, { align: "center" });
 
   doc.setFont("times", "bold");
   doc.setFontSize(28);
-  doc.setTextColor(74, 99, 245);
+  doc.setTextColor(...nameColor);
   doc.text(cert.studentName || "Student", pageW / 2, 84, { align: "center" });
 
   doc.setFont("times", "italic");
   doc.setFontSize(12);
-  doc.setTextColor(107, 114, 128);
+  doc.setTextColor(...bodyColor);
   doc.text("has successfully completed", pageW / 2, 98, { align: "center" });
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(22);
-  doc.setTextColor(17, 24, 39);
+  doc.setTextColor(...headingColor);
   doc.text(cert.courseName || "Course", pageW / 2, 113, { align: "center" });
 
   doc.setFont("times", "italic");
   doc.setFontSize(11);
-  doc.setTextColor(107, 114, 128);
+  doc.setTextColor(...bodyColor);
   doc.text("with distinction", pageW / 2, 124, { align: "center" });
 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(10);
-  doc.setTextColor(55, 65, 81);
+  doc.setTextColor(...bodyColor);
   doc.text(`Issue Date: ${dateLabel(cert.issuedAt || cert.createdAt)}`, 24, 160);
   doc.text(`Cert ID: ${cert.certId || cert.id}`, pageW / 2, 160, { align: "center" });
-  doc.text("Authorized Signature", pageW - 65, 160);
-  doc.line(pageW - 92, 156, pageW - 25, 156);
+  if (certSettings.showSignature) {
+    doc.text(
+      certSettings.signatureLabel || "Authorized Signature",
+      pageW - 65,
+      160
+    );
+    doc.line(pageW - 92, 156, pageW - 25, 156);
+    if (certSettings.signatureUrl) {
+      const sigData = await loadImageAsDataUrl(certSettings.signatureUrl);
+      if (sigData) {
+        doc.addImage(sigData, "PNG", pageW - 92, 140, 60, 14);
+      }
+    }
+  }
 
-  doc.setDrawColor(148, 163, 184);
-  doc.rect(pageW - 50, 120, 22, 22);
-  doc.setFontSize(8);
-  doc.text("QR", pageW - 39, 132, { align: "center" });
-  doc.text("Scan to verify", pageW - 39, 146, { align: "center" });
+  if (certSettings.showQr) {
+    doc.setDrawColor(148, 163, 184);
+    doc.rect(pageW - 50, 120, 22, 22);
+    doc.setFontSize(8);
+    doc.text("QR", pageW - 39, 132, { align: "center" });
+    doc.text("Scan to verify", pageW - 39, 146, { align: "center" });
+  }
 
   doc.setFontSize(7);
-  doc.setTextColor(100, 116, 139);
+  doc.setTextColor(...bodyColor);
   doc.text(verifyLinkFor(cert), pageW / 2, 178, { align: "center" });
 
   doc.save(`SUM_Certificate_${cert.certId || cert.id}.pdf`);
 }
 
-function PreviewModal({ cert, onClose }) {
+function PreviewModal({ cert, onClose, certSettings }) {
   if (!cert) return null;
   return (
     <AnimatePresence>
@@ -143,50 +198,112 @@ function PreviewModal({ cert, onClose }) {
             <button className="rounded-full border border-slate-200 px-3 py-1 text-sm" onClick={onClose}>X</button>
           </div>
 
-          <div className="mt-5 rounded-3xl border-2 border-primary/30 bg-gradient-to-br from-white via-slate-50 to-white p-8">
-            <div className="rounded-2xl border border-primary/30 p-8">
-              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-primary text-xl font-bold text-white">S</div>
-              <p className="mt-3 text-center text-3xl font-bold text-slate-900">SUM ACADEMY</p>
-              <p className="text-center text-sm text-slate-500">Certificate of Completion</p>
+          <div
+            className="mt-5 rounded-3xl border-2 border-primary/30 bg-gradient-to-br from-white via-slate-50 to-white p-8"
+            style={{ background: certSettings.backgroundColor }}
+          >
+            <div
+              className="rounded-2xl border border-primary/30 p-8"
+              style={{ borderColor: certSettings.borderColor }}
+            >
+              {certSettings.showLogo && certSettings.logoUrl ? (
+                <div className="mx-auto flex h-14 w-20 items-center justify-center">
+                  <img
+                    src={certSettings.logoUrl}
+                    alt="Certificate logo"
+                    className="max-h-14 object-contain"
+                  />
+                </div>
+              ) : (
+                <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-primary text-xl font-bold text-white">
+                  S
+                </div>
+              )}
+              <p
+                className="mt-3 text-center text-3xl font-bold"
+                style={{ color: certSettings.headingColor }}
+              >
+                SUM ACADEMY
+              </p>
+              <p className="text-center text-sm" style={{ color: certSettings.bodyColor }}>
+                Certificate of Completion
+              </p>
               <div className="mx-auto mt-4 h-px w-72 bg-slate-200" />
 
               <div className="mt-8 space-y-3 text-center">
-                <p className="text-sm italic text-slate-500">This is to certify that</p>
-                <p className="font-heading text-5xl font-semibold text-primary">{cert.studentName || "Student"}</p>
-                <p className="text-sm italic text-slate-500">has successfully completed</p>
-                <p className="text-3xl font-bold text-slate-900">{cert.courseName || "Course"}</p>
-                <p className="text-sm italic text-slate-500">with distinction</p>
+                <p className="text-sm italic" style={{ color: certSettings.bodyColor }}>
+                  This is to certify that
+                </p>
+                <p
+                  className="font-heading text-5xl font-semibold"
+                  style={{ color: certSettings.nameColor }}
+                >
+                  {cert.studentName || "Student"}
+                </p>
+                <p className="text-sm italic" style={{ color: certSettings.bodyColor }}>
+                  has successfully completed
+                </p>
+                <p className="text-3xl font-bold" style={{ color: certSettings.headingColor }}>
+                  {cert.courseName || "Course"}
+                </p>
+                <p className="text-sm italic" style={{ color: certSettings.bodyColor }}>
+                  with distinction
+                </p>
               </div>
 
               <div className="mt-10 grid gap-6 md:grid-cols-3">
                 <div>
                   <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Issue Date</p>
-                  <p className="mt-1 text-sm text-slate-700">{dateLabel(cert.issuedAt || cert.createdAt)}</p>
+                  <p className="mt-1 text-sm" style={{ color: certSettings.bodyColor }}>
+                    {dateLabel(cert.issuedAt || cert.createdAt)}
+                  </p>
                 </div>
                 <div className="text-center">
                   <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Cert ID</p>
-                  <p className="mt-1 font-mono text-sm text-primary">{cert.certId || cert.id}</p>
+                  <p className="mt-1 font-mono text-sm" style={{ color: certSettings.nameColor }}>
+                    {cert.certId || cert.id}
+                  </p>
                 </div>
-                <div className="text-right">
-                  <div className="ml-auto h-px w-36 bg-slate-300" />
-                  <p className="mt-1 text-xs text-slate-500">Admin Signature</p>
-                </div>
+                {certSettings.showSignature ? (
+                  <div className="text-right">
+                    {certSettings.signatureUrl ? (
+                      <img
+                        src={certSettings.signatureUrl}
+                        alt="Signature"
+                        className="ml-auto h-10 object-contain"
+                      />
+                    ) : (
+                      <div className="ml-auto h-px w-36 bg-slate-300" />
+                    )}
+                    <p className="mt-1 text-xs text-slate-500">
+                      {certSettings.signatureLabel || "Authorized Signature"}
+                    </p>
+                  </div>
+                ) : null}
               </div>
 
-              <div className="mt-8 flex items-end justify-between">
-                <div className="h-20 w-20 rounded-lg border border-slate-300 bg-white text-center text-xs leading-[80px] text-slate-500">
-                  QR
+              {certSettings.showQr ? (
+                <div className="mt-8 flex items-end justify-between">
+                  <div className="h-20 w-20 rounded-lg border border-slate-300 bg-white text-center text-xs leading-[80px] text-slate-500">
+                    QR
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs text-slate-400">Scan to verify</p>
+                    <p className="mt-1 text-[11px] text-slate-500">{verifyLinkFor(cert)}</p>
+                  </div>
                 </div>
-                <div className="text-right">
-                  <p className="text-xs text-slate-400">Scan to verify</p>
-                  <p className="mt-1 text-[11px] text-slate-500">{verifyLinkFor(cert)}</p>
-                </div>
-              </div>
+              ) : null}
             </div>
           </div>
 
           <div className="mt-5 flex flex-wrap gap-2">
-            <button className="btn-primary" onClick={() => { downloadCertPdf(cert); toast.success("Certificate PDF downloaded"); }}>
+            <button
+              className="btn-primary"
+              onClick={() => {
+                downloadCertPdf(cert, certSettings);
+                toast.success("Certificate PDF downloaded");
+              }}
+            >
               Download PDF
             </button>
             <button className="btn-outline" onClick={async () => { await navigator.clipboard.writeText(verifyLinkFor(cert)); toast.success("Verification link copied!"); }}>
@@ -328,6 +445,8 @@ function GenerateModal({
 
 export default function Certificates() {
   const qc = useQueryClient();
+  const { settings } = useSettings();
+  const certSettings = settings?.certificate || defaultSettings.certificate;
   const [search, setSearch] = useState("");
   const [courseFilter, setCourseFilter] = useState("all");
   const [startDate, setStartDate] = useState("");
@@ -542,7 +661,15 @@ export default function Certificates() {
                       <td className="px-6 py-4">
                         <div className="flex flex-wrap gap-2">
                           <button className="rounded-full border border-slate-200 px-3 py-1 text-xs" onClick={() => setPreview(cert)}>Preview</button>
-                          <button className="rounded-full border border-slate-200 px-3 py-1 text-xs" onClick={() => { downloadCertPdf(cert); toast.success("Certificate PDF downloaded"); }}>Download</button>
+                          <button
+                            className="rounded-full border border-slate-200 px-3 py-1 text-xs"
+                            onClick={() => {
+                              downloadCertPdf(cert, certSettings);
+                              toast.success("Certificate PDF downloaded");
+                            }}
+                          >
+                            Download
+                          </button>
                           <button className="rounded-full border border-slate-200 px-3 py-1 text-xs" onClick={async () => { await navigator.clipboard.writeText(link); toast.success("Verification link copied!"); }}>Copy Verify Link</button>
                           {cert.isRevoked ? (
                             <button
@@ -568,7 +695,11 @@ export default function Certificates() {
         </table>
       </div>
 
-      <PreviewModal cert={preview} onClose={() => setPreview(null)} />
+      <PreviewModal
+        cert={preview}
+        onClose={() => setPreview(null)}
+        certSettings={certSettings}
+      />
 
       <GenerateModal
         open={showGenerate}

@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Toaster, toast } from "react-hot-toast";
+import { FiCalendar } from "react-icons/fi";
 import { Skeleton } from "../../components/Skeleton.jsx";
 import { useAuth } from "../../hooks/useAuth.js";
 import {
@@ -722,9 +723,7 @@ function TeacherSessions() {
       ) : sessions.length === 0 ? (
         <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-10 text-center">
           <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-primary/10 text-primary">
-            <svg viewBox="0 0 24 24" className="h-7 w-7" fill="currentColor">
-              <path d="M7 2h2v3H7V2zm8 0h2v3h-2V2zM4 6h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2zm0 4v10h16V10H4z" />
-            </svg>
+            <FiCalendar className="h-7 w-7" />
           </div>
           <h3 className="mt-4 font-heading text-2xl text-slate-900">No sessions yet</h3>
           <p className="mt-2 text-sm text-slate-500">Schedule your first session to get started.</p>

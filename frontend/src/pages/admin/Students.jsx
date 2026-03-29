@@ -9,8 +9,21 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Toaster, toast } from "react-hot-toast";
 import { jsPDF } from "jspdf";
 import {
+  FiDownload,
+  FiEdit3,
+  FiEye,
+  FiEyeOff,
+  FiUpload,
+  FiSearch,
+  FiTrash2,
+  FiUser,
+  FiX,
+} from "react-icons/fi";
+import {
+  bulkUploadStudents,
   createUser,
   deleteUser,
+  downloadStudentsBulkTemplate,
   getStudents,
   resetUserDevice,
   updateUser,
@@ -304,9 +317,7 @@ function ModalShell({ open, title, onClose, children, maxWidth = "max-w-lg" }) {
                 className="rounded-full border border-slate-200 p-2 text-slate-500 transition hover:text-slate-900"
                 aria-label="Close"
               >
-                <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-                  <path d="M18.3 5.7 12 12l6.3 6.3-1.4 1.4L10.6 13.4 4.3 19.7l-1.4-1.4L9.2 12 2.9 5.7l1.4-1.4 6.3 6.3 6.3-6.3z" />
-                </svg>
+                <FiX className="h-4 w-4" />
               </button>
             </div>
             <div className="overflow-y-auto pr-1">{children}</div>
@@ -330,6 +341,7 @@ function Students() {
   const [page, setPage] = useState(1);
 
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showBulkModal, setShowBulkModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showStatusModal, setShowStatusModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -345,6 +357,8 @@ function Students() {
   const [resetTouched, setResetTouched] = useState({});
   const [showPassword, setShowPassword] = useState(false);
   const [emailFieldError, setEmailFieldError] = useState("");
+  const [bulkFile, setBulkFile] = useState(null);
+  const [bulkResult, setBulkResult] = useState(null);
 
   const studentsQuery = useQuery({
     queryKey: ["admin", "students"],
@@ -423,6 +437,38 @@ function Students() {
     },
   });
 
+  const downloadTemplateMutation = useMutation({
+    mutationFn: downloadStudentsBulkTemplate,
+    onSuccess: () => {
+      toast.success("Template downloaded. Fill it and upload.");
+    },
+    onError: (error) => {
+      toast.error(error?.response?.data?.error || "Failed to download template.");
+    },
+  });
+
+  const bulkUploadMutation = useMutation({
+    mutationFn: bulkUploadStudents,
+    onSuccess: async (response) => {
+      await invalidateStudents();
+      const result = response?.data || {};
+      setBulkResult(result);
+      toast.success(
+        `${result.createdCount || 0} student(s) created${
+          result.failedCount ? `, ${result.failedCount} failed` : ""
+        }.`
+      );
+    },
+    onError: (error) => {
+      toast.error(error?.response?.data?.error || "Bulk upload failed.");
+      setBulkResult({
+        createdCount: 0,
+        failedCount: error?.response?.data?.errors?.length || 0,
+        failed: error?.response?.data?.errors || [],
+      });
+    },
+  });
+
   const editStudentMutation = useMutation({
     mutationFn: ({ uid, data }) => updateUser(uid, data),
     onSuccess: async () => {
@@ -484,6 +530,12 @@ function Students() {
     setShowPassword(false);
     setEmailFieldError("");
     setShowAddModal(true);
+  };
+
+  const openBulk = () => {
+    setBulkFile(null);
+    setBulkResult(null);
+    setShowBulkModal(true);
   };
 
   const openEdit = (student) => {
@@ -598,6 +650,14 @@ function Students() {
           >
             Export PDF
           </button>
+          <button
+            type="button"
+            onClick={openBulk}
+            className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-primary hover:text-primary"
+          >
+            <FiUpload className="h-4 w-4" />
+            Bulk Add
+          </button>
           <button type="button" onClick={openAdd} className="btn-primary">
             Add Student
           </button>
@@ -621,9 +681,7 @@ function Students() {
       <div className="flex flex-wrap items-center gap-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="relative min-w-[240px] flex-1">
           <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
-            <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
-              <path d="M10 4a6 6 0 1 0 3.9 10.6l4.7 4.7 1.4-1.4-4.7-4.7A6 6 0 0 0 10 4zm0 2a4 4 0 1 1 0 8 4 4 0 0 1 0-8z" />
-            </svg>
+            <FiSearch className="h-5 w-5" />
           </span>
           <input
             type="text"
@@ -691,9 +749,7 @@ function Students() {
                   <td colSpan={9} className="px-6 py-14">
                     <div className="flex flex-col items-center justify-center text-center">
                       <div className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
-                        <svg viewBox="0 0 24 24" className="h-8 w-8" fill="currentColor">
-                          <path d="M12 12a4 4 0 1 1 0-8 4 4 0 0 1 0 8zm-7 8a7 7 0 1 1 14 0H5z" />
-                        </svg>
+                        <FiUser className="h-8 w-8" />
                       </div>
                       <p className="mt-4 text-lg font-semibold text-slate-900">No students added yet</p>
                       <button type="button" onClick={openAdd} className="btn-primary mt-4">Add your first student</button>
@@ -736,16 +792,16 @@ function Students() {
                     <td className="px-6 py-4">
                       <div className="flex justify-end gap-2">
                         <button type="button" onClick={() => openProfile(student)} className="rounded-full border border-slate-200 p-2 text-slate-500 transition hover:text-primary" aria-label="View">
-                          <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor"><path d="M12 5c5.5 0 9.5 5.5 9.7 5.8l.3.4-.3.4C21.5 12 17.5 17 12 17S2.5 12 2.3 11.6l-.3-.4.3-.4C2.5 10.5 6.5 5 12 5zm0 2C8.7 7 6 9.8 4.7 11.2 6 12.6 8.7 15 12 15s6-2.4 7.3-3.8C18 9.8 15.3 7 12 7zm0 1.5a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5z" /></svg>
+                          <FiEye className="h-4 w-4" />
                         </button>
                         <button type="button" onClick={() => openEdit(student)} className="rounded-full border border-slate-200 p-2 text-slate-500 transition hover:text-primary" aria-label="Edit">
-                          <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor"><path d="M3 17.2V21h3.8l11-11-3.8-3.8-11 11zm17.7-10.5a1 1 0 0 0 0-1.4l-2-2a1 1 0 0 0-1.4 0l-1.6 1.6 3.8 3.8 1.2-1z" /></svg>
+                          <FiEdit3 className="h-4 w-4" />
                         </button>
                         <button type="button" onClick={() => openStatus(student)} className={`rounded-full px-3 py-1 text-xs font-semibold ${student.isActive ? "bg-rose-50 text-rose-600" : "bg-emerald-50 text-emerald-600"}`}>
                           {student.isActive ? "Deactivate" : "Activate"}
                         </button>
                         <button type="button" onClick={() => openDelete(student)} className="rounded-full border border-slate-200 p-2 text-rose-500 transition hover:text-rose-600" aria-label="Delete">
-                          <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor"><path d="M6 7h12l-1 14H7L6 7zm3-3h6l1 2H8l1-2z" /></svg>
+                          <FiTrash2 className="h-4 w-4" />
                         </button>
                       </div>
                     </td>
@@ -765,9 +821,7 @@ function Students() {
             <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-10">
               <div className="flex flex-col items-center justify-center text-center">
                 <div className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
-                  <svg viewBox="0 0 24 24" className="h-7 w-7" fill="currentColor">
-                    <path d="M12 12a4 4 0 1 1 0-8 4 4 0 0 1 0 8zm-7 8a7 7 0 1 1 14 0H5z" />
-                  </svg>
+                  <FiUser className="h-7 w-7" />
                 </div>
                 <p className="mt-3 text-base font-semibold text-slate-900">No students added yet</p>
                 <button type="button" onClick={openAdd} className="btn-primary mt-4">
@@ -852,13 +906,7 @@ function Students() {
             <div className="relative mt-2">
               <input type={showPassword ? "text" : "password"} value={addForm.password} onChange={(event) => { setAddForm((prev) => ({ ...prev, password: event.target.value })); setAddTouched((prev) => ({ ...prev, password: true })); }} className="w-full rounded-2xl border border-slate-200 px-4 py-3 pr-12 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/10" placeholder="Create password" />
               <button type="button" onClick={() => setShowPassword((prev) => !prev)} className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full p-1 text-slate-400 transition hover:text-slate-700" aria-label={showPassword ? "Hide password" : "Show password"}>
-                <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
-                  {showPassword ? (
-                    <path d="M2 5.3 3.3 4 20 20.7 18.7 22l-3.2-3.2A12.4 12.4 0 0 1 12 19C7 19 2.7 15.9 1 12c.8-1.8 2-3.4 3.5-4.7L2 5.3zm9.9 9.9a3.5 3.5 0 0 1-3.1-3.1l3.1 3.1zm7.2-1.7-2.2-2.2a3.5 3.5 0 0 0-4.2-4.2L9.3 6.4A8.7 8.7 0 0 1 12 5c5 0 9.3 3.1 11 7-.9 2.1-2.5 4-4.6 5.5z" />
-                  ) : (
-                    <path d="M12 5c5.5 0 9.5 5.5 9.7 5.8l.3.4-.3.4C21.5 12 17.5 17 12 17S2.5 12 2.3 11.6l-.3-.4.3-.4C2.5 10.5 6.5 5 12 5zm0 2C8.7 7 6 9.8 4.7 11.2 6 12.6 8.7 15 12 15s6-2.4 7.3-3.8C18 9.8 15.3 7 12 7zm0 1.5a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5z" />
-                  )}
-                </svg>
+                {showPassword ? <FiEyeOff className="h-5 w-5" /> : <FiEye className="h-5 w-5" />}
               </button>
             </div>
             <FieldError message={addTouched.password ? addErrors.password : ""} />
@@ -879,6 +927,128 @@ function Students() {
             </button>
           </div>
         </form>
+      </ModalShell>
+
+      <ModalShell
+        open={showBulkModal}
+        title="Bulk Add Students"
+        onClose={() => {
+          if (bulkUploadMutation.isPending || downloadTemplateMutation.isPending) return;
+          setShowBulkModal(false);
+        }}
+      >
+        <div className="mt-6 space-y-5">
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+            <p className="font-semibold text-slate-900">Template columns</p>
+            <p className="mt-1">Use only these columns: `name,email,password,phone,address`.</p>
+            <p className="mt-1">Do not add `id`. Other details can be completed by student after login.</p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={() => downloadTemplateMutation.mutate()}
+              disabled={downloadTemplateMutation.isPending}
+              className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-primary hover:text-primary disabled:opacity-60"
+            >
+              <FiDownload className="h-4 w-4" />
+              {downloadTemplateMutation.isPending ? "Downloading..." : "Download Template"}
+            </button>
+
+            <label className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-primary hover:text-primary">
+              <FiUpload className="h-4 w-4" />
+              Choose CSV
+              <input
+                type="file"
+                accept=".csv,text/csv"
+                className="hidden"
+                onChange={(event) => {
+                  const file = event.target.files?.[0] || null;
+                  setBulkFile(file);
+                  setBulkResult(null);
+                }}
+              />
+            </label>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 p-4 text-sm">
+            {bulkFile ? (
+              <div className="space-y-1 text-slate-700">
+                <p className="font-semibold">{bulkFile.name}</p>
+                <p className="text-xs text-slate-500">
+                  {(bulkFile.size / 1024).toFixed(2)} KB
+                </p>
+              </div>
+            ) : (
+              <p className="text-slate-500">No CSV selected yet.</p>
+            )}
+          </div>
+
+          {bulkResult ? (
+            <div className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 text-sm">
+              <p className="font-semibold text-slate-900">Upload Summary</p>
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div className="rounded-xl bg-emerald-50 p-3 text-emerald-700">
+                  Created: {Number(bulkResult.createdCount || 0)}
+                </div>
+                <div className="rounded-xl bg-rose-50 p-3 text-rose-700">
+                  Failed: {Number(bulkResult.failedCount || 0)}
+                </div>
+                <div className="rounded-xl bg-blue-50 p-3 text-blue-700">
+                  Rows: {Number(bulkResult.totalRows || 0)}
+                </div>
+              </div>
+              {Array.isArray(bulkResult.failed) && bulkResult.failed.length > 0 ? (
+                <div className="max-h-36 space-y-2 overflow-y-auto rounded-xl border border-rose-100 bg-rose-50 p-3 text-xs text-rose-700">
+                  {bulkResult.failed.slice(0, 12).map((item, index) => (
+                    <p key={`${item.row || index}-${item.email || ""}`}>
+                      Row {item.row || "-"}: {item.message || "Failed"}
+                      {item.email ? ` (${item.email})` : ""}
+                    </p>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          <div className="flex justify-end gap-3 border-t border-slate-100 pt-4">
+            <button
+              type="button"
+              onClick={() => {
+                setBulkFile(null);
+                setBulkResult(null);
+              }}
+              className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600"
+            >
+              Reset
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (!bulkFile) {
+                  toast.error("Please select a CSV file first.");
+                  return;
+                }
+                if (!bulkFile.name.toLowerCase().endsWith(".csv")) {
+                  toast.error("Please upload a CSV file only.");
+                  return;
+                }
+                bulkUploadMutation.mutate(bulkFile);
+              }}
+              disabled={bulkUploadMutation.isPending}
+              className="btn-primary min-w-36"
+            >
+              {bulkUploadMutation.isPending ? (
+                <span className="flex items-center justify-center gap-2">
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                  Uploading...
+                </span>
+              ) : (
+                "Upload CSV"
+              )}
+            </button>
+          </div>
+        </div>
       </ModalShell>
 
       <ModalShell open={showEditModal} title="Edit Student" onClose={() => { if (editStudentMutation.isPending) return; setShowEditModal(false); }}>
@@ -990,7 +1160,7 @@ function Students() {
               <div className="flex items-center justify-between">
                 <h3 className="font-heading text-2xl text-slate-900">Student Profile</h3>
                 <button type="button" className="rounded-full border border-slate-200 p-2 text-slate-500" onClick={() => setProfileStudent(null)}>
-                  <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor"><path d="M18.3 5.7 12 12l6.3 6.3-1.4 1.4L10.6 13.4 4.3 19.7l-1.4-1.4L9.2 12 2.9 5.7l1.4-1.4 6.3 6.3 6.3-6.3z" /></svg>
+                  <FiX className="h-4 w-4" />
                 </button>
               </div>
               <div className="mt-6 flex items-center gap-4">

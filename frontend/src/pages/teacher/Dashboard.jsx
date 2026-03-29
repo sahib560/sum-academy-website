@@ -2,6 +2,15 @@ import { useMemo, useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
+import {
+  FiBarChart2,
+  FiBookOpen,
+  FiCalendar,
+  FiClipboard,
+  FiBell,
+  FiUsers,
+  FiVideo,
+} from "react-icons/fi";
 import { Skeleton, SkeletonCard } from "../../components/Skeleton.jsx";
 import { useAuth } from "../../hooks/useAuth.js";
 import { getTeacherDashboard } from "../../services/teacher.service.js";
@@ -10,38 +19,22 @@ const quickActions = [
   {
     label: "Upload Video",
     to: "/teacher/courses",
-    icon: (
-      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-        <path d="M4 5h10a2 2 0 0 1 2 2v2.4l4-2.4v10l-4-2.4V17a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z" />
-      </svg>
-    ),
+    icon: <FiVideo className="h-4 w-4" />,
   },
   {
     label: "Create Quiz",
     to: "/teacher/courses",
-    icon: (
-      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-        <path d="M7 4h10a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zm2 4h6v2H9V8zm0 4h6v2H9v-2z" />
-      </svg>
-    ),
+    icon: <FiClipboard className="h-4 w-4" />,
   },
   {
     label: "Schedule Session",
     to: "/teacher/sessions",
-    icon: (
-      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-        <path d="M7 2h2v3H7V2zm8 0h2v3h-2V2zM4 6h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2zm0 4v10h16V10H4z" />
-      </svg>
-    ),
+    icon: <FiCalendar className="h-4 w-4" />,
   },
   {
     label: "Post Announcement",
     to: "/teacher/announcements",
-    icon: (
-      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-        <path d="M3 11h3l8-5v14l-8-5H3v-4zm15.5 1a3.5 3.5 0 0 0-1.2-2.6V14.6A3.5 3.5 0 0 0 18.5 12z" />
-      </svg>
-    ),
+    icon: <FiBell className="h-4 w-4" />,
   },
 ];
 
@@ -51,44 +44,28 @@ const statsConfig = [
     label: "My Courses",
     suffix: "",
     color: "border-blue-500",
-    icon: (
-      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
-        <path d="M6 4h11a3 3 0 0 1 3 3v12a2 2 0 0 1-2 2H7a3 3 0 0 0-3 3V7a3 3 0 0 1 2-3z" />
-      </svg>
-    ),
+    icon: <FiBookOpen className="h-5 w-5" />,
   },
   {
     key: "totalMyStudents",
     label: "Total My Students",
     suffix: "",
     color: "border-emerald-500",
-    icon: (
-      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
-        <path d="M7 12a4 4 0 1 1 0-8 4 4 0 0 1 0 8zm10 0a3 3 0 1 1 0-6 3 3 0 0 1 0 6zM2 20a5 5 0 0 1 10 0H2zm12 0a4 4 0 0 1 8 0h-8z" />
-      </svg>
-    ),
+    icon: <FiUsers className="h-5 w-5" />,
   },
   {
     key: "avgCompletionRate",
     label: "Avg Completion Rate",
     suffix: "%",
     color: "border-orange-500",
-    icon: (
-      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
-        <path d="M4 19h16v2H2V3h2v16zm4-2H6V9h2v8zm6 0h-2V5h2v12zm6 0h-2v-6h2v6z" />
-      </svg>
-    ),
+    icon: <FiBarChart2 className="h-5 w-5" />,
   },
   {
     key: "pendingQuizReviews",
     label: "Pending Quiz Reviews",
     suffix: "",
     color: "border-purple-500",
-    icon: (
-      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
-        <path d="M7 4h10a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zm2 4h6v2H9V8zm0 4h6v2H9v-2z" />
-      </svg>
-    ),
+    icon: <FiClipboard className="h-5 w-5" />,
   },
 ];
 

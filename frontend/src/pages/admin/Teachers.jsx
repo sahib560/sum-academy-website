@@ -9,6 +9,15 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Toaster, toast } from "react-hot-toast";
 import { jsPDF } from "jspdf";
 import {
+  FiEdit3,
+  FiEye,
+  FiEyeOff,
+  FiSearch,
+  FiTrash2,
+  FiUser,
+  FiX,
+} from "react-icons/fi";
+import {
   createUser,
   deleteUser,
   getTeachers,
@@ -215,9 +224,7 @@ function ModalShell({ open, title, onClose, children, maxWidth = "max-w-lg" }) {
                 className="rounded-full border border-slate-200 p-2 text-slate-500 transition hover:text-slate-900"
                 aria-label="Close"
               >
-                <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-                  <path d="M18.3 5.7 12 12l6.3 6.3-1.4 1.4L10.6 13.4 4.3 19.7l-1.4-1.4L9.2 12 2.9 5.7l1.4-1.4 6.3 6.3 6.3-6.3z" />
-                </svg>
+                <FiX className="h-4 w-4" />
               </button>
             </div>
             <div className="overflow-y-auto pr-1">{children}</div>
@@ -555,9 +562,7 @@ function Teachers() {
       <div className="flex flex-wrap items-center gap-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="relative flex-1 min-w-[240px]">
           <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
-            <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
-              <path d="M10 4a6 6 0 1 0 3.9 10.6l4.7 4.7 1.4-1.4-4.7-4.7A6 6 0 0 0 10 4zm0 2a4 4 0 1 1 0 8 4 4 0 0 1 0-8z" />
-            </svg>
+            <FiSearch className="h-5 w-5" />
           </span>
           <input
             type="text"
@@ -598,9 +603,7 @@ function Teachers() {
       ) : filteredTeachers.length === 0 ? (
         <div className="glass-card flex min-h-[320px] flex-col items-center justify-center text-center">
           <div className="flex h-16 w-16 items-center justify-center rounded-full bg-blue-100 text-blue-700">
-            <svg viewBox="0 0 24 24" className="h-8 w-8" fill="currentColor">
-              <path d="M12 12a4 4 0 1 1 0-8 4 4 0 0 1 0 8zm-7 8a7 7 0 1 1 14 0H5z" />
-            </svg>
+            <FiUser className="h-8 w-8" />
           </div>
           <h3 className="mt-4 text-xl font-semibold text-slate-900">
             {teachers.length === 0 ? "No teachers added yet" : "No teachers found"}
@@ -660,9 +663,7 @@ function Teachers() {
                   className="rounded-full border border-slate-200 p-2 text-slate-500 transition hover:text-primary"
                   aria-label="Edit teacher"
                 >
-                  <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-                    <path d="M3 17.2V21h3.8l11-11-3.8-3.8-11 11zm17.7-10.5a1 1 0 0 0 0-1.4l-2-2a1 1 0 0 0-1.4 0l-1.6 1.6 3.8 3.8 1.2-1z" />
-                  </svg>
+                  <FiEdit3 className="h-4 w-4" />
                 </button>
                 <button
                   type="button"
@@ -681,9 +682,7 @@ function Teachers() {
                   className="rounded-full border border-slate-200 p-2 text-rose-500 transition hover:text-rose-600"
                   aria-label="Delete teacher"
                 >
-                  <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-                    <path d="M6 7h12l-1 14H7L6 7zm3-3h6l1 2H8l1-2z" />
-                  </svg>
+                  <FiTrash2 className="h-4 w-4" />
                 </button>
               </div>
             </div>
@@ -748,13 +747,9 @@ function Teachers() {
                   aria-label={showPassword ? "Hide password" : "Show password"}
                 >
                   {showPassword ? (
-                    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
-                      <path d="M12 5c5.5 0 9.5 5.5 9.7 5.8l.3.4-.3.4c-.1.2-1.5 2-3.8 3.6l-1.4-1.4a12.4 12.4 0 0 0 2.8-2.6C18 9.8 15.3 7 12 7c-.8 0-1.6.2-2.3.5L8.1 5.9A8.2 8.2 0 0 1 12 5zm-9.7.2L4.9 7.8l2 2A13.5 13.5 0 0 0 2 11.2c.6.9 3.8 5.8 10 5.8 1.4 0 2.7-.2 3.8-.7l2.3 2.3 1.4-1.4L3.7 3.8 2.3 5.2zm8.4 8.4 2 2c-.2.1-.5.1-.7.1a4 4 0 0 1-4-4c0-.2 0-.5.1-.7l2 2a2 2 0 0 0 2.6 2.6zm4.4-.2-5-5a4 4 0 0 1 5 5z" />
-                    </svg>
+                    <FiEyeOff className="h-5 w-5" />
                   ) : (
-                    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
-                      <path d="M12 5c5.5 0 9.5 5.5 9.7 5.8l.3.4-.3.4C21.5 12 17.5 17 12 17S2.5 12 2.3 11.6l-.3-.4.3-.4C2.5 10.5 6.5 5 12 5zm0 2C8.7 7 6 9.8 4.7 11.2 6 12.6 8.7 15 12 15s6-2.4 7.3-3.8C18 9.8 15.3 7 12 7zm0 1.5a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5z" />
-                    </svg>
+                    <FiEye className="h-5 w-5" />
                   )}
                 </button>
               </div>

@@ -1,7 +1,8 @@
-﻿import { useMemo } from "react";
+import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { motion as Motion } from "framer-motion";
 import { Link } from "react-router-dom";
+import { FiAward, FiBookOpen, FiCheckCircle } from "react-icons/fi";
 import { Skeleton, SkeletonCard } from "../../components/Skeleton.jsx";
 import { useAuth } from "../../hooks/useAuth.js";
 import { getStudentDashboard } from "../../services/student.service.js";
@@ -238,31 +239,19 @@ function StudentDashboard() {
       label: "Enrolled Courses",
       value: dashboard.enrolledCount,
       color: "border-blue-500",
-      icon: (
-        <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
-          <path d="M6 4h11a3 3 0 0 1 3 3v12a2 2 0 0 1-2 2H7a3 3 0 0 0-3 3V7a3 3 0 0 1 2-3z" />
-        </svg>
-      ),
+      icon: <FiBookOpen className="h-5 w-5" />,
     },
     {
       label: "Completed Courses",
       value: dashboard.completedCount,
       color: "border-emerald-500",
-      icon: (
-        <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
-          <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-1 14-4-4 1.4-1.4L11 12.2l4.6-4.6L17 9l-6 7z" />
-        </svg>
-      ),
+      icon: <FiCheckCircle className="h-5 w-5" />,
     },
     {
       label: "Certificates Earned",
       value: dashboard.certificatesCount,
       color: "border-orange-500",
-      icon: (
-        <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
-          <path d="M12 2a6 6 0 0 1 6 6c0 2.2-1.2 4.2-3 5.2V22l-3-1.6L9 22v-8.8A6 6 0 0 1 12 2z" />
-        </svg>
-      ),
+      icon: <FiAward className="h-5 w-5" />,
     },
   ];
 
@@ -728,4 +717,6 @@ function StudentDashboard() {
 }
 
 export default StudentDashboard;
+
+
 

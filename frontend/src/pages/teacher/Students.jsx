@@ -1,8 +1,9 @@
-﻿import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion as Motion } from "framer-motion";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Toaster, toast } from "react-hot-toast";
 import { jsPDF } from "jspdf";
+import { FiCheck, FiEye, FiLock, FiMessageSquare, FiUserPlus } from "react-icons/fi";
 import { Skeleton } from "../../components/Skeleton.jsx";
 import {
   getStudentAttendance,
@@ -160,54 +161,15 @@ const getLectureMetaMap = (profile = null) => {
   );
 };
 
-const IconBase = ({ children }) => (
-  <svg
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="1.8"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    className="h-4 w-4"
-    aria-hidden="true"
-  >
-    {children}
-  </svg>
-);
+const EyeIcon = () => <FiEye className="h-4 w-4" aria-hidden="true" />;
 
-const EyeIcon = () => (
-  <IconBase>
-    <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12Z" />
-    <circle cx="12" cy="12" r="3" />
-  </IconBase>
-);
+const LockIcon = () => <FiLock className="h-4 w-4" aria-hidden="true" />;
 
-const LockIcon = () => (
-  <IconBase>
-    <rect x="4" y="11" width="16" height="10" rx="2" />
-    <path d="M8 11V8a4 4 0 1 1 8 0v3" />
-  </IconBase>
-);
+const MessageIcon = () => <FiMessageSquare className="h-4 w-4" aria-hidden="true" />;
 
-const MessageIcon = () => (
-  <IconBase>
-    <path d="M21 15a4 4 0 0 1-4 4H8l-5 4V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z" />
-  </IconBase>
-);
+const UsersIcon = () => <FiUserPlus className="h-4 w-4" aria-hidden="true" />;
 
-const UsersIcon = () => (
-  <IconBase>
-    <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-    <circle cx="8.5" cy="7" r="4" />
-    <path d="M20 8v6M23 11h-6" />
-  </IconBase>
-);
-
-const CheckIcon = () => (
-  <IconBase>
-    <path d="m5 12 4 4 10-10" />
-  </IconBase>
-);
+const CheckIcon = () => <FiCheck className="h-4 w-4" aria-hidden="true" />;
 
 function Students() {
   const [search, setSearch] = useState("");
@@ -838,4 +800,7 @@ function Students() {
 }
 
 export default Students;
+
+
+
 

@@ -19,6 +19,7 @@ import {
   updateHowItWorksSettings,
   updateMaintenanceSettings,
   updatePaymentSettings,
+  updateCertificateSettings,
   updateSecuritySettings,
   updateTestimonialsSettings,
 } from "../../services/admin.service.js";
@@ -36,6 +37,7 @@ const tabs = [
   "Contact",
   "Footer",
   "Appearance",
+  "Certificates",
   "Maintenance",
   "Email",
   "Payment",
@@ -53,6 +55,7 @@ const sectionKeyByTab = {
   Contact: "contact",
   Footer: "footer",
   Appearance: "appearance",
+  Certificates: "certificate",
   Maintenance: "maintenance",
   Email: "email",
   Payment: "payment",
@@ -171,6 +174,29 @@ function SiteSettings() {
     if (activeTab === "Appearance") {
       if (!isHex(draft.appearance.primaryColor)) next.primaryColor = "Invalid primary color.";
       if (!isHex(draft.appearance.accentColor)) next.accentColor = "Invalid accent color.";
+      const extraColors = [
+        "secondaryColor",
+        "successColor",
+        "warningColor",
+        "dangerColor",
+        "infoColor",
+        "surfaceColor",
+        "backgroundColor",
+        "textColor",
+        "mutedTextColor",
+        "borderColor",
+      ];
+      extraColors.forEach((key) => {
+        if (!isHex(draft.appearance[key])) next[key] = `Invalid ${key}.`;
+      });
+    }
+    if (activeTab === "Certificates") {
+      const cert = draft.certificate || {};
+      ["borderColor", "headingColor", "nameColor", "bodyColor", "backgroundColor"].forEach(
+        (key) => {
+          if (!isHex(cert[key])) next[key] = `Invalid ${key}.`;
+        }
+      );
     }
     if (activeTab === "Email") {
       if (!draft.email.smtpHost?.trim()) next.smtpHost = "SMTP host is required.";
@@ -204,6 +230,8 @@ function SiteSettings() {
           return updateFooterSettings(payload);
         case "Appearance":
           return updateAppearanceSettings(payload);
+        case "Certificates":
+          return updateCertificateSettings(payload);
         case "Maintenance":
           return updateMaintenanceSettings(payload);
         case "Email":
@@ -288,14 +316,54 @@ function SiteSettings() {
     });
   };
 
+  const updateNestedArrayItem = (section, nestedKey, listKey, index, patch) => {
+    const nested = draft?.[section]?.[nestedKey] || {};
+    const list = Array.isArray(nested?.[listKey]) ? nested[listKey] : [];
+    updateSection(section, {
+      [nestedKey]: {
+        ...nested,
+        [listKey]: list.map((item, idx) =>
+          idx === index ? { ...item, ...patch } : item
+        ),
+      },
+    });
+  };
+
+  const removeNestedArrayItem = (section, nestedKey, listKey, index) => {
+    const nested = draft?.[section]?.[nestedKey] || {};
+    const list = Array.isArray(nested?.[listKey]) ? nested[listKey] : [];
+    updateSection(section, {
+      [nestedKey]: {
+        ...nested,
+        [listKey]: list.filter((_, idx) => idx !== index),
+      },
+    });
+  };
+
+  const addNestedArrayItem = (section, nestedKey, listKey, item) => {
+    const nested = draft?.[section]?.[nestedKey] || {};
+    const list = Array.isArray(nested?.[listKey]) ? nested[listKey] : [];
+    updateSection(section, {
+      [nestedKey]: {
+        ...nested,
+        [listKey]: [...list, item],
+      },
+    });
+  };
+
   const handleAssetUpload = async (event, field) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
     const isLogo = field === "logoUrl";
+    const isCertificate =
+      field === "certificateLogoUrl" || field === "certificateSignatureUrl";
+    const isCertLogo = field === "certificateLogoUrl";
     const allowed = isLogo
       ? ["image/jpeg", "image/png", "image/webp", "image/svg+xml"]
-      : ["image/png", "image/x-icon", "image/vnd.microsoft.icon", "image/svg+xml"];
+      : isCertificate
+        ? ["image/jpeg", "image/png", "image/webp", "image/svg+xml"]
+        : ["image/png", "image/x-icon", "image/vnd.microsoft.icon", "image/svg+xml"];
     if (!allowed.includes(file.type)) {
       toast.error("Unsupported file type.");
       return;
@@ -316,8 +384,15 @@ function SiteSettings() {
         uploadTask.on("state_changed", null, reject, resolve);
       });
       const url = await getDownloadURL(fileRef);
-      updateSection("general", { [field]: url });
-      toast.success(isLogo ? "Logo uploaded." : "Favicon uploaded.");
+      if (isCertificate) {
+        updateSection("certificate", {
+          [isCertLogo ? "logoUrl" : "signatureUrl"]: url,
+        });
+        toast.success(isCertLogo ? "Certificate logo uploaded." : "Signature uploaded.");
+      } else {
+        updateSection("general", { [field]: url });
+        toast.success(isLogo ? "Logo uploaded." : "Favicon uploaded.");
+      }
     } catch {
       toast.error("Upload failed.");
     } finally {
@@ -703,6 +778,108 @@ function SiteSettings() {
             <p className={fieldLabelClass}>Team Section Heading</p>
             <input className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Team Heading" value={draft.about.teamHeading} onChange={(e) => updateSection("about", { teamHeading: e.target.value })} />
           </div>
+
+          <div className="rounded-2xl border border-slate-200 p-3">
+            <p className="text-sm font-semibold text-slate-700">Leadership Team</p>
+            {(draft.about.team || []).map((member, index) => (
+              <div key={`about-team-${index}`} className="mt-3 rounded-xl border border-slate-200 p-3">
+                <div className="grid gap-2 md:grid-cols-2">
+                  <div className="space-y-1">
+                    <p className={fieldLabelClass}>Member Name</p>
+                    <input
+                      className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                      placeholder="Name"
+                      value={member.name || ""}
+                      onChange={(e) =>
+                        updateArrayItem("about", "team", index, { name: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <p className={fieldLabelClass}>Member Role</p>
+                    <input
+                      className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                      placeholder="Role"
+                      value={member.role || ""}
+                      onChange={(e) =>
+                        updateArrayItem("about", "team", index, { role: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-1 md:col-span-2">
+                    <p className={fieldLabelClass}>Avatar URL</p>
+                    <input
+                      className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                      placeholder="Avatar URL"
+                      value={member.avatar || ""}
+                      onChange={(e) =>
+                        updateArrayItem("about", "team", index, { avatar: e.target.value })
+                      }
+                    />
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="mt-2 rounded-xl border border-rose-200 px-3 py-1 text-xs font-semibold text-rose-600"
+                  onClick={() => removeArrayItem("about", "team", index)}
+                >
+                  Remove Member
+                </button>
+              </div>
+            ))}
+            <button
+              type="button"
+              className="mt-3 rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700"
+              onClick={() => addArrayItem("about", "team", { name: "", role: "", avatar: "" })}
+            >
+              Add Team Member
+            </button>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 p-3">
+            <p className="text-sm font-semibold text-slate-700">Core Values</p>
+            {(draft.about.values || []).map((valueItem, index) => (
+              <div key={`about-value-${index}`} className="mt-3 rounded-xl border border-slate-200 p-3">
+                <div className="space-y-1">
+                  <p className={fieldLabelClass}>Value Title</p>
+                  <input
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                    placeholder="Title"
+                    value={valueItem.title || ""}
+                    onChange={(e) =>
+                      updateArrayItem("about", "values", index, { title: e.target.value })
+                    }
+                  />
+                </div>
+                <div className="mt-2 space-y-1">
+                  <p className={fieldLabelClass}>Value Description</p>
+                  <textarea
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                    rows={2}
+                    placeholder="Description"
+                    value={valueItem.description || ""}
+                    onChange={(e) =>
+                      updateArrayItem("about", "values", index, { description: e.target.value })
+                    }
+                  />
+                </div>
+                <button
+                  type="button"
+                  className="mt-2 rounded-xl border border-rose-200 px-3 py-1 text-xs font-semibold text-rose-600"
+                  onClick={() => removeArrayItem("about", "values", index)}
+                >
+                  Remove Value
+                </button>
+              </div>
+            ))}
+            <button
+              type="button"
+              className="mt-3 rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700"
+              onClick={() => addArrayItem("about", "values", { title: "", description: "" })}
+            >
+              Add Value
+            </button>
+          </div>
         </>
       );
     }
@@ -744,6 +921,51 @@ function SiteSettings() {
             <p className={fieldLabelClass}>Map Embed URL</p>
             <input className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Map Embed URL" value={draft.contact.mapEmbedUrl} onChange={(e) => updateSection("contact", { mapEmbedUrl: e.target.value })} />
           </div>
+
+          <div className="rounded-2xl border border-slate-200 p-3">
+            <p className="text-sm font-semibold text-slate-700">FAQs</p>
+            {(draft.contact.faq || []).map((faqItem, index) => (
+              <div key={`contact-faq-${index}`} className="mt-3 rounded-xl border border-slate-200 p-3">
+                <div className="space-y-1">
+                  <p className={fieldLabelClass}>Question</p>
+                  <input
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                    placeholder="Question"
+                    value={faqItem.question || ""}
+                    onChange={(e) =>
+                      updateArrayItem("contact", "faq", index, { question: e.target.value })
+                    }
+                  />
+                </div>
+                <div className="mt-2 space-y-1">
+                  <p className={fieldLabelClass}>Answer</p>
+                  <textarea
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                    rows={2}
+                    placeholder="Answer"
+                    value={faqItem.answer || ""}
+                    onChange={(e) =>
+                      updateArrayItem("contact", "faq", index, { answer: e.target.value })
+                    }
+                  />
+                </div>
+                <button
+                  type="button"
+                  className="mt-2 rounded-xl border border-rose-200 px-3 py-1 text-xs font-semibold text-rose-600"
+                  onClick={() => removeArrayItem("contact", "faq", index)}
+                >
+                  Remove FAQ
+                </button>
+              </div>
+            ))}
+            <button
+              type="button"
+              className="mt-3 rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700"
+              onClick={() => addArrayItem("contact", "faq", { question: "", answer: "" })}
+            >
+              Add FAQ
+            </button>
+          </div>
         </>
       );
     }
@@ -759,6 +981,65 @@ function SiteSettings() {
             <p className={fieldLabelClass}>Copyright Text</p>
             <input className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Copyright" value={draft.footer.copyright} onChange={(e) => updateSection("footer", { copyright: e.target.value })} />
           </div>
+
+          {["learn", "company", "support"].map((groupKey) => (
+            <div key={`footer-links-${groupKey}`} className="rounded-2xl border border-slate-200 p-3">
+              <p className="text-sm font-semibold capitalize text-slate-700">
+                {groupKey} Links
+              </p>
+              {(draft.footer.links?.[groupKey] || []).map((linkItem, index) => (
+                <div key={`footer-${groupKey}-${index}`} className="mt-3 rounded-xl border border-slate-200 p-3">
+                  <div className="grid gap-2 md:grid-cols-2">
+                    <div className="space-y-1">
+                      <p className={fieldLabelClass}>Label</p>
+                      <input
+                        className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                        placeholder="Label"
+                        value={linkItem.label || ""}
+                        onChange={(e) =>
+                          updateNestedArrayItem("footer", "links", groupKey, index, {
+                            label: e.target.value,
+                          })
+                        }
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <p className={fieldLabelClass}>URL</p>
+                      <input
+                        className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                        placeholder="/path or https://..."
+                        value={linkItem.url || ""}
+                        onChange={(e) =>
+                          updateNestedArrayItem("footer", "links", groupKey, index, {
+                            url: e.target.value,
+                          })
+                        }
+                      />
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="mt-2 rounded-xl border border-rose-200 px-3 py-1 text-xs font-semibold text-rose-600"
+                    onClick={() => removeNestedArrayItem("footer", "links", groupKey, index)}
+                  >
+                    Remove Link
+                  </button>
+                </div>
+              ))}
+              <button
+                type="button"
+                className="mt-3 rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700"
+                onClick={() =>
+                  addNestedArrayItem("footer", "links", groupKey, {
+                    label: "",
+                    url: "",
+                  })
+                }
+              >
+                Add Link
+              </button>
+            </div>
+          ))}
         </>
       );
     }
@@ -776,6 +1057,30 @@ function SiteSettings() {
               <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="#ff6f0f" value={draft.appearance.accentColor} onChange={(e) => updateSection("appearance", { accentColor: e.target.value })} />
             </div>
           </div>
+          <div className="grid gap-3 md:grid-cols-3">
+            {[
+              ["Secondary", "secondaryColor", "#12b981"],
+              ["Success", "successColor", "#16a34a"],
+              ["Warning", "warningColor", "#f59e0b"],
+              ["Danger", "dangerColor", "#ef4444"],
+              ["Info", "infoColor", "#0ea5e9"],
+              ["Surface", "surfaceColor", "#ffffff"],
+              ["Background", "backgroundColor", "#f8fafc"],
+              ["Text", "textColor", "#0f172a"],
+              ["Muted Text", "mutedTextColor", "#64748b"],
+              ["Border", "borderColor", "#e2e8f0"],
+            ].map(([label, key, placeholder]) => (
+              <div key={key} className="space-y-1">
+                <p className={fieldLabelClass}>{label} Color</p>
+                <input
+                  className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                  placeholder={placeholder}
+                  value={draft.appearance[key]}
+                  onChange={(e) => updateSection("appearance", { [key]: e.target.value })}
+                />
+              </div>
+            ))}
+          </div>
           <div className="space-y-1">
             <p className={fieldLabelClass}>Font Family</p>
             <select className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" value={draft.appearance.fontFamily} onChange={(e) => updateSection("appearance", { fontFamily: e.target.value })}>
@@ -790,6 +1095,173 @@ function SiteSettings() {
             Dark Mode Default
             <input type="checkbox" checked={Boolean(draft.appearance.darkModeDefault)} onChange={(e) => updateSection("appearance", { darkModeDefault: e.target.checked })} />
           </label>
+        </>
+      );
+    }
+
+    if (activeTab === "Certificates") {
+      return (
+        <>
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="space-y-1">
+              <p className={fieldLabelClass}>Border Color</p>
+              <input
+                className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                placeholder="#4a63f5"
+                value={draft.certificate.borderColor}
+                onChange={(e) => updateSection("certificate", { borderColor: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1">
+              <p className={fieldLabelClass}>Heading Color</p>
+              <input
+                className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                placeholder="#1f2937"
+                value={draft.certificate.headingColor}
+                onChange={(e) => updateSection("certificate", { headingColor: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1">
+              <p className={fieldLabelClass}>Student Name Color</p>
+              <input
+                className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                placeholder="#4a63f5"
+                value={draft.certificate.nameColor}
+                onChange={(e) => updateSection("certificate", { nameColor: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1">
+              <p className={fieldLabelClass}>Body Text Color</p>
+              <input
+                className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                placeholder="#334155"
+                value={draft.certificate.bodyColor}
+                onChange={(e) => updateSection("certificate", { bodyColor: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1">
+              <p className={fieldLabelClass}>Background Color</p>
+              <input
+                className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                placeholder="#ffffff"
+                value={draft.certificate.backgroundColor}
+                onChange={(e) =>
+                  updateSection("certificate", { backgroundColor: e.target.value })
+                }
+              />
+            </div>
+            <div className="space-y-1">
+              <p className={fieldLabelClass}>Signature Label</p>
+              <input
+                className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                placeholder="Authorized Signature"
+                value={draft.certificate.signatureLabel}
+                onChange={(e) =>
+                  updateSection("certificate", { signatureLabel: e.target.value })
+                }
+              />
+            </div>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-3">
+            {[
+              ["Show QR Code", "showQr"],
+              ["Show Logo", "showLogo"],
+              ["Show Signature", "showSignature"],
+            ].map(([label, key]) => (
+              <label
+                key={key}
+                className="flex items-center justify-between rounded-xl border border-slate-200 px-3 py-2 text-sm"
+              >
+                {label}
+                <input
+                  type="checkbox"
+                  checked={Boolean(draft.certificate[key])}
+                  onChange={(e) =>
+                    updateSection("certificate", { [key]: e.target.checked })
+                  }
+                />
+              </label>
+            ))}
+          </div>
+
+          <div className="grid gap-3 rounded-2xl border border-slate-200 p-3 md:grid-cols-2">
+            <label className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700">
+              Upload Certificate Logo
+              <input
+                type="file"
+                accept=".jpg,.jpeg,.png,.webp,.svg"
+                className="mt-2 block w-full text-xs"
+                onChange={(e) => handleAssetUpload(e, "certificateLogoUrl")}
+              />
+              {uploadingAsset === "certificateLogoUrl" ? (
+                <span className="text-xs text-slate-500">Uploading...</span>
+              ) : null}
+            </label>
+            <label className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700">
+              Upload Signature
+              <input
+                type="file"
+                accept=".jpg,.jpeg,.png,.webp,.svg"
+                className="mt-2 block w-full text-xs"
+                onChange={(e) => handleAssetUpload(e, "certificateSignatureUrl")}
+              />
+              {uploadingAsset === "certificateSignatureUrl" ? (
+                <span className="text-xs text-slate-500">Uploading...</span>
+              ) : null}
+            </label>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="space-y-1">
+              <p className={fieldLabelClass}>Logo URL</p>
+              <input
+                className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                placeholder="Logo URL"
+                value={draft.certificate.logoUrl || ""}
+                onChange={(e) =>
+                  updateSection("certificate", { logoUrl: e.target.value })
+                }
+              />
+            </div>
+            <div className="space-y-1">
+              <p className={fieldLabelClass}>Signature URL</p>
+              <input
+                className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                placeholder="Signature URL"
+                value={draft.certificate.signatureUrl || ""}
+                onChange={(e) =>
+                  updateSection("certificate", { signatureUrl: e.target.value })
+                }
+              />
+            </div>
+          </div>
+
+          <div
+            className="rounded-2xl border border-dashed border-slate-200 p-4 text-sm"
+            style={{ background: draft.certificate.backgroundColor }}
+          >
+            <div
+              className="rounded-xl border-2 p-4"
+              style={{ borderColor: draft.certificate.borderColor }}
+            >
+              <p
+                className="text-center text-base font-semibold"
+                style={{ color: draft.certificate.headingColor }}
+              >
+                Certificate of Completion
+              </p>
+              <p
+                className="mt-2 text-center text-2xl font-bold"
+                style={{ color: draft.certificate.nameColor }}
+              >
+                Student Name
+              </p>
+              <p className="mt-2 text-center" style={{ color: draft.certificate.bodyColor }}>
+                This is a preview of your certificate styling.
+              </p>
+            </div>
+          </div>
         </>
       );
     }
@@ -923,6 +1395,21 @@ function SiteSettings() {
             <textarea className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" rows={2} placeholder="Instructions shown to students" value={draft.payment.easypaisa.instructions || ""} onChange={(e) => updateSection("payment", { easypaisa: { ...draft.payment.easypaisa, instructions: e.target.value } })} />
           </div>
           <p className="text-sm font-semibold text-slate-700">Bank Transfer</p>
+          <label className="flex items-center justify-between rounded-xl border border-slate-200 px-3 py-2 text-sm">
+            Enable Bank Transfer
+            <input
+              type="checkbox"
+              checked={Boolean(draft.payment.bankTransfer.enabled)}
+              onChange={(e) =>
+                updateSection("payment", {
+                  bankTransfer: {
+                    ...draft.payment.bankTransfer,
+                    enabled: e.target.checked,
+                  },
+                })
+              }
+            />
+          </label>
           <div className="space-y-1">
             <p className={fieldLabelClass}>Bank Name</p>
             <input className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Bank Name" value={draft.payment.bankTransfer.bankName} onChange={(e) => updateSection("payment", { bankTransfer: { ...draft.payment.bankTransfer, bankName: e.target.value } })} />

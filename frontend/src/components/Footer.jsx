@@ -1,5 +1,12 @@
 import { Link } from "react-router-dom";
 import { toast } from "react-hot-toast";
+import {
+  FaDownload,
+  FaFacebookF,
+  FaInstagram,
+  FaWhatsapp,
+  FaYoutube,
+} from "react-icons/fa";
 import logo from "../assets/logo.jpeg";
 import { useSettings } from "../hooks/useSettings.js";
 
@@ -34,38 +41,22 @@ const socialItems = (socialLinks) => [
   {
     label: "Facebook",
     url: socialLinks.facebook || "#",
-    icon: (
-      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-        <path d="M13 9h3V6h-3c-2.2 0-4 1.8-4 4v2H7v3h2v7h3v-7h3l1-3h-4v-2c0-.6.4-1 1-1z" />
-      </svg>
-    ),
+    icon: <FaFacebookF className="h-4 w-4" />,
   },
   {
     label: "Instagram",
     url: socialLinks.instagram || "#",
-    icon: (
-      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-        <path d="M7 2h10a5 5 0 0 1 5 5v10a5 5 0 0 1-5 5H7a5 5 0 0 1-5-5V7a5 5 0 0 1 5-5zm9.5 2a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zM12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10z" />
-      </svg>
-    ),
+    icon: <FaInstagram className="h-4 w-4" />,
   },
   {
     label: "WhatsApp",
     url: socialLinks.whatsapp || "#",
-    icon: (
-      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-        <path d="M12 4a8 8 0 0 0-6.9 12.1L4 20l4-1.1A8 8 0 1 0 12 4zm4.5 11.6c-.2.6-1.1 1-1.5 1-.4.1-.9.2-2.1-.2-1.4-.5-2.7-1.5-3.7-3-1-1.4-1.3-2.5-1.4-2.9 0-.4.1-1 .4-1.4.3-.4.6-.5.9-.5.2 0 .4 0 .6.1.2.1.4.6.5.9.1.3.4 1 .5 1.1.1.1.1.3 0 .4-.1.1-.2.3-.3.4-.1.1-.2.2-.1.4.1.2.5.9 1.1 1.5.8.8 1.6 1.1 1.8 1.2.2.1.3.1.4 0 .1-.1.5-.6.6-.8.1-.2.3-.2.5-.1.2.1 1.4.7 1.6.8.2.1.4.2.4.3.1.1.1.6-.1 1.2z" />
-      </svg>
-    ),
+    icon: <FaWhatsapp className="h-4 w-4" />,
   },
   {
     label: "YouTube",
     url: socialLinks.youtube || "#",
-    icon: (
-      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-        <path d="M21 7.5a2.5 2.5 0 0 0-1.8-1.8C17.6 5.2 12 5.2 12 5.2s-5.6 0-7.2.5A2.5 2.5 0 0 0 3 7.5a26 26 0 0 0 0 9 2.5 2.5 0 0 0 1.8 1.8c1.6.5 7.2.5 7.2.5s5.6 0 7.2-.5a2.5 2.5 0 0 0 1.8-1.8 26 26 0 0 0 0-9zM10 15V9l5 3-5 3z" />
-      </svg>
-    ),
+    icon: <FaYoutube className="h-4 w-4" />,
   },
 ];
 
@@ -124,9 +115,7 @@ function Footer() {
               onClick={handleAppDownloadClick}
               className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-700 transition hover:-translate-y-0.5 hover:border-primary hover:text-primary dark:border-white/10 dark:bg-white/5 dark:text-white"
             >
-              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-                <path d="M12 3a1 1 0 0 1 1 1v8.6l2.3-2.3 1.4 1.4-4.7 4.7-4.7-4.7 1.4-1.4L11 12.6V4a1 1 0 0 1 1-1zm-7 14h14v2H5v-2z" />
-              </svg>
+              <FaDownload className="h-4 w-4" />
               Download App
             </button>
           </div>

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
+import { FiBell } from "react-icons/fi";
 import { Skeleton } from "../../components/Skeleton.jsx";
 
 const fadeUp = {
@@ -213,9 +214,7 @@ function StudentAnnouncements() {
         ) : filtered.length === 0 ? (
           <div className="rounded-3xl border border-dashed border-slate-200 bg-white p-10 text-center text-sm text-slate-500">
             <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
-              <svg viewBox="0 0 24 24" className="h-6 w-6" fill="currentColor">
-                <path d="M12 22a2 2 0 0 0 2-2H10a2 2 0 0 0 2 2zm6-6V11a6 6 0 0 0-5-5.9V4a1 1 0 1 0-2 0v1.1A6 6 0 0 0 6 11v5l-2 2v1h16v-1l-2-2z" />
-              </svg>
+              <FiBell className="h-6 w-6" />
             </div>
             {emptyMessages[activeTab]}
           </div>

@@ -7,6 +7,7 @@ import {
   testEmailSettings,
   updateAboutSettings,
   updateAppearance,
+  updateCertificateSettings,
   updateContactSettings,
   updateEmailSettings,
   updateEmailTemplate,
@@ -38,6 +39,7 @@ adminRouter.put("/settings/about", adminOnly, updateAboutSettings);
 adminRouter.put("/settings/contact", adminOnly, updateContactSettings);
 adminRouter.put("/settings/footer", adminOnly, updateFooterSettings);
 adminRouter.put("/settings/appearance", adminOnly, updateAppearance);
+adminRouter.put("/settings/certificate", adminOnly, updateCertificateSettings);
 adminRouter.put("/settings/maintenance", adminOnly, updateMaintenance);
 
 adminRouter.put("/settings/email", adminOnly, updateEmailSettings);

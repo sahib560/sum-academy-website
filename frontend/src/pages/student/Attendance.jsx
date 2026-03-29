@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { motion as Motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
+import { FiCalendar } from "react-icons/fi";
 import { Skeleton } from "../../components/Skeleton.jsx";
 import { getStudentAttendance } from "../../services/student.service.js";
 
@@ -217,9 +218,7 @@ function StudentAttendance() {
           className="rounded-3xl border border-dashed border-slate-200 bg-white p-10 text-center"
         >
           <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 text-primary">
-            <svg viewBox="0 0 24 24" className="h-8 w-8" fill="currentColor" aria-hidden="true">
-              <path d="M7 2h2v3H7V2zm8 0h2v3h-2V2zM4 6h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z" />
-            </svg>
+            <FiCalendar className="h-8 w-8" aria-hidden="true" />
           </div>
           <p className="text-base font-semibold text-slate-800">
             You are not enrolled in any class

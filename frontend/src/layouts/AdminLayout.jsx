@@ -3,6 +3,23 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
+import {
+  FiAward,
+  FiBarChart2,
+  FiBell,
+  FiBookOpen,
+  FiCalendar,
+  FiClock,
+  FiCreditCard,
+  FiGrid,
+  FiMenu,
+  FiSearch,
+  FiSettings,
+  FiTag,
+  FiUser,
+  FiUserCheck,
+  FiUsers,
+} from "react-icons/fi";
 import { logout } from "../services/auth.service.js";
 import { useAuth } from "../hooks/useAuth.js";
 import { getMyAnnouncements } from "../services/admin.service.js";
@@ -48,72 +65,19 @@ const navSections = [
 ];
 
 const iconMap = {
-  grid: (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-      <path d="M3 3h8v8H3V3zm10 0h8v5h-8V3zM3 13h5v8H3v-8zm7 5h11v3H10v-3zm0-5h11v3H10v-3z" />
-    </svg>
-  ),
-  chart: (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-      <path d="M4 19h16v2H2V3h2v16zm4-2H6V9h2v8zm6 0h-2V5h2v12zm6 0h-2v-6h2v6z" />
-    </svg>
-  ),
-  users: (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-      <path d="M7 12a4 4 0 1 1 0-8 4 4 0 0 1 0 8zm10 0a3 3 0 1 1 0-6 3 3 0 0 1 0 6zM2 20a5 5 0 0 1 10 0H2zm12 0a4 4 0 0 1 8 0h-8z" />
-    </svg>
-  ),
-  teacher: (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-      <path d="M12 3 1 9l11 6 9-4.9V17h2V9L12 3zm0 9.7L5.1 9 12 5.3 18.9 9 12 12.7z" />
-    </svg>
-  ),
-  student: (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-      <path d="M12 3 1 9l11 6 9-4.9V17h2V9L12 3z" />
-      <path d="M5 12.3v4.2c0 2.2 3.1 4 7 4s7-1.8 7-4v-4.2l-7 3.8-7-3.8z" />
-    </svg>
-  ),
-  book: (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-      <path d="M6 4h11a3 3 0 0 1 3 3v12a2 2 0 0 1-2 2H7a3 3 0 0 0-3 3V7a3 3 0 0 1 2-3z" />
-    </svg>
-  ),
-  calendar: (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-      <path d="M7 2h2v3H7V2zm8 0h2v3h-2V2zM4 6h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2zm0 4v10h16V10H4z" />
-    </svg>
-  ),
-  card: (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-      <path d="M3 7a3 3 0 0 1 3-3h12a3 3 0 0 1 3 3v10a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V7zm3-1a1 1 0 0 0-1 1v2h16V7a1 1 0 0 0-1-1H6z" />
-    </svg>
-  ),
-  clock: (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-      <path d="M12 2a10 10 0 1 0 .001 20.001A10 10 0 0 0 12 2zm1 5v5l4 2-1 1-5-2.5V7h2z" />
-    </svg>
-  ),
-  tag: (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-      <path d="M3 12 12 3h7l2 2v7l-9 9-9-9zm14-5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3z" />
-    </svg>
-  ),
-  award: (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-      <path d="M12 2a6 6 0 1 0 0 12A6 6 0 0 0 12 2zm-3 14h6l2 6-5-2-5 2 2-6z" />
-    </svg>
-  ),
-  bell: (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-      <path d="M12 22a2 2 0 0 0 2-2H10a2 2 0 0 0 2 2zm6-6V11a6 6 0 0 0-5-5.9V4a1 1 0 1 0-2 0v1.1A6 6 0 0 0 6 11v5l-2 2v1h16v-1l-2-2z" />
-    </svg>
-  ),
-  settings: (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-      <path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zm9 4a7 7 0 0 0-.1-1l2.1-1.6-2-3.4-2.5 1a7 7 0 0 0-1.7-1l-.4-2.6H9.6l-.4 2.6a7 7 0 0 0-1.7 1l-2.5-1-2 3.4 2.1 1.6a7 7 0 0 0 0 2l-2.1 1.6 2 3.4 2.5-1a7 7 0 0 0 1.7 1l.4 2.6h4.8l.4-2.6a7 7 0 0 0 1.7-1l2.5 1 2-3.4-2.1-1.6c.1-.3.1-.6.1-1z" />
-    </svg>
-  ),
+  grid: <FiGrid className="h-4 w-4" />,
+  chart: <FiBarChart2 className="h-4 w-4" />,
+  users: <FiUsers className="h-4 w-4" />,
+  teacher: <FiUserCheck className="h-4 w-4" />,
+  student: <FiUser className="h-4 w-4" />,
+  book: <FiBookOpen className="h-4 w-4" />,
+  calendar: <FiCalendar className="h-4 w-4" />,
+  card: <FiCreditCard className="h-4 w-4" />,
+  clock: <FiClock className="h-4 w-4" />,
+  tag: <FiTag className="h-4 w-4" />,
+  award: <FiAward className="h-4 w-4" />,
+  bell: <FiBell className="h-4 w-4" />,
+  settings: <FiSettings className="h-4 w-4" />,
 };
 
 function AdminLayout({ children }) {
@@ -215,9 +179,7 @@ function AdminLayout({ children }) {
             className="hidden rounded-full border border-white/10 p-2 text-white/60 transition hover:text-white lg:inline-flex"
             onClick={() => setCollapsed((prev) => !prev)}
           >
-            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-              <path d="M8 6h13v2H8V6zm0 5h13v2H8v-2zm0 5h13v2H8v-2zM3 6h3v12H3V6z" />
-            </svg>
+            <FiMenu className="h-4 w-4" />
           </button>
         </div>
 
@@ -310,9 +272,8 @@ function AdminLayout({ children }) {
                 type="text"
                 placeholder="Search..."
                 className="w-full rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 shadow-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
-              />
-              <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-slate-400">
-                🔍
+              />              <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-slate-400">
+                <FiSearch className="h-4 w-4" />
               </span>
             </div>
             <div className="relative">
@@ -398,3 +359,4 @@ function AdminLayout({ children }) {
 }
 
 export default AdminLayout;
+

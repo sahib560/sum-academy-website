@@ -2,6 +2,15 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
+import {
+  FiBell,
+  FiBookOpen,
+  FiCalendar,
+  FiClipboard,
+  FiGrid,
+  FiSettings,
+  FiUsers,
+} from "react-icons/fi";
 import { logout } from "../services/auth.service.js";
 import { useAuth } from "../hooks/useAuth.js";
 import { getMyAnnouncements } from "../services/admin.service.js";
@@ -20,41 +29,13 @@ const navItems = [
 ];
 
 const iconMap = {
-  grid: (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-      <path d="M3 3h8v8H3V3zm10 0h8v5h-8V3zM3 13h5v8H3v-8zm7 5h11v3H10v-3zm0-5h11v3H10v-3z" />
-    </svg>
-  ),
-  book: (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-      <path d="M6 4h11a3 3 0 0 1 3 3v12a2 2 0 0 1-2 2H7a3 3 0 0 0-3 3V7a3 3 0 0 1 2-3z" />
-    </svg>
-  ),
-  users: (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-      <path d="M7 12a4 4 0 1 1 0-8 4 4 0 0 1 0 8zm10 0a3 3 0 1 1 0-6 3 3 0 0 1 0 6zM2 20a5 5 0 0 1 10 0H2zm12 0a4 4 0 0 1 8 0h-8z" />
-    </svg>
-  ),
-  calendar: (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-      <path d="M7 2h2v3H7V2zm8 0h2v3h-2V2zM4 6h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2zm0 4v10h16V10H4z" />
-    </svg>
-  ),
-  clipboard: (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-      <path d="M9 2h6a2 2 0 0 1 2 2h3v18H4V4h3a2 2 0 0 1 2-2zm0 2v2h6V4H9zm-3 4v12h12V8H6z" />
-    </svg>
-  ),
-  bell: (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-      <path d="M12 22a2 2 0 0 0 2-2H10a2 2 0 0 0 2 2zm6-6V11a6 6 0 0 0-5-5.9V4a1 1 0 1 0-2 0v1.1A6 6 0 0 0 6 11v5l-2 2v1h16v-1l-2-2z" />
-    </svg>
-  ),
-  settings: (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-      <path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zm9 4a7 7 0 0 0-.1-1l2.1-1.6-2-3.4-2.5 1a7 7 0 0 0-1.7-1l-.4-2.6H9.6l-.4 2.6a7 7 0 0 0-1.7 1l-2.5-1-2 3.4 2.1 1.6a7 7 0 0 0 0 2l-2.1 1.6 2 3.4 2.5-1a7 7 0 0 0 1.7 1l.4 2.6h4.8l.4-2.6a7 7 0 0 0 1.7-1l2.5 1 2-3.4-2.1-1.6c.1-.3.1-.6.1-1z" />
-    </svg>
-  ),
+  grid: <FiGrid className="h-4 w-4" />,
+  book: <FiBookOpen className="h-4 w-4" />,
+  users: <FiUsers className="h-4 w-4" />,
+  calendar: <FiCalendar className="h-4 w-4" />,
+  clipboard: <FiClipboard className="h-4 w-4" />,
+  bell: <FiBell className="h-4 w-4" />,
+  settings: <FiSettings className="h-4 w-4" />,
 };
 
 const isTeacherAudienceAnnouncement = (item) => {

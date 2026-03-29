@@ -195,8 +195,31 @@ const DEFAULT_SETTINGS = {
   appearance: {
     primaryColor: "#4a63f5",
     accentColor: "#ff6f0f",
+    secondaryColor: "#12b981",
+    successColor: "#16a34a",
+    warningColor: "#f59e0b",
+    dangerColor: "#ef4444",
+    infoColor: "#0ea5e9",
+    surfaceColor: "#ffffff",
+    backgroundColor: "#f8fafc",
+    textColor: "#0f172a",
+    mutedTextColor: "#64748b",
+    borderColor: "#e2e8f0",
     darkModeDefault: false,
     fontFamily: "DM Sans",
+  },
+  certificate: {
+    borderColor: "#4a63f5",
+    headingColor: "#1f2937",
+    nameColor: "#4a63f5",
+    bodyColor: "#334155",
+    backgroundColor: "#ffffff",
+    showQr: true,
+    showLogo: true,
+    showSignature: true,
+    logoUrl: "",
+    signatureUrl: "",
+    signatureLabel: "Authorized Signature",
   },
   maintenance: {
     enabled: false,
@@ -655,21 +678,44 @@ export const updateAppearance = async (req, res) => {
     const current = await getNormalizedSettings();
     const input = req.body || {};
 
-    const primaryColor = normalizeString(
-      input.primaryColor ?? current.appearance.primaryColor
-    );
-    const accentColor = normalizeString(
-      input.accentColor ?? current.appearance.accentColor
-    );
-
-    if (!isValidHex(primaryColor) || !isValidHex(accentColor)) {
-      return errorResponse(res, "Colors must be valid hex values", 400);
-    }
-
     const nextSection = {
       ...current.appearance,
-      primaryColor,
-      accentColor,
+      primaryColor: normalizeString(
+        input.primaryColor ?? current.appearance.primaryColor
+      ),
+      accentColor: normalizeString(
+        input.accentColor ?? current.appearance.accentColor
+      ),
+      secondaryColor: normalizeString(
+        input.secondaryColor ?? current.appearance.secondaryColor
+      ),
+      successColor: normalizeString(
+        input.successColor ?? current.appearance.successColor
+      ),
+      warningColor: normalizeString(
+        input.warningColor ?? current.appearance.warningColor
+      ),
+      dangerColor: normalizeString(
+        input.dangerColor ?? current.appearance.dangerColor
+      ),
+      infoColor: normalizeString(
+        input.infoColor ?? current.appearance.infoColor
+      ),
+      surfaceColor: normalizeString(
+        input.surfaceColor ?? current.appearance.surfaceColor
+      ),
+      backgroundColor: normalizeString(
+        input.backgroundColor ?? current.appearance.backgroundColor
+      ),
+      textColor: normalizeString(
+        input.textColor ?? current.appearance.textColor
+      ),
+      mutedTextColor: normalizeString(
+        input.mutedTextColor ?? current.appearance.mutedTextColor
+      ),
+      borderColor: normalizeString(
+        input.borderColor ?? current.appearance.borderColor
+      ),
       darkModeDefault: Boolean(
         input.darkModeDefault ?? current.appearance.darkModeDefault
       ),
@@ -677,6 +723,26 @@ export const updateAppearance = async (req, res) => {
         input.fontFamily ?? current.appearance.fontFamily
       ),
     };
+
+    const colorFields = [
+      "primaryColor",
+      "accentColor",
+      "secondaryColor",
+      "successColor",
+      "warningColor",
+      "dangerColor",
+      "infoColor",
+      "surfaceColor",
+      "backgroundColor",
+      "textColor",
+      "mutedTextColor",
+      "borderColor",
+    ];
+    for (const field of colorFields) {
+      if (!isValidHex(nextSection[field])) {
+        return errorResponse(res, `${field} must be a valid hex value`, 400);
+      }
+    }
 
     const settings = await saveSection("appearance", nextSection);
     return successResponse(res, settings, "Appearance settings updated");
@@ -686,6 +752,60 @@ export const updateAppearance = async (req, res) => {
 };
 
 export const updateAppearanceSettings = updateAppearance;
+
+export const updateCertificateSettings = async (req, res) => {
+  try {
+    const current = await getNormalizedSettings();
+    const input = req.body || {};
+
+    const nextSection = {
+      ...current.certificate,
+      borderColor: normalizeString(
+        input.borderColor ?? current.certificate.borderColor
+      ),
+      headingColor: normalizeString(
+        input.headingColor ?? current.certificate.headingColor
+      ),
+      nameColor: normalizeString(
+        input.nameColor ?? current.certificate.nameColor
+      ),
+      bodyColor: normalizeString(
+        input.bodyColor ?? current.certificate.bodyColor
+      ),
+      backgroundColor: normalizeString(
+        input.backgroundColor ?? current.certificate.backgroundColor
+      ),
+      showQr: Boolean(input.showQr ?? current.certificate.showQr),
+      showLogo: Boolean(input.showLogo ?? current.certificate.showLogo),
+      showSignature: Boolean(input.showSignature ?? current.certificate.showSignature),
+      logoUrl: normalizeString(input.logoUrl ?? current.certificate.logoUrl),
+      signatureUrl: normalizeString(
+        input.signatureUrl ?? current.certificate.signatureUrl
+      ),
+      signatureLabel: normalizeString(
+        input.signatureLabel ?? current.certificate.signatureLabel
+      ),
+    };
+
+    const colorFields = [
+      "borderColor",
+      "headingColor",
+      "nameColor",
+      "bodyColor",
+      "backgroundColor",
+    ];
+    for (const field of colorFields) {
+      if (!isValidHex(nextSection[field])) {
+        return errorResponse(res, `${field} must be a valid hex value`, 400);
+      }
+    }
+
+    const settings = await saveSection("certificate", nextSection);
+    return successResponse(res, settings, "Certificate settings updated");
+  } catch (error) {
+    return errorResponse(res, "Failed to update certificate settings", 500);
+  }
+};
 
 export const updateMaintenance = async (req, res) => {
   try {
