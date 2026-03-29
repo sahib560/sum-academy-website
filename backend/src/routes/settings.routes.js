@@ -5,6 +5,8 @@ import {
   getEmailTemplates,
   getSettings,
   testEmailSettings,
+  submitLaunchNotify,
+  dispatchLaunchNotifications,
   updateAboutSettings,
   updateAppearance,
   updateCertificateSettings,
@@ -28,6 +30,8 @@ const publicRouter = Router();
 const adminOnly = [verifyToken, requireRole("admin")];
 
 publicRouter.get("/settings", getSettings);
+publicRouter.post("/launch/notify", submitLaunchNotify);
+publicRouter.post("/launch/notify/dispatch", dispatchLaunchNotifications);
 
 adminRouter.get("/settings", adminOnly, getAdminSettings);
 adminRouter.put("/settings/general", adminOnly, updateGeneralSettings);

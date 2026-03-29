@@ -4,6 +4,8 @@ import { COLLECTIONS } from "../config/collections.js";
 import { errorResponse, successResponse } from "../utils/response.utils.js";
 
 const SETTINGS_DOC_ID = "siteSettings";
+const LAUNCH_DATE = new Date("2026-04-01T00:00:00+05:00");
+const LAUNCH_NOTIFY_COLLECTION = "launchNotifications";
 
 const DEFAULT_SETTINGS = {
   general: {
@@ -320,6 +322,42 @@ const isValidHex = (value) =>
   /^#([A-Fa-f0-9]{6})$/.test(String(value || "").trim());
 
 const normalizeString = (value) => String(value || "").trim();
+
+const normalizeEmail = (value = "") => String(value || "").trim().toLowerCase();
+
+const launchNotifyRef = (email) =>
+  db
+    .collection(LAUNCH_NOTIFY_COLLECTION)
+    .doc(String(email || "").replace(/\//g, "_"));
+
+const createMailerFromSettings = (settings) => {
+  const email = settings?.email || DEFAULT_SETTINGS.email;
+  const smtpHost = normalizeString(email.smtpHost);
+  const smtpPort = Number(email.smtpPort);
+  const smtpEmail = normalizeEmail(email.smtpEmail);
+  const smtpPassword = normalizeString(email.smtpPassword);
+  const fromName = normalizeString(email.fromName || "SUM Academy");
+
+  if (!smtpHost || !smtpPort || !smtpEmail || !smtpPassword) {
+    return { transporter: null, from: "", configured: false };
+  }
+
+  const transporter = nodemailer.createTransport({
+    host: smtpHost,
+    port: smtpPort,
+    secure: smtpPort === 465,
+    auth: {
+      user: smtpEmail,
+      pass: smtpPassword,
+    },
+  });
+
+  return {
+    transporter,
+    from: `"${fromName}" <${smtpEmail}>`,
+    configured: true,
+  };
+};
 
 const getNormalizedSettings = async () => {
   const ref = settingsRef();
@@ -933,24 +971,13 @@ export const testEmailSettings = async (req, res) => {
     }
 
     const settings = await getNormalizedSettings();
-    const email = settings.email || DEFAULT_SETTINGS.email;
-
-    if (!email.smtpHost || !email.smtpPort || !email.smtpEmail || !email.smtpPassword) {
+    const { transporter, from, configured } = createMailerFromSettings(settings);
+    if (!configured || !transporter) {
       return errorResponse(res, "Email settings are incomplete", 400);
     }
 
-    const transporter = nodemailer.createTransport({
-      host: email.smtpHost,
-      port: Number(email.smtpPort),
-      secure: false,
-      auth: {
-        user: email.smtpEmail,
-        pass: email.smtpPassword,
-      },
-    });
-
     await transporter.sendMail({
-      from: `"${email.fromName || "SUM Academy"}" <${email.smtpEmail}>`,
+      from,
       to: testEmail,
       subject: "SUM Academy SMTP Test",
       html: `
@@ -1108,6 +1135,126 @@ export const updateEmailTemplate = async (req, res) => {
     return successResponse(res, settings, "Template updated");
   } catch (error) {
     return errorResponse(res, "Failed to update email template", 500);
+  }
+};
+
+export const submitLaunchNotify = async (req, res) => {
+  try {
+    const rawEmail = normalizeEmail(req.body?.email || "");
+    if (!isValidEmail(rawEmail)) {
+      return errorResponse(res, "Valid email is required", 400);
+    }
+
+    const now = new Date();
+    const settings = await getNormalizedSettings();
+    const { transporter, from, configured } = createMailerFromSettings(settings);
+
+    const shouldSendNow = now >= LAUNCH_DATE && configured && transporter;
+
+    const docRef = launchNotifyRef(rawEmail);
+    const payload = {
+      email: rawEmail,
+      status: shouldSendNow ? "sent" : "pending",
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+    await docRef.set(
+      {
+        ...payload,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+
+    if (shouldSendNow) {
+      await transporter.sendMail({
+        from,
+        to: rawEmail,
+        subject: "SUM Academy is now live",
+        html: `
+          <div style="font-family: DM Sans, sans-serif; max-width: 520px; margin: 0 auto; padding: 28px; background: #f8f9fe; border-radius: 16px;">
+            <h2 style="color: #4a63f5; margin: 0 0 10px;">We are live!</h2>
+            <p style="color: #334155;">Thank you for joining the SUM Academy launch list. You can now access the platform and start learning.</p>
+            <p style="margin-top: 16px;"><a href="https://sumacademy.net" style="background: #4a63f5; color: #ffffff; padding: 12px 20px; border-radius: 10px; text-decoration: none; font-weight: 600;">Go to SUM Academy</a></p>
+            <p style="margin-top: 16px; color: #94a3b8; font-size: 12px;">© 2026 SUM Academy — Karachi, Pakistan</p>
+          </div>
+        `,
+      });
+      await docRef.set(
+        {
+          status: "sent",
+          sentAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+    }
+
+    return successResponse(
+      res,
+      { status: shouldSendNow ? "sent" : "pending" },
+      shouldSendNow
+        ? "Launch notification sent"
+        : "You are on the launch notification list"
+    );
+  } catch (error) {
+    return errorResponse(res, "Failed to save launch notification", 500);
+  }
+};
+
+export const dispatchLaunchNotifications = async (req, res) => {
+  try {
+    if (new Date() < LAUNCH_DATE) {
+      return errorResponse(res, "Launch date has not passed yet", 400);
+    }
+
+    const settings = await getNormalizedSettings();
+    const { transporter, from, configured } = createMailerFromSettings(settings);
+    if (!configured || !transporter) {
+      return errorResponse(res, "Email settings are incomplete", 400);
+    }
+
+    const pendingSnap = await db
+      .collection(LAUNCH_NOTIFY_COLLECTION)
+      .where("status", "==", "pending")
+      .limit(200)
+      .get();
+
+    let sentCount = 0;
+    for (const doc of pendingSnap.docs) {
+      const data = doc.data() || {};
+      const email = normalizeEmail(data.email || doc.id);
+      if (!isValidEmail(email)) continue;
+
+      await transporter.sendMail({
+        from,
+        to: email,
+        subject: "SUM Academy is now live",
+        html: `
+          <div style="font-family: DM Sans, sans-serif; max-width: 520px; margin: 0 auto; padding: 28px; background: #f8f9fe; border-radius: 16px;">
+            <h2 style="color: #4a63f5; margin: 0 0 10px;">We are live!</h2>
+            <p style="color: #334155;">Thank you for joining the SUM Academy launch list. You can now access the platform and start learning.</p>
+            <p style="margin-top: 16px;"><a href="https://sumacademy.net" style="background: #4a63f5; color: #ffffff; padding: 12px 20px; border-radius: 10px; text-decoration: none; font-weight: 600;">Go to SUM Academy</a></p>
+            <p style="margin-top: 16px; color: #94a3b8; font-size: 12px;">© 2026 SUM Academy — Karachi, Pakistan</p>
+          </div>
+        `,
+      });
+
+      await doc.ref.set(
+        {
+          status: "sent",
+          sentAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+      sentCount += 1;
+    }
+
+    return successResponse(
+      res,
+      { sentCount },
+      "Launch notifications dispatched"
+    );
+  } catch (error) {
+    return errorResponse(res, "Failed to dispatch launch notifications", 500);
   }
 };
 

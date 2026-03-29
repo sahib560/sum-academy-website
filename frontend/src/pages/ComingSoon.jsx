@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { motion as Motion } from "framer-motion";
-import logo from "../assets/logo.png";
+import logo from "../assets/logo.jpeg";
+import api from "../api/axios.js";
 
 const LAUNCH_DATE = new Date("2026-04-01T00:00:00+05:00");
 const PROGRESS_START = new Date("2026-03-01T00:00:00+05:00");
@@ -48,6 +49,9 @@ function TimeCard({ label, value }) {
 function ComingSoon() {
   const [now, setNow] = useState(() => new Date());
   const [submitted, setSubmitted] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState("");
+  const dispatchRef = useRef(false);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -58,6 +62,10 @@ function ComingSoon() {
 
   useEffect(() => {
     if (now >= LAUNCH_DATE) {
+      if (!dispatchRef.current) {
+        dispatchRef.current = true;
+        api.post("/launch/notify/dispatch").catch(() => {});
+      }
       window.location.reload();
     }
   }, [now]);
@@ -68,7 +76,7 @@ function ComingSoon() {
   const progress = useMemo(() => {
     const total = LAUNCH_DATE - PROGRESS_START;
     const elapsed = Math.min(Math.max(now - PROGRESS_START, 0), total);
-    if (total <= 0) return 0;
+    if (total <= 0) return 100;
     return Math.round((elapsed / total) * 100);
   }, [now]);
 
@@ -206,23 +214,45 @@ function ComingSoon() {
           variants={fadeUp}
           initial="hidden"
           animate="visible"
-          onSubmit={(event) => {
+          onSubmit={async (event) => {
             event.preventDefault();
-            setSubmitted(true);
+            setSubmitError("");
+            if (submitting) return;
+            const formData = new FormData(event.currentTarget);
+            const email = String(formData.get("email") || "").trim();
+            if (!email) {
+              setSubmitError("Please enter a valid email.");
+              return;
+            }
+            setSubmitting(true);
+            try {
+              await api.post("/launch/notify", { email });
+              setSubmitted(true);
+            } catch (error) {
+              setSubmitError(
+                error?.response?.data?.message ||
+                  error?.response?.data?.error ||
+                  "Unable to save your email. Please try again."
+              );
+            } finally {
+              setSubmitting(false);
+            }
           }}
           className="flex w-full flex-col gap-3 sm:flex-row sm:items-center sm:justify-center"
         >
           <input
             type="email"
+            name="email"
             required
             placeholder="Enter your email"
             className="w-full rounded-full border border-white/10 bg-white/5 px-5 py-3 text-sm text-white outline-none placeholder:text-slate-400 focus:border-[#4a63f5]"
           />
           <button
             type="submit"
-            className="rounded-full bg-[#4a63f5] px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-[#4a63f5]/30 transition hover:bg-[#4a63f5]/90"
+            disabled={submitting}
+            className="rounded-full bg-[#4a63f5] px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-[#4a63f5]/30 transition hover:bg-[#4a63f5]/90 disabled:cursor-not-allowed disabled:opacity-70"
           >
-            Notify Me
+            {submitting ? "Saving..." : "Notify Me"}
           </button>
         </Motion.form>
 
@@ -234,6 +264,16 @@ function ComingSoon() {
             className="text-sm font-semibold text-emerald-400"
           >
             You are on the list!
+          </Motion.p>
+        ) : null}
+        {submitError ? (
+          <Motion.p
+            variants={fadeUp}
+            initial="hidden"
+            animate="visible"
+            className="text-sm font-semibold text-rose-400"
+          >
+            {submitError}
           </Motion.p>
         ) : null}
       </div>

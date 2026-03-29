@@ -139,7 +139,7 @@ function MaintenanceScreen({ settings }) {
   );
 }
 
-function AppLayout() {
+function AppLayout({ showComingSoon }) {
   const { settings, loading: settingsLoading } = useSettings();
   const { isAdmin, loading: authLoading } = useAuth();
   const [showStartupSplash, setShowStartupSplash] = useState(true);
@@ -213,6 +213,8 @@ function AppLayout() {
   const isKnownPublic = publicRoutes.has(location.pathname);
   const hideLayout =
     isDashboardRoute || noLayoutRoutes.has(location.pathname) || !isKnownPublic;
+  const isAuthRoute = noLayoutRoutes.has(location.pathname);
+  const isPublicContentRoute = !isDashboardRoute && !isAuthRoute;
 
   if (settingsLoading) {
     return (
@@ -236,6 +238,9 @@ function AppLayout() {
   }
   if (maintenanceEnabled && !isAdmin && !isLoginRoute) {
     return <MaintenanceScreen settings={settings} />;
+  }
+  if (showComingSoon && isPublicContentRoute) {
+    return <ComingSoon />;
   }
 
   return (
@@ -388,46 +393,7 @@ function App() {
 
   return (
     <BrowserRouter>
-      {showComingSoon ? (
-        <Routes>
-          <Route path="/coming-soon" element={<ComingSoon />} />
-          <Route
-            path="/login"
-            element={
-              <GuestRoute>
-                <Login />
-              </GuestRoute>
-            }
-          />
-          <Route
-            path="/lms-login"
-            element={
-              <GuestRoute>
-                <Login />
-              </GuestRoute>
-            }
-          />
-          <Route
-            path="/register"
-            element={
-              <GuestRoute>
-                <Register />
-              </GuestRoute>
-            }
-          />
-          <Route
-            path="/forgot-password"
-            element={
-              <GuestRoute>
-                <ForgotPassword />
-              </GuestRoute>
-            }
-          />
-          <Route path="*" element={<Navigate to="/coming-soon" replace />} />
-        </Routes>
-      ) : (
-        <AppLayout />
-      )}
+      <AppLayout showComingSoon={showComingSoon} />
     </BrowserRouter>
   );
 }
