@@ -63,8 +63,10 @@ import NotFound from "./pages/NotFound.jsx";
 import SplashScreen from "./components/SplashScreen.jsx";
 import VerifyCertificate from "./pages/public/VerifyCertificate.jsx";
 import NotificationsPage from "./pages/shared/Notifications.jsx";
+import ComingSoon from "./pages/ComingSoon.jsx";
 
 const LOGIN_ALERT_STORAGE_KEY = "sumacademy:login-alert";
+const LAUNCH_DATE = new Date("2026-04-01T00:00:00+05:00");
 
 const getDashboardPathByRole = (role) => {
   if (role === "admin") return "/admin/dashboard";
@@ -137,6 +139,11 @@ function MaintenanceScreen({ settings }) {
 }
 
 function AppLayout() {
+  const isLaunched = new Date() >= LAUNCH_DATE;
+  if (!isLaunched) {
+    return <ComingSoon />;
+  }
+
   const { settings, loading: settingsLoading } = useSettings();
   const { isAdmin, loading: authLoading } = useAuth();
   const [showStartupSplash, setShowStartupSplash] = useState(true);
