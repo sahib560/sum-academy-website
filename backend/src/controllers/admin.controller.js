@@ -1038,14 +1038,20 @@ export const setUserRole = async (req, res) => {
 export const resetUserDevice = async (req, res) => {
   try {
     const { uid } = req.params;
-    const { device, webIp } = req.body;
+    const { device, webIp, resetDevice } = req.body;
 
     const updates = {
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       deviceResetBy: req.user.uid,
     };
-    if (device) updates.assignedWebDevice = device;
-    if (webIp) updates.assignedWebIp = webIp;
+    if (resetDevice) {
+      updates.assignedUniqueDeviceId = "";
+      updates.assignedWebDevice = "";
+      updates.assignedWebIp = "";
+    } else {
+      if (device) updates.assignedWebDevice = device;
+      if (webIp) updates.assignedWebIp = webIp;
+    }
 
     await db.collection(COLLECTIONS.USERS).doc(uid).update(updates);
     return successResponse(res, updates, "Device reset");

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { motion as Motion } from "framer-motion";
+import toast from "react-hot-toast";
 import { FcGoogle } from "react-icons/fc";
 import { FiEye, FiEyeOff, FiLock, FiMail } from "react-icons/fi";
 import logo from "../../assets/logo.jpeg";
@@ -30,31 +31,17 @@ function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
-  const [toast, setToast] = useState(null);
+  const [inlineToast, setInlineToast] = useState(null);
   const [error, setError] = useState("");
   const [showContactAdmin, setShowContactAdmin] = useState(false);
   const logoSrc = settings.general.logoUrl || logo;
   const siteName = settings.general.siteName || "SUM Academy";
 
-  const getReadableLoginError = (err) => {
-    const code = err?.code || "";
-    if (code === "auth/invalid-credential") {
-      return "Invalid email or password.";
-    }
-    if (code === "auth/user-disabled") {
-      return "Your account has been disabled. Contact admin.";
-    }
-    if (code === "auth/too-many-requests") {
-      return "Too many attempts. Please try again after some time.";
-    }
-    return null;
-  };
-
   useEffect(() => {
-    if (!toast) return;
-    const timer = setTimeout(() => setToast(null), 2500);
+    if (!inlineToast) return;
+    const timer = setTimeout(() => setInlineToast(null), 2500);
     return () => clearTimeout(timer);
-  }, [toast]);
+  }, [inlineToast]);
 
   const consumeLoginAlert = () => {
     if (typeof window === "undefined") return false;
@@ -77,7 +64,7 @@ function Login() {
       parsed?.warning ||
       "Do not try again from another device/IP, otherwise your account may be blocked.";
 
-    setToast({
+    setInlineToast({
       type: "error",
       message:
         "Device/IP mismatch detected. One more wrong attempt may block your account.",
@@ -128,60 +115,84 @@ function Login() {
     }
   };
 
-  const handleSubmit = async (event) => {
-    event.preventDefault();
+  const handleSubmit = async (e) => {
+    e.preventDefault();
     if (!validate()) return;
     const startedAt = Date.now();
     setLoading(true);
     setError("");
     setShowContactAdmin(false);
+
     try {
-      const userData = await loginWithEmail(form.email, form.password);
+      const result = await loginWithEmail(form.email, form.password);
       await ensureMinSplashTime(startedAt);
-      setToast({ type: "success", message: "Welcome back!" });
-      const nextRole = userData?.role || "student";
-      if (nextRole === "admin") {
-        navigate("/admin/dashboard");
-      } else if (nextRole === "teacher") {
-        navigate("/teacher/dashboard");
-      } else {
-        navigate("/student/dashboard");
+      console.log("Login result:", result);
+
+      const userData = result?.data?.user || result?.user || result?.data;
+      const userRole = userData?.role;
+
+      if (!userRole) {
+        setError("Login failed. Please try again.");
+        toast.error("Login failed. Please try again.");
+        return;
       }
+
+      toast.success("Welcome back!");
+
+      if (userRole === "admin") navigate("/admin/dashboard");
+      else if (userRole === "teacher") navigate("/teacher/dashboard");
+      else navigate("/student/dashboard");
     } catch (error) {
       await ensureMinSplashTime(startedAt);
-      const errData = error?.response?.data;
+      console.error("Login error full:", error);
+      console.error("Response data:", error.response?.data);
+
+      const status = error.response?.status;
+      const errData = error.response?.data;
       const errCode = errData?.errors?.code;
-      if (errCode === "DEVICE_IP_MISMATCH") {
-        const warningText =
-          errData?.errors?.warning ||
-          "Do not try again from another device or network, otherwise your account may be blocked.";
-        setToast({
-          type: "error",
-          message:
-            "Device/IP mismatch detected. One more wrong attempt may block your account.",
-        });
+      const errMsg =
+        errData?.message ||
+        errData?.error ||
+        error.message ||
+        "Login failed. Please try again.";
+
+      if (errCode === "DEVICE_MISMATCH" || errCode === "DEVICE_IP_MISMATCH") {
+        const registered = errData?.errors?.registeredDevice || "your registered device";
+
         setError(
-          `You are trying to login from another device or network. ${warningText} Please contact your admin or teacher to restore access.`
+          "You are trying to login from a different device. " +
+            "Please use " +
+            registered +
+            " or contact your admin or teacher to reset your device access."
         );
         setShowContactAdmin(true);
-      } else if (errCode === "FIREBASE_CREDENTIALS_ERROR") {
-        const message =
-          "Server Firebase credentials are invalid. Please contact admin.";
-        setToast({ type: "error", message });
-        setError(message);
+        toast.error("Login blocked — wrong device detected", { duration: 6000 });
+      } else if (status === 403) {
+        setError(errMsg);
+        toast.error(errMsg);
+      } else if (status === 401) {
+        setError("Invalid email or password. Please try again.");
+        toast.error("Invalid email or password");
+      } else if (status === 404) {
+        setError("No account found with this email.");
+        toast.error("Account not found");
+      } else if (
+        error.code === "auth/wrong-password" ||
+        error.code === "auth/invalid-credential"
+      ) {
+        setError("Wrong password. Please try again.");
+        toast.error("Wrong password");
+      } else if (error.code === "auth/user-not-found") {
+        setError("No account found with this email.");
+        toast.error("Account not found");
+      } else if (error.code === "auth/too-many-requests") {
+        setError(
+          "Too many failed attempts. Account temporarily locked. Try again in 30 minutes."
+        );
+        toast.error("Too many attempts. Try again later.");
       } else {
-        const firebaseMessage = getReadableLoginError(error);
-        const message =
-          firebaseMessage ||
-          errData?.error ||
-          errData?.message ||
-          error?.message ||
-          "Login failed. Please try again.";
-        setToast({
-          type: "error",
-          message,
-        });
-        setError(message);
+        setError(errMsg);
+        toast.error(errMsg);
       }
     } finally {
       setLoading(false);
@@ -198,7 +209,7 @@ function Login() {
       await ensureMinSplashTime(startedAt);
       if (!result) return;
       const role = result?.user?.role || result?.role || result?.data?.role;
-      setToast({ type: "success", message: "Welcome to SUM Academy!" });
+      setInlineToast({ type: "success", message: "Welcome to SUM Academy!" });
       if (role === "admin") navigate("/admin/dashboard");
       else if (role === "teacher") navigate("/teacher/dashboard");
       else navigate("/student/dashboard");
@@ -208,7 +219,7 @@ function Login() {
         error?.response?.data?.message ||
         error?.message ||
         "Google sign in failed";
-      setToast({
+      setInlineToast({
         type: "error",
         message,
       });
@@ -256,22 +267,52 @@ function Login() {
 
             <form onSubmit={handleSubmit} className="mt-8 space-y-5">
               {error && (
-                <div className="rounded-2xl border border-rose-100 bg-rose-50 px-4 py-3 text-sm text-rose-600">
+                <div
+                  style={{
+                    background: "#fee2e2",
+                    border: "1px solid #fca5a5",
+                    borderRadius: "12px",
+                    padding: "12px 16px",
+                    marginBottom: "16px",
+                    color: "#991b1b",
+                    fontSize: "14px",
+                    lineHeight: "1.5",
+                  }}
+                >
                   {error}
                 </div>
               )}
               {showContactAdmin && (
-                <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3">
-                  <p className="mb-2 text-sm font-medium text-red-700">
-                    Device or IP mismatch detected
-                  </p>
-                  <p className="mb-3 text-xs text-red-600">
-                    Your account is locked to your registered device and IP. Contact
-                    admin to update your access.
+                <div
+                  style={{
+                    background: "#fff7ed",
+                    border: "1px solid #fed7aa",
+                    borderRadius: "12px",
+                    padding: "12px 16px",
+                    marginBottom: "16px",
+                  }}
+                >
+                  <p
+                    style={{
+                      color: "#92400e",
+                      fontSize: "13px",
+                      marginBottom: "8px",
+                    }}
+                  >
+                    Device not recognized. Contact admin to reset access.
                   </p>
                   <a
-                    href="mailto:admin@sumacademy.com"
-                    className="inline-flex items-center gap-2 rounded-xl bg-red-600 px-4 py-2 text-xs text-white transition-colors hover:bg-red-700"
+                    href="mailto:admin@sumacademy.net"
+                    style={{
+                      display: "inline-block",
+                      background: "#ff6f0f",
+                      color: "white",
+                      padding: "6px 16px",
+                      borderRadius: "8px",
+                      fontSize: "12px",
+                      textDecoration: "none",
+                      fontWeight: "600",
+                    }}
                   >
                     Contact Admin
                   </a>
@@ -422,15 +463,15 @@ function Login() {
         </div>
       </div>
 
-      {toast && (
+      {inlineToast && (
         <div
           className={`fixed right-6 top-6 z-50 rounded-2xl px-4 py-3 text-sm font-semibold shadow-xl ${
-            toast.type === "success"
+            inlineToast.type === "success"
               ? "bg-emerald-500 text-white"
               : "bg-slate-900 text-white"
           }`}
         >
-          {toast.message}
+          {inlineToast.message}
         </div>
       )}
     </main>

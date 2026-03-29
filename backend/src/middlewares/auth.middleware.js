@@ -90,6 +90,7 @@ const verifyToken = async (req, res, next) => {
         isActive: true,
         assignedWebDevice: "",
         assignedWebIp: "",
+        assignedUniqueDeviceId: "",
         lastKnownWebIp: "",
         lastLoginAt: null,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -158,8 +159,11 @@ const detectDevice = (req, res, next) => {
         : realIP;
 
   const userAgent = req.headers["user-agent"] || "unknown";
+  const deviceFingerprint = req.headers["x-device-fingerprint"] || "";
+  const screenRes = req.headers["x-screen-resolution"] || "";
+  const platform = req.headers["x-platform"] || "";
 
-  let browser = "Unknown Browser";
+  let browser = "Unknown";
   if (/chrome/i.test(userAgent) && !/edg/i.test(userAgent))
     browser = "Chrome";
   else if (/firefox/i.test(userAgent)) browser = "Firefox";
@@ -168,23 +172,32 @@ const detectDevice = (req, res, next) => {
   else if (/edg/i.test(userAgent)) browser = "Edge";
   else if (/opera|opr/i.test(userAgent)) browser = "Opera";
 
-  let os = "Unknown OS";
+  let os = "Unknown";
   if (/windows/i.test(userAgent)) os = "Windows";
   else if (/macintosh|mac os/i.test(userAgent)) os = "MacOS";
   else if (/linux/i.test(userAgent)) os = "Linux";
   else if (/android/i.test(userAgent)) os = "Android";
   else if (/iphone|ipad/i.test(userAgent)) os = "iOS";
 
-  const deviceString = `${browser} on ${os}`;
   const isMobile = /mobile|android|iphone|ipad/i.test(userAgent);
+  const deviceString = `${browser} on ${os}`;
+
+  const uniqueDeviceId = deviceFingerprint
+    ? deviceFingerprint
+    : `${browser}-${os}-${screenRes}-${platform}`
+        .replace(/\s+/g, "-")
+        .toLowerCase();
 
   req.clientIP = cleanIP;
   req.clientDevice = deviceString;
+  req.uniqueDeviceId = uniqueDeviceId;
   req.deviceType = isMobile ? "mobile" : "web";
   req.rawUserAgent = userAgent;
 
   console.log(
-    `[Device] IP: ${cleanIP} | Device: ${deviceString} | Type: ${req.deviceType}`
+    `[Device] IP: ${cleanIP} | Device: ${deviceString} | ` +
+      `UniqueID: ${String(uniqueDeviceId).substring(0, 30)}... | ` +
+      `Type: ${req.deviceType}`
   );
 
   next();

@@ -5,6 +5,45 @@ import { firebaseAuth } from "../config/firebase.js";
 const LOGIN_ALERT_STORAGE_KEY = "sumacademy:login-alert";
 const LOGIN_ALERT_EVENT = "sumacademy:login-alert";
 
+const getDeviceFingerprint = () => {
+  if (typeof window === "undefined") return "server";
+  const nav = window.navigator;
+  const screen = window.screen;
+
+  const components = [
+    nav.userAgent,
+    nav.language,
+    nav.platform,
+    `${screen.width}x${screen.height}`,
+    screen.colorDepth,
+    new Date().getTimezoneOffset(),
+    nav.hardwareConcurrency || "",
+    nav.deviceMemory || "",
+  ];
+
+  let hash = 0;
+  const str = components.join("|");
+  for (let i = 0; i < str.length; i += 1) {
+    const char = str.charCodeAt(i);
+    hash = (hash << 5) - hash + char;
+    hash &= hash;
+  }
+
+  return (
+    Math.abs(hash).toString(36) +
+    "-" +
+    screen.width +
+    "-" +
+    screen.height +
+    "-" +
+    String(nav.platform || "")
+      .replace(/\s/g, "")
+      .toLowerCase()
+  );
+};
+
+const DEVICE_FINGERPRINT = getDeviceFingerprint();
+
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL,
   withCredentials: true,
@@ -18,6 +57,14 @@ api.interceptors.request.use(
       config.headers = {
         ...config.headers,
         Authorization: `Bearer ${token}`,
+      };
+    }
+    if (typeof window !== "undefined") {
+      config.headers = {
+        ...config.headers,
+        "x-device-fingerprint": DEVICE_FINGERPRINT,
+        "x-screen-resolution": `${window.screen.width}x${window.screen.height}`,
+        "x-platform": navigator.platform,
       };
     }
     return config;
@@ -36,7 +83,8 @@ api.interceptors.response.use(
       url.includes("/auth/me") ||
       url.includes("/auth/register") ||
       url.includes("/auth/login");
-    const isDeviceMismatch = errorCode === "DEVICE_IP_MISMATCH";
+    const isDeviceMismatch =
+      errorCode === "DEVICE_IP_MISMATCH" || errorCode === "DEVICE_MISMATCH";
 
     if (isDeviceMismatch && !url.includes("/auth/login")) {
       const message =

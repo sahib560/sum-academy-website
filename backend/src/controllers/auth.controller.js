@@ -584,6 +584,7 @@ const registerUser = async (req, res) => {
       caste: trimText(caste),
     };
     const safeDevice = req.clientDevice || req.headers?.["user-agent"] || "";
+    const safeUniqueDeviceId = req.uniqueDeviceId || "";
     const rawIp =
       req.clientIP ||
       req.headers?.["x-forwarded-for"]?.split(",")[0]?.trim() ||
@@ -609,6 +610,7 @@ const registerUser = async (req, res) => {
       isActive: true,
       assignedWebDevice: safeDevice,
       assignedWebIp: safeIp,
+      assignedUniqueDeviceId: safeUniqueDeviceId,
       lastKnownWebIp: safeIp,
       lastLoginAt: admin.firestore.FieldValue.serverTimestamp(),
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -669,60 +671,61 @@ const loginUser = async (req, res) => {
       );
     }
 
-    // Device + IP check
+    // Device check
     if (userData.role === "student") {
-      // Run device and IP check only for students
-      if (userData.assignedWebDevice && userData.assignedWebIp) {
-        const currentDevice = req.clientDevice;
-        const currentIP = req.clientIP;
-
-        const deviceMatch = userData.assignedWebDevice === currentDevice;
-        const ipMatch = userData.assignedWebIp === currentIP;
+      if (
+        userData.assignedWebDevice &&
+        userData.assignedWebDevice !== "" &&
+        userData.assignedUniqueDeviceId &&
+        userData.assignedUniqueDeviceId !== ""
+      ) {
+        const deviceMatch =
+          userData.assignedUniqueDeviceId === req.uniqueDeviceId;
 
         console.log(`[Security Check]`);
-        console.log(`  Assigned Device : ${userData.assignedWebDevice}`);
-        console.log(`  Current Device  : ${currentDevice}`);
-        console.log(`  Device Match    : ${deviceMatch}`);
-        console.log(`  Assigned IP     : ${userData.assignedWebIp}`);
-        console.log(`  Current IP      : ${currentIP}`);
-        console.log(`  IP Match        : ${ipMatch}`);
+        console.log(`  Assigned DeviceID: ${userData.assignedUniqueDeviceId}`);
+        console.log(`  Current  DeviceID: ${req.uniqueDeviceId}`);
+        console.log(`  Device Match     : ${deviceMatch}`);
+        console.log(`  Assigned Device  : ${userData.assignedWebDevice}`);
+        console.log(`  Current  Device  : ${req.clientDevice}`);
 
-        if (!deviceMatch || !ipMatch) {
+        if (!deviceMatch) {
           await db.collection("auditLogs").add({
             uid,
             email: userData.email,
             action: "blocked_login",
-            reason: !deviceMatch ? "device_mismatch" : "ip_mismatch",
-            assignedDevice: userData.assignedWebDevice,
-            attemptDevice: currentDevice,
-            assignedIP: userData.assignedWebIp,
-            attemptIP: currentIP,
+            reason: "device_mismatch",
+            assignedDeviceId: userData.assignedUniqueDeviceId,
+            attemptDeviceId: req.uniqueDeviceId,
+            assignedDeviceName: userData.assignedWebDevice,
+            attemptDeviceName: req.clientDevice,
+            ip: req.clientIP,
             timestamp: admin.firestore.FieldValue.serverTimestamp(),
           });
 
           return errorResponse(
             res,
-            "You are trying to login from another device or network. Do not try again from another device/IP, otherwise your account may be blocked. Contact your admin or teacher.",
+            "You are trying to login from a different device. Please use your registered device or contact your admin or teacher to reset your device.",
             403,
             {
-              code: "DEVICE_IP_MISMATCH",
+              code: "DEVICE_MISMATCH",
               contactAdmin: true,
-              warning:
-                "Do not try again from another device/IP, otherwise your account may be blocked.",
+              registeredDevice: userData.assignedWebDevice,
+              currentDevice: req.clientDevice,
             }
           );
         }
       } else {
-        // First login for student - save device and IP
         await db.collection("users").doc(uid).update({
           assignedWebDevice: req.clientDevice,
           assignedWebIp: req.clientIP,
+          assignedUniqueDeviceId: req.uniqueDeviceId,
           lastKnownWebIp: req.clientIP,
         });
-        console.log(`[Security] First web login - device and IP saved`);
+        console.log(`[Security] First login — device fingerprint saved`);
       }
     } else if (userData.role === "admin" || userData.role === "teacher") {
-      console.log("[Security] Role is admin/teacher - device check skipped");
+      console.log("[Security] Role is admin/teacher — device check skipped");
     }
 
     // Single device enforcement — deactivate old sessions
@@ -844,34 +847,35 @@ const getMe = async (req, res) => {
 
     if (role === "student") {
       const assignedDevice = trimText(userData.assignedWebDevice);
-      const assignedIp = trimText(userData.assignedWebIp);
+      const assignedDeviceId = trimText(userData.assignedUniqueDeviceId);
+      const currentDeviceId = trimText(req.uniqueDeviceId);
 
-      if (assignedDevice && assignedIp) {
-        const deviceMatch = assignedDevice === clientDevice;
-        const ipMatch = assignedIp === clientIP;
+      if (assignedDevice && assignedDeviceId) {
+        const deviceMatch = assignedDeviceId === currentDeviceId;
 
-        if (!deviceMatch || !ipMatch) {
+        if (!deviceMatch) {
           await db.collection("auditLogs").add({
             uid,
             email: userData.email || "",
             action: "blocked_login",
-            reason: !deviceMatch ? "device_mismatch" : "ip_mismatch",
-            assignedDevice,
-            attemptDevice: clientDevice,
-            assignedIP: assignedIp,
-            attemptIP: clientIP,
+            reason: "device_mismatch",
+            assignedDeviceId,
+            attemptDeviceId: currentDeviceId,
+            assignedDeviceName: assignedDevice,
+            attemptDeviceName: clientDevice,
+            ip: clientIP,
             timestamp: admin.firestore.FieldValue.serverTimestamp(),
           });
 
           return errorResponse(
             res,
-            "You are trying to login from another device or network. Do not try again from another device/IP, otherwise your account may be blocked. Contact your admin or teacher.",
+            "You are trying to login from a different device. Please use your registered device or contact your admin or teacher to reset your device.",
             403,
             {
-              code: "DEVICE_IP_MISMATCH",
+              code: "DEVICE_MISMATCH",
               contactAdmin: true,
-              warning:
-                "Do not try again from another device/IP, otherwise your account may be blocked.",
+              registeredDevice: assignedDevice,
+              currentDevice: clientDevice,
             }
           );
         }
@@ -880,6 +884,7 @@ const getMe = async (req, res) => {
           {
             assignedWebDevice: clientDevice,
             assignedWebIp: clientIP,
+            assignedUniqueDeviceId: currentDeviceId,
             lastKnownWebIp: clientIP,
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
           },
@@ -925,6 +930,7 @@ const getMe = async (req, res) => {
     delete fullProfile.assignedWebDevice;
     delete fullProfile.assignedWebIp;
     delete fullProfile.lastKnownWebIp;
+    delete fullProfile.assignedUniqueDeviceId;
 
     return successResponse(res, { user: fullProfile }, "Profile fetched");
   } catch (error) {
