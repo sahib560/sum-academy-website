@@ -66,10 +66,8 @@ import NotificationsPage from "./pages/shared/Notifications.jsx";
 import ComingSoon from "./pages/ComingSoon.jsx";
 
 const LOGIN_ALERT_STORAGE_KEY = "sumacademy:login-alert";
+const SHOW_COMING_SOON = true;
 const LAUNCH_DATE = new Date("2026-04-01T00:00:00+05:00");
-const LAUNCH_TS = Number.isFinite(LAUNCH_DATE.getTime())
-  ? LAUNCH_DATE.getTime()
-  : Date.UTC(2026, 3, 1, 0, 0, 0) - 5 * 60 * 60 * 1000;
 
 const getDashboardPathByRole = (role) => {
   if (role === "admin") return "/admin/dashboard";
@@ -385,21 +383,19 @@ function AppLayout() {
 }
 
 function App() {
-  const [now, setNow] = useState(() => Date.now());
-  const isLaunched = now >= LAUNCH_TS;
-
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 60000);
-    return () => clearInterval(timer);
-  }, []);
-
-  if (!isLaunched) {
-    return <ComingSoon />;
-  }
+  const isPastLaunch = new Date() >= LAUNCH_DATE;
+  const showComingSoon = SHOW_COMING_SOON && !isPastLaunch;
 
   return (
     <BrowserRouter>
-      <AppLayout />
+      {showComingSoon ? (
+        <Routes>
+          <Route path="/coming-soon" element={<ComingSoon />} />
+          <Route path="*" element={<Navigate to="/coming-soon" replace />} />
+        </Routes>
+      ) : (
+        <AppLayout />
+      )}
     </BrowserRouter>
   );
 }

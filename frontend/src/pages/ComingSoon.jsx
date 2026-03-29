@@ -1,13 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { motion as Motion } from "framer-motion";
 
 const LAUNCH_DATE = new Date("2026-04-01T00:00:00+05:00");
-const PROGRESS_START = new Date("2026-01-01T00:00:00+05:00");
+const PROGRESS_START = new Date("2026-03-01T00:00:00+05:00");
 const ONE_SECOND = 1000;
 
 const fadeUp = {
-  hidden: { opacity: 0, y: 20 },
+  hidden: { opacity: 0, y: 16 },
   visible: { opacity: 1, y: 0, transition: { duration: 0.7 } },
 };
 
@@ -27,8 +26,8 @@ const getTimeParts = (diffMs) => {
 
 function TimeCard({ label, value }) {
   return (
-    <div className="flex flex-col items-center gap-2 rounded-2xl border border-white/10 bg-[#14182a]/80 px-4 py-4 text-center shadow-lg shadow-black/30">
-      <div className="h-1 w-full rounded-full bg-[#4a63f5]/70" />
+    <div className="flex flex-col items-center gap-2 rounded-2xl border border-white/10 bg-[#12162b] px-4 py-4 text-center shadow-lg shadow-black/30">
+      <div className="h-0.5 w-full rounded-full bg-[#4a63f5]" />
       <Motion.div
         key={value}
         initial={{ rotateX: -90, opacity: 0 }}
@@ -38,7 +37,7 @@ function TimeCard({ label, value }) {
       >
         {pad(value)}
       </Motion.div>
-      <span className="text-xs uppercase tracking-[0.3em] text-slate-400">
+      <span className="text-xs uppercase tracking-[0.3em] text-[#4a63f5]">
         {label}
       </span>
     </div>
@@ -46,14 +45,8 @@ function TimeCard({ label, value }) {
 }
 
 function ComingSoon() {
-  const navigate = useNavigate();
   const [now, setNow] = useState(() => new Date());
-
-  useEffect(() => {
-    if (now >= LAUNCH_DATE) {
-      navigate("/", { replace: true });
-    }
-  }, [navigate, now]);
+  const [submitted, setSubmitted] = useState(false);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -61,6 +54,12 @@ function ComingSoon() {
     }, ONE_SECOND);
     return () => clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (now >= LAUNCH_DATE) {
+      window.location.reload();
+    }
+  }, [now]);
 
   const diffMs = Math.max(LAUNCH_DATE - now, 0);
   const timeParts = useMemo(() => getTimeParts(diffMs), [diffMs]);
@@ -76,19 +75,14 @@ function ComingSoon() {
     <div className="relative min-h-screen overflow-hidden bg-[#0d0f1a] px-6 py-14 text-white">
       <div className="pointer-events-none absolute inset-0">
         <Motion.div
-          className="absolute -left-24 top-10 h-72 w-72 rounded-full bg-[#4a63f5]/20 blur-[120px]"
-          animate={{ x: [0, 40, 0], y: [0, 30, 0] }}
-          transition={{ duration: 16, repeat: Infinity, ease: "easeInOut" }}
+          className="absolute -left-24 top-10 h-72 w-72 rounded-full bg-[#4a63f5]/15 blur-[120px]"
+          animate={{ scale: [1, 1.08, 1] }}
+          transition={{ duration: 10, repeat: Infinity, ease: "easeInOut" }}
         />
         <Motion.div
-          className="absolute right-0 top-1/3 h-64 w-64 rounded-full bg-[#ff6f0f]/15 blur-[110px]"
-          animate={{ x: [0, -30, 0], y: [0, -20, 0] }}
-          transition={{ duration: 18, repeat: Infinity, ease: "easeInOut" }}
-        />
-        <Motion.div
-          className="absolute bottom-0 left-1/3 h-72 w-72 rounded-full bg-[#4a63f5]/10 blur-[130px]"
-          animate={{ x: [0, -50, 0], y: [0, 25, 0] }}
-          transition={{ duration: 20, repeat: Infinity, ease: "easeInOut" }}
+          className="absolute bottom-0 right-0 h-72 w-72 rounded-full bg-[#ff6f0f]/12 blur-[120px]"
+          animate={{ scale: [1, 1.1, 1] }}
+          transition={{ duration: 12, repeat: Infinity, ease: "easeInOut" }}
         />
       </div>
 
@@ -107,8 +101,7 @@ function ComingSoon() {
             Something amazing is launching soon
           </h1>
           <p className="mt-4 text-sm text-slate-300 md:text-base">
-            Pakistan&apos;s most modern learning platform is nearly ready. Join the
-            waitlist and be the first to explore the new SUM Academy.
+            Pakistan&apos;s most modern learning platform is almost ready for you.
           </p>
         </Motion.div>
 
@@ -125,25 +118,9 @@ function ComingSoon() {
         </Motion.div>
 
         <Motion.div variants={fadeUp} initial="hidden" animate="visible">
-          <p className="text-sm font-semibold text-[#ff6f0f]">
-            Launching on April 1, 2026
+          <p className="text-sm font-semibold text-white">
+            Launching on <span className="text-[#ff6f0f]">April 1, 2026</span>
           </p>
-        </Motion.div>
-
-        <Motion.div
-          variants={fadeUp}
-          initial="hidden"
-          animate="visible"
-          className="flex w-full flex-col gap-3 sm:flex-row sm:items-center sm:justify-center"
-        >
-          <input
-            type="email"
-            placeholder="Enter your email"
-            className="w-full rounded-full border border-white/10 bg-white/5 px-5 py-3 text-sm text-white outline-none placeholder:text-slate-400 focus:border-[#4a63f5]"
-          />
-          <button className="rounded-full bg-[#4a63f5] px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-[#4a63f5]/30 transition hover:bg-[#4a63f5]/90">
-            Notify Me
-          </button>
         </Motion.div>
 
         <Motion.div
@@ -153,8 +130,8 @@ function ComingSoon() {
           className="w-full"
         >
           <div className="mb-2 flex items-center justify-between text-xs uppercase tracking-[0.3em] text-slate-500">
+            <span>{progress}% to launch</span>
             <span>Progress</span>
-            <span>{progress}%</span>
           </div>
           <div className="h-2 w-full rounded-full bg-white/10">
             <div
@@ -163,6 +140,41 @@ function ComingSoon() {
             />
           </div>
         </Motion.div>
+
+        <Motion.form
+          variants={fadeUp}
+          initial="hidden"
+          animate="visible"
+          onSubmit={(event) => {
+            event.preventDefault();
+            setSubmitted(true);
+          }}
+          className="flex w-full flex-col gap-3 sm:flex-row sm:items-center sm:justify-center"
+        >
+          <input
+            type="email"
+            required
+            placeholder="Enter your email"
+            className="w-full rounded-full border border-white/10 bg-white/5 px-5 py-3 text-sm text-white outline-none placeholder:text-slate-400 focus:border-[#4a63f5]"
+          />
+          <button
+            type="submit"
+            className="rounded-full bg-[#4a63f5] px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-[#4a63f5]/30 transition hover:bg-[#4a63f5]/90"
+          >
+            Notify Me
+          </button>
+        </Motion.form>
+
+        {submitted ? (
+          <Motion.p
+            variants={fadeUp}
+            initial="hidden"
+            animate="visible"
+            className="text-sm font-semibold text-emerald-400"
+          >
+            You are on the list!
+          </Motion.p>
+        ) : null}
       </div>
     </div>
   );
