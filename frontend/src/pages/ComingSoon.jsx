@@ -98,16 +98,25 @@ function ComingSoon() {
 
       <div className="relative mx-auto flex w-full max-w-4xl flex-col items-center gap-10 text-center">
         <Motion.div variants={fadeUp} initial="hidden" animate="visible">
-          <div className="mx-auto flex h-24 w-24 items-center justify-center overflow-hidden rounded-full bg-[#4a63f5]/15 shadow-lg shadow-[#4a63f5]/30">
-            <img
-              src={logo}
-              alt="SUM Academy"
-              className="h-full w-full object-cover"
-            />
+          <div className="mx-auto flex flex-col items-center gap-3">
+            <div className="flex items-center gap-4 rounded-full border border-white/10 bg-white/5 px-6 py-4">
+              <img src={tryLogo} alt="Tryunity" className="h-14 w-14" />
+              <span className="text-3xl font-semibold text-white">X</span>
+              <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-full bg-[#4a63f5]/15 shadow-lg shadow-[#4a63f5]/30">
+                <img
+                  src={logo}
+                  alt="SUM Academy"
+                  className="h-full w-full object-cover"
+                />
+              </div>
+            </div>
+            <p className="text-lg font-semibold uppercase tracking-[0.5em] text-[#4a63f5] md:text-xl">
+              SUM ACADEMY
+            </p>
+            <p className="text-xl font-semibold text-white md:text-2xl">
+              Tryunity Solutions
+            </p>
           </div>
-          <p className="mt-4 text-sm font-semibold uppercase tracking-[0.75em] text-[#4a63f5]">
-            SUM ACADEMY
-          </p>
         </Motion.div>
 
         <Motion.div variants={fadeUp} initial="hidden" animate="visible">
@@ -135,7 +144,7 @@ function ComingSoon() {
           variants={fadeUp}
           initial="hidden"
           animate="visible"
-          className="grid w-full gap-6 md:grid-cols-[2fr_1fr]"
+          className="grid w-full items-start gap-8 md:grid-cols-[2fr_1fr]"
         >
           <Motion.div
             animate={{ y: [0, -6, 0] }}
@@ -144,8 +153,8 @@ function ComingSoon() {
           >
             <div className="mb-4 flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <img src={tryLogo} alt="Try Logo" className="h-8 w-8" />
-                <div className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-white/10">
+                <img src={tryLogo} alt="Try Logo" className="h-10 w-10" />
+                <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-full bg-white/10">
                   <img
                     src={logo}
                     alt="SUM Academy"
@@ -182,11 +191,11 @@ function ComingSoon() {
             className="relative mx-auto w-full max-w-xs overflow-hidden rounded-[2.5rem] border border-white/10 bg-gradient-to-b from-white/5 to-white/0 p-4 shadow-2xl shadow-black/40"
           >
             <div className="mb-4 flex items-center justify-between">
-              <img src={tryLogo} alt="Try Logo" className="h-6 w-6" />
+              <img src={tryLogo} alt="Try Logo" className="h-8 w-8" />
               <div className="h-5 w-20 rounded-full bg-white/10" />
             </div>
             <div className="flex justify-center">
-              <div className="h-10 w-10 overflow-hidden rounded-full bg-white/10">
+              <div className="h-12 w-12 overflow-hidden rounded-full bg-white/10">
                 <img
                   src={logo}
                   alt="SUM Academy"
@@ -218,72 +227,67 @@ function ComingSoon() {
           variants={fadeUp}
           initial="hidden"
           animate="visible"
-          className="w-full"
+          className="flex w-full flex-col items-center gap-4"
         >
-          <div className="mb-2 flex items-center justify-between text-xs uppercase tracking-[0.3em] text-slate-500">
-            <span>{progress}% to launch</span>
-            <span>Progress</span>
+          <div className="w-full max-w-md">
+            <div className="mb-2 flex items-center justify-between text-xs uppercase tracking-[0.3em] text-slate-500">
+              <span>{progress}% to launch</span>
+              <span>Progress</span>
+            </div>
+            <div className="h-2 w-full rounded-full bg-white/10">
+              <div
+                className="h-2 rounded-full bg-[#4a63f5]"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
           </div>
-          <div className="h-2 w-full rounded-full bg-white/10">
-            <div
-              className="h-2 rounded-full bg-[#4a63f5]"
-              style={{ width: `${progress}%` }}
-            />
-          </div>
-        </Motion.div>
 
-        <Motion.form
-          variants={fadeUp}
-          initial="hidden"
-          animate="visible"
-          onSubmit={async (event) => {
-            event.preventDefault();
-            setSubmitError("");
-            if (submitting) return;
-            const formData = new FormData(event.currentTarget);
-            const email = String(formData.get("email") || "").trim();
-            if (!email) {
-              setSubmitError("Please enter a valid email.");
-              return;
-            }
-            setSubmitting(true);
-            try {
-              await api.post("/launch/notify", { email });
-              setSubmitted(true);
-            } catch (error) {
-              setSubmitError(
-                error?.response?.data?.message ||
-                  error?.response?.data?.error ||
-                  "Unable to save your email. Please try again."
-              );
-            } finally {
-              setSubmitting(false);
-            }
-          }}
-          className="flex w-full flex-col gap-3 sm:flex-row sm:items-center sm:justify-center"
-        >
-          <input
-            type="email"
-            name="email"
-            required
-            placeholder="Enter your email"
-            className="w-full rounded-full border border-white/10 bg-white/5 px-5 py-3 text-sm text-white outline-none placeholder:text-slate-400 focus:border-[#4a63f5]"
-          />
-          <button
-            type="submit"
-            disabled={submitting}
-            className="rounded-full bg-[#4a63f5] px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-[#4a63f5]/30 transition hover:bg-[#4a63f5]/90 disabled:cursor-not-allowed disabled:opacity-70"
+          <Motion.form
+            variants={fadeUp}
+            initial="hidden"
+            animate="visible"
+            onSubmit={async (event) => {
+              event.preventDefault();
+              setSubmitError("");
+              if (submitting) return;
+              const formData = new FormData(event.currentTarget);
+              const email = String(formData.get("email") || "").trim();
+              if (!email) {
+                setSubmitError("Please enter a valid email.");
+                return;
+              }
+              setSubmitting(true);
+              try {
+                await api.post("/launch/notify", { email });
+                setSubmitted(true);
+              } catch (error) {
+                setSubmitError(
+                  error?.response?.data?.message ||
+                    error?.response?.data?.error ||
+                    "Unable to save your email. Please try again."
+                );
+              } finally {
+                setSubmitting(false);
+              }
+            }}
+            className="flex w-full max-w-md flex-col gap-3"
           >
-            {submitting ? "Saving..." : "Notify Me"}
-          </button>
-        </Motion.form>
+            <input
+              type="email"
+              name="email"
+              required
+              placeholder="Enter your email"
+              className="w-full rounded-full border border-white/10 bg-white/5 px-5 py-3 text-sm text-white outline-none placeholder:text-slate-400 focus:border-[#4a63f5]"
+            />
+            <button
+              type="submit"
+              disabled={submitting}
+              className="rounded-full bg-[#4a63f5] px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-[#4a63f5]/30 transition hover:bg-[#4a63f5]/90 disabled:cursor-not-allowed disabled:opacity-70"
+            >
+              {submitting ? "Saving..." : "Notify Me"}
+            </button>
+          </Motion.form>
 
-        <Motion.div
-          variants={fadeUp}
-          initial="hidden"
-          animate="visible"
-          className="flex flex-col items-center gap-3"
-        >
           <a
             href="mailto:infotryunity@gmail.com"
             className="rounded-full border border-white/20 px-6 py-2 text-xs font-semibold uppercase tracking-[0.3em] text-white/80 transition hover:border-[#4a63f5] hover:text-white"
@@ -317,9 +321,9 @@ function ComingSoon() {
           variants={fadeUp}
           initial="hidden"
           animate="visible"
-          className="flex items-center gap-2 text-xs text-slate-400"
+          className="flex items-center justify-center gap-3 text-base font-semibold text-slate-300 md:text-lg"
         >
-          <img src={tryLogo} alt="Tryunity" className="h-5 w-5" />
+          <img src={tryLogo} alt="Tryunity" className="h-7 w-7" />
           <span>Powered by Tryunity Solutions</span>
         </Motion.div>
       </div>
