@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion as Motion } from "framer-motion";
 import logo from "../assets/logo.jpeg";
+import tryLogo from "../assets/try-logo.png";
 import api from "../api/axios.js";
 
 const LAUNCH_DATE = new Date("2026-04-01T00:00:00+05:00");
@@ -97,14 +98,14 @@ function ComingSoon() {
 
       <div className="relative mx-auto flex w-full max-w-4xl flex-col items-center gap-10 text-center">
         <Motion.div variants={fadeUp} initial="hidden" animate="visible">
-          <div className="mx-auto flex h-20 w-20 items-center justify-center overflow-hidden rounded-full bg-[#4a63f5]/15 shadow-lg shadow-[#4a63f5]/30">
+          <div className="mx-auto flex h-24 w-24 items-center justify-center overflow-hidden rounded-full bg-[#4a63f5]/15 shadow-lg shadow-[#4a63f5]/30">
             <img
               src={logo}
               alt="SUM Academy"
               className="h-full w-full object-cover"
             />
           </div>
-          <p className="mt-4 text-xs font-semibold uppercase tracking-[0.6em] text-[#4a63f5]">
+          <p className="mt-4 text-sm font-semibold uppercase tracking-[0.75em] text-[#4a63f5]">
             SUM ACADEMY
           </p>
         </Motion.div>
@@ -122,6 +123,18 @@ function ComingSoon() {
           variants={fadeUp}
           initial="hidden"
           animate="visible"
+          className="grid w-full grid-cols-2 gap-4 md:grid-cols-4"
+        >
+          <TimeCard label="Days" value={timeParts.days} />
+          <TimeCard label="Hours" value={timeParts.hours} />
+          <TimeCard label="Minutes" value={timeParts.minutes} />
+          <TimeCard label="Seconds" value={timeParts.seconds} />
+        </Motion.div>
+
+        <Motion.div
+          variants={fadeUp}
+          initial="hidden"
+          animate="visible"
           className="grid w-full gap-6 md:grid-cols-[2fr_1fr]"
         >
           <Motion.div
@@ -130,7 +143,16 @@ function ComingSoon() {
             className="relative overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-br from-white/5 to-white/0 p-6 shadow-2xl shadow-black/40"
           >
             <div className="mb-4 flex items-center justify-between">
-              <div className="h-3 w-24 rounded-full bg-white/10" />
+              <div className="flex items-center gap-3">
+                <img src={tryLogo} alt="Try Logo" className="h-8 w-8" />
+                <div className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-white/10">
+                  <img
+                    src={logo}
+                    alt="SUM Academy"
+                    className="h-full w-full object-cover"
+                  />
+                </div>
+              </div>
               <div className="flex items-center gap-2">
                 <div className="h-2 w-2 rounded-full bg-[#4a63f5]" />
                 <div className="h-2 w-2 rounded-full bg-[#ff6f0f]" />
@@ -159,11 +181,23 @@ function ComingSoon() {
             transition={{ duration: 5, repeat: Infinity, ease: "easeInOut" }}
             className="relative mx-auto w-full max-w-xs overflow-hidden rounded-[2.5rem] border border-white/10 bg-gradient-to-b from-white/5 to-white/0 p-4 shadow-2xl shadow-black/40"
           >
-            <div className="mx-auto mb-4 h-5 w-20 rounded-full bg-white/10" />
-            <div className="grid gap-3">
+            <div className="mb-4 flex items-center justify-between">
+              <img src={tryLogo} alt="Try Logo" className="h-6 w-6" />
+              <div className="h-5 w-20 rounded-full bg-white/10" />
+            </div>
+            <div className="flex justify-center">
+              <div className="h-10 w-10 overflow-hidden rounded-full bg-white/10">
+                <img
+                  src={logo}
+                  alt="SUM Academy"
+                  className="h-full w-full object-cover"
+                />
+              </div>
+            </div>
+            <div className="mt-4 grid gap-3">
               <div className="h-4 w-3/4 rounded-full bg-white/10" />
               <div className="h-3 w-1/2 rounded-full bg-white/10" />
-              <div className="mt-2 h-44 rounded-2xl bg-white/5" />
+              <div className="mt-2 h-40 rounded-2xl bg-white/5" />
               <div className="h-10 rounded-2xl bg-white/5" />
             </div>
             <div className="mt-4 flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-[10px] uppercase tracking-[0.3em] text-[#ff6f0f]">
@@ -174,20 +208,8 @@ function ComingSoon() {
           </Motion.div>
         </Motion.div>
 
-        <Motion.div
-          variants={fadeUp}
-          initial="hidden"
-          animate="visible"
-          className="grid w-full grid-cols-2 gap-4 md:grid-cols-4"
-        >
-          <TimeCard label="Days" value={timeParts.days} />
-          <TimeCard label="Hours" value={timeParts.hours} />
-          <TimeCard label="Minutes" value={timeParts.minutes} />
-          <TimeCard label="Seconds" value={timeParts.seconds} />
-        </Motion.div>
-
         <Motion.div variants={fadeUp} initial="hidden" animate="visible">
-          <p className="text-sm font-semibold text-white">
+          <p className="text-base font-semibold text-white md:text-lg">
             Launching on <span className="text-[#ff6f0f]">April 1, 2026</span>
           </p>
         </Motion.div>
@@ -256,6 +278,20 @@ function ComingSoon() {
           </button>
         </Motion.form>
 
+        <Motion.div
+          variants={fadeUp}
+          initial="hidden"
+          animate="visible"
+          className="flex flex-col items-center gap-3"
+        >
+          <a
+            href="mailto:infotryunity@gmail.com"
+            className="rounded-full border border-white/20 px-6 py-2 text-xs font-semibold uppercase tracking-[0.3em] text-white/80 transition hover:border-[#4a63f5] hover:text-white"
+          >
+            CTN
+          </a>
+        </Motion.div>
+
         {submitted ? (
           <Motion.p
             variants={fadeUp}
@@ -276,6 +312,16 @@ function ComingSoon() {
             {submitError}
           </Motion.p>
         ) : null}
+
+        <Motion.div
+          variants={fadeUp}
+          initial="hidden"
+          animate="visible"
+          className="flex items-center gap-2 text-xs text-slate-400"
+        >
+          <img src={tryLogo} alt="Tryunity" className="h-5 w-5" />
+          <span>Powered by Tryunity Solutions</span>
+        </Motion.div>
       </div>
     </div>
   );
