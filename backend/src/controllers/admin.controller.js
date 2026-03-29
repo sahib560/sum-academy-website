@@ -124,6 +124,108 @@ const buildCourseSubjects = async (subjects = []) => {
   );
 };
 
+const courseIdMatches = (item, courseId) =>
+  item === courseId || item?.courseId === courseId;
+
+const subjectIdMatches = (item, subjectId) =>
+  item === subjectId || item?.subjectId === subjectId;
+
+const hasCourseLinks = async (courseId) => {
+  const [classesSnap, teachersSnap, studentsSnap, quizzesSnap] =
+    await Promise.all([
+      db.collection(COLLECTIONS.CLASSES).get(),
+      db.collection(COLLECTIONS.TEACHERS).get(),
+      db
+        .collection(COLLECTIONS.STUDENTS)
+        .where("enrolledCourses", "array-contains", courseId)
+        .limit(1)
+        .get(),
+      db.collection("quizzes").where("courseId", "==", courseId).limit(1).get(),
+    ]);
+
+  const classLinked = classesSnap.docs.some((doc) => {
+    const data = doc.data() || {};
+    const assignedCourses = Array.isArray(data.assignedCourses)
+      ? data.assignedCourses
+      : [];
+    const shifts = Array.isArray(data.shifts) ? data.shifts : [];
+    return (
+      assignedCourses.some((course) => courseIdMatches(course, courseId)) ||
+      shifts.some((shift) => courseIdMatches(shift?.courseId, courseId))
+    );
+  });
+
+  const teacherLinked = teachersSnap.docs.some((doc) => {
+    const data = doc.data() || {};
+    const assignedCourses = Array.isArray(data.assignedCourses)
+      ? data.assignedCourses
+      : [];
+    return assignedCourses.some((course) => courseIdMatches(course, courseId));
+  });
+
+  const studentLinked = !studentsSnap.empty;
+  const quizLinked = !quizzesSnap.empty;
+
+  return classLinked || teacherLinked || studentLinked || quizLinked;
+};
+
+const hasSubjectLinks = async (courseId, subjectId) => {
+  const courseRef = db.collection(COLLECTIONS.COURSES).doc(courseId);
+  const [contentSnap, quizSnap] = await Promise.all([
+    courseRef
+      .collection("content")
+      .where("subjectId", "==", subjectId)
+      .limit(1)
+      .get(),
+    db
+      .collection("quizzes")
+      .where("courseId", "==", courseId)
+      .where("subjectId", "==", subjectId)
+      .limit(1)
+      .get(),
+  ]);
+
+  return !contentSnap.empty || !quizSnap.empty;
+};
+
+const hasTeacherLinks = async (teacherId) => {
+  const [teacherSnap, classesSnap, coursesSnap] = await Promise.all([
+    db.collection(COLLECTIONS.TEACHERS).doc(teacherId).get(),
+    db.collection(COLLECTIONS.CLASSES).get(),
+    db.collection(COLLECTIONS.COURSES).get(),
+  ]);
+
+  const teacherData = teacherSnap.exists ? teacherSnap.data() || {} : {};
+  const assignedCourses = Array.isArray(teacherData.assignedCourses)
+    ? teacherData.assignedCourses
+    : [];
+  const assignedClasses = Array.isArray(teacherData.assignedClasses)
+    ? teacherData.assignedClasses
+    : [];
+  const assignedSubjects = Array.isArray(teacherData.assignedSubjects)
+    ? teacherData.assignedSubjects
+    : [];
+
+  if (assignedCourses.length || assignedClasses.length || assignedSubjects.length) {
+    return true;
+  }
+
+  const classLinked = classesSnap.docs.some((doc) => {
+    const data = doc.data() || {};
+    const teachers = Array.isArray(data.teachers) ? data.teachers : [];
+    return teachers.some((entry) => entry?.teacherId === teacherId);
+  });
+  if (classLinked) return true;
+
+  const courseLinked = coursesSnap.docs.some((doc) => {
+    const data = doc.data() || {};
+    const subjects = Array.isArray(data.subjects) ? data.subjects : [];
+    return subjects.some((subject) => subject?.teacherId === teacherId);
+  });
+
+  return courseLinked;
+};
+
 const CLASS_STATUSES = new Set(["upcoming", "active", "completed"]);
 const SHIFT_NAME_OPTIONS = new Set([
   "Morning",
@@ -913,6 +1015,16 @@ export const deleteUser = async (req, res) => {
     }
 
     const userData = userSnap.data();
+    if (userData.role === "teacher") {
+      const linked = await hasTeacherLinks(uid);
+      if (linked) {
+        return errorResponse(
+          res,
+          "Cannot delete teacher while assigned to courses, classes, or subjects",
+          400
+        );
+      }
+    }
     const roleCol =
       userData.role === "student"
         ? COLLECTIONS.STUDENTS
@@ -1152,6 +1264,14 @@ export const updateCourse = async (req, res) => {
 export const deleteCourse = async (req, res) => {
   try {
     const { courseId } = req.params;
+    const linked = await hasCourseLinks(courseId);
+    if (linked) {
+      return errorResponse(
+        res,
+        "Cannot delete course while linked to classes, teachers, students, or quizzes",
+        400
+      );
+    }
     const courseRef = db.collection(COLLECTIONS.COURSES).doc(courseId);
 
     const contentSnap = await courseRef.collection("content").get();
@@ -1213,6 +1333,15 @@ export const addCourseSubject = async (req, res) => {
 export const removeCourseSubject = async (req, res) => {
   try {
     const { courseId, subjectId } = req.params;
+
+    const linked = await hasSubjectLinks(courseId, subjectId);
+    if (linked) {
+      return errorResponse(
+        res,
+        "Cannot remove subject while linked to content or quizzes",
+        400
+      );
+    }
 
     const courseRef = db.collection(COLLECTIONS.COURSES).doc(courseId);
     const courseSnap = await courseRef.get();
@@ -1609,6 +1738,32 @@ export const updateClass = async (req, res) => {
 export const deleteClass = async (req, res) => {
   try {
     const { classId } = req.params;
+    const classSnap = await db.collection(COLLECTIONS.CLASSES).doc(classId).get();
+    if (!classSnap.exists) {
+      return errorResponse(res, "Class not found", 404);
+    }
+    const classData = classSnap.data() || {};
+    const students = Array.isArray(classData.students) ? classData.students : [];
+    const enrolledCount = Number(classData.enrolledCount || 0);
+    const assignedCourses = Array.isArray(classData.assignedCourses)
+      ? classData.assignedCourses
+      : [];
+    const shifts = Array.isArray(classData.shifts) ? classData.shifts : [];
+    const teachers = Array.isArray(classData.teachers) ? classData.teachers : [];
+
+    if (
+      enrolledCount > 0 ||
+      students.length > 0 ||
+      assignedCourses.length > 0 ||
+      shifts.length > 0 ||
+      teachers.length > 0
+    ) {
+      return errorResponse(
+        res,
+        "Cannot delete class while it has students, courses, or teachers assigned",
+        400
+      );
+    }
     await db.collection(COLLECTIONS.CLASSES).doc(classId).delete();
     return successResponse(res, { classId }, "Class deleted");
   } catch (e) {

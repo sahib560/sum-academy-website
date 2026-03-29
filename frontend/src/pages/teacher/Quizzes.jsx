@@ -515,21 +515,32 @@ function TeacherQuizzes() {
   const teacherStudents = useMemo(() => {
     const rows = Array.isArray(teacherStudentsQuery.data) ? teacherStudentsQuery.data : [];
     return rows.map((student) => ({
-      studentId: student.id || student.studentId || "",
+      studentId: student.uid || student.id || student.studentId || "",
       fullName: student.fullName || student.name || "Student",
       email: student.email || "",
+      enrolledCourseIds: Array.isArray(student.enrolledCourses)
+        ? student.enrolledCourses
+            .map((course) => course.courseId || course.id)
+            .filter(Boolean)
+        : [],
     }));
   }, [teacherStudentsQuery.data]);
 
   const filteredStudents = useMemo(() => {
     const needle = lowerText(studentSearch);
-    if (!needle) return teacherStudents;
-    return teacherStudents.filter(
+    const courseId = selectedQuiz?.courseId || "";
+    const eligible = courseId
+      ? teacherStudents.filter((student) =>
+          student.enrolledCourseIds.includes(courseId)
+        )
+      : teacherStudents;
+    if (!needle) return eligible;
+    return eligible.filter(
       (student) =>
         lowerText(student.fullName).includes(needle) ||
         lowerText(student.email).includes(needle)
     );
-  }, [teacherStudents, studentSearch]);
+  }, [teacherStudents, studentSearch, selectedQuiz?.courseId]);
 
   const assignmentSummary = analyticsData?.assignment || selectedQuiz?.assignment || null;
 

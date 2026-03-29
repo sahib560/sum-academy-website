@@ -292,7 +292,7 @@ function ComingSoon() {
             href="mailto:infotryunity@gmail.com"
             className="rounded-full border border-white/20 px-6 py-2 text-xs font-semibold uppercase tracking-[0.3em] text-white/80 transition hover:border-[#4a63f5] hover:text-white"
           >
-            CTN
+            Get in touch with us
           </a>
         </Motion.div>
 
