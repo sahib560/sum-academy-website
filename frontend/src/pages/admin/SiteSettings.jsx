@@ -351,6 +351,31 @@ function SiteSettings() {
     });
   };
 
+  const renderColorField = (label, key, placeholder) => (
+    <div className="space-y-1" key={key}>
+      <p className={fieldLabelClass}>{label} Color</p>
+      <div className="flex items-center gap-3">
+        <input
+          type="color"
+          value={draft.appearance[key] || placeholder}
+          onChange={(e) =>
+            updateSection("appearance", { [key]: e.target.value })
+          }
+          className="h-10 w-12 cursor-pointer rounded-lg border border-slate-200 bg-white p-1"
+          aria-label={`${label} color picker`}
+        />
+        <input
+          className="flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm"
+          placeholder={placeholder}
+          value={draft.appearance[key]}
+          onChange={(e) =>
+            updateSection("appearance", { [key]: e.target.value })
+          }
+        />
+      </div>
+    </div>
+  );
+
   const handleAssetUpload = async (event, field) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -1245,14 +1270,8 @@ function SiteSettings() {
       return (
         <>
           <div className="grid gap-3 md:grid-cols-2">
-            <div className="space-y-1">
-              <p className={fieldLabelClass}>Primary Color</p>
-              <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="#4a63f5" value={draft.appearance.primaryColor} onChange={(e) => updateSection("appearance", { primaryColor: e.target.value })} />
-            </div>
-            <div className="space-y-1">
-              <p className={fieldLabelClass}>Accent Color</p>
-              <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="#ff6f0f" value={draft.appearance.accentColor} onChange={(e) => updateSection("appearance", { accentColor: e.target.value })} />
-            </div>
+            {renderColorField("Primary", "primaryColor", "#4a63f5")}
+            {renderColorField("Accent", "accentColor", "#ff6f0f")}
           </div>
           <div className="grid gap-3 md:grid-cols-3">
             {[
@@ -1266,17 +1285,9 @@ function SiteSettings() {
               ["Text", "textColor", "#0f172a"],
               ["Muted Text", "mutedTextColor", "#64748b"],
               ["Border", "borderColor", "#e2e8f0"],
-            ].map(([label, key, placeholder]) => (
-              <div key={key} className="space-y-1">
-                <p className={fieldLabelClass}>{label} Color</p>
-                <input
-                  className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                  placeholder={placeholder}
-                  value={draft.appearance[key]}
-                  onChange={(e) => updateSection("appearance", { [key]: e.target.value })}
-                />
-              </div>
-            ))}
+            ].map(([label, key, placeholder]) =>
+              renderColorField(label, key, placeholder)
+            )}
           </div>
           <div className="space-y-1">
             <p className={fieldLabelClass}>Font Family</p>

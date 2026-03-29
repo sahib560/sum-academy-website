@@ -67,6 +67,9 @@ import ComingSoon from "./pages/ComingSoon.jsx";
 
 const LOGIN_ALERT_STORAGE_KEY = "sumacademy:login-alert";
 const LAUNCH_DATE = new Date("2026-04-01T00:00:00+05:00");
+const LAUNCH_TS = Number.isFinite(LAUNCH_DATE.getTime())
+  ? LAUNCH_DATE.getTime()
+  : Date.UTC(2026, 3, 1, 0, 0, 0) - 5 * 60 * 60 * 1000;
 
 const getDashboardPathByRole = (role) => {
   if (role === "admin") return "/admin/dashboard";
@@ -139,11 +142,6 @@ function MaintenanceScreen({ settings }) {
 }
 
 function AppLayout() {
-  const isLaunched = new Date() >= LAUNCH_DATE;
-  if (!isLaunched) {
-    return <ComingSoon />;
-  }
-
   const { settings, loading: settingsLoading } = useSettings();
   const { isAdmin, loading: authLoading } = useAuth();
   const [showStartupSplash, setShowStartupSplash] = useState(true);
@@ -387,6 +385,18 @@ function AppLayout() {
 }
 
 function App() {
+  const [now, setNow] = useState(() => Date.now());
+  const isLaunched = now >= LAUNCH_TS;
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 60000);
+    return () => clearInterval(timer);
+  }, []);
+
+  if (!isLaunched) {
+    return <ComingSoon />;
+  }
+
   return (
     <BrowserRouter>
       <AppLayout />

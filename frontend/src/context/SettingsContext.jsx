@@ -310,17 +310,38 @@ const mergeDeep = (target, source) => {
   return output;
 };
 
+const hexToRgb = (hex) => {
+  const normalized = String(hex || "").trim();
+  const match = /^#([A-Fa-f0-9]{6})$/.exec(normalized);
+  if (!match) return null;
+  const value = match[1];
+  const r = parseInt(value.slice(0, 2), 16);
+  const g = parseInt(value.slice(2, 4), 16);
+  const b = parseInt(value.slice(4, 6), 16);
+  return `${r} ${g} ${b}`;
+};
+
 const applySettingsToDom = (settings) => {
   const root = document.documentElement;
   const appearance = settings.appearance || defaultSettings.appearance;
+  const primaryRgb =
+    hexToRgb(appearance.primaryColor) ||
+    hexToRgb(defaultSettings.appearance.primaryColor) ||
+    "74 99 245";
+  const accentRgb =
+    hexToRgb(appearance.accentColor) ||
+    hexToRgb(defaultSettings.appearance.accentColor) ||
+    "255 111 15";
   root.style.setProperty(
     "--brand-primary",
     appearance.primaryColor || defaultSettings.appearance.primaryColor
   );
+  root.style.setProperty("--brand-primary-rgb", primaryRgb);
   root.style.setProperty(
     "--brand-accent",
     appearance.accentColor || defaultSettings.appearance.accentColor
   );
+  root.style.setProperty("--brand-accent-rgb", accentRgb);
   root.style.setProperty(
     "--brand-secondary",
     appearance.secondaryColor || defaultSettings.appearance.secondaryColor
