@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion as Motion } from "framer-motion";
+import logo from "../assets/logo.png";
 
 const LAUNCH_DATE = new Date("2026-04-01T00:00:00+05:00");
 const PROGRESS_START = new Date("2026-03-01T00:00:00+05:00");
@@ -88,8 +89,12 @@ function ComingSoon() {
 
       <div className="relative mx-auto flex w-full max-w-4xl flex-col items-center gap-10 text-center">
         <Motion.div variants={fadeUp} initial="hidden" animate="visible">
-          <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-[#4a63f5]/20 text-3xl font-bold text-[#4a63f5] shadow-lg shadow-[#4a63f5]/30">
-            S
+          <div className="mx-auto flex h-20 w-20 items-center justify-center overflow-hidden rounded-full bg-[#4a63f5]/15 shadow-lg shadow-[#4a63f5]/30">
+            <img
+              src={logo}
+              alt="SUM Academy"
+              className="h-full w-full object-cover"
+            />
           </div>
           <p className="mt-4 text-xs font-semibold uppercase tracking-[0.6em] text-[#4a63f5]">
             SUM ACADEMY
@@ -103,6 +108,62 @@ function ComingSoon() {
           <p className="mt-4 text-sm text-slate-300 md:text-base">
             Pakistan&apos;s most modern learning platform is almost ready for you.
           </p>
+        </Motion.div>
+
+        <Motion.div
+          variants={fadeUp}
+          initial="hidden"
+          animate="visible"
+          className="grid w-full gap-6 md:grid-cols-[2fr_1fr]"
+        >
+          <Motion.div
+            animate={{ y: [0, -6, 0] }}
+            transition={{ duration: 6, repeat: Infinity, ease: "easeInOut" }}
+            className="relative overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-br from-white/5 to-white/0 p-6 shadow-2xl shadow-black/40"
+          >
+            <div className="mb-4 flex items-center justify-between">
+              <div className="h-3 w-24 rounded-full bg-white/10" />
+              <div className="flex items-center gap-2">
+                <div className="h-2 w-2 rounded-full bg-[#4a63f5]" />
+                <div className="h-2 w-2 rounded-full bg-[#ff6f0f]" />
+                <div className="h-2 w-2 rounded-full bg-white/20" />
+              </div>
+            </div>
+            <div className="grid gap-3">
+              <div className="h-6 w-2/3 rounded-full bg-white/10" />
+              <div className="h-4 w-1/2 rounded-full bg-white/10" />
+              <div className="mt-2 h-40 w-full rounded-2xl bg-white/5" />
+              <div className="grid grid-cols-3 gap-3">
+                <div className="h-20 rounded-2xl bg-white/5" />
+                <div className="h-20 rounded-2xl bg-white/5" />
+                <div className="h-20 rounded-2xl bg-white/5" />
+              </div>
+            </div>
+            <div className="mt-5 flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-xs uppercase tracking-[0.3em] text-[#4a63f5]">
+              <span>Loading</span>
+              <span>{pad(timeParts.minutes)}:{pad(timeParts.seconds)}</span>
+            </div>
+            <div className="pointer-events-none absolute inset-0 animate-pulse bg-gradient-to-r from-transparent via-white/5 to-transparent" />
+          </Motion.div>
+
+          <Motion.div
+            animate={{ y: [0, 8, 0] }}
+            transition={{ duration: 5, repeat: Infinity, ease: "easeInOut" }}
+            className="relative mx-auto w-full max-w-xs overflow-hidden rounded-[2.5rem] border border-white/10 bg-gradient-to-b from-white/5 to-white/0 p-4 shadow-2xl shadow-black/40"
+          >
+            <div className="mx-auto mb-4 h-5 w-20 rounded-full bg-white/10" />
+            <div className="grid gap-3">
+              <div className="h-4 w-3/4 rounded-full bg-white/10" />
+              <div className="h-3 w-1/2 rounded-full bg-white/10" />
+              <div className="mt-2 h-44 rounded-2xl bg-white/5" />
+              <div className="h-10 rounded-2xl bg-white/5" />
+            </div>
+            <div className="mt-4 flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-[10px] uppercase tracking-[0.3em] text-[#ff6f0f]">
+              <span>Skeleton</span>
+              <span>{pad(timeParts.minutes)}:{pad(timeParts.seconds)}</span>
+            </div>
+            <div className="pointer-events-none absolute inset-0 animate-pulse bg-gradient-to-r from-transparent via-white/5 to-transparent" />
+          </Motion.div>
         </Motion.div>
 
         <Motion.div

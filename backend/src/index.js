@@ -62,7 +62,13 @@ app.use(cors({
   },
   credentials:    true,
   methods:        ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
+  allowedHeaders: [
+    "Content-Type",
+    "Authorization",
+    "x-device-fingerprint",
+    "x-screen-resolution",
+    "x-platform",
+  ],
 }));
 
 // Handle preflight requests for all routes
@@ -73,6 +79,23 @@ const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max:      100,
   message:  { error: "Too many requests. Please try again later." },
+  skip: (req) => {
+    const url = req.originalUrl || "";
+    const path = req.path || "";
+
+    if (url.startsWith("/api/auth/") || path.startsWith("/auth/")) {
+      return true;
+    }
+
+    if (
+      url.startsWith("/api/courses/explore") ||
+      path.startsWith("/courses/explore")
+    ) {
+      return true;
+    }
+
+    return false;
+  },
 });
 app.use("/api", limiter);
 

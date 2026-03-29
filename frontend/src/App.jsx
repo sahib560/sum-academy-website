@@ -391,6 +391,38 @@ function App() {
       {showComingSoon ? (
         <Routes>
           <Route path="/coming-soon" element={<ComingSoon />} />
+          <Route
+            path="/login"
+            element={
+              <GuestRoute>
+                <Login />
+              </GuestRoute>
+            }
+          />
+          <Route
+            path="/lms-login"
+            element={
+              <GuestRoute>
+                <Login />
+              </GuestRoute>
+            }
+          />
+          <Route
+            path="/register"
+            element={
+              <GuestRoute>
+                <Register />
+              </GuestRoute>
+            }
+          />
+          <Route
+            path="/forgot-password"
+            element={
+              <GuestRoute>
+                <ForgotPassword />
+              </GuestRoute>
+            }
+          />
           <Route path="*" element={<Navigate to="/coming-soon" replace />} />
         </Routes>
       ) : (
