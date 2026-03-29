@@ -634,6 +634,14 @@ export const getStudentDashboard = async (req, res) => {
             trimText(userData.fullName) ||
             getNameFromEmail(userData.email || ""),
           email: trimText(userData.email),
+          phoneNumber: trimText(studentData.phoneNumber || studentData.phone || userData.phoneNumber),
+          fatherName: trimText(studentData.fatherName),
+          fatherPhone: trimText(studentData.fatherPhone),
+          fatherOccupation: trimText(studentData.fatherOccupation),
+          address: trimText(studentData.address),
+          district: trimText(studentData.district),
+          domicile: trimText(studentData.domicile),
+          caste: trimText(studentData.caste),
           createdAt: toIso(userData.createdAt || studentData.createdAt),
           lastLoginAt: toIso(userData.lastLoginAt),
         },
@@ -1981,6 +1989,13 @@ export const getStudentSettings = async (req, res) => {
         trimText(userData.fullName) ||
         getNameFromEmail(userData.email || ""),
       phoneNumber: trimText(studentData.phoneNumber || userData.phoneNumber || studentData.phone),
+      fatherName: trimText(studentData.fatherName),
+      fatherPhone: trimText(studentData.fatherPhone),
+      fatherOccupation: trimText(studentData.fatherOccupation),
+      address: trimText(studentData.address),
+      district: trimText(studentData.district),
+      domicile: trimText(studentData.domicile),
+      caste: trimText(studentData.caste),
       profilePicture: studentData.profilePicture || userData.profilePicture || null,
       createdAt: toIso(studentData.createdAt || userData.createdAt),
       lastLoginAt: toIso(userData.lastLoginAt),
@@ -2002,6 +2017,13 @@ export const updateStudentSettings = async (req, res) => {
     const uid = trimText(req.user?.uid);
     const fullName = trimText(req.body?.fullName);
     const phoneNumber = trimText(req.body?.phoneNumber);
+    const fatherName = trimText(req.body?.fatherName);
+    const fatherPhone = trimText(req.body?.fatherPhone);
+    const fatherOccupation = trimText(req.body?.fatherOccupation);
+    const address = trimText(req.body?.address);
+    const district = trimText(req.body?.district);
+    const domicile = trimText(req.body?.domicile);
+    const caste = trimText(req.body?.caste);
     if (!uid) return errorResponse(res, "Missing student uid", 400);
     if (fullName.length < 2) {
       return errorResponse(res, "fullName must be at least 2 characters", 400);
@@ -2011,6 +2033,27 @@ export const updateStudentSettings = async (req, res) => {
     }
     if (phoneNumber.length > 30) {
       return errorResponse(res, "phoneNumber cannot exceed 30 characters", 400);
+    }
+    if (fatherName.length > 120) {
+      return errorResponse(res, "fatherName cannot exceed 120 characters", 400);
+    }
+    if (fatherPhone.length > 30) {
+      return errorResponse(res, "fatherPhone cannot exceed 30 characters", 400);
+    }
+    if (fatherOccupation.length > 120) {
+      return errorResponse(res, "fatherOccupation cannot exceed 120 characters", 400);
+    }
+    if (district.length > 120) {
+      return errorResponse(res, "district cannot exceed 120 characters", 400);
+    }
+    if (domicile.length > 120) {
+      return errorResponse(res, "domicile cannot exceed 120 characters", 400);
+    }
+    if (caste.length > 120) {
+      return errorResponse(res, "caste cannot exceed 120 characters", 400);
+    }
+    if (address.length > 300) {
+      return errorResponse(res, "address cannot exceed 300 characters", 400);
     }
 
     const userRef = db.collection(COLLECTIONS.USERS).doc(uid);
@@ -2030,10 +2073,18 @@ export const updateStudentSettings = async (req, res) => {
       studentRef,
       {
         uid,
+        email: trimText(req.user?.email),
         fullName,
         name: fullName,
         phoneNumber: phoneNumber || "",
         phone: phoneNumber || "",
+        fatherName: fatherName || "",
+        fatherPhone: fatherPhone || "",
+        fatherOccupation: fatherOccupation || "",
+        address: address || "",
+        district: district || "",
+        domicile: domicile || "",
+        caste: caste || "",
         updatedAt: serverTimestamp(),
       },
       { merge: true }
@@ -2063,6 +2114,13 @@ export const updateStudentSettings = async (req, res) => {
           fullName,
         phoneNumber: trimText(studentData.phoneNumber || userData.phoneNumber || ""),
         email: trimText(userData.email || studentData.email),
+        fatherName: trimText(studentData.fatherName),
+        fatherPhone: trimText(studentData.fatherPhone),
+        fatherOccupation: trimText(studentData.fatherOccupation),
+        address: trimText(studentData.address),
+        district: trimText(studentData.district),
+        domicile: trimText(studentData.domicile),
+        caste: trimText(studentData.caste),
       },
       "Student settings updated"
     );

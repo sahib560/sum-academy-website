@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+﻿import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { motion } from "framer-motion";
+import { motion as Motion } from "framer-motion";
 import logo from "../../assets/logo.jpeg";
 import { useSettings } from "../../hooks/useSettings.js";
 import { loginWithEmail, loginWithGoogle } from "../../services/auth.service.js";
@@ -100,12 +100,16 @@ function Login() {
       const errData = error?.response?.data;
       const errCode = errData?.errors?.code;
       if (errCode === "DEVICE_IP_MISMATCH") {
+        const warningText =
+          errData?.errors?.warning ||
+          "Do not try again from another device or network, otherwise your account may be blocked.";
         setToast({
           type: "error",
-          message: "You are trying to login from another device or IP!",
+          message:
+            "Device/IP mismatch detected. One more wrong attempt may block your account.",
         });
         setError(
-          "You are trying to login from another device or network. Please contact your admin or teacher to restore access."
+          `You are trying to login from another device or network. ${warningText} Please contact your admin or teacher to restore access.`
         );
         setShowContactAdmin(true);
       } else if (errCode === "FIREBASE_CREDENTIALS_ERROR") {
@@ -173,7 +177,7 @@ function Login() {
 
       <div className="grid min-h-screen lg:h-screen lg:grid-cols-[3fr_2fr]">
         <div className="flex items-center justify-center px-6 py-12 sm:px-10 lg:h-screen lg:overflow-y-auto">
-          <motion.div
+          <Motion.div
             initial="hidden"
             animate="visible"
             variants={fadeUp}
@@ -357,7 +361,7 @@ function Login() {
                 Sign Up
               </Link>
             </p>
-          </motion.div>
+          </Motion.div>
         </div>
 
         <div className="relative hidden items-center justify-center bg-dark px-10 py-12 text-white lg:sticky lg:top-0 lg:flex lg:h-screen">
@@ -407,3 +411,4 @@ function Login() {
 }
 
 export default Login;
+

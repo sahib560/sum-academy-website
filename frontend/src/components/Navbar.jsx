@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, NavLink } from "react-router-dom";
+import { Toaster, toast } from "react-hot-toast";
 import logo from "../assets/logo.jpeg";
 import { useSettings } from "../hooks/useSettings.js";
 
@@ -82,8 +83,18 @@ function Navbar() {
     navbarGetStartedLabel: "Get Started",
   };
 
+  const handleAppDownloadClick = () => {
+    toast.success("something is coming soon");
+  };
+
   return (
     <header className={headerClasses}>
+      <Toaster
+        position="top-right"
+        toastOptions={{
+          style: { borderRadius: "12px", fontFamily: "DM Sans, sans-serif" },
+        }}
+      />
       <nav className={containerClasses} aria-label="Primary">
         <Link to="/" className="flex items-center gap-3" onClick={closeMenu}>
           <span className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-xl bg-white shadow-lg shadow-primary/30">
@@ -113,6 +124,16 @@ function Navbar() {
         </div>
 
         <div className="hidden items-center gap-3 lg:flex">
+          <button
+            type="button"
+            onClick={handleAppDownloadClick}
+            className="inline-flex items-center gap-2 rounded-full border border-slate-200/80 bg-white/70 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-700 transition hover:-translate-y-0.5 hover:border-primary hover:text-primary dark:border-white/10 dark:bg-white/5 dark:text-white"
+          >
+            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
+              <path d="M12 3a1 1 0 0 1 1 1v8.6l2.3-2.3 1.4 1.4-4.7 4.7-4.7-4.7 1.4-1.4L11 12.6V4a1 1 0 0 1 1-1zm-7 14h14v2H5v-2z" />
+            </svg>
+            Download App
+          </button>
           <Link to="/lms-login" className="btn-lms">
             {navbarLabels.navbarLmsLabel || "LMS Login"}
           </Link>
@@ -180,6 +201,16 @@ function Navbar() {
             ))}
           </div>
           <div className="mt-6 flex flex-col gap-3">
+            <button
+              type="button"
+              onClick={handleAppDownloadClick}
+              className="inline-flex items-center justify-center gap-2 rounded-full border border-slate-200/80 bg-white/70 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-700 transition hover:-translate-y-0.5 hover:text-primary dark:border-white/10 dark:bg-white/10 dark:text-white"
+            >
+              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
+                <path d="M12 3a1 1 0 0 1 1 1v8.6l2.3-2.3 1.4 1.4-4.7 4.7-4.7-4.7 1.4-1.4L11 12.6V4a1 1 0 0 1 1-1zm-7 14h14v2H5v-2z" />
+              </svg>
+              Download App
+            </button>
             <Link to="/lms-login" className="btn-lms" onClick={closeMenu}>
               {navbarLabels.navbarLmsLabel || "LMS Login"}
             </Link>

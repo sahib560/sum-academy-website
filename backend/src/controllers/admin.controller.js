@@ -399,6 +399,9 @@ export const createUser = async (req, res) => {
     batch.set(db.collection(COLLECTIONS.USERS).doc(uid), {
       uid,
       email,
+      fullName: name,
+      name,
+      phoneNumber: phone || "",
       role,
       isActive: true,
       assignedWebDevice: "",
@@ -457,7 +460,40 @@ export const createUser = async (req, res) => {
 export const updateUser = async (req, res) => {
   try {
     const { uid } = req.params;
-    const { name, isActive, phone, subject, bio } = req.body;
+    const {
+      name,
+      fullName,
+      email,
+      isActive,
+      phone,
+      phoneNumber,
+      subject,
+      bio,
+      fatherName,
+      fatherPhone,
+      fatherOccupation,
+      address,
+      district,
+      domicile,
+      caste,
+      password,
+    } = req.body || {};
+
+    if (password !== undefined) {
+      return errorResponse(
+        res,
+        "Password cannot be changed from this endpoint",
+        400
+      );
+    }
+
+    const trim = (value = "") => String(value || "").trim();
+    const isValidEmail = (value = "") =>
+      /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim());
+
+    const nextName = trim(name || fullName);
+    const nextEmail = trim(email).toLowerCase();
+    const nextPhone = trim(phone !== undefined ? phone : phoneNumber);
 
     const userSnap = await db.collection(COLLECTIONS.USERS).doc(uid).get();
     if (!userSnap.exists) {
@@ -465,7 +501,13 @@ export const updateUser = async (req, res) => {
     }
 
     const userData = userSnap.data();
-    const updates = {};
+    const updates = {
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+
+    if (nextEmail && !isValidEmail(nextEmail)) {
+      return errorResponse(res, "Enter a valid email address", 400);
+    }
 
     if (isActive !== undefined) {
       updates.isActive = isActive;
@@ -474,43 +516,99 @@ export const updateUser = async (req, res) => {
       }
     }
 
-    if (Object.keys(updates).length > 0) {
-      await db.collection(COLLECTIONS.USERS).doc(uid).update(updates);
+    if (nextName) {
+      updates.fullName = nextName;
+      updates.name = nextName;
     }
 
-    if (name || userData.role === "teacher") {
-      const roleCol =
-        userData.role === "student"
-          ? COLLECTIONS.STUDENTS
-          : userData.role === "teacher"
+    if (nextEmail) {
+      updates.email = nextEmail;
+    }
+
+    if (phone !== undefined || phoneNumber !== undefined) {
+      updates.phoneNumber = nextPhone;
+    }
+
+    try {
+      const authUpdates = {};
+      if (nextName) authUpdates.displayName = nextName;
+      if (nextEmail && nextEmail !== String(userData.email || "").toLowerCase()) {
+        authUpdates.email = nextEmail;
+      }
+      if (Object.keys(authUpdates).length > 0) {
+        await admin.auth().updateUser(uid, authUpdates);
+      }
+    } catch (authError) {
+      if (authError?.code === "auth/email-already-exists") {
+        return errorResponse(res, "Email already in use", 409);
+      }
+      throw authError;
+    }
+
+    if (Object.keys(updates).length > 0) {
+      await db.collection(COLLECTIONS.USERS).doc(uid).set(updates, { merge: true });
+    }
+
+    const roleCol =
+      userData.role === "student"
+        ? COLLECTIONS.STUDENTS
+        : userData.role === "teacher"
           ? COLLECTIONS.TEACHERS
           : COLLECTIONS.ADMINS;
 
-      const roleUpdates = {};
-      if (name) roleUpdates.fullName = name;
-      if (userData.role === "student") {
-        if (phone !== undefined) roleUpdates.phoneNumber = phone;
-      }
-      if (userData.role === "teacher") {
-        if (phone !== undefined) roleUpdates.phoneNumber = phone;
-        if (subject !== undefined) {
-          roleUpdates.subject = subject;
-          roleUpdates.assignedSubjects = subject ? [subject] : [];
-        }
-        if (bio !== undefined) roleUpdates.bio = bio;
-      }
+    const roleUpdates = {
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
 
-      if (Object.keys(roleUpdates).length > 0) {
-        await db.collection(roleCol).doc(uid).set(roleUpdates, { merge: true });
-      }
-
-      if (name) {
-        await admin.auth().updateUser(uid, { displayName: name });
-      }
+    if (nextName) {
+      roleUpdates.fullName = nextName;
+      roleUpdates.name = nextName;
+    }
+    if (nextEmail) {
+      roleUpdates.email = nextEmail;
+    }
+    if (phone !== undefined || phoneNumber !== undefined) {
+      roleUpdates.phoneNumber = nextPhone;
+      roleUpdates.phone = nextPhone;
     }
 
-    return successResponse(res, { uid }, "User updated");
+    if (userData.role === "teacher") {
+      if (subject !== undefined) {
+        const cleanSubject = trim(subject);
+        roleUpdates.subject = cleanSubject;
+        roleUpdates.assignedSubjects = cleanSubject ? [cleanSubject] : [];
+      }
+      if (bio !== undefined) roleUpdates.bio = trim(bio);
+    }
+
+    if (userData.role === "student") {
+      if (fatherName !== undefined) roleUpdates.fatherName = trim(fatherName);
+      if (fatherPhone !== undefined) roleUpdates.fatherPhone = trim(fatherPhone);
+      if (fatherOccupation !== undefined) {
+        roleUpdates.fatherOccupation = trim(fatherOccupation);
+      }
+      if (address !== undefined) roleUpdates.address = trim(address);
+      if (district !== undefined) roleUpdates.district = trim(district);
+      if (domicile !== undefined) roleUpdates.domicile = trim(domicile);
+      if (caste !== undefined) roleUpdates.caste = trim(caste);
+    }
+
+    if (Object.keys(roleUpdates).length > 1) {
+      await db.collection(roleCol).doc(uid).set(roleUpdates, { merge: true });
+    }
+
+    return successResponse(
+      res,
+      {
+        uid,
+        role: userData.role,
+        fullName: nextName || userData.fullName || userData.name || "",
+        email: nextEmail || userData.email || "",
+      },
+      "User updated"
+    );
   } catch (e) {
+    console.error("updateUser error:", e);
     return errorResponse(res, "Failed to update user", 500);
   }
 };

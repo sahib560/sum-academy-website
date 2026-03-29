@@ -461,6 +461,13 @@ const registerUser = async (req, res) => {
       email,
       fullName = "",
       phoneNumber = "",
+      fatherName = "",
+      fatherPhone = "",
+      fatherOccupation = "",
+      address = "",
+      district = "",
+      domicile = "",
+      caste = "",
       otpVerificationToken = "",
       provider = "",
     } = req.body || {};
@@ -507,11 +514,39 @@ const registerUser = async (req, res) => {
       return errorResponse(res, "User already registered", 409);
     }
 
+    const existingByEmailSnap = await db
+      .collection("users")
+      .where("email", "==", normalizedEmail)
+      .limit(1)
+      .get();
+
+    if (!existingByEmailSnap.empty) {
+      const existingDoc = existingByEmailSnap.docs[0];
+      if (existingDoc.id !== uid) {
+        return errorResponse(
+          res,
+          "This email is already linked with another account. Please login using your original account/device.",
+          409,
+          { code: "EMAIL_ALREADY_REGISTERED_WITH_DIFFERENT_ACCOUNT" }
+        );
+      }
+    }
+
     await admin.auth().setCustomUserClaims(uid, { role: "student" });
 
     const batch = db.batch();
 
-    const displayName = fullName || email.split("@")[0];
+    const displayName = trimText(fullName) || email.split("@")[0];
+    const safePhone = trimText(phoneNumber);
+    const studentProfile = {
+      fatherName: trimText(fatherName),
+      fatherPhone: trimText(fatherPhone),
+      fatherOccupation: trimText(fatherOccupation),
+      address: trimText(address),
+      district: trimText(district),
+      domicile: trimText(domicile),
+      caste: trimText(caste),
+    };
     const safeDevice = req.clientDevice || req.headers?.["user-agent"] || "";
     const rawIp =
       req.clientIP ||
@@ -531,6 +566,9 @@ const registerUser = async (req, res) => {
     batch.set(userRef, {
       uid,
       email: normalizedEmail,
+      fullName: displayName,
+      name: displayName,
+      phoneNumber: safePhone,
       role: "student",
       isActive: true,
       assignedWebDevice: safeDevice,
@@ -543,8 +581,12 @@ const registerUser = async (req, res) => {
     const studentRef = db.collection("students").doc(uid);
     batch.set(studentRef, {
       uid,
+      email: normalizedEmail,
       fullName: displayName,
-      phoneNumber,
+      name: displayName,
+      phoneNumber: safePhone,
+      phone: safePhone,
+      ...studentProfile,
       enrolledCourses: [],
       certificates: [],
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -624,9 +666,14 @@ const loginUser = async (req, res) => {
 
           return errorResponse(
             res,
-            "You are trying to login from another device or network. Contact your admin or teacher.",
+            "You are trying to login from another device or network. Do not try again from another device/IP, otherwise your account may be blocked. Contact your admin or teacher.",
             403,
-            { code: "DEVICE_IP_MISMATCH", contactAdmin: true }
+            {
+              code: "DEVICE_IP_MISMATCH",
+              contactAdmin: true,
+              warning:
+                "Do not try again from another device/IP, otherwise your account may be blocked.",
+            }
           );
         }
       } else {

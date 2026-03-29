@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+﻿import { useEffect, useMemo, useState } from "react";
+import { AnimatePresence, motion as Motion } from "framer-motion";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import toast, { Toaster } from "react-hot-toast";
 import {
@@ -32,6 +32,13 @@ const profileErrorsFor = (form) => {
   const errors = {};
   const fullName = String(form.fullName || "").trim();
   const phoneNumber = String(form.phoneNumber || "").trim();
+  const fatherName = String(form.fatherName || "").trim();
+  const fatherPhone = String(form.fatherPhone || "").trim();
+  const fatherOccupation = String(form.fatherOccupation || "").trim();
+  const address = String(form.address || "").trim();
+  const district = String(form.district || "").trim();
+  const domicile = String(form.domicile || "").trim();
+  const caste = String(form.caste || "").trim();
 
   if (!fullName) {
     errors.fullName = "Full Name is required";
@@ -43,6 +50,27 @@ const profileErrorsFor = (form) => {
 
   if (phoneNumber.length > 30) {
     errors.phoneNumber = "Phone Number cannot exceed 30 characters";
+  }
+  if (fatherName.length > 120) {
+    errors.fatherName = "Father Name cannot exceed 120 characters";
+  }
+  if (fatherPhone.length > 30) {
+    errors.fatherPhone = "Father Phone cannot exceed 30 characters";
+  }
+  if (fatherOccupation.length > 120) {
+    errors.fatherOccupation = "Father Occupation cannot exceed 120 characters";
+  }
+  if (address.length > 300) {
+    errors.address = "Address cannot exceed 300 characters";
+  }
+  if (district.length > 120) {
+    errors.district = "District cannot exceed 120 characters";
+  }
+  if (domicile.length > 120) {
+    errors.domicile = "Domicile cannot exceed 120 characters";
+  }
+  if (caste.length > 120) {
+    errors.caste = "Caste cannot exceed 120 characters";
   }
 
   return errors;
@@ -70,11 +98,25 @@ function StudentSettings() {
     fullName: "",
     email: "",
     phoneNumber: "",
+    fatherName: "",
+    fatherPhone: "",
+    fatherOccupation: "",
+    address: "",
+    district: "",
+    domicile: "",
+    caste: "",
   });
   const [profileBaseline, setProfileBaseline] = useState(profileForm);
   const [profileTouched, setProfileTouched] = useState({
     fullName: false,
     phoneNumber: false,
+    fatherName: false,
+    fatherPhone: false,
+    fatherOccupation: false,
+    address: false,
+    district: false,
+    domicile: false,
+    caste: false,
   });
 
   const [passwordForm, setPasswordForm] = useState({
@@ -113,6 +155,13 @@ function StudentSettings() {
       fullName: String(settingsQuery.data.fullName || ""),
       email: String(settingsQuery.data.email || ""),
       phoneNumber: String(settingsQuery.data.phoneNumber || ""),
+      fatherName: String(settingsQuery.data.fatherName || ""),
+      fatherPhone: String(settingsQuery.data.fatherPhone || ""),
+      fatherOccupation: String(settingsQuery.data.fatherOccupation || ""),
+      address: String(settingsQuery.data.address || ""),
+      district: String(settingsQuery.data.district || ""),
+      domicile: String(settingsQuery.data.domicile || ""),
+      caste: String(settingsQuery.data.caste || ""),
     };
     setProfileForm(nextForm);
     setProfileBaseline(nextForm);
@@ -132,6 +181,15 @@ function StudentSettings() {
         fullName: String(data.fullName || profileForm.fullName || ""),
         email: String(data.email || profileForm.email || ""),
         phoneNumber: String(data.phoneNumber || profileForm.phoneNumber || ""),
+        fatherName: String(data.fatherName || profileForm.fatherName || ""),
+        fatherPhone: String(data.fatherPhone || profileForm.fatherPhone || ""),
+        fatherOccupation: String(
+          data.fatherOccupation || profileForm.fatherOccupation || ""
+        ),
+        address: String(data.address || profileForm.address || ""),
+        district: String(data.district || profileForm.district || ""),
+        domicile: String(data.domicile || profileForm.domicile || ""),
+        caste: String(data.caste || profileForm.caste || ""),
       };
       setProfileForm(next);
       setProfileBaseline(next);
@@ -152,7 +210,17 @@ function StudentSettings() {
 
   const profileSave = () => {
     const errors = profileErrorsFor(profileForm);
-    setProfileTouched({ fullName: true, phoneNumber: true });
+    setProfileTouched({
+      fullName: true,
+      phoneNumber: true,
+      fatherName: true,
+      fatherPhone: true,
+      fatherOccupation: true,
+      address: true,
+      district: true,
+      domicile: true,
+      caste: true,
+    });
     if (Object.keys(errors).length) {
       toast.error("Please fix profile validation errors", {
         style: { borderRadius: "12px", fontFamily: "DM Sans, sans-serif" },
@@ -163,6 +231,13 @@ function StudentSettings() {
     updateProfileMutation.mutate({
       fullName: String(profileForm.fullName || "").trim(),
       phoneNumber: String(profileForm.phoneNumber || "").trim(),
+      fatherName: String(profileForm.fatherName || "").trim(),
+      fatherPhone: String(profileForm.fatherPhone || "").trim(),
+      fatherOccupation: String(profileForm.fatherOccupation || "").trim(),
+      address: String(profileForm.address || "").trim(),
+      district: String(profileForm.district || "").trim(),
+      domicile: String(profileForm.domicile || "").trim(),
+      caste: String(profileForm.caste || "").trim(),
     });
   };
 
@@ -236,7 +311,7 @@ function StudentSettings() {
     <div className="grid gap-6 lg:grid-cols-[240px_1fr]">
       <Toaster position="top-right" />
 
-      <motion.aside
+      <Motion.aside
         initial={{ opacity: 0, x: -10 }}
         animate={{ opacity: 1, x: 0 }}
         className="sticky top-24 h-fit rounded-3xl border border-slate-200 bg-white p-4 shadow-sm"
@@ -265,7 +340,7 @@ function StudentSettings() {
             ))}
           </div>
         )}
-      </motion.aside>
+      </Motion.aside>
 
       <div>
         {settingsQuery.isLoading ? (
@@ -277,7 +352,7 @@ function StudentSettings() {
         ) : (
           <AnimatePresence mode="wait" initial={false}>
             {activeTab === "profile" ? (
-              <motion.div key="profile" {...tabTransition} className="space-y-6">
+              <Motion.div key="profile" {...tabTransition} className="space-y-6">
                 <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
                   <h2 className="font-heading text-2xl text-slate-900">Profile</h2>
                   <div className="mt-4 grid gap-4 sm:grid-cols-2">
@@ -323,6 +398,131 @@ function StudentSettings() {
                       />
                       {profileTouched.phoneNumber && profileErrors.phoneNumber ? (
                         <p className="mt-1 text-xs text-rose-600">{profileErrors.phoneNumber}</p>
+                      ) : null}
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">
+                        Father Name
+                      </label>
+                      <input
+                        value={profileForm.fatherName}
+                        onChange={(event) => {
+                          setProfileTouched((prev) => ({ ...prev, fatherName: true }));
+                          setProfileForm((prev) => ({ ...prev, fatherName: event.target.value }));
+                        }}
+                        className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                      />
+                      {profileTouched.fatherName && profileErrors.fatherName ? (
+                        <p className="mt-1 text-xs text-rose-600">{profileErrors.fatherName}</p>
+                      ) : null}
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">
+                        Father Phone
+                      </label>
+                      <input
+                        value={profileForm.fatherPhone}
+                        onChange={(event) => {
+                          setProfileTouched((prev) => ({ ...prev, fatherPhone: true }));
+                          setProfileForm((prev) => ({ ...prev, fatherPhone: event.target.value }));
+                        }}
+                        className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                      />
+                      {profileTouched.fatherPhone && profileErrors.fatherPhone ? (
+                        <p className="mt-1 text-xs text-rose-600">{profileErrors.fatherPhone}</p>
+                      ) : null}
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">
+                        Father Occupation
+                      </label>
+                      <input
+                        value={profileForm.fatherOccupation}
+                        onChange={(event) => {
+                          setProfileTouched((prev) => ({ ...prev, fatherOccupation: true }));
+                          setProfileForm((prev) => ({
+                            ...prev,
+                            fatherOccupation: event.target.value,
+                          }));
+                        }}
+                        className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                      />
+                      {profileTouched.fatherOccupation && profileErrors.fatherOccupation ? (
+                        <p className="mt-1 text-xs text-rose-600">
+                          {profileErrors.fatherOccupation}
+                        </p>
+                      ) : null}
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">
+                        District
+                      </label>
+                      <input
+                        value={profileForm.district}
+                        onChange={(event) => {
+                          setProfileTouched((prev) => ({ ...prev, district: true }));
+                          setProfileForm((prev) => ({ ...prev, district: event.target.value }));
+                        }}
+                        className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                      />
+                      {profileTouched.district && profileErrors.district ? (
+                        <p className="mt-1 text-xs text-rose-600">{profileErrors.district}</p>
+                      ) : null}
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">
+                        Domicile
+                      </label>
+                      <input
+                        value={profileForm.domicile}
+                        onChange={(event) => {
+                          setProfileTouched((prev) => ({ ...prev, domicile: true }));
+                          setProfileForm((prev) => ({ ...prev, domicile: event.target.value }));
+                        }}
+                        className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                      />
+                      {profileTouched.domicile && profileErrors.domicile ? (
+                        <p className="mt-1 text-xs text-rose-600">{profileErrors.domicile}</p>
+                      ) : null}
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">
+                        Caste
+                      </label>
+                      <input
+                        value={profileForm.caste}
+                        onChange={(event) => {
+                          setProfileTouched((prev) => ({ ...prev, caste: true }));
+                          setProfileForm((prev) => ({ ...prev, caste: event.target.value }));
+                        }}
+                        className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                      />
+                      {profileTouched.caste && profileErrors.caste ? (
+                        <p className="mt-1 text-xs text-rose-600">{profileErrors.caste}</p>
+                      ) : null}
+                    </div>
+
+                    <div className="sm:col-span-2">
+                      <label className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">
+                        Address
+                      </label>
+                      <textarea
+                        value={profileForm.address}
+                        onChange={(event) => {
+                          setProfileTouched((prev) => ({ ...prev, address: true }));
+                          setProfileForm((prev) => ({ ...prev, address: event.target.value }));
+                        }}
+                        rows={3}
+                        className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                      />
+                      {profileTouched.address && profileErrors.address ? (
+                        <p className="mt-1 text-xs text-rose-600">{profileErrors.address}</p>
                       ) : null}
                     </div>
                   </div>
@@ -435,18 +635,18 @@ function StudentSettings() {
                     </button>
                   </div>
                 </section>
-              </motion.div>
+              </Motion.div>
             ) : null}
 
             {activeTab === "security" ? (
-              <motion.section key="security" {...tabTransition} className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+              <Motion.section key="security" {...tabTransition} className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
                 <h2 className="font-heading text-2xl text-slate-900">Security</h2>
                 <p className="mt-2 text-sm text-slate-500">Password updates are available in the Profile tab. Keep your account secure by using a strong password and signing out from shared devices.</p>
-              </motion.section>
+              </Motion.section>
             ) : null}
 
             {activeTab === "notifications" ? (
-              <motion.section key="notifications" {...tabTransition} className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+              <Motion.section key="notifications" {...tabTransition} className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
                 <h2 className="font-heading text-2xl text-slate-900">Notifications</h2>
                 <div className="mt-4 space-y-3 text-sm">
                   {[
@@ -474,11 +674,11 @@ function StudentSettings() {
                 >
                   Save Notifications
                 </button>
-              </motion.section>
+              </Motion.section>
             ) : null}
 
             {activeTab === "appearance" ? (
-              <motion.section key="appearance" {...tabTransition} className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+              <Motion.section key="appearance" {...tabTransition} className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
                 <h2 className="font-heading text-2xl text-slate-900">Appearance</h2>
                 <div className="mt-4 space-y-3 text-sm">
                   <label className="flex items-center justify-between rounded-xl border border-slate-200 px-4 py-3">
@@ -509,7 +709,7 @@ function StudentSettings() {
                 >
                   Save Appearance
                 </button>
-              </motion.section>
+              </Motion.section>
             ) : null}
           </AnimatePresence>
         )}
@@ -519,3 +719,4 @@ function StudentSettings() {
 }
 
 export default StudentSettings;
+

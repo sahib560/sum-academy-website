@@ -25,7 +25,8 @@ const registerWithEmail = async (
   email,
   password,
   phoneNumber,
-  otpVerificationToken
+  otpVerificationToken,
+  profileData = {}
 ) => {
   try {
     console.log("Step 1: Creating Firebase user...");
@@ -51,6 +52,13 @@ const registerWithEmail = async (
         fullName,
         phoneNumber: phoneNumber || "",
         otpVerificationToken: otpVerificationToken || "",
+        fatherName: profileData.fatherName || "",
+        fatherPhone: profileData.fatherPhone || "",
+        fatherOccupation: profileData.fatherOccupation || "",
+        address: profileData.address || "",
+        district: profileData.district || "",
+        domicile: profileData.domicile || "",
+        caste: profileData.caste || "",
       },
       { headers: { Authorization: `Bearer ${idToken}` } }
     );
@@ -119,6 +127,17 @@ const loginWithGoogle = async () => {
       );
       console.log("Step 4: New user registered");
     } catch (regError) {
+      if (
+        regError.response?.status === 409 &&
+        regError.response?.data?.errors?.code ===
+          "EMAIL_ALREADY_REGISTERED_WITH_DIFFERENT_ACCOUNT"
+      ) {
+        await signOut(firebaseAuth);
+        throw new Error(
+          "This email is already linked with another account. Use your original login method and registered device."
+        );
+      }
+
       if (regError.response?.status !== 409) {
         throw regError;
       }
@@ -148,6 +167,13 @@ const loginWithGoogle = async () => {
     );
   } catch (error) {
     console.error("Google login error:", error);
+    if (error.code === "auth/unauthorized-domain") {
+      const host =
+        typeof window !== "undefined" ? window.location.hostname : "this domain";
+      throw new Error(
+        `Google login is not enabled for ${host}. Ask admin to add this domain in Firebase Authentication > Settings > Authorized domains.`
+      );
+    }
     if (error.code === "auth/popup-closed-by-user") {
       return null;
     }

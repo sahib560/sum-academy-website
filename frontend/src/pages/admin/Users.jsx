@@ -4,7 +4,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion as Motion } from "framer-motion";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Toaster, toast } from "react-hot-toast";
 import { jsPDF } from "jspdf";
@@ -61,6 +61,17 @@ const emptyAddForm = {
 const emptyEditForm = {
   uid: "",
   fullName: "",
+  email: "",
+  phone: "",
+  subject: "",
+  bio: "",
+  fatherName: "",
+  fatherPhone: "",
+  fatherOccupation: "",
+  address: "",
+  district: "",
+  domicile: "",
+  caste: "",
   isActive: true,
   role: "",
 };
@@ -120,18 +131,27 @@ const normalizeUsers = (users = [], teachers = [], students = []) => {
     const uid = user.uid || user.id;
     const teacher = teacherMap.get(uid);
     const student = studentMap.get(uid);
+    const roleProfile = user.role === "teacher" ? teacher || {} : user.role === "student" ? student || {} : {};
     const fullName =
-      teacher?.fullName ||
-      student?.fullName ||
+      roleProfile?.fullName ||
       user.fullName ||
       user.name ||
       "";
     const displayName = fullName || emailName(user.email);
+    const phone =
+      roleProfile?.phoneNumber ||
+      roleProfile?.phone ||
+      user.phoneNumber ||
+      user.phone ||
+      "";
 
     return {
       ...user,
+      ...roleProfile,
       uid,
       fullName,
+      phone,
+      email: user.email || roleProfile.email || "",
       displayName,
       joinedDate: formatDate(user.createdAt),
       initials: getInitials(displayName, user.email),
@@ -184,6 +204,16 @@ const validateEditForm = (values) => {
     errors.fullName = "Full Name is required.";
   } else if (values.fullName.trim().length < 3) {
     errors.fullName = "Full Name must be at least 3 characters.";
+  }
+
+  if (!values.email.trim()) {
+    errors.email = "Email is required.";
+  } else if (!EMAIL_REGEX.test(values.email.trim())) {
+    errors.email = "Enter a valid email address.";
+  }
+
+  if (values.phone.trim() && !PHONE_REGEX.test(values.phone.trim())) {
+    errors.phone = "Use 03003425849 or +923003425849 format.";
   }
 
   if (!values.role) {
@@ -239,7 +269,7 @@ function ModalShell({ open, title, onClose, children, maxWidth = "max-w-lg" }) {
 
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [open]);
+  }, [open, onClose]);
 
   return (
     <AnimatePresence>
@@ -251,7 +281,7 @@ function ModalShell({ open, title, onClose, children, maxWidth = "max-w-lg" }) {
             className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
             onClick={onClose}
           />
-          <motion.div
+          <Motion.div
             ref={dialogRef}
             initial={{ opacity: 0, scale: 0.96, y: 12 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -278,7 +308,7 @@ function ModalShell({ open, title, onClose, children, maxWidth = "max-w-lg" }) {
               </button>
             </div>
             <div className="overflow-y-auto pr-1">{children}</div>
-          </motion.div>
+          </Motion.div>
         </div>
       ) : null}
     </AnimatePresence>
@@ -442,14 +472,26 @@ function Users() {
 
   const editUserMutation = useMutation({
     mutationFn: async (values) => {
-      await updateUser(values.uid, {
-        name: values.fullName.trim(),
-        isActive: values.isActive,
-      });
-
       if (selectedUser?.role !== values.role) {
         await setUserRole(values.uid, values.role);
       }
+
+      await updateUser(values.uid, {
+        name: values.fullName.trim(),
+        email: values.email.trim(),
+        phone: values.phone.trim(),
+        subject: values.role === "teacher" ? values.subject.trim() : undefined,
+        bio: values.role === "teacher" ? values.bio.trim() : undefined,
+        fatherName: values.role === "student" ? values.fatherName.trim() : undefined,
+        fatherPhone: values.role === "student" ? values.fatherPhone.trim() : undefined,
+        fatherOccupation:
+          values.role === "student" ? values.fatherOccupation.trim() : undefined,
+        address: values.role === "student" ? values.address.trim() : undefined,
+        district: values.role === "student" ? values.district.trim() : undefined,
+        domicile: values.role === "student" ? values.domicile.trim() : undefined,
+        caste: values.role === "student" ? values.caste.trim() : undefined,
+        isActive: values.isActive,
+      });
     },
     onSuccess: async () => {
       await invalidateUsersData();
@@ -548,15 +590,11 @@ function Users() {
 
   const perPage = 10;
   const pageCount = Math.max(1, Math.ceil(filteredUsers.length / perPage));
-  const paginatedUsers = filteredUsers.slice((page - 1) * perPage, page * perPage);
-
-  useEffect(() => {
-    setPage(1);
-  }, [activeTab, debouncedSearch]);
-
-  useEffect(() => {
-    if (page > pageCount) setPage(pageCount);
-  }, [page, pageCount]);
+  const currentPage = Math.min(page, pageCount);
+  const paginatedUsers = filteredUsers.slice(
+    (currentPage - 1) * perPage,
+    currentPage * perPage
+  );
 
   const addErrors = useMemo(() => validateAddForm(addForm), [addForm]);
   const editErrors = useMemo(() => validateEditForm(editForm), [editForm]);
@@ -577,6 +615,17 @@ function Users() {
     setEditForm({
       uid: user.uid,
       fullName: user.fullName || "",
+      email: user.email || "",
+      phone: user.phone || "",
+      subject: user.subject || "",
+      bio: user.bio || "",
+      fatherName: user.fatherName || "",
+      fatherPhone: user.fatherPhone || "",
+      fatherOccupation: user.fatherOccupation || "",
+      address: user.address || "",
+      district: user.district || "",
+      domicile: user.domicile || "",
+      caste: user.caste || "",
       isActive: user.isActive,
       role: user.role,
     });
@@ -702,7 +751,10 @@ function Users() {
           <button
             key={tab.key}
             type="button"
-            onClick={() => setActiveTab(tab.key)}
+            onClick={() => {
+              setActiveTab(tab.key);
+              setPage(1);
+            }}
             className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
               activeTab === tab.key
                 ? "bg-primary text-white"
@@ -727,7 +779,10 @@ function Users() {
           <input
             type="text"
             value={searchInput}
-            onChange={(event) => setSearchInput(event.target.value)}
+            onChange={(event) => {
+              setSearchInput(event.target.value);
+              setPage(1);
+            }}
             placeholder="Search by email"
             className="w-full rounded-full border border-slate-200 bg-white py-3 pl-11 pr-4 text-sm text-slate-700 shadow-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/10"
           />
@@ -995,13 +1050,13 @@ function Users() {
 
         <div className="flex items-center justify-between border-t border-slate-100 px-6 py-4 text-sm text-slate-500">
           <span>
-            Page {page} of {pageCount}
+            Page {currentPage} of {pageCount}
           </span>
           <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={() => setPage((prev) => Math.max(1, prev - 1))}
-              disabled={page === 1}
+              disabled={currentPage === 1}
               className="rounded-full border border-slate-200 px-3 py-1 disabled:cursor-not-allowed disabled:opacity-50"
             >
               Prev
@@ -1009,7 +1064,7 @@ function Users() {
             <button
               type="button"
               onClick={() => setPage((prev) => Math.min(pageCount, prev + 1))}
-              disabled={page === pageCount}
+              disabled={currentPage === pageCount}
               className="rounded-full border border-slate-200 px-3 py-1 disabled:cursor-not-allowed disabled:opacity-50"
             >
               Next
@@ -1154,7 +1209,12 @@ function Users() {
           className="mt-6 space-y-4"
           onSubmit={(event) => {
             event.preventDefault();
-            setEditTouched({ fullName: true, role: true });
+            setEditTouched({
+              fullName: true,
+              email: true,
+              phone: true,
+              role: true,
+            });
             if (Object.keys(editErrors).length) return;
             editUserMutation.mutate(editForm);
           }}
@@ -1170,6 +1230,29 @@ function Users() {
             error={editTouched.fullName ? editErrors.fullName : ""}
           />
 
+          <TextInput
+            label="Email"
+            type="email"
+            value={editForm.email}
+            onChange={(event) => {
+              setEditForm((prev) => ({ ...prev, email: event.target.value }));
+              setEditTouched((prev) => ({ ...prev, email: true }));
+            }}
+            placeholder="Email"
+            error={editTouched.email ? editErrors.email : ""}
+          />
+
+          <TextInput
+            label="Phone"
+            value={editForm.phone}
+            onChange={(event) => {
+              handlePhoneChange(event.target.value, setEditForm);
+              setEditTouched((prev) => ({ ...prev, phone: true }));
+            }}
+            placeholder="03003425849"
+            error={editTouched.phone ? editErrors.phone : ""}
+          />
+
           <SelectInput
             label="Role"
             value={editForm.role}
@@ -1180,6 +1263,99 @@ function Users() {
             options={ROLE_OPTIONS}
             error={editTouched.role ? editErrors.role : ""}
           />
+
+          {editForm.role === "teacher" ? (
+            <>
+              <TextInput
+                label="Subject"
+                value={editForm.subject}
+                onChange={(event) =>
+                  setEditForm((prev) => ({ ...prev, subject: event.target.value }))
+                }
+                placeholder="Mathematics"
+              />
+              <div>
+                <label className="text-sm font-semibold text-slate-700">Bio</label>
+                <textarea
+                  value={editForm.bio}
+                  onChange={(event) =>
+                    setEditForm((prev) => ({ ...prev, bio: event.target.value }))
+                  }
+                  rows={3}
+                  className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700 shadow-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/10"
+                  placeholder="Teacher bio"
+                />
+              </div>
+            </>
+          ) : null}
+
+          {editForm.role === "student" ? (
+            <>
+              <TextInput
+                label="Father Name"
+                value={editForm.fatherName}
+                onChange={(event) =>
+                  setEditForm((prev) => ({ ...prev, fatherName: event.target.value }))
+                }
+                placeholder="Father Name"
+              />
+              <TextInput
+                label="Father Phone"
+                value={editForm.fatherPhone}
+                onChange={(event) =>
+                  setEditForm((prev) => ({ ...prev, fatherPhone: event.target.value }))
+                }
+                placeholder="03003425849"
+              />
+              <TextInput
+                label="Father Occupation"
+                value={editForm.fatherOccupation}
+                onChange={(event) =>
+                  setEditForm((prev) => ({
+                    ...prev,
+                    fatherOccupation: event.target.value,
+                  }))
+                }
+                placeholder="Occupation"
+              />
+              <TextInput
+                label="District"
+                value={editForm.district}
+                onChange={(event) =>
+                  setEditForm((prev) => ({ ...prev, district: event.target.value }))
+                }
+                placeholder="District"
+              />
+              <TextInput
+                label="Domicile"
+                value={editForm.domicile}
+                onChange={(event) =>
+                  setEditForm((prev) => ({ ...prev, domicile: event.target.value }))
+                }
+                placeholder="Domicile"
+              />
+              <TextInput
+                label="Caste"
+                value={editForm.caste}
+                onChange={(event) =>
+                  setEditForm((prev) => ({ ...prev, caste: event.target.value }))
+                }
+                placeholder="Caste"
+              />
+              <div>
+                <label className="text-sm font-semibold text-slate-700">Address</label>
+                <textarea
+                  value={editForm.address}
+                  onChange={(event) =>
+                    setEditForm((prev) => ({ ...prev, address: event.target.value }))
+                  }
+                  rows={3}
+                  className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700 shadow-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/10"
+                  placeholder="Address"
+                />
+              </div>
+            </>
+          ) : null}
 
           <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
             <div className="flex items-center justify-between">

@@ -168,7 +168,16 @@ function Register() {
         email,
         password,
         phoneNumber,
-        otpVerificationToken
+        otpVerificationToken,
+        {
+          fatherName: form.fatherName,
+          fatherPhone: form.fatherPhone,
+          fatherOccupation: form.fatherOccupation,
+          address: form.address,
+          district: form.district,
+          domicile: form.domicile,
+          caste: form.caste,
+        }
       );
       await ensureMinSplashTime(startedAt);
       toast.success("Account created successfully! Welcome to SUM Academy");

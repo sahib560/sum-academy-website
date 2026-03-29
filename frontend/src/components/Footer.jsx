@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { toast } from "react-hot-toast";
 import logo from "../assets/logo.jpeg";
 import { useSettings } from "../hooks/useSettings.js";
 
@@ -76,6 +77,10 @@ function Footer() {
   const links = footer.links || {};
   const socialLinks = settings.general?.socialLinks || {};
 
+  const handleAppDownloadClick = () => {
+    toast.success("something is coming soon");
+  };
+
   return (
     <footer className="bg-white text-slate-700 dark:bg-dark dark:text-slate-200">
       <div className="mx-auto max-w-7xl px-4 pb-12 pt-12 sm:px-6 lg:px-8">
@@ -114,6 +119,16 @@ function Footer() {
             <p className="text-sm text-slate-500 dark:text-slate-300">
               Call: {settings.general?.contactPhone || "+92 300 0000000"}
             </p>
+            <button
+              type="button"
+              onClick={handleAppDownloadClick}
+              className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-700 transition hover:-translate-y-0.5 hover:border-primary hover:text-primary dark:border-white/10 dark:bg-white/5 dark:text-white"
+            >
+              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
+                <path d="M12 3a1 1 0 0 1 1 1v8.6l2.3-2.3 1.4 1.4-4.7 4.7-4.7-4.7 1.4-1.4L11 12.6V4a1 1 0 0 1 1-1zm-7 14h14v2H5v-2z" />
+              </svg>
+              Download App
+            </button>
           </div>
 
           <div className="space-y-4">

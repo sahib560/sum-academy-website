@@ -1,6 +1,6 @@
-import { useMemo } from "react";
+﻿import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { motion } from "framer-motion";
+import { motion as Motion } from "framer-motion";
 import { Link } from "react-router-dom";
 import { Skeleton, SkeletonCard } from "../../components/Skeleton.jsx";
 import { useAuth } from "../../hooks/useAuth.js";
@@ -136,6 +136,16 @@ const normalizeDashboard = (raw = {}, fallbackName = "Student") => {
   return {
     fullName,
     lastLoginAt: profile.lastLoginAt || raw.lastLoginAt || null,
+    profileDetails: {
+      phoneNumber: profile.phoneNumber || "",
+      fatherName: profile.fatherName || "",
+      fatherPhone: profile.fatherPhone || "",
+      fatherOccupation: profile.fatherOccupation || "",
+      address: profile.address || "",
+      district: profile.district || "",
+      domicile: profile.domicile || "",
+      caste: profile.caste || "",
+    },
     enrolledCount,
     completedCount,
     certificatesCount,
@@ -212,6 +222,17 @@ function StudentDashboard() {
     []
   );
 
+  const profileRows = [
+    { label: "Phone", value: dashboard.profileDetails.phoneNumber },
+    { label: "Father Name", value: dashboard.profileDetails.fatherName },
+    { label: "Father Phone", value: dashboard.profileDetails.fatherPhone },
+    { label: "Father Occupation", value: dashboard.profileDetails.fatherOccupation },
+    { label: "District", value: dashboard.profileDetails.district },
+    { label: "Domicile", value: dashboard.profileDetails.domicile },
+    { label: "Caste", value: dashboard.profileDetails.caste },
+    { label: "Address", value: dashboard.profileDetails.address },
+  ];
+
   const cards = [
     {
       label: "Enrolled Courses",
@@ -266,7 +287,7 @@ function StudentDashboard() {
 
   return (
     <div className="space-y-6">
-      <motion.section
+      <Motion.section
         {...fadeUp}
         className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"
       >
@@ -308,10 +329,41 @@ function StudentDashboard() {
             </div>
           </>
         )}
-      </motion.section>
+      </Motion.section>
+
+      <Motion.section
+        {...fadeUp}
+        className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"
+      >
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="font-heading text-xl text-slate-900">Profile Details</h3>
+          <Link className="text-sm font-semibold text-primary" to="/student/settings">
+            Edit Profile
+          </Link>
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          {isLoading
+            ? Array.from({ length: 8 }).map((_, index) => (
+                <Skeleton key={`profile-skel-${index}`} className="h-14 w-full rounded-xl" />
+              ))
+            : profileRows.map((row) => (
+                <div
+                  key={row.label}
+                  className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3"
+                >
+                  <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-400">
+                    {row.label}
+                  </p>
+                  <p className="mt-1 text-sm font-medium text-slate-700">
+                    {String(row.value || "").trim() || "-"}
+                  </p>
+                </div>
+              ))}
+        </div>
+      </Motion.section>
 
       {isError && (
-        <motion.section
+        <Motion.section
           {...fadeUp}
           className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700"
         >
@@ -325,10 +377,10 @@ function StudentDashboard() {
           >
             Retry
           </button>
-        </motion.section>
+        </Motion.section>
       )}
 
-      <motion.section {...fadeUp} className="grid gap-4 md:grid-cols-3">
+      <Motion.section {...fadeUp} className="grid gap-4 md:grid-cols-3">
         {isLoading
           ? Array.from({ length: 3 }).map((_, index) => (
               <div
@@ -350,9 +402,9 @@ function StudentDashboard() {
                 </p>
               </div>
             ))}
-      </motion.section>
+      </Motion.section>
 
-      <motion.section
+      <Motion.section
         {...fadeUp}
         className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"
       >
@@ -418,9 +470,9 @@ function StudentDashboard() {
             </Link>
           </div>
         )}
-      </motion.section>
+      </Motion.section>
 
-      <motion.section {...fadeUp} className="space-y-4">
+      <Motion.section {...fadeUp} className="space-y-4">
         <div className="flex items-center justify-between">
           <h3 className="font-heading text-xl text-slate-900">My Courses</h3>
           <Link className="text-sm font-semibold text-primary" to="/student/courses">
@@ -511,9 +563,9 @@ function StudentDashboard() {
             No enrolled courses yet.
           </div>
         )}
-      </motion.section>
+      </Motion.section>
 
-      <motion.section
+      <Motion.section
         {...fadeUp}
         className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"
       >
@@ -568,9 +620,9 @@ function StudentDashboard() {
             </div>
           )}
         </div>
-      </motion.section>
+      </Motion.section>
 
-      <motion.section
+      <Motion.section
         {...fadeUp}
         className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"
       >
@@ -621,9 +673,9 @@ function StudentDashboard() {
             </div>
           )}
         </div>
-      </motion.section>
+      </Motion.section>
 
-      <motion.section
+      <Motion.section
         {...fadeUp}
         className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"
       >
@@ -670,9 +722,10 @@ function StudentDashboard() {
             </div>
           )}
         </div>
-      </motion.section>
+      </Motion.section>
     </div>
   );
 }
 
 export default StudentDashboard;
+
