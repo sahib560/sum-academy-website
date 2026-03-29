@@ -1,11 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { motion } from "framer-motion";
+import { motion as Motion } from "framer-motion";
 import logo from "../../assets/logo.jpeg";
 import { useSettings } from "../../hooks/useSettings.js";
 import {
   registerWithEmail,
   loginWithGoogle,
+  sendRegistrationOtp,
+  verifyRegistrationOtp,
 } from "../../services/auth.service.js";
 import SplashScreen from "../../components/SplashScreen.jsx";
 
@@ -51,6 +53,9 @@ function Register() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [otpStep, setOtpStep] = useState(false);
+  const [otpCode, setOtpCode] = useState("");
+  const [otpTimer, setOtpTimer] = useState(0);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [toastState, setToastState] = useState(null);
@@ -70,6 +75,12 @@ function Register() {
     const timer = setTimeout(() => setToastState(null), 2500);
     return () => clearTimeout(timer);
   }, [toastState]);
+
+  useEffect(() => {
+    if (!otpStep || otpTimer <= 0) return;
+    const timer = setTimeout(() => setOtpTimer((prev) => prev - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [otpStep, otpTimer]);
 
   const passwordStrength = useMemo(() => {
     let score = 0;
@@ -129,11 +140,35 @@ function Register() {
     setError("");
 
     try {
+      if (!otpStep) {
+        await sendRegistrationOtp(email, fullName);
+        await ensureMinSplashTime(startedAt);
+        setOtpStep(true);
+        setOtpCode("");
+        setOtpTimer(60);
+        toast.success("OTP sent to your email. Verify OTP to continue.");
+        return;
+      }
+
+      if (!/^\d{6}$/.test(otpCode.trim())) {
+        await ensureMinSplashTime(startedAt);
+        setError("Enter the 6-digit OTP sent to your email.");
+        toast.error("Please enter a valid 6-digit OTP.");
+        return;
+      }
+
+      const verifyData = await verifyRegistrationOtp(email, otpCode.trim());
+      const otpVerificationToken = verifyData?.otpVerificationToken;
+      if (!otpVerificationToken) {
+        throw new Error("OTP verification failed. Please try again.");
+      }
+
       const registeredUser = await registerWithEmail(
         fullName,
         email,
         password,
-        phoneNumber
+        phoneNumber,
+        otpVerificationToken
       );
       await ensureMinSplashTime(startedAt);
       toast.success("Account created successfully! Welcome to SUM Academy");
@@ -152,6 +187,27 @@ function Register() {
         error?.response?.data?.message ||
         error?.message ||
         "Registration failed. Please try again.";
+      setError(message);
+      toast.error(message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResendOtp = async () => {
+    if (otpTimer > 0) return;
+    try {
+      setLoading(true);
+      setError("");
+      await sendRegistrationOtp(email, fullName);
+      setOtpCode("");
+      setOtpTimer(60);
+      toast.success("OTP resent successfully.");
+    } catch (error) {
+      const message =
+        error?.response?.data?.message ||
+        error?.message ||
+        "Failed to resend OTP.";
       setError(message);
       toast.error(message);
     } finally {
@@ -211,7 +267,7 @@ function Register() {
               </h1>
             </div>
 
-            <motion.form
+            <Motion.form
               initial="hidden"
               animate="visible"
               variants={fadeUp}
@@ -260,9 +316,14 @@ function Register() {
                   <input
                     type="email"
                     value={form.email}
-                    onChange={(event) =>
-                      setForm({ ...form, email: event.target.value })
-                    }
+                    onChange={(event) => {
+                      setForm({ ...form, email: event.target.value });
+                      if (otpStep) {
+                        setOtpStep(false);
+                        setOtpCode("");
+                        setOtpTimer(0);
+                      }
+                    }}
                     className="w-full rounded-full border border-slate-200 bg-white py-3 pl-11 pr-4 text-sm text-slate-700 shadow-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
                     placeholder="you@example.com"
                   />
@@ -512,8 +573,42 @@ function Register() {
                 <p className="text-xs text-accent">{errors.terms}</p>
               )}
 
+              {otpStep && (
+                <div className="rounded-2xl border border-primary/20 bg-primary/5 p-4">
+                  <label className="text-sm font-semibold text-slate-700">
+                    Email OTP
+                  </label>
+                  <input
+                    type="text"
+                    value={otpCode}
+                    onChange={(event) =>
+                      setOtpCode(event.target.value.replace(/\D/g, "").slice(0, 6))
+                    }
+                    className="mt-2 w-full rounded-full border border-slate-200 bg-white px-4 py-3 text-sm tracking-[0.35em] text-slate-700 shadow-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                    placeholder="123456"
+                    inputMode="numeric"
+                    maxLength={6}
+                  />
+                  <div className="mt-2 flex items-center justify-between text-xs text-slate-500">
+                    <span>Code sent to {email}</span>
+                    <button
+                      type="button"
+                      className="font-semibold text-primary disabled:text-slate-400"
+                      onClick={handleResendOtp}
+                      disabled={loading || otpTimer > 0}
+                    >
+                      {otpTimer > 0 ? `Resend in ${otpTimer}s` : "Resend OTP"}
+                    </button>
+                  </div>
+                </div>
+              )}
+
               <button type="submit" className="btn-primary w-full" disabled={loading}>
-                {loading ? "Please wait..." : "Create Account"}
+                {loading
+                  ? "Please wait..."
+                  : otpStep
+                  ? "Verify OTP & Create Account"
+                  : "Send OTP"}
               </button>
 
               <div style={{ margin: "16px 0" }}>
@@ -557,7 +652,7 @@ function Register() {
                   Sign In
                 </Link>
               </p>
-            </motion.form>
+            </Motion.form>
           </div>
         </div>
 
@@ -610,3 +705,4 @@ function Register() {
 }
 
 export default Register;
+

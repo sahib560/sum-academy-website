@@ -1,5 +1,447 @@
 import { admin, db } from "../config/firebase.js";
 import { successResponse, errorResponse } from "../utils/response.utils.js";
+import {
+  sendForgotPasswordOTP,
+  sendRegistrationOTP,
+} from "../services/email.service.js";
+import crypto from "crypto";
+
+const OTP_COLLECTION = "authOtps";
+const OTP_EXPIRY_MS = 5 * 60 * 1000;
+const OTP_VERIFIED_TOKEN_TTL_MS = 20 * 60 * 1000;
+const OTP_MAX_ATTEMPTS = 5;
+const OTP_RESEND_COOLDOWN_MS = 30 * 1000;
+
+const normalizeEmail = (value = "") => String(value || "").trim().toLowerCase();
+const isValidEmail = (value = "") => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizeEmail(value));
+const trimText = (value = "") => String(value || "").trim();
+const hashOtp = (otp = "") =>
+  crypto.createHash("sha256").update(String(otp)).digest("hex");
+const createOtp = () => String(Math.floor(100000 + Math.random() * 900000));
+const createVerificationToken = () => crypto.randomUUID();
+const otpDocId = (purpose, email) => `${purpose}:${normalizeEmail(email)}`;
+const getNameFromEmail = (email = "") => normalizeEmail(email).split("@")[0] || "User";
+
+const getOtpRef = (purpose, email) =>
+  db.collection(OTP_COLLECTION).doc(otpDocId(purpose, email));
+
+const validateVerifiedOtpToken = async (purpose, email, token) => {
+  const ref = getOtpRef(purpose, email);
+  const snap = await ref.get();
+  if (!snap.exists) return { ok: false, reason: "OTP not found" };
+
+  const data = snap.data() || {};
+  const now = Date.now();
+
+  if (data.purpose !== purpose) {
+    return { ok: false, reason: "OTP purpose mismatch" };
+  }
+  if (data.used) {
+    return { ok: false, reason: "OTP token already used" };
+  }
+  if (!data.verified || !data.verificationToken) {
+    return { ok: false, reason: "OTP is not verified" };
+  }
+  if (data.verificationToken !== token) {
+    return { ok: false, reason: "Invalid OTP verification token" };
+  }
+
+  const verifiedAt = Number(data.verifiedAt || 0);
+  if (!verifiedAt || now - verifiedAt > OTP_VERIFIED_TOKEN_TTL_MS) {
+    return { ok: false, reason: "OTP verification token expired" };
+  }
+
+  return { ok: true, ref, data };
+};
+
+const markOtpUsed = async (ref) => {
+  await ref.set(
+    {
+      used: true,
+      usedAt: Date.now(),
+      verificationToken: null,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    },
+    { merge: true }
+  );
+};
+
+const getUserNameByEmail = async (email) => {
+  const emailLower = normalizeEmail(email);
+  const usersSnap = await db
+    .collection("users")
+    .where("email", "==", emailLower)
+    .limit(1)
+    .get();
+
+  if (usersSnap.empty) {
+    return getNameFromEmail(emailLower);
+  }
+
+  const userData = usersSnap.docs[0].data() || {};
+  const uid = userData.uid || usersSnap.docs[0].id;
+  const role = userData.role;
+
+  let roleDoc = null;
+  if (role === "student") {
+    roleDoc = await db.collection("students").doc(uid).get();
+  } else if (role === "teacher") {
+    roleDoc = await db.collection("teachers").doc(uid).get();
+  } else if (role === "admin") {
+    roleDoc = await db.collection("admins").doc(uid).get();
+  }
+
+  const roleData = roleDoc?.exists ? roleDoc.data() : {};
+  return (
+    trimText(roleData?.fullName) ||
+    trimText(roleData?.name) ||
+    trimText(userData?.fullName) ||
+    trimText(userData?.name) ||
+    getNameFromEmail(emailLower)
+  );
+};
+
+const sendRegistrationOtp = async (req, res) => {
+  try {
+    const email = normalizeEmail(req.body?.email);
+    const fullName = trimText(req.body?.fullName);
+
+    if (!isValidEmail(email)) {
+      return errorResponse(res, "Valid email is required", 400);
+    }
+
+    try {
+      await admin.auth().getUserByEmail(email);
+      return errorResponse(res, "Email is already registered", 409);
+    } catch (authError) {
+      if (authError?.code !== "auth/user-not-found") {
+        throw authError;
+      }
+    }
+
+    const ref = getOtpRef("register", email);
+    const snap = await ref.get();
+    const now = Date.now();
+    const current = snap.exists ? snap.data() || {} : {};
+
+    if (
+      current.lastSentAt &&
+      now - Number(current.lastSentAt) < OTP_RESEND_COOLDOWN_MS
+    ) {
+      const waitFor = Math.ceil(
+        (OTP_RESEND_COOLDOWN_MS - (now - Number(current.lastSentAt))) / 1000
+      );
+      return errorResponse(
+        res,
+        `Please wait ${waitFor}s before requesting a new OTP`,
+        429
+      );
+    }
+
+    const otp = createOtp();
+    const otpHash = hashOtp(otp);
+
+    await ref.set(
+      {
+        purpose: "register",
+        email,
+        otpHash,
+        attempts: 0,
+        verified: false,
+        verificationToken: null,
+        used: false,
+        expiresAt: now + OTP_EXPIRY_MS,
+        verifiedAt: null,
+        lastSentAt: now,
+        fullName,
+        createdAt: current.createdAt || admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+
+    await sendRegistrationOTP(email, fullName || getNameFromEmail(email), otp);
+
+    return successResponse(
+      res,
+      { expiresInSeconds: OTP_EXPIRY_MS / 1000 },
+      "OTP sent successfully"
+    );
+  } catch (error) {
+    console.error("sendRegistrationOtp error:", error);
+    return errorResponse(res, "Failed to send OTP", 500);
+  }
+};
+
+const verifyRegistrationOtp = async (req, res) => {
+  try {
+    const email = normalizeEmail(req.body?.email);
+    const otp = trimText(req.body?.otp);
+
+    if (!isValidEmail(email)) {
+      return errorResponse(res, "Valid email is required", 400);
+    }
+    if (!/^\d{6}$/.test(otp)) {
+      return errorResponse(res, "Enter a valid 6-digit OTP", 400);
+    }
+
+    const ref = getOtpRef("register", email);
+    const snap = await ref.get();
+    if (!snap.exists) {
+      return errorResponse(res, "OTP not found. Request a new OTP.", 400);
+    }
+
+    const data = snap.data() || {};
+    const now = Date.now();
+
+    if (data.used) {
+      return errorResponse(res, "OTP already used. Request a new OTP.", 400);
+    }
+    if (Number(data.expiresAt || 0) < now) {
+      return errorResponse(res, "OTP expired. Request a new OTP.", 400);
+    }
+    if (Number(data.attempts || 0) >= OTP_MAX_ATTEMPTS) {
+      return errorResponse(
+        res,
+        "Too many invalid attempts. Request a new OTP.",
+        429
+      );
+    }
+
+    if (hashOtp(otp) !== data.otpHash) {
+      await ref.set(
+        {
+          attempts: Number(data.attempts || 0) + 1,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+      return errorResponse(res, "Invalid OTP", 400);
+    }
+
+    const verificationToken = createVerificationToken();
+    await ref.set(
+      {
+        verified: true,
+        verificationToken,
+        verifiedAt: now,
+        attempts: 0,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+
+    return successResponse(
+      res,
+      { otpVerificationToken: verificationToken },
+      "OTP verified successfully"
+    );
+  } catch (error) {
+    console.error("verifyRegistrationOtp error:", error);
+    return errorResponse(res, "Failed to verify OTP", 500);
+  }
+};
+
+const sendForgotPasswordOtp = async (req, res) => {
+  try {
+    const email = normalizeEmail(req.body?.email);
+
+    if (!isValidEmail(email)) {
+      return errorResponse(res, "Valid email is required", 400);
+    }
+
+    let userRecord = null;
+    try {
+      userRecord = await admin.auth().getUserByEmail(email);
+    } catch (authError) {
+      if (authError?.code !== "auth/user-not-found") {
+        throw authError;
+      }
+    }
+
+    if (!userRecord) {
+      return successResponse(
+        res,
+        {},
+        "If this email exists, an OTP has been sent"
+      );
+    }
+
+    const ref = getOtpRef("forgot-password", email);
+    const snap = await ref.get();
+    const now = Date.now();
+    const current = snap.exists ? snap.data() || {} : {};
+
+    if (
+      current.lastSentAt &&
+      now - Number(current.lastSentAt) < OTP_RESEND_COOLDOWN_MS
+    ) {
+      const waitFor = Math.ceil(
+        (OTP_RESEND_COOLDOWN_MS - (now - Number(current.lastSentAt))) / 1000
+      );
+      return errorResponse(
+        res,
+        `Please wait ${waitFor}s before requesting a new OTP`,
+        429
+      );
+    }
+
+    const otp = createOtp();
+    const otpHash = hashOtp(otp);
+    const userName = await getUserNameByEmail(email);
+
+    await ref.set(
+      {
+        purpose: "forgot-password",
+        email,
+        otpHash,
+        attempts: 0,
+        verified: false,
+        verificationToken: null,
+        used: false,
+        expiresAt: now + OTP_EXPIRY_MS,
+        verifiedAt: null,
+        lastSentAt: now,
+        createdAt: current.createdAt || admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+
+    await sendForgotPasswordOTP(email, userName, otp);
+
+    return successResponse(
+      res,
+      { expiresInSeconds: OTP_EXPIRY_MS / 1000 },
+      "OTP sent successfully"
+    );
+  } catch (error) {
+    console.error("sendForgotPasswordOtp error:", error);
+    return errorResponse(res, "Failed to send OTP", 500);
+  }
+};
+
+const verifyForgotPasswordOtp = async (req, res) => {
+  try {
+    const email = normalizeEmail(req.body?.email);
+    const otp = trimText(req.body?.otp);
+
+    if (!isValidEmail(email)) {
+      return errorResponse(res, "Valid email is required", 400);
+    }
+    if (!/^\d{6}$/.test(otp)) {
+      return errorResponse(res, "Enter a valid 6-digit OTP", 400);
+    }
+
+    const ref = getOtpRef("forgot-password", email);
+    const snap = await ref.get();
+    if (!snap.exists) {
+      return errorResponse(res, "OTP not found. Request a new OTP.", 400);
+    }
+
+    const data = snap.data() || {};
+    const now = Date.now();
+
+    if (data.used) {
+      return errorResponse(res, "OTP already used. Request a new OTP.", 400);
+    }
+    if (Number(data.expiresAt || 0) < now) {
+      return errorResponse(res, "OTP expired. Request a new OTP.", 400);
+    }
+    if (Number(data.attempts || 0) >= OTP_MAX_ATTEMPTS) {
+      return errorResponse(
+        res,
+        "Too many invalid attempts. Request a new OTP.",
+        429
+      );
+    }
+
+    if (hashOtp(otp) !== data.otpHash) {
+      await ref.set(
+        {
+          attempts: Number(data.attempts || 0) + 1,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+      return errorResponse(res, "Invalid OTP", 400);
+    }
+
+    const verificationToken = createVerificationToken();
+    await ref.set(
+      {
+        verified: true,
+        verificationToken,
+        verifiedAt: now,
+        attempts: 0,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+
+    return successResponse(
+      res,
+      { otpVerificationToken: verificationToken },
+      "OTP verified successfully"
+    );
+  } catch (error) {
+    console.error("verifyForgotPasswordOtp error:", error);
+    return errorResponse(res, "Failed to verify OTP", 500);
+  }
+};
+
+const resetForgotPassword = async (req, res) => {
+  try {
+    const email = normalizeEmail(req.body?.email);
+    const newPassword = String(req.body?.newPassword || "");
+    const confirmPassword = String(req.body?.confirmPassword || "");
+    const otpVerificationToken = trimText(req.body?.otpVerificationToken);
+
+    if (!isValidEmail(email)) {
+      return errorResponse(res, "Valid email is required", 400);
+    }
+    if (!otpVerificationToken) {
+      return errorResponse(res, "OTP verification token is required", 400);
+    }
+    if (!newPassword || newPassword.length < 6) {
+      return errorResponse(res, "Password must be at least 6 characters", 400);
+    }
+    if (newPassword !== confirmPassword) {
+      return errorResponse(res, "Passwords do not match", 400);
+    }
+
+    const tokenValidation = await validateVerifiedOtpToken(
+      "forgot-password",
+      email,
+      otpVerificationToken
+    );
+
+    if (!tokenValidation.ok) {
+      return errorResponse(res, "OTP verification required", 400, {
+        reason: tokenValidation.reason,
+      });
+    }
+
+    let userRecord;
+    try {
+      userRecord = await admin.auth().getUserByEmail(email);
+    } catch (authError) {
+      if (authError?.code === "auth/user-not-found") {
+        return errorResponse(res, "User not found", 404);
+      }
+      throw authError;
+    }
+
+    await admin.auth().updateUser(userRecord.uid, { password: newPassword });
+    await admin.auth().revokeRefreshTokens(userRecord.uid);
+    await markOtpUsed(tokenValidation.ref);
+
+    return successResponse(res, {}, "Password reset successful");
+  } catch (error) {
+    console.error("resetForgotPassword error:", error);
+    return errorResponse(res, "Failed to reset password", 500);
+  }
+};
 
 const isFirebaseCredentialError = (error) => {
   const code = error?.code;
@@ -19,10 +461,45 @@ const registerUser = async (req, res) => {
       email,
       fullName = "",
       phoneNumber = "",
+      otpVerificationToken = "",
+      provider = "",
     } = req.body || {};
 
     if (!uid || !email) {
       return errorResponse(res, "uid and email are required", 400);
+    }
+
+    const normalizedEmail = normalizeEmail(email);
+    if (!isValidEmail(normalizedEmail)) {
+      return errorResponse(res, "Valid email is required", 400);
+    }
+
+    if (req.user?.uid && req.user.uid !== uid) {
+      return errorResponse(res, "Token uid mismatch", 403);
+    }
+
+    if (req.user?.email && normalizeEmail(req.user.email) !== normalizedEmail) {
+      return errorResponse(res, "Token email mismatch", 403);
+    }
+
+    const isGoogleRegistration = String(provider || "").toLowerCase() === "google";
+
+    if (!isGoogleRegistration) {
+      if (!trimText(otpVerificationToken)) {
+        return errorResponse(res, "OTP verification is required", 400);
+      }
+
+      const tokenValidation = await validateVerifiedOtpToken(
+        "register",
+        normalizedEmail,
+        trimText(otpVerificationToken)
+      );
+
+      if (!tokenValidation.ok) {
+        return errorResponse(res, "OTP verification required", 400, {
+          reason: tokenValidation.reason,
+        });
+      }
     }
 
     const existingUser = await db.collection("users").doc(uid).get();
@@ -53,7 +530,7 @@ const registerUser = async (req, res) => {
     const userRef = db.collection("users").doc(uid);
     batch.set(userRef, {
       uid,
-      email,
+      email: normalizedEmail,
       role: "student",
       isActive: true,
       assignedWebDevice: safeDevice,
@@ -75,9 +552,14 @@ const registerUser = async (req, res) => {
 
     await batch.commit();
 
+    if (String(provider || "").toLowerCase() !== "google") {
+      const otpRef = getOtpRef("register", normalizedEmail);
+      await markOtpUsed(otpRef);
+    }
+
     return successResponse(
       res,
-      { user: { uid, email, role: "student", fullName: displayName } },
+      { user: { uid, email: normalizedEmail, role: "student", fullName: displayName } },
       "Student account created successfully",
       201
     );
@@ -344,6 +826,17 @@ const setUserRole = async (req, res) => {
   }
 };
 
-export { registerUser, loginUser, logoutUser, getMe, setUserRole };
+export {
+  sendRegistrationOtp,
+  verifyRegistrationOtp,
+  registerUser,
+  loginUser,
+  logoutUser,
+  getMe,
+  setUserRole,
+  sendForgotPasswordOtp,
+  verifyForgotPasswordOtp,
+  resetForgotPassword,
+};
 
 

@@ -1,6 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+﻿import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion as Motion } from "framer-motion";
+import {
+  sendForgotPasswordOtp,
+  verifyForgotPasswordOtp,
+  resetForgotPassword,
+} from "../../services/auth.service.js";
 
 const slide = {
   hidden: { opacity: 0, y: 16 },
@@ -18,6 +23,7 @@ function ForgotPassword() {
   const [otpTimer, setOtpTimer] = useState(60);
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [otpVerificationToken, setOtpVerificationToken] = useState("");
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
@@ -70,34 +76,88 @@ function ForgotPassword() {
     return Object.keys(nextErrors).length === 0;
   };
 
-  const handleSend = (event) => {
+  const handleSend = async (event) => {
     event.preventDefault();
     if (!validateEmail()) return;
-    setLoading(true);
-    setTimeout(() => {
+    try {
+      setLoading(true);
+      setErrors({});
+      await sendForgotPasswordOtp(email.trim());
       setLoading(false);
       setStep(2);
       setOtp(Array(6).fill(""));
       setOtpTimer(60);
+      setOtpVerificationToken("");
       setTimeout(() => otpRefs.current[0]?.focus(), 0);
-    }, 700);
+    } catch (error) {
+      setLoading(false);
+      setErrors({
+        email:
+          error?.response?.data?.message ||
+          error?.message ||
+          "Failed to send OTP.",
+      });
+    }
   };
 
-  const handleVerify = (event) => {
+  const handleVerify = async (event) => {
     event.preventDefault();
     if (!validateOtp()) return;
-    setStep(3);
+    try {
+      setLoading(true);
+      const code = otp.join("");
+      const response = await verifyForgotPasswordOtp(email.trim(), code);
+      const token = response?.otpVerificationToken;
+      if (!token) {
+        throw new Error("OTP verification failed.");
+      }
+      setOtpVerificationToken(token);
+      setStep(3);
+      setErrors({});
+    } catch (error) {
+      setErrors({
+        otp:
+          error?.response?.data?.message ||
+          error?.message ||
+          "Invalid OTP. Please try again.",
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleReset = (event) => {
+  const handleReset = async (event) => {
     event.preventDefault();
     if (!validatePassword()) return;
-    setLoading(true);
-    setTimeout(() => {
+
+    if (!otpVerificationToken) {
+      setErrors({
+        password: "OTP verification expired. Please verify OTP again.",
+      });
+      setStep(2);
+      return;
+    }
+
+    try {
+      setLoading(true);
+      await resetForgotPassword(
+        email.trim(),
+        password,
+        confirmPassword,
+        otpVerificationToken
+      );
       setLoading(false);
       setSuccess(true);
       setTimeout(() => navigate("/login"), 2000);
-    }, 900);
+    } catch (error) {
+      setLoading(false);
+      setErrors({
+        password:
+          error?.response?.data?.message ||
+          error?.message ||
+          "Failed to reset password.",
+      });
+    }
   };
 
   const handleOtpChange = (value, index) => {
@@ -116,12 +176,25 @@ function ForgotPassword() {
     }
   };
 
-  const resendOtp = () => {
+  const resendOtp = async () => {
     if (otpTimer > 0) return;
-    setOtp(Array(6).fill(""));
-    setOtpTimer(60);
-    setErrors({});
-    setTimeout(() => otpRefs.current[0]?.focus(), 0);
+    try {
+      setLoading(true);
+      await sendForgotPasswordOtp(email.trim());
+      setOtp(Array(6).fill(""));
+      setOtpTimer(60);
+      setErrors({});
+      setTimeout(() => otpRefs.current[0]?.focus(), 0);
+    } catch (error) {
+      setErrors({
+        otp:
+          error?.response?.data?.message ||
+          error?.message ||
+          "Failed to resend OTP.",
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -151,7 +224,7 @@ function ForgotPassword() {
 
           <AnimatePresence mode="wait">
             {step === 1 && (
-              <motion.form
+              <Motion.form
                 key="step1"
                 initial="hidden"
                 animate="visible"
@@ -197,11 +270,11 @@ function ForgotPassword() {
                 >
                   Back to login
                 </Link>
-              </motion.form>
+              </Motion.form>
             )}
 
             {step === 2 && (
-              <motion.form
+              <Motion.form
                 key="step2"
                 initial="hidden"
                 animate="visible"
@@ -267,11 +340,11 @@ function ForgotPassword() {
                 >
                   Wrong email?
                 </button>
-              </motion.form>
+              </Motion.form>
             )}
 
             {step === 3 && (
-              <motion.form
+              <Motion.form
                 key="step3"
                 initial="hidden"
                 animate="visible"
@@ -345,12 +418,12 @@ function ForgotPassword() {
                 {success && (
                   <div className="flex items-center gap-2 text-sm text-emerald-600">
                     <span className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-100">
-                      ✓
+                      âœ“
                     </span>
                     Password updated. Redirecting to login...
                   </div>
                 )}
-              </motion.form>
+              </Motion.form>
             )}
           </AnimatePresence>
         </div>
@@ -360,3 +433,4 @@ function ForgotPassword() {
 }
 
 export default ForgotPassword;
+

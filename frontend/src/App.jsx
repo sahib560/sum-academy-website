@@ -16,6 +16,7 @@ import About from "./pages/About.jsx";
 import Contact from "./pages/Contact.jsx";
 import Login from "./pages/auth/Login.jsx";
 import Register from "./pages/auth/Register.jsx";
+import ForgotPassword from "./pages/auth/ForgotPassword.jsx";
 import AdminLayout from "./layouts/AdminLayout.jsx";
 import Dashboard from "./pages/admin/Dashboard.jsx";
 import Users from "./pages/admin/Users.jsx";
@@ -183,12 +184,14 @@ function AppLayout() {
     "/contact",
     "/login",
     "/register",
+    "/forgot-password",
     "/lms-login",
     "/unauthorized",
   ]);
   const noLayoutRoutes = new Set([
     "/login",
     "/register",
+    "/forgot-password",
     "/lms-login",
     "/unauthorized",
   ]);
@@ -263,6 +266,14 @@ function AppLayout() {
           element={
             <GuestRoute>
               <Register />
+            </GuestRoute>
+          }
+        />
+        <Route
+          path="/forgot-password"
+          element={
+            <GuestRoute>
+              <ForgotPassword />
             </GuestRoute>
           }
         />

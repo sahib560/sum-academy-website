@@ -24,7 +24,8 @@ const registerWithEmail = async (
   fullName,
   email,
   password,
-  phoneNumber
+  phoneNumber,
+  otpVerificationToken
 ) => {
   try {
     console.log("Step 1: Creating Firebase user...");
@@ -49,6 +50,7 @@ const registerWithEmail = async (
         email,
         fullName,
         phoneNumber: phoneNumber || "",
+        otpVerificationToken: otpVerificationToken || "",
       },
       { headers: { Authorization: `Bearer ${idToken}` } }
     );
@@ -111,6 +113,7 @@ const loginWithGoogle = async () => {
           email: user.email,
           fullName: user.displayName || user.email.split("@")[0],
           phoneNumber: "",
+          provider: "google",
         },
         { headers: { Authorization: `Bearer ${idToken}` } }
       );
@@ -190,6 +193,39 @@ const getCurrentUser = () => firebaseAuth.currentUser;
 
 const onAuthStateChange = (callback) => onAuthStateChanged(firebaseAuth, callback);
 
+const sendRegistrationOtp = (email, fullName = "") =>
+  api
+    .post("/auth/register/send-otp", { email, fullName })
+    .then((response) => response.data);
+
+const verifyRegistrationOtp = (email, otp) =>
+  api
+    .post("/auth/register/verify-otp", { email, otp })
+    .then((response) => response.data?.data || {});
+
+const sendForgotPasswordOtp = (email) =>
+  api.post("/auth/forgot-password/send-otp", { email }).then((response) => response.data);
+
+const verifyForgotPasswordOtp = (email, otp) =>
+  api
+    .post("/auth/forgot-password/verify-otp", { email, otp })
+    .then((response) => response.data?.data || {});
+
+const resetForgotPassword = (
+  email,
+  newPassword,
+  confirmPassword,
+  otpVerificationToken
+) =>
+  api
+    .post("/auth/forgot-password/reset", {
+      email,
+      newPassword,
+      confirmPassword,
+      otpVerificationToken,
+    })
+    .then((response) => response.data);
+
 export {
   registerWithEmail,
   loginWithEmail,
@@ -197,4 +233,9 @@ export {
   logout,
   getCurrentUser,
   onAuthStateChange,
+  sendRegistrationOtp,
+  verifyRegistrationOtp,
+  sendForgotPasswordOtp,
+  verifyForgotPasswordOtp,
+  resetForgotPassword,
 };
