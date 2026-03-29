@@ -5,6 +5,7 @@ import api from "../api/axios.js";
 
 const AuthContext = createContext(null);
 const LOGIN_ALERT_STORAGE_KEY = "sumacademy:login-alert";
+const LOGIN_ALERT_EVENT = "sumacademy:login-alert";
 
 function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
@@ -65,6 +66,11 @@ function AuthProvider({ children }) {
                 message,
                 warning,
                 contactAdmin: true,
+              })
+            );
+            window.dispatchEvent(
+              new CustomEvent(LOGIN_ALERT_EVENT, {
+                detail: { message, warning, contactAdmin: true },
               })
             );
           }

@@ -15,6 +15,7 @@ const fadeUp = {
 
 const MIN_SPLASH_MS = 1200;
 const LOGIN_ALERT_STORAGE_KEY = "sumacademy:login-alert";
+const LOGIN_ALERT_EVENT = "sumacademy:login-alert";
 
 function Login() {
   const { settings } = useSettings();
@@ -55,10 +56,10 @@ function Login() {
     return () => clearTimeout(timer);
   }, [toast]);
 
-  useEffect(() => {
-    if (typeof window === "undefined") return;
+  const consumeLoginAlert = () => {
+    if (typeof window === "undefined") return false;
     const rawAlert = window.sessionStorage.getItem(LOGIN_ALERT_STORAGE_KEY);
-    if (!rawAlert) return;
+    if (!rawAlert) return false;
 
     window.sessionStorage.removeItem(LOGIN_ALERT_STORAGE_KEY);
 
@@ -85,6 +86,21 @@ function Login() {
       `${message} ${warning} Please contact your admin or teacher to restore access.`
     );
     setShowContactAdmin(true);
+    return true;
+  };
+
+  useEffect(() => {
+    const handleAlert = () => {
+      consumeLoginAlert();
+    };
+    consumeLoginAlert();
+    if (typeof window === "undefined") return;
+    window.addEventListener(LOGIN_ALERT_EVENT, handleAlert);
+    window.addEventListener("storage", handleAlert);
+    return () => {
+      window.removeEventListener(LOGIN_ALERT_EVENT, handleAlert);
+      window.removeEventListener("storage", handleAlert);
+    };
   }, [location.pathname]);
 
   const validate = () => {

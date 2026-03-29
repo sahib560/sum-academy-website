@@ -64,6 +64,8 @@ import SplashScreen from "./components/SplashScreen.jsx";
 import VerifyCertificate from "./pages/public/VerifyCertificate.jsx";
 import NotificationsPage from "./pages/shared/Notifications.jsx";
 
+const LOGIN_ALERT_STORAGE_KEY = "sumacademy:login-alert";
+
 const getDashboardPathByRole = (role) => {
   if (role === "admin") return "/admin/dashboard";
   if (role === "teacher") return "/teacher/dashboard";
@@ -82,7 +84,11 @@ function AuthRedirectLoader() {
 
 function GuestRoute({ children }) {
   const { isAuthenticated, role, loading } = useAuth();
+  const hasLoginAlert =
+    typeof window !== "undefined" &&
+    window.sessionStorage.getItem(LOGIN_ALERT_STORAGE_KEY);
 
+  if (hasLoginAlert) return children;
   if (loading || (isAuthenticated && !role)) return <AuthRedirectLoader />;
   if (isAuthenticated) {
     const dashboardPath = getDashboardPathByRole(role);

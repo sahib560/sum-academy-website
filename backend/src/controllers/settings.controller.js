@@ -38,6 +38,7 @@ const DEFAULT_SETTINGS = {
   },
   howItWorks: {
     heading: "How It Works",
+    subheading: "Simple steps to get started",
     steps: [
       {
         number: 1,
@@ -109,12 +110,27 @@ const DEFAULT_SETTINGS = {
   },
   about: {
     heading: "About SUM Academy",
+    storyHeading: "Our Story",
     mission:
       "To provide quality education to every student in Pakistan regardless of location",
     vision: "Become Pakistan's leading digital learning platform",
     story:
       "SUM Academy was founded with a simple mission: make quality education accessible to all students across Pakistan",
     foundedYear: "2024",
+    valuesHeading: "Our Values",
+    certificateHeading: "Earn Verified Certificates",
+    certificateLabel: "Certificate",
+    certificateTitle: "Certificate of Completion",
+    certificateDescription:
+      "Finish your course and receive a secure, shareable certificate.",
+    certificateSampleId: "SUM-2026-ABC12345",
+    certificateSideTitle: "Trusted Verification",
+    certificateSideDescription:
+      "Every certificate can be verified online with a unique ID.",
+    ctaBadge: "Start Now",
+    ctaHeading: "Start Your Journey Today",
+    ctaDescription: "Choose a course and begin learning right away.",
+    ctaLabel: "Get Started",
     teamHeading: "Our Leadership",
     team: [
       {
@@ -141,6 +157,7 @@ const DEFAULT_SETTINGS = {
   contact: {
     heading: "Get In Touch",
     subheading: "We are here to help you",
+    subjects: ["Admissions", "Courses", "Payments", "Technical Support"],
     email: "support@sumacademy.com",
     phone: "+92 300 0000000",
     whatsapp: "+92 300 0000000",
@@ -522,6 +539,9 @@ export const updateHowItWorks = async (req, res) => {
     const heading = normalizeString(
       input.heading ?? current.howItWorks.heading
     );
+    const subheading = normalizeString(
+      input.subheading ?? current.howItWorks.subheading
+    );
     const steps = normalizeHowItWorksSteps(input.steps ?? current.howItWorks.steps);
 
     if (!validateStringMin(heading, 3)) {
@@ -533,6 +553,7 @@ export const updateHowItWorks = async (req, res) => {
 
     const nextSection = {
       heading,
+      subheading,
       steps,
     };
 
@@ -605,10 +626,43 @@ export const updateAboutSettings = async (req, res) => {
     const nextSection = {
       ...current.about,
       heading,
+      storyHeading: normalizeString(
+        input.storyHeading ?? current.about.storyHeading
+      ),
       mission: normalizeString(input.mission ?? current.about.mission),
       vision: normalizeString(input.vision ?? current.about.vision),
       story: normalizeString(input.story ?? current.about.story),
       foundedYear: normalizeString(input.foundedYear ?? current.about.foundedYear),
+      valuesHeading: normalizeString(
+        input.valuesHeading ?? current.about.valuesHeading
+      ),
+      certificateHeading: normalizeString(
+        input.certificateHeading ?? current.about.certificateHeading
+      ),
+      certificateLabel: normalizeString(
+        input.certificateLabel ?? current.about.certificateLabel
+      ),
+      certificateTitle: normalizeString(
+        input.certificateTitle ?? current.about.certificateTitle
+      ),
+      certificateDescription: normalizeString(
+        input.certificateDescription ?? current.about.certificateDescription
+      ),
+      certificateSampleId: normalizeString(
+        input.certificateSampleId ?? current.about.certificateSampleId
+      ),
+      certificateSideTitle: normalizeString(
+        input.certificateSideTitle ?? current.about.certificateSideTitle
+      ),
+      certificateSideDescription: normalizeString(
+        input.certificateSideDescription ?? current.about.certificateSideDescription
+      ),
+      ctaBadge: normalizeString(input.ctaBadge ?? current.about.ctaBadge),
+      ctaHeading: normalizeString(input.ctaHeading ?? current.about.ctaHeading),
+      ctaDescription: normalizeString(
+        input.ctaDescription ?? current.about.ctaDescription
+      ),
+      ctaLabel: normalizeString(input.ctaLabel ?? current.about.ctaLabel),
       teamHeading: normalizeString(
         input.teamHeading ?? current.about.teamHeading
       ),
@@ -637,6 +691,7 @@ export const updateContactSettings = async (req, res) => {
       ...current.contact,
       heading: normalizeString(input.heading ?? current.contact.heading),
       subheading: normalizeString(input.subheading ?? current.contact.subheading),
+      subjects: normalizeSubjects(input.subjects ?? current.contact.subjects),
       email,
       phone: normalizeString(input.phone ?? current.contact.phone),
       whatsapp: normalizeString(input.whatsapp ?? current.contact.whatsapp),
@@ -1057,3 +1112,7 @@ export const updateEmailTemplate = async (req, res) => {
 };
 
 export { DEFAULT_SETTINGS };
+const normalizeSubjects = (subjects = []) =>
+  (Array.isArray(subjects) ? subjects : [])
+    .map((item) => normalizeString(item))
+    .filter(Boolean);

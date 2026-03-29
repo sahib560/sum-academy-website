@@ -34,6 +34,7 @@ export const defaultSettings = {
   },
   howItWorks: {
     heading: "How It Works",
+    subheading: "Simple steps to get started",
     steps: [
       {
         number: 1,
@@ -105,12 +106,27 @@ export const defaultSettings = {
   },
   about: {
     heading: "About SUM Academy",
+    storyHeading: "Our Story",
     mission:
       "To provide quality education to every student in Pakistan regardless of location",
     vision: "Become Pakistan's leading digital learning platform",
     story:
       "SUM Academy was founded with a simple mission: make quality education accessible to all students across Pakistan",
     foundedYear: "2024",
+    valuesHeading: "Our Values",
+    certificateHeading: "Earn Verified Certificates",
+    certificateLabel: "Certificate",
+    certificateTitle: "Certificate of Completion",
+    certificateDescription:
+      "Finish your course and receive a secure, shareable certificate.",
+    certificateSampleId: "SUM-2026-ABC12345",
+    certificateSideTitle: "Trusted Verification",
+    certificateSideDescription:
+      "Every certificate can be verified online with a unique ID.",
+    ctaBadge: "Start Now",
+    ctaHeading: "Start Your Journey Today",
+    ctaDescription: "Choose a course and begin learning right away.",
+    ctaLabel: "Get Started",
     teamHeading: "Our Leadership",
     team: [
       {
@@ -137,6 +153,7 @@ export const defaultSettings = {
   contact: {
     heading: "Get In Touch",
     subheading: "We are here to help you",
+    subjects: ["Admissions", "Courses", "Payments", "Technical Support"],
     email: "support@sumacademy.com",
     phone: "+92 300 0000000",
     whatsapp: "+92 300 0000000",

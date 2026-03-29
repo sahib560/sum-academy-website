@@ -4,12 +4,26 @@ import { useAuth } from "../hooks/useAuth.js";
 import { firebaseAuth } from "../config/firebase.js";
 import SplashScreen from "./SplashScreen.jsx";
 
+const LOGIN_ALERT_STORAGE_KEY = "sumacademy:login-alert";
+
 function ProtectedRoute({ allowedRoles = [], children }) {
   const { isAuthenticated, role, loading } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const hasLoginAlert =
+    typeof window !== "undefined" &&
+    window.sessionStorage.getItem(LOGIN_ALERT_STORAGE_KEY);
 
   useEffect(() => {
+    if (hasLoginAlert) {
+      if (
+        location.pathname !== "/login" &&
+        location.pathname !== "/lms-login"
+      ) {
+        navigate("/login", { replace: true });
+      }
+      return;
+    }
     if (loading) return;
     if (!isAuthenticated) {
       // Wait for Firebase auth state to finish syncing into context.
@@ -20,7 +34,19 @@ function ProtectedRoute({ allowedRoles = [], children }) {
     if (allowedRoles.length > 0 && !allowedRoles.includes(role)) {
       navigate("/unauthorized", { replace: true });
     }
-  }, [allowedRoles, isAuthenticated, loading, location.pathname, navigate, role]);
+  }, [
+    allowedRoles,
+    hasLoginAlert,
+    isAuthenticated,
+    loading,
+    location.pathname,
+    navigate,
+    role,
+  ]);
+
+  if (hasLoginAlert) {
+    return null;
+  }
 
   if (loading || (isAuthenticated && allowedRoles.length > 0 && !role)) {
     return (

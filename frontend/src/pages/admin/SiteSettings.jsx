@@ -664,6 +664,15 @@ function SiteSettings() {
             <p className={fieldLabelClass}>Section Heading</p>
             <input className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Heading" value={draft.howItWorks.heading} onChange={(e) => updateSection("howItWorks", { heading: e.target.value })} />
           </div>
+          <div className="space-y-1">
+            <p className={fieldLabelClass}>Section Subheading</p>
+            <input
+              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+              placeholder="Subheading"
+              value={draft.howItWorks.subheading || ""}
+              onChange={(e) => updateSection("howItWorks", { subheading: e.target.value })}
+            />
+          </div>
           {(draft.howItWorks.steps || []).map((step, index) => (
             <div key={`step-${index}`} className="rounded-2xl border border-slate-200 p-3">
               <div className="mb-2 space-y-1">
@@ -759,6 +768,15 @@ function SiteSettings() {
             <input className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Heading" value={draft.about.heading} onChange={(e) => updateSection("about", { heading: e.target.value })} />
           </div>
           <div className="space-y-1">
+            <p className={fieldLabelClass}>Story Heading</p>
+            <input
+              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+              placeholder="Story Heading"
+              value={draft.about.storyHeading || ""}
+              onChange={(e) => updateSection("about", { storyHeading: e.target.value })}
+            />
+          </div>
+          <div className="space-y-1">
             <p className={fieldLabelClass}>Mission Statement</p>
             <textarea className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" rows={2} placeholder="Mission" value={draft.about.mission} onChange={(e) => updateSection("about", { mission: e.target.value })} />
           </div>
@@ -773,6 +791,145 @@ function SiteSettings() {
           <div className="space-y-1">
             <p className={fieldLabelClass}>Founded Year</p>
             <input className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Founded Year" value={draft.about.foundedYear} onChange={(e) => updateSection("about", { foundedYear: e.target.value })} />
+          </div>
+          <div className="space-y-1">
+            <p className={fieldLabelClass}>Values Heading</p>
+            <input
+              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+              placeholder="Values Heading"
+              value={draft.about.valuesHeading || ""}
+              onChange={(e) => updateSection("about", { valuesHeading: e.target.value })}
+            />
+          </div>
+          <div className="rounded-2xl border border-slate-200 p-3">
+            <p className="text-sm font-semibold text-slate-700">Certificate Section</p>
+            <div className="mt-3 grid gap-2 md:grid-cols-2">
+              <div className="space-y-1">
+                <p className={fieldLabelClass}>Heading</p>
+                <input
+                  className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                  placeholder="Heading"
+                  value={draft.about.certificateHeading || ""}
+                  onChange={(e) =>
+                    updateSection("about", { certificateHeading: e.target.value })
+                  }
+                />
+              </div>
+              <div className="space-y-1">
+                <p className={fieldLabelClass}>Label</p>
+                <input
+                  className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                  placeholder="Label"
+                  value={draft.about.certificateLabel || ""}
+                  onChange={(e) =>
+                    updateSection("about", { certificateLabel: e.target.value })
+                  }
+                />
+              </div>
+              <div className="space-y-1 md:col-span-2">
+                <p className={fieldLabelClass}>Title</p>
+                <input
+                  className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                  placeholder="Title"
+                  value={draft.about.certificateTitle || ""}
+                  onChange={(e) =>
+                    updateSection("about", { certificateTitle: e.target.value })
+                  }
+                />
+              </div>
+              <div className="space-y-1 md:col-span-2">
+                <p className={fieldLabelClass}>Description</p>
+                <textarea
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                  rows={2}
+                  placeholder="Description"
+                  value={draft.about.certificateDescription || ""}
+                  onChange={(e) =>
+                    updateSection("about", { certificateDescription: e.target.value })
+                  }
+                />
+              </div>
+              <div className="space-y-1">
+                <p className={fieldLabelClass}>Sample Certificate ID</p>
+                <input
+                  className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                  placeholder="Sample ID"
+                  value={draft.about.certificateSampleId || ""}
+                  onChange={(e) =>
+                    updateSection("about", { certificateSampleId: e.target.value })
+                  }
+                />
+              </div>
+              <div className="space-y-1">
+                <p className={fieldLabelClass}>Side Title</p>
+                <input
+                  className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                  placeholder="Side Title"
+                  value={draft.about.certificateSideTitle || ""}
+                  onChange={(e) =>
+                    updateSection("about", { certificateSideTitle: e.target.value })
+                  }
+                />
+              </div>
+              <div className="space-y-1 md:col-span-2">
+                <p className={fieldLabelClass}>Side Description</p>
+                <textarea
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                  rows={2}
+                  placeholder="Side Description"
+                  value={draft.about.certificateSideDescription || ""}
+                  onChange={(e) =>
+                    updateSection("about", {
+                      certificateSideDescription: e.target.value,
+                    })
+                  }
+                />
+              </div>
+            </div>
+          </div>
+          <div className="rounded-2xl border border-slate-200 p-3">
+            <p className="text-sm font-semibold text-slate-700">About CTA</p>
+            <div className="mt-3 grid gap-2 md:grid-cols-2">
+              <div className="space-y-1">
+                <p className={fieldLabelClass}>Badge</p>
+                <input
+                  className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                  placeholder="Badge"
+                  value={draft.about.ctaBadge || ""}
+                  onChange={(e) => updateSection("about", { ctaBadge: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1">
+                <p className={fieldLabelClass}>CTA Heading</p>
+                <input
+                  className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                  placeholder="Heading"
+                  value={draft.about.ctaHeading || ""}
+                  onChange={(e) => updateSection("about", { ctaHeading: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1 md:col-span-2">
+                <p className={fieldLabelClass}>CTA Description</p>
+                <textarea
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                  rows={2}
+                  placeholder="Description"
+                  value={draft.about.ctaDescription || ""}
+                  onChange={(e) =>
+                    updateSection("about", { ctaDescription: e.target.value })
+                  }
+                />
+              </div>
+              <div className="space-y-1">
+                <p className={fieldLabelClass}>CTA Button Label</p>
+                <input
+                  className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                  placeholder="Button Label"
+                  value={draft.about.ctaLabel || ""}
+                  onChange={(e) => updateSection("about", { ctaLabel: e.target.value })}
+                />
+              </div>
+            </div>
           </div>
           <div className="space-y-1">
             <p className={fieldLabelClass}>Team Section Heading</p>
@@ -920,6 +1077,46 @@ function SiteSettings() {
           <div className="space-y-1">
             <p className={fieldLabelClass}>Map Embed URL</p>
             <input className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Map Embed URL" value={draft.contact.mapEmbedUrl} onChange={(e) => updateSection("contact", { mapEmbedUrl: e.target.value })} />
+          </div>
+          <div className="rounded-2xl border border-slate-200 p-3">
+            <p className="text-sm font-semibold text-slate-700">Contact Subjects</p>
+            {(draft.contact.subjects || []).map((subject, index) => (
+              <div key={`contact-subject-${index}`} className="mt-2 flex items-center gap-2">
+                <input
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                  placeholder="Subject"
+                  value={subject || ""}
+                  onChange={(e) => {
+                    const nextSubjects = [...(draft.contact.subjects || [])];
+                    nextSubjects[index] = e.target.value;
+                    updateSection("contact", { subjects: nextSubjects });
+                  }}
+                />
+                <button
+                  type="button"
+                  className="rounded-xl border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-600"
+                  onClick={() => {
+                    const nextSubjects = (draft.contact.subjects || []).filter(
+                      (_, idx) => idx !== index
+                    );
+                    updateSection("contact", { subjects: nextSubjects });
+                  }}
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+            <button
+              type="button"
+              className="mt-3 rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700"
+              onClick={() =>
+                updateSection("contact", {
+                  subjects: [...(draft.contact.subjects || []), ""],
+                })
+              }
+            >
+              Add Subject
+            </button>
           </div>
 
           <div className="rounded-2xl border border-slate-200 p-3">

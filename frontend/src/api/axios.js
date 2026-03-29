@@ -3,6 +3,7 @@ import { signOut } from "firebase/auth";
 import { firebaseAuth } from "../config/firebase.js";
 
 const LOGIN_ALERT_STORAGE_KEY = "sumacademy:login-alert";
+const LOGIN_ALERT_EVENT = "sumacademy:login-alert";
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL,
@@ -54,6 +55,11 @@ api.interceptors.response.use(
             message,
             warning,
             contactAdmin: true,
+          })
+        );
+        window.dispatchEvent(
+          new CustomEvent(LOGIN_ALERT_EVENT, {
+            detail: { message, warning, contactAdmin: true },
           })
         );
       }
