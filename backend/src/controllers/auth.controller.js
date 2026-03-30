@@ -146,12 +146,23 @@ const sendRegistrationOtp = async (req, res) => {
       return errorResponse(res, "Valid email is required", 400);
     }
 
+    let authUser = null;
     try {
-      await admin.auth().getUserByEmail(email);
-      return errorResponse(res, "Email is already registered", 409);
+      authUser = await admin.auth().getUserByEmail(email);
     } catch (authError) {
       if (authError?.code !== "auth/user-not-found") {
         throw authError;
+      }
+    }
+
+    if (authUser) {
+      const existingUserSnap = await db
+        .collection("users")
+        .where("email", "==", email)
+        .limit(1)
+        .get();
+      if (!existingUserSnap.empty) {
+        return errorResponse(res, "Email is already registered", 409);
       }
     }
 
