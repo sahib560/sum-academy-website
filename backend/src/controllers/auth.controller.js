@@ -296,10 +296,31 @@ const sendForgotPasswordOtp = async (req, res) => {
     }
 
     if (!userRecord) {
-      return successResponse(
+      return errorResponse(res, "Account not found", 404);
+    }
+
+    if (!userRecord.emailVerified) {
+      return errorResponse(
         res,
-        {},
-        "If this email exists, an OTP has been sent"
+        "Email is not verified. Please verify your email first.",
+        403
+      );
+    }
+
+    const userSnap = await db
+      .collection("users")
+      .where("email", "==", email)
+      .limit(1)
+      .get();
+    if (userSnap.empty) {
+      return errorResponse(res, "Account not found", 404);
+    }
+    const userData = userSnap.docs[0].data() || {};
+    if (userData.isActive === false) {
+      return errorResponse(
+        res,
+        "Your account is deactivated. Contact admin.",
+        403
       );
     }
 
@@ -525,24 +546,20 @@ const registerUser = async (req, res) => {
       return errorResponse(res, "Token email mismatch", 403);
     }
 
-    const isGoogleRegistration = String(provider || "").toLowerCase() === "google";
+    if (!trimText(otpVerificationToken)) {
+      return errorResponse(res, "OTP verification is required", 400);
+    }
 
-    if (!isGoogleRegistration) {
-      if (!trimText(otpVerificationToken)) {
-        return errorResponse(res, "OTP verification is required", 400);
-      }
+    const tokenValidation = await validateVerifiedOtpToken(
+      "register",
+      normalizedEmail,
+      trimText(otpVerificationToken)
+    );
 
-      const tokenValidation = await validateVerifiedOtpToken(
-        "register",
-        normalizedEmail,
-        trimText(otpVerificationToken)
-      );
-
-      if (!tokenValidation.ok) {
-        return errorResponse(res, "OTP verification required", 400, {
-          reason: tokenValidation.reason,
-        });
-      }
+    if (!tokenValidation.ok) {
+      return errorResponse(res, "OTP verification required", 400, {
+        reason: tokenValidation.reason,
+      });
     }
 
     const existingUser = await db.collection("users").doc(uid).get();

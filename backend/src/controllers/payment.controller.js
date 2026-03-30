@@ -200,6 +200,7 @@ const fetchMergedPayments = async () => {
       shiftId: item.shiftId || null,
       method: normalizePaymentMethod(item.method),
       amount: toNumber(item.amount),
+      totalAmount: toNumber(item.totalAmount, toNumber(item.amount)),
       originalAmount: toNumber(item.originalAmount, toNumber(item.amount)),
       discount: toNumber(item.discount),
       status: String(item.status || "").toLowerCase() || "pending",
@@ -501,6 +502,8 @@ export const initiatePayment = async (req, res) => {
       installmentCount > 1
         ? buildInstallmentSchedule(finalAmount, installmentCount)
         : null;
+    const amountDueNow =
+      installmentSchedule?.[0]?.amount != null ? installmentSchedule[0].amount : finalAmount;
 
     const paymentSettings = await getCurrentPaymentSettings();
     const selectedMethodSettings =
@@ -530,7 +533,8 @@ export const initiatePayment = async (req, res) => {
       classId: classId || null,
       className: classData?.name || "",
       shiftId: shiftId || null,
-      amount: finalAmount,
+      amount: amountDueNow,
+      totalAmount: finalAmount,
       originalAmount,
       discount: discountAmount,
       promoCode: promoData?.code || null,
@@ -592,7 +596,8 @@ export const initiatePayment = async (req, res) => {
       {
         paymentId: paymentRef.id,
         reference,
-        amount: finalAmount,
+        amount: amountDueNow,
+        totalAmount: finalAmount,
         originalAmount,
         discount: discountAmount,
         method: paymentMethod,
@@ -601,6 +606,8 @@ export const initiatePayment = async (req, res) => {
         bankDetails:
           paymentMethod === "bank_transfer" ? paymentDetails : undefined,
         installments: installmentSchedule,
+        isInstallment: installmentCount > 1,
+        numberOfInstallments: installmentCount,
       },
       `${methodLabel} initiated`,
       201
@@ -1120,6 +1127,19 @@ export const verifyBankTransfer = async (req, res) => {
       installmentPlanId = planRef.id;
 
       const classData = payment.classId ? await getClassById(payment.classId) : null;
+      const paidAtISO = new Date().toISOString();
+      const installmentsForPlan = payment.installments.map((row, index) => {
+        if (index !== 0) return row;
+        return {
+          ...row,
+          status: "paid",
+          paidAt: paidAtISO,
+          paymentId,
+        };
+      });
+      const paidCount = installmentsForPlan.filter(
+        (row) => String(row.status || "").toLowerCase() === "paid"
+      ).length;
 
       await planRef.set({
         studentId: payment.studentId,
@@ -1128,12 +1148,12 @@ export const verifyBankTransfer = async (req, res) => {
         courseName: payment.courseName || "",
         classId: payment.classId || null,
         className: classData?.name || payment.className || "",
-        totalAmount: payment.amount || 0,
+        totalAmount: payment.totalAmount || payment.amount || 0,
         numberOfInstallments: payment.numberOfInstallments || payment.installments.length,
         perInstallmentAmount:
           payment.installments?.[0]?.amount || toNumber(payment.amount) / toNumber(payment.numberOfInstallments || 1),
-        installments: payment.installments,
-        paidCount: 0,
+        installments: installmentsForPlan,
+        paidCount,
         status: "active",
         paymentId,
         createdAt: FieldValue.serverTimestamp(),

@@ -71,6 +71,61 @@ const registerWithEmail = async (
   }
 };
 
+const beginGoogleRegistration = async () => {
+  try {
+    const result = await signInWithPopup(firebaseAuth, googleProvider);
+    return result.user;
+  } catch (error) {
+    if (error.code === "auth/unauthorized-domain") {
+      const host =
+        typeof window !== "undefined" ? window.location.hostname : "this domain";
+      throw new Error(
+        `Google login is not enabled for ${host}. Ask admin to add this domain in Firebase Authentication > Settings > Authorized domains.`
+      );
+    }
+    if (error.code === "auth/popup-closed-by-user") {
+      return null;
+    }
+    throw error;
+  }
+};
+
+const registerWithGoogle = async (
+  otpVerificationToken,
+  profileData = {}
+) => {
+  const user = firebaseAuth.currentUser;
+  if (!user) {
+    throw new Error("Google session expired. Please try again.");
+  }
+
+  const idToken = await user.getIdToken(true);
+  const response = await api.post(
+    "/auth/register",
+    {
+      uid: user.uid,
+      email: user.email,
+      fullName:
+        profileData.fullName ||
+        user.displayName ||
+        (user.email ? user.email.split("@")[0] : "Student"),
+      phoneNumber: profileData.phoneNumber || "",
+      otpVerificationToken: otpVerificationToken || "",
+      fatherName: profileData.fatherName || "",
+      fatherPhone: profileData.fatherPhone || "",
+      fatherOccupation: profileData.fatherOccupation || "",
+      address: profileData.address || "",
+      district: profileData.district || "",
+      domicile: profileData.domicile || "",
+      caste: profileData.caste || "",
+      provider: "google",
+    },
+    { headers: { Authorization: `Bearer ${idToken}` } }
+  );
+
+  return response.data;
+};
+
 const loginWithEmail = async (email, password) => {
   const { user } = await signInWithEmailAndPassword(
     firebaseAuth,
@@ -111,40 +166,7 @@ const loginWithGoogle = async () => {
 
     const idToken = await user.getIdToken();
 
-    console.log("Step 3: Calling backend register (new user)...");
-
-    try {
-      await api.post(
-        "/auth/register",
-        {
-          uid: user.uid,
-          email: user.email,
-          fullName: user.displayName || user.email.split("@")[0],
-          phoneNumber: "",
-          provider: "google",
-        },
-        { headers: { Authorization: `Bearer ${idToken}` } }
-      );
-      console.log("Step 4: New user registered");
-    } catch (regError) {
-      if (
-        regError.response?.status === 409 &&
-        regError.response?.data?.errors?.code ===
-          "EMAIL_ALREADY_REGISTERED_WITH_DIFFERENT_ACCOUNT"
-      ) {
-        await signOut(firebaseAuth);
-        throw new Error(
-          "This email is already linked with another account. Use your original login method and registered device."
-        );
-      }
-
-      if (regError.response?.status !== 409) {
-        throw regError;
-      }
-      console.log("Step 4: Existing user - skipping register");
-    }
-
-    console.log("Step 5: Calling backend login...");
+    console.log("Step 3: Calling backend login...");
 
     let loginResponse;
     try {
@@ -158,7 +180,7 @@ const loginWithGoogle = async () => {
       throw loginError;
     }
 
-    console.log("Step 6: Login complete:", loginResponse.data);
+    console.log("Step 4: Login complete:", loginResponse.data);
 
     return (
       loginResponse.data?.data?.user ||
@@ -176,6 +198,12 @@ const loginWithGoogle = async () => {
     }
     if (error.code === "auth/popup-closed-by-user") {
       return null;
+    }
+    if (error.response?.status === 404) {
+      await signOut(firebaseAuth);
+      throw new Error(
+        "Account not registered. Please sign up and verify OTP first."
+      );
     }
     throw error;
   }
@@ -256,6 +284,8 @@ export {
   registerWithEmail,
   loginWithEmail,
   loginWithGoogle,
+  beginGoogleRegistration,
+  registerWithGoogle,
   logout,
   getCurrentUser,
   onAuthStateChange,

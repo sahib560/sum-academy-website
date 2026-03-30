@@ -180,6 +180,11 @@ function Checkout() {
     });
   }, [installmentMode, installments, totalAmount]);
 
+  const amountDueNow =
+    installmentMode === "installment"
+      ? installmentPreview[0]?.amount ?? totalAmount
+      : totalAmount;
+
   const applyPromoMutation = useMutation({
     mutationFn: () => validatePromoCode(promoCode, courseId),
     onSuccess: (data) => {
@@ -515,9 +520,20 @@ function Checkout() {
               <p className="mt-1 text-slate-600">
                 Method: {formatMethodLabel(activePaymentMethod)}
               </p>
-              <p className="mt-2 text-base font-semibold text-slate-900">
-                Total: {formatPKR(totalAmount)}
-              </p>
+              {installmentMode === "installment" ? (
+                <>
+                  <p className="mt-2 text-base font-semibold text-slate-900">
+                    Amount Due Now: {formatPKR(amountDueNow)}
+                  </p>
+                  <p className="text-sm text-slate-600">
+                    Total: {formatPKR(totalAmount)} · {installments} installments
+                  </p>
+                </>
+              ) : (
+                <p className="mt-2 text-base font-semibold text-slate-900">
+                  Total: {formatPKR(totalAmount)}
+                </p>
+              )}
             </div>
 
             {!initiatedPayment ? (
@@ -551,6 +567,14 @@ function Checkout() {
                     Method: {formatMethodLabel(
                       initiatedPayment.method || activePaymentMethod
                     )}
+                  </p>
+                ) : null}
+                {initiatedPayment?.amount != null ? (
+                  <p className="text-xs text-slate-600">
+                    Amount Due Now: {formatPKR(initiatedPayment.amount)}
+                    {initiatedPayment?.totalAmount
+                      ? ` · Total ${formatPKR(initiatedPayment.totalAmount)}`
+                      : ""}
                   </p>
                 ) : null}
                 <p className="text-xs text-slate-600">
