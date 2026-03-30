@@ -35,6 +35,13 @@ const PHONE_REGEX = /^\+92\d{10}$/;
 const FOCUSABLE_SELECTOR =
   'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
 
+const STATUS_TABS = [
+  { id: "all", label: "All" },
+  { id: "active", label: "Active" },
+  { id: "inactive", label: "Inactive" },
+  { id: "enrolled", label: "Enrolled" },
+];
+
 const emptyAddForm = {
   fullName: "",
   email: "",
@@ -381,7 +388,8 @@ function Students() {
       const statusMatch =
         statusFilter === "all" ||
         (statusFilter === "active" && student.isActive) ||
-        (statusFilter === "inactive" && !student.isActive);
+        (statusFilter === "inactive" && !student.isActive) ||
+        (statusFilter === "enrolled" && student.enrolledCourses.length > 0);
       return searchMatch && statusMatch;
     });
     return sortStudents(filtered, sortBy);
@@ -392,7 +400,7 @@ function Students() {
       total: students.length,
       active: students.filter((s) => s.isActive).length,
       inactive: students.filter((s) => !s.isActive).length,
-      enrolled: students.reduce((sum, s) => sum + s.enrolledCourses.length, 0),
+      enrolledStudents: students.filter((s) => s.enrolledCourses.length > 0).length,
     }),
     [students]
   );
@@ -669,7 +677,7 @@ function Students() {
           { label: "Total Students", value: stats.total },
           { label: "Active Students", value: stats.active },
           { label: "Inactive Students", value: stats.inactive },
-          { label: "Total Enrolled Courses", value: stats.enrolled },
+          { label: "Enrolled Students", value: stats.enrolledStudents },
         ].map((item) => (
           <div key={item.label} className="glass-card">
             <p className="text-sm text-slate-500">{item.label}</p>
@@ -692,15 +700,22 @@ function Students() {
           />
         </div>
 
-        <select
-          value={statusFilter}
-          onChange={(event) => setStatusFilter(event.target.value)}
-          className="rounded-full border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none"
-        >
-          <option value="all">All</option>
-          <option value="active">Active</option>
-          <option value="inactive">Inactive</option>
-        </select>
+        <div className="flex flex-wrap gap-2">
+          {STATUS_TABS.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setStatusFilter(tab.id)}
+              className={`rounded-full px-4 py-2 text-xs font-semibold ${
+                statusFilter === tab.id
+                  ? "bg-primary text-white"
+                  : "border border-slate-200 bg-white text-slate-600"
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
 
         <select
           value={sortBy}

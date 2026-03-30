@@ -31,6 +31,12 @@ const SORT_OPTIONS = [
   { id: "newest_enrolled", label: "Newest Enrolled" },
 ];
 
+const STATUS_TABS = [
+  { id: "all", label: "All" },
+  { id: "active", label: "Active" },
+  { id: "inactive", label: "Inactive" },
+];
+
 const PROFILE_TABS = [
   { id: "overview", label: "Overview" },
   { id: "progress", label: "Course Progress" },
@@ -176,6 +182,7 @@ function Students() {
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [courseFilter, setCourseFilter] = useState("all");
   const [progressFilter, setProgressFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
   const [sortBy, setSortBy] = useState("name");
 
   const [selectedStudentId, setSelectedStudentId] = useState("");
@@ -366,7 +373,12 @@ function Students() {
         (progressFilter === "in_progress" && progress > 0 && progress < 100) ||
         (progressFilter === "completed" && progress === 100);
 
-      return searchMatch && courseMatch && progressMatch;
+      const statusMatch =
+        statusFilter === "all" ||
+        (statusFilter === "active" && student.isActive !== false) ||
+        (statusFilter === "inactive" && student.isActive === false);
+
+      return searchMatch && courseMatch && progressMatch && statusMatch;
     });
 
     const sorted = [...rows];
@@ -391,7 +403,7 @@ function Students() {
     });
 
     return sorted;
-  }, [students, debouncedSearch, courseFilter, progressFilter, sortBy]);
+  }, [students, debouncedSearch, courseFilter, progressFilter, sortBy, statusFilter]);
 
   const exportStudentsPdf = () => {
     const doc = new jsPDF({ orientation: "landscape" });
@@ -542,8 +554,24 @@ function Students() {
       </section>
 
       <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
           <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search by name or email" className="rounded-2xl border border-slate-200 px-4 py-2 text-sm" />
+          <div className="flex flex-wrap gap-2">
+            {STATUS_TABS.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setStatusFilter(tab.id)}
+                className={`rounded-full px-3 py-1.5 text-xs font-semibold ${
+                  statusFilter === tab.id
+                    ? "bg-primary text-white"
+                    : "border border-slate-200 text-slate-600"
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
           <select value={courseFilter} onChange={(event) => setCourseFilter(event.target.value)} className="rounded-2xl border border-slate-200 px-4 py-2 text-sm">{courseOptions.map((course) => <option key={course.id} value={course.id}>{course.name}</option>)}</select>
           <select value={progressFilter} onChange={(event) => setProgressFilter(event.target.value)} className="rounded-2xl border border-slate-200 px-4 py-2 text-sm">{PROGRESS_FILTER_OPTIONS.map((opt) => <option key={opt.id} value={opt.id}>{opt.label}</option>)}</select>
           <select value={sortBy} onChange={(event) => setSortBy(event.target.value)} className="rounded-2xl border border-slate-200 px-4 py-2 text-sm">{SORT_OPTIONS.map((opt) => <option key={opt.id} value={opt.id}>{opt.label}</option>)}</select>

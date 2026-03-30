@@ -300,15 +300,15 @@ function TeacherSettings() {
 
       <Motion.aside
         {...fadeUp}
-        className="sticky top-24 h-fit rounded-3xl border border-slate-200 bg-white p-4 shadow-sm"
+        className="h-fit rounded-3xl border border-slate-200 bg-white p-4 shadow-sm lg:sticky lg:top-24"
       >
-        <div className="space-y-2">
+        <div className="flex gap-2 overflow-x-auto lg:flex-col lg:gap-2 lg:overflow-visible">
           {tabs.map((tab) => (
             <button
               key={tab}
               type="button"
               onClick={() => setActiveTab(tab)}
-              className={`w-full rounded-2xl px-4 py-3 text-left text-sm font-semibold ${
+              className={`whitespace-nowrap rounded-2xl px-4 py-3 text-left text-sm font-semibold lg:w-full ${
                 activeTab === tab
                   ? "bg-primary text-white"
                   : "text-slate-600 hover:bg-slate-100"
@@ -543,7 +543,7 @@ function TeacherSettings() {
               <div className="mt-4 flex justify-end">
                 <button
                   type="button"
-                  className="btn-primary"
+                  className="btn-primary w-full sm:w-auto"
                   onClick={handleSavePassword}
                   disabled={changingPassword}
                 >
@@ -567,7 +567,7 @@ function TeacherSettings() {
                 </div>
                 <button
                   type="button"
-                  className="btn-outline border-rose-200 text-rose-600"
+                  className="btn-outline w-full border-rose-200 text-rose-600 sm:w-auto"
                   onClick={handleRevokeOthers}
                   disabled={!canRevokeOthers || revokeOthersMutation.isPending}
                 >
@@ -647,7 +647,7 @@ function TeacherSettings() {
                     No login activity found.
                   </div>
                 ) : (
-                  <table className="w-full text-sm">
+                  <table className="min-w-[640px] w-full text-sm">
                     <thead>
                       <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-[0.2em] text-slate-400">
                         <th className="py-2">Date & Time</th>

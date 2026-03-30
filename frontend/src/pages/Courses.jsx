@@ -110,6 +110,12 @@ function FilterPanel({
   onPriceMinChange,
   onPriceMaxChange,
 }) {
+  const makeId = (prefix, value) =>
+    `${prefix}-${String(value || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")}`;
+
   return (
     <div className="space-y-6">
       <div>
@@ -119,18 +125,16 @@ function FilterPanel({
         <div className="mt-4 grid gap-2">
           {categories.length ? (
             categories.map((category) => (
-              <label
-                key={category}
-                className="flex items-center gap-3 text-sm text-slate-700 dark:text-slate-200"
-              >
+              <div key={category} className="flex items-center gap-3 text-sm text-slate-700 dark:text-slate-200">
                 <input
+                  id={makeId("category", category)}
                   type="checkbox"
                   className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary"
                   checked={selectedCategories.includes(category)}
-                  onChange={() => onToggleCategory(category)}
+                  onChange={(event) => onToggleCategory(category, event.target.checked)}
                 />
-                {category}
-              </label>
+                <label htmlFor={makeId("category", category)}>{category}</label>
+              </div>
             ))
           ) : (
             <p className="text-xs text-slate-500 dark:text-slate-300">{NOT_ADDED}</p>
@@ -143,31 +147,30 @@ function FilterPanel({
           Level
         </p>
         <div className="mt-4 grid gap-2">
-          <label className="flex items-center gap-3 text-sm text-slate-700 dark:text-slate-200">
+          <div className="flex items-center gap-3 text-sm text-slate-700 dark:text-slate-200">
             <input
+              id="level-all"
               type="radio"
               name="level"
               className="h-4 w-4 text-primary focus:ring-primary"
               checked={level === "All"}
               onChange={() => onLevelChange("All")}
             />
-            All Levels
-          </label>
+            <label htmlFor="level-all">All Levels</label>
+          </div>
           {levels.length ? (
             levels.map((item) => (
-              <label
-                key={item}
-                className="flex items-center gap-3 text-sm text-slate-700 dark:text-slate-200"
-              >
+              <div key={item} className="flex items-center gap-3 text-sm text-slate-700 dark:text-slate-200">
                 <input
+                  id={makeId("level", item)}
                   type="radio"
                   name="level"
                   className="h-4 w-4 text-primary focus:ring-primary"
                   checked={level === item}
                   onChange={() => onLevelChange(item)}
                 />
-                {item}
-              </label>
+                <label htmlFor={makeId("level", item)}>{item}</label>
+              </div>
             ))
           ) : (
             <p className="text-xs text-slate-500 dark:text-slate-300">{NOT_ADDED}</p>
@@ -311,12 +314,11 @@ function Courses() {
     selectedCategories,
   ]);
 
-  const toggleCategory = (category) => {
-    setSelectedCategories((prev) =>
-      prev.includes(category)
-        ? prev.filter((item) => item !== category)
-        : [...prev, category]
-    );
+  const toggleCategory = (category, checked) => {
+    setSelectedCategories((prev) => {
+      if (checked) return [...new Set([...prev, category])];
+      return prev.filter((item) => item !== category);
+    });
   };
 
   const resetFilters = () => {

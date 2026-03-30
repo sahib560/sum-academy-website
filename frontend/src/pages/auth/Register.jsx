@@ -313,7 +313,14 @@ function Register() {
     try {
       const googleUser = await beginGoogleRegistration();
       await ensureMinSplashTime(startedAt);
-      if (!googleUser) return;
+      if (!googleUser) {
+        setError("Google sign-in was closed or blocked. Please try again.");
+        toast.error("Google sign-in was closed or blocked.");
+        return;
+      }
+      if (!googleUser.email) {
+        throw new Error("Google account did not provide an email address.");
+      }
 
       setForm((prev) => ({
         ...prev,
@@ -324,10 +331,20 @@ function Register() {
           (googleUser.email ? googleUser.email.split("@")[0] : ""),
       }));
 
-      await sendRegistrationOtp(
-        googleUser.email,
-        googleUser.displayName || googleUser.email?.split("@")[0] || ""
-      );
+      try {
+        await sendRegistrationOtp(
+          googleUser.email,
+          googleUser.displayName || googleUser.email?.split("@")[0] || ""
+        );
+      } catch (otpError) {
+        const message =
+          otpError?.response?.data?.message ||
+          otpError?.message ||
+          "Failed to send OTP.";
+        setError(message);
+        toast.error(message);
+        return;
+      }
       setPendingGoogleUser({
         uid: googleUser.uid,
         email: googleUser.email,
