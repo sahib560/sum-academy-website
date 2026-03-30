@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -130,6 +131,7 @@ function CountUp({ value, prefix = "" }) {
 
 function Dashboard() {
   const [rangeDays, setRangeDays] = useState(7);
+  const navigate = useNavigate();
 
   const {
     data: statsResponse,
@@ -190,8 +192,8 @@ function Dashboard() {
 
   const stats = statsResponse?.data ?? statsResponse ?? {};
 
-  const kpis = useMemo(
-    () => [
+  const kpis = useMemo(() => {
+    const items = [
       {
         label: "Total Students",
         value: Number(stats.totalStudents || 0),
@@ -217,9 +219,24 @@ function Dashboard() {
         color: "text-purple-500",
         icon: "user-plus",
       },
-    ],
-    [stats]
-  );
+    ];
+
+    const pendingApprovals = Number(stats.pendingApprovals || 0);
+    if (pendingApprovals > 0) {
+      items.push({
+        label: "Pending Approvals",
+        value: pendingApprovals,
+        color: "text-amber-500",
+        icon: "user-plus",
+        cardClass: "border border-amber-200 bg-amber-50/70",
+        helperText: "Click to review",
+        onClick: () =>
+          navigate("/admin/students?tab=pending_approval"),
+      });
+    }
+
+    return items;
+  }, [navigate, stats]);
 
   const revenueRaw = useMemo(() => {
     const data = revenueResponse?.data ?? revenueResponse ?? [];
@@ -299,7 +316,21 @@ function Dashboard() {
             <motion.div
               key={kpi.label}
               variants={fadeUp}
-              className="glass-card card-hover flex flex-col gap-4"
+              className={`glass-card card-hover flex flex-col gap-4 ${
+                kpi.onClick ? "cursor-pointer" : ""
+              } ${
+                kpi.cardClass || ""
+              }`}
+              onClick={kpi.onClick}
+              role={kpi.onClick ? "button" : undefined}
+              tabIndex={kpi.onClick ? 0 : undefined}
+              onKeyDown={(event) => {
+                if (!kpi.onClick) return;
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  kpi.onClick();
+                }
+              }}
             >
               <div className="flex items-center justify-between">
                 <p className="text-sm font-semibold text-slate-500">
@@ -314,7 +345,9 @@ function Dashboard() {
               <p className="text-3xl font-semibold text-slate-900">
                 <CountUp value={kpi.value} prefix={kpi.prefix} />
               </p>
-              <span className="text-xs text-slate-400">Live data</span>
+              <span className="text-xs text-slate-400">
+                {kpi.helperText || "Live data"}
+              </span>
             </motion.div>
           ))
         )}

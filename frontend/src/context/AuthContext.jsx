@@ -6,6 +6,7 @@ import api from "../api/axios.js";
 const AuthContext = createContext(null);
 const LOGIN_ALERT_STORAGE_KEY = "sumacademy:login-alert";
 const LOGIN_ALERT_EVENT = "sumacademy:login-alert";
+const PROFILE_HEARTBEAT_MS = 10000;
 
 function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
@@ -18,11 +19,37 @@ function AuthProvider({ children }) {
 
   useEffect(() => {
     let retryTimer = null;
+    let heartbeatTimer = null;
     let cancelled = false;
 
-    const fetchProfile = async (firebaseUser, attempt = 0) => {
+    const clearHeartbeat = () => {
+      if (heartbeatTimer) {
+        clearInterval(heartbeatTimer);
+        heartbeatTimer = null;
+      }
+    };
+
+    const pushLoginAlert = (payload = {}) => {
+      if (typeof window === "undefined") return;
+      window.sessionStorage.setItem(
+        LOGIN_ALERT_STORAGE_KEY,
+        JSON.stringify(payload)
+      );
+      window.dispatchEvent(
+        new CustomEvent(LOGIN_ALERT_EVENT, {
+          detail: payload,
+        })
+      );
+    };
+
+    const fetchProfile = async (
+      firebaseUser,
+      attempt = 0,
+      options = {}
+    ) => {
+      const { forceRefresh = false } = options;
       try {
-        const idToken = await firebaseUser.getIdToken(true);
+        const idToken = await firebaseUser.getIdToken(forceRefresh);
         const response = await api.get("/auth/me", {
           headers: { Authorization: `Bearer ${idToken}` },
         });
@@ -44,12 +71,29 @@ function AuthProvider({ children }) {
       } catch (error) {
         if (cancelled) return;
         const status = error?.response?.status;
-        const mismatchCode =
+        const errorCode =
           error?.response?.data?.errors?.code || error?.response?.data?.code;
+        const errorMessage =
+          error?.response?.data?.error ||
+          error?.response?.data?.message ||
+          "";
+        const isDeactivated =
+          errorCode === "ACCOUNT_DEACTIVATED" ||
+          /deactivat/i.test(String(errorMessage));
 
         if ((status === 401 || status === 403) && firebaseAuth.currentUser) {
+          if (isDeactivated) {
+            pushLoginAlert({
+              type: "account_deactivated",
+              message:
+                "Your account has been deactivated by admin. Please contact admin to restore access.",
+              contactAdmin: true,
+            });
+          }
+
           if (
-            mismatchCode === "DEVICE_IP_MISMATCH" &&
+            (errorCode === "DEVICE_IP_MISMATCH" ||
+              errorCode === "DEVICE_MISMATCH") &&
             typeof window !== "undefined"
           ) {
             const message =
@@ -59,22 +103,15 @@ function AuthProvider({ children }) {
             const warning =
               error?.response?.data?.errors?.warning ||
               "Do not try again from another device/IP, otherwise your account may be blocked.";
-            window.sessionStorage.setItem(
-              LOGIN_ALERT_STORAGE_KEY,
-              JSON.stringify({
-                type: "device_ip_mismatch",
-                message,
-                warning,
-                contactAdmin: true,
-              })
-            );
-            window.dispatchEvent(
-              new CustomEvent(LOGIN_ALERT_EVENT, {
-                detail: { message, warning, contactAdmin: true },
-              })
-            );
+            pushLoginAlert({
+              type: "device_ip_mismatch",
+              message,
+              warning,
+              contactAdmin: true,
+            });
           }
 
+          clearHeartbeat();
           try {
             await signOut(firebaseAuth);
           } catch {
@@ -103,6 +140,7 @@ function AuthProvider({ children }) {
     const unsubscribe = onAuthStateChanged(
       firebaseAuth,
       async (firebaseUser) => {
+        clearHeartbeat();
         setLoading(true);
         if (!firebaseUser) {
           setUser(null);
@@ -116,13 +154,19 @@ function AuthProvider({ children }) {
         }
 
         setUser(firebaseUser);
-        fetchProfile(firebaseUser);
+        fetchProfile(firebaseUser, 0, { forceRefresh: true });
+        heartbeatTimer = setInterval(() => {
+          const currentUser = firebaseAuth.currentUser;
+          if (!currentUser || cancelled) return;
+          fetchProfile(currentUser, 0, { forceRefresh: false });
+        }, PROFILE_HEARTBEAT_MS);
       }
     );
 
     return () => {
       cancelled = true;
       if (retryTimer) clearTimeout(retryTimer);
+      clearHeartbeat();
       unsubscribe();
     };
   }, []);

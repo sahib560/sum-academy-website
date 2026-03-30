@@ -635,7 +635,9 @@ const registerUser = async (req, res) => {
       name: displayName,
       phoneNumber: safePhone,
       role: "student",
-      isActive: true,
+      isActive: false,
+      status: "pending_approval",
+      registeredAt: admin.firestore.FieldValue.serverTimestamp(),
       assignedWebDevice: safeDevice,
       assignedWebIp: safeIp,
       assignedUniqueDeviceId: safeUniqueDeviceId,
@@ -652,6 +654,7 @@ const registerUser = async (req, res) => {
       name: displayName,
       phoneNumber: safePhone,
       phone: safePhone,
+      approvalStatus: "pending",
       ...studentProfile,
       enrolledCourses: [],
       certificates: [],
@@ -668,7 +671,7 @@ const registerUser = async (req, res) => {
     return successResponse(
       res,
       { user: { uid, email: normalizedEmail, role: "student", fullName: displayName } },
-      "Student account created successfully",
+      "Registration successful! Your account is pending admin approval. You will be notified once approved.",
       201
     );
   } catch (error) {
@@ -690,12 +693,22 @@ const loginUser = async (req, res) => {
 
     const userData = userSnap.data();
 
+    if (userData.role === "student" && userData.status === "pending_approval") {
+      return errorResponse(
+        res,
+        "Your account is pending admin approval. Please wait for admin to activate your account.",
+        403,
+        { code: "PENDING_APPROVAL" }
+      );
+    }
+
     // Check account is active
     if (!userData.isActive) {
       return errorResponse(
         res,
         "Your account has been deactivated. Contact admin.",
-        403
+        403,
+        { code: "ACCOUNT_DEACTIVATED" }
       );
     }
 
@@ -872,6 +885,15 @@ const getMe = async (req, res) => {
     const userData = userSnap.data();
     const role = String(userData.role || "").toLowerCase();
     const { clientIP, clientDevice } = resolveClientContext(req);
+
+    if (userData.isActive === false) {
+      return errorResponse(
+        res,
+        "Your account has been deactivated. Contact admin.",
+        403,
+        { code: "ACCOUNT_DEACTIVATED" }
+      );
+    }
 
     if (role === "student") {
       const assignedDevice = trimText(userData.assignedWebDevice);

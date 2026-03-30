@@ -2,7 +2,11 @@ import * as adminService from "../services/admin.service.js";
 import { db, admin } from "../config/firebase.js";
 import { COLLECTIONS } from "../config/collections.js";
 import { successResponse, errorResponse } from "../utils/response.utils.js";
-import { sendRegistrationOTP } from "../services/email.service.js";
+import {
+  sendRegistrationOTP,
+  sendApprovalEmail,
+  sendRejectionEmail,
+} from "../services/email.service.js";
 import { v4 as uuidv4 } from "uuid";
 
 const normalizeSubjectName = (value = "") => String(value).trim();
@@ -551,6 +555,78 @@ export const getStudents = async (req, res) => {
   }
 };
 
+export const approveStudent = async (req, res) => {
+  try {
+    const { uid } = req.params;
+
+    await db.collection(COLLECTIONS.USERS).doc(uid).update({
+      isActive: true,
+      status: "approved",
+      approvedBy: req.user.uid,
+      approvedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    await db.collection(COLLECTIONS.STUDENTS).doc(uid).set(
+      {
+        approvalStatus: "approved",
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+
+    const userSnap = await db.collection(COLLECTIONS.USERS).doc(uid).get();
+    const studentSnap = await db.collection(COLLECTIONS.STUDENTS).doc(uid).get();
+
+    const email = userSnap.data()?.email || "";
+    const fullName = studentSnap.data()?.fullName || "";
+
+    if (email) {
+      await sendApprovalEmail(email, fullName || "Student");
+    }
+
+    return successResponse(res, { uid }, "Student approved successfully");
+  } catch (e) {
+    return errorResponse(res, "Failed to approve student", 500);
+  }
+};
+
+export const rejectStudent = async (req, res) => {
+  try {
+    const { uid } = req.params;
+    const { reason } = req.body || {};
+
+    await db.collection(COLLECTIONS.USERS).doc(uid).update({
+      isActive: false,
+      status: "rejected",
+      rejectedBy: req.user.uid,
+      rejectedAt: admin.firestore.FieldValue.serverTimestamp(),
+      rejectionReason: reason || "",
+    });
+
+    await db.collection(COLLECTIONS.STUDENTS).doc(uid).set(
+      {
+        approvalStatus: "rejected",
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+
+    const userSnap = await db.collection(COLLECTIONS.USERS).doc(uid).get();
+    const studentSnap = await db.collection(COLLECTIONS.STUDENTS).doc(uid).get();
+
+    const email = userSnap.data()?.email || "";
+    const fullName = studentSnap.data()?.fullName || "";
+
+    if (email) {
+      await sendRejectionEmail(email, fullName || "Student", reason || "");
+    }
+
+    return successResponse(res, { uid }, "Student rejected");
+  } catch (e) {
+    return errorResponse(res, "Failed to reject student", 500);
+  }
+};
+
 export const downloadStudentsBulkTemplate = async (_req, res) => {
   try {
     const commentRow =
@@ -687,8 +763,12 @@ export const bulkUploadStudents = async (req, res) => {
           address: row.address || "",
           role: "student",
           isActive: true,
+          status: "approved",
+          approvedBy: req.user.uid,
+          approvedAt: admin.firestore.FieldValue.serverTimestamp(),
           assignedWebDevice: "",
           assignedWebIp: "",
+          assignedUniqueDeviceId: "",
           lastKnownWebIp: "",
           lastLoginAt: null,
           createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -702,6 +782,7 @@ export const bulkUploadStudents = async (req, res) => {
           address: row.address || "",
           enrolledCourses: [],
           certificates: [],
+          approvalStatus: "approved",
           fatherName: "",
           fatherPhone: "",
           fatherOccupation: "",
@@ -788,7 +869,7 @@ export const createUser = async (req, res) => {
 
     const batch = db.batch();
 
-    batch.set(db.collection(COLLECTIONS.USERS).doc(uid), {
+    const userPayload = {
       uid,
       email,
       fullName: name,
@@ -796,12 +877,20 @@ export const createUser = async (req, res) => {
       phoneNumber: phone || "",
       role,
       isActive: true,
+      status: role === "student" ? "approved" : "active",
       assignedWebDevice: "",
       assignedWebIp: "",
+      assignedUniqueDeviceId: "",
       lastKnownWebIp: "",
       lastLoginAt: null,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
+    };
+    if (role === "student") {
+      userPayload.approvedBy = req.user.uid;
+      userPayload.approvedAt = admin.firestore.FieldValue.serverTimestamp();
+    }
+
+    batch.set(db.collection(COLLECTIONS.USERS).doc(uid), userPayload);
 
     if (role === "student") {
       batch.set(db.collection(COLLECTIONS.STUDENTS).doc(uid), {
@@ -810,6 +899,7 @@ export const createUser = async (req, res) => {
         phoneNumber: phone || "",
         enrolledCourses: [],
         certificates: [],
+        approvalStatus: "approved",
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
       });
     } else if (role === "teacher") {

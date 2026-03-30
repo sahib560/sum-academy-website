@@ -19,12 +19,15 @@ import {
   FiUser,
   FiX,
 } from "react-icons/fi";
+import { useSearchParams } from "react-router-dom";
 import {
   bulkUploadStudents,
   createUser,
   deleteUser,
   downloadStudentsBulkTemplate,
   getStudents,
+  approveStudent,
+  rejectStudent,
   resetUserDevice,
   updateUser,
 } from "../../services/admin.service.js";
@@ -38,8 +41,8 @@ const FOCUSABLE_SELECTOR =
 const STATUS_TABS = [
   { id: "all", label: "All" },
   { id: "active", label: "Active" },
+  { id: "pending_approval", label: "Pending Approval" },
   { id: "inactive", label: "Inactive" },
-  { id: "enrolled", label: "Enrolled" },
 ];
 
 const emptyAddForm = {
@@ -155,6 +158,10 @@ const normalizeCertificates = (certificates) => {
 const normalizeStudents = (students = []) =>
   students.map((student) => {
     const fullName = student.fullName || student.name || emailName(student.email);
+    const resolvedStatus =
+      student.status ||
+      (student.approvalStatus === "pending" ? "pending_approval" : "") ||
+      "";
     return {
       ...student,
       uid: student.uid || student.id,
@@ -167,6 +174,7 @@ const normalizeStudents = (students = []) =>
       lastLoginText: relativeTime(student.lastLoginAt),
       initials: getInitials(fullName, student.email),
       isActive: student.isActive !== false,
+      status: resolvedStatus,
       assignedWebDevice: student.assignedWebDevice || "",
       assignedWebIp: student.assignedWebIp || student.lastKnownWebIp || "",
       lastLoginAt: student.lastLoginAt || null,
@@ -346,6 +354,7 @@ function Students() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [sortBy, setSortBy] = useState("name_asc");
   const [page, setPage] = useState(1);
+  const [searchParams] = useSearchParams();
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [showBulkModal, setShowBulkModal] = useState(false);
@@ -353,8 +362,10 @@ function Students() {
   const [showStatusModal, setShowStatusModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showResetModal, setShowResetModal] = useState(false);
+  const [showRejectModal, setShowRejectModal] = useState(false);
   const [profileStudent, setProfileStudent] = useState(null);
   const [selectedStudent, setSelectedStudent] = useState(null);
+  const [rejectReason, setRejectReason] = useState("");
 
   const [addForm, setAddForm] = useState(emptyAddForm);
   const [editForm, setEditForm] = useState(emptyEditForm);
@@ -388,8 +399,9 @@ function Students() {
       const statusMatch =
         statusFilter === "all" ||
         (statusFilter === "active" && student.isActive) ||
-        (statusFilter === "inactive" && !student.isActive) ||
-        (statusFilter === "enrolled" && student.enrolledCourses.length > 0);
+        (statusFilter === "pending_approval" &&
+          student.status === "pending_approval") ||
+        (statusFilter === "inactive" && !student.isActive);
       return searchMatch && statusMatch;
     });
     return sortStudents(filtered, sortBy);
@@ -399,6 +411,7 @@ function Students() {
     () => ({
       total: students.length,
       active: students.filter((s) => s.isActive).length,
+      pending: students.filter((s) => s.status === "pending_approval").length,
       inactive: students.filter((s) => !s.isActive).length,
       enrolledStudents: students.filter((s) => s.enrolledCourses.length > 0).length,
     }),
@@ -412,6 +425,13 @@ function Students() {
   useEffect(() => {
     setPage(1);
   }, [search, statusFilter, sortBy]);
+
+  useEffect(() => {
+    const tab = searchParams.get("tab") || searchParams.get("status");
+    if (tab && STATUS_TABS.some((item) => item.id === tab)) {
+      setStatusFilter(tab);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     if (page > pageCount) setPage(pageCount);
@@ -532,6 +552,31 @@ function Students() {
     },
   });
 
+  const approveStudentMutation = useMutation({
+    mutationFn: (uid) => approveStudent(uid),
+    onSuccess: async () => {
+      await invalidateStudents();
+      toast.success("Student approved! Email sent to student.");
+    },
+    onError: (error) => {
+      toast.error(error?.response?.data?.error || "Failed to approve student.");
+    },
+  });
+
+  const rejectStudentMutation = useMutation({
+    mutationFn: ({ uid, reason }) => rejectStudent(uid, reason),
+    onSuccess: async () => {
+      await invalidateStudents();
+      setShowRejectModal(false);
+      setRejectReason("");
+      setSelectedStudent(null);
+      toast.success("Student rejected");
+    },
+    onError: (error) => {
+      toast.error(error?.response?.data?.error || "Failed to reject student.");
+    },
+  });
+
   const openAdd = () => {
     setAddForm(emptyAddForm);
     setAddTouched({});
@@ -576,6 +621,12 @@ function Students() {
     setResetForm(emptyResetForm);
     setResetTouched({});
     setShowResetModal(true);
+  };
+
+  const openReject = (student) => {
+    setSelectedStudent(student);
+    setRejectReason("");
+    setShowRejectModal(true);
   };
 
   const sanitizePhone = (value) =>
@@ -672,10 +723,11 @@ function Students() {
         </div>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         {[
           { label: "Total Students", value: stats.total },
           { label: "Active Students", value: stats.active },
+          { label: "Pending Approval", value: stats.pending },
           { label: "Inactive Students", value: stats.inactive },
           { label: "Enrolled Students", value: stats.enrolledStudents },
         ].map((item) => (
@@ -712,7 +764,14 @@ function Students() {
                   : "border border-slate-200 bg-white text-slate-600"
               }`}
             >
-              {tab.label}
+              <span className="flex items-center gap-2">
+                {tab.label}
+                {tab.id === "pending_approval" && stats.pending > 0 ? (
+                  <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+                    {stats.pending}
+                  </span>
+                ) : null}
+              </span>
             </button>
           ))}
         </div>
@@ -727,6 +786,12 @@ function Students() {
           <option value="last_active">Last Active</option>
         </select>
       </div>
+
+      {stats.pending > 0 ? (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-700">
+          {stats.pending} students waiting for approval
+        </div>
+      ) : null}
 
       <div className="rounded-3xl border border-slate-200 bg-white shadow-sm">
         <div className="hidden overflow-x-auto lg:block">
@@ -794,15 +859,21 @@ function Students() {
                     </td>
                     <td className="px-6 py-4 text-slate-600">{student.lastLoginText}</td>
                     <td className="px-6 py-4">
-                      <span
-                        className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
-                          student.isActive
-                            ? "bg-emerald-50 text-emerald-600"
-                            : "bg-rose-50 text-rose-600"
-                        }`}
-                      >
-                        {student.isActive ? "Active" : "Inactive"}
-                      </span>
+                      {student.status === "pending_approval" ? (
+                        <span className="inline-flex rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700">
+                          Pending
+                        </span>
+                      ) : (
+                        <span
+                          className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
+                            student.isActive
+                              ? "bg-emerald-50 text-emerald-600"
+                              : "bg-rose-50 text-rose-600"
+                          }`}
+                        >
+                          {student.isActive ? "Active" : "Inactive"}
+                        </span>
+                      )}
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex justify-end gap-2">
@@ -812,9 +883,29 @@ function Students() {
                         <button type="button" onClick={() => openEdit(student)} className="rounded-full border border-slate-200 p-2 text-slate-500 transition hover:text-primary" aria-label="Edit">
                           <FiEdit3 className="h-4 w-4" />
                         </button>
-                        <button type="button" onClick={() => openStatus(student)} className={`rounded-full px-3 py-1 text-xs font-semibold ${student.isActive ? "bg-rose-50 text-rose-600" : "bg-emerald-50 text-emerald-600"}`}>
-                          {student.isActive ? "Deactivate" : "Activate"}
-                        </button>
+                        {student.status === "pending_approval" ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => approveStudentMutation.mutate(student.uid)}
+                              className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-600"
+                              disabled={approveStudentMutation.isPending}
+                            >
+                              Approve
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => openReject(student)}
+                              className="rounded-full bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-600"
+                            >
+                              Reject
+                            </button>
+                          </>
+                        ) : (
+                          <button type="button" onClick={() => openStatus(student)} className={`rounded-full px-3 py-1 text-xs font-semibold ${student.isActive ? "bg-rose-50 text-rose-600" : "bg-emerald-50 text-emerald-600"}`}>
+                            {student.isActive ? "Deactivate" : "Activate"}
+                          </button>
+                        )}
                         <button type="button" onClick={() => openDelete(student)} className="rounded-full border border-slate-200 p-2 text-rose-500 transition hover:text-rose-600" aria-label="Delete">
                           <FiTrash2 className="h-4 w-4" />
                         </button>
@@ -858,12 +949,23 @@ function Students() {
                 <div className="mt-3 flex flex-wrap gap-2">
                   <span className="inline-flex rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">Enrolled: {student.enrolledCourses.length}</span>
                   <span className="inline-flex rounded-full bg-violet-50 px-3 py-1 text-xs font-semibold text-violet-700">Certs: {student.certificates.length}</span>
-                  <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${student.isActive ? "bg-emerald-50 text-emerald-600" : "bg-rose-50 text-rose-600"}`}>{student.isActive ? "Active" : "Inactive"}</span>
+                  {student.status === "pending_approval" ? (
+                    <span className="inline-flex rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700">Pending</span>
+                  ) : (
+                    <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${student.isActive ? "bg-emerald-50 text-emerald-600" : "bg-rose-50 text-rose-600"}`}>{student.isActive ? "Active" : "Inactive"}</span>
+                  )}
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2">
                   <button type="button" onClick={() => openProfile(student)} className="rounded-full border border-slate-200 px-3 py-1 text-xs">View</button>
                   <button type="button" onClick={() => openEdit(student)} className="rounded-full border border-slate-200 px-3 py-1 text-xs">Edit</button>
-                  <button type="button" onClick={() => openStatus(student)} className="rounded-full border border-slate-200 px-3 py-1 text-xs">{student.isActive ? "Deactivate" : "Activate"}</button>
+                  {student.status === "pending_approval" ? (
+                    <>
+                      <button type="button" onClick={() => approveStudentMutation.mutate(student.uid)} className="rounded-full border border-emerald-200 px-3 py-1 text-xs text-emerald-600">Approve</button>
+                      <button type="button" onClick={() => openReject(student)} className="rounded-full border border-rose-200 px-3 py-1 text-xs text-rose-600">Reject</button>
+                    </>
+                  ) : (
+                    <button type="button" onClick={() => openStatus(student)} className="rounded-full border border-slate-200 px-3 py-1 text-xs">{student.isActive ? "Deactivate" : "Activate"}</button>
+                  )}
                   <button type="button" onClick={() => openDelete(student)} className="rounded-full border border-rose-200 px-3 py-1 text-xs text-rose-600">Delete</button>
                 </div>
               </div>
@@ -1165,6 +1267,58 @@ function Students() {
             </button>
           </div>
         </form>
+      </ModalShell>
+
+      <ModalShell
+        open={showRejectModal && Boolean(selectedStudent)}
+        title="Reject Student"
+        onClose={() => {
+          if (rejectStudentMutation.isPending) return;
+          setShowRejectModal(false);
+        }}
+      >
+        <div className="mt-6 space-y-4">
+          <p className="text-sm text-slate-600">
+            Reject <span className="font-semibold text-slate-900">{selectedStudent?.fullName}</span>? You can optionally add a reason.
+          </p>
+          <textarea
+            value={rejectReason}
+            onChange={(event) => setRejectReason(event.target.value)}
+            rows={4}
+            className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/10"
+            placeholder="Reason (optional)"
+          />
+          <div className="flex justify-end gap-3 pt-2">
+            <button
+              type="button"
+              onClick={() => setShowRejectModal(false)}
+              className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (!selectedStudent) return;
+                rejectStudentMutation.mutate({
+                  uid: selectedStudent.uid,
+                  reason: rejectReason.trim(),
+                });
+              }}
+              disabled={rejectStudentMutation.isPending}
+              className="inline-flex min-w-[140px] items-center justify-center rounded-full bg-rose-500 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-600"
+            >
+              {rejectStudentMutation.isPending ? (
+                <span className="flex items-center justify-center gap-2">
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                  Rejecting...
+                </span>
+              ) : (
+                "Confirm Reject"
+              )}
+            </button>
+          </div>
+        </div>
       </ModalShell>
 
       <AnimatePresence>

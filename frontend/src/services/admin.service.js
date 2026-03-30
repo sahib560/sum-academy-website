@@ -44,6 +44,12 @@ export const getTeachers = () =>
 export const getStudents = () =>
   api.get("/admin/students").then((r) => r.data.data);
 
+export const approveStudent = (uid) =>
+  api.patch(`/admin/students/${uid}/approve`).then((r) => r.data);
+
+export const rejectStudent = (uid, reason = "") =>
+  api.patch(`/admin/students/${uid}/reject`, { reason }).then((r) => r.data);
+
 export const downloadStudentsBulkTemplate = async () => {
   const response = await api.get("/admin/students/template", {
     responseType: "blob",

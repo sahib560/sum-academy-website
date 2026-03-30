@@ -55,6 +55,16 @@ router.patch(
 
 router.get("/teachers", adminOnly, adminController.getTeachers);
 router.get("/students", adminOnly, adminController.getStudents);
+router.patch(
+  "/students/:uid/approve",
+  adminOnly,
+  adminController.approveStudent
+);
+router.patch(
+  "/students/:uid/reject",
+  adminOnly,
+  adminController.rejectStudent
+);
 router.get(
   "/students/template",
   adminOnly,

@@ -5,7 +5,9 @@ import {
   Route,
   Routes,
   useLocation,
+  useNavigate,
 } from "react-router-dom";
+import { getRedirectResult } from "firebase/auth";
 import Navbar from "./components/Navbar.jsx";
 import Footer from "./components/Footer.jsx";
 import ProtectedRoute from "./components/ProtectedRoute.jsx";
@@ -64,6 +66,8 @@ import SplashScreen from "./components/SplashScreen.jsx";
 import VerifyCertificate from "./pages/public/VerifyCertificate.jsx";
 import NotificationsPage from "./pages/shared/Notifications.jsx";
 import ComingSoon from "./pages/ComingSoon.jsx";
+import { firebaseAuth } from "./config/firebase.js";
+import api from "./api/axios.js";
 
 const LOGIN_ALERT_STORAGE_KEY = "sumacademy:login-alert";
 const SHOW_COMING_SOON = true;
@@ -142,6 +146,7 @@ function MaintenanceScreen({ settings }) {
 function AppLayout({ showComingSoon }) {
   const { settings, loading: settingsLoading } = useSettings();
   const { isAdmin, loading: authLoading } = useAuth();
+  const navigate = useNavigate();
   const [showStartupSplash, setShowStartupSplash] = useState(true);
   const [authOverlay, setAuthOverlay] = useState({
     show: false,
@@ -149,6 +154,42 @@ function AppLayout({ showComingSoon }) {
     subMessage: "",
   });
   const location = useLocation();
+  const [handledRedirect, setHandledRedirect] = useState(false);
+
+  useEffect(() => {
+    if (handledRedirect) return;
+    setHandledRedirect(true);
+    getRedirectResult(firebaseAuth)
+      .then(async (result) => {
+        if (!result || !result.user) return;
+        const user = result.user;
+        const idToken = await user.getIdToken(true);
+        try {
+          await api.post(
+            "/auth/register",
+            {
+              uid: user.uid,
+              email: user.email,
+              fullName: user.displayName || "",
+              phoneNumber: "",
+            },
+            { headers: { Authorization: `Bearer ${idToken}` } }
+          );
+        } catch {
+          // ignore register errors
+        }
+        const res = await api.post(
+          "/auth/login",
+          {},
+          { headers: { Authorization: `Bearer ${idToken}` } }
+        );
+        const role = res.data?.data?.user?.role;
+        if (role === "admin") navigate("/admin/dashboard");
+        else if (role === "teacher") navigate("/teacher/dashboard");
+        else navigate("/student/dashboard");
+      })
+      .catch((err) => console.error("Redirect result error:", err));
+  }, [handledRedirect, navigate]);
 
   useEffect(() => {
     const timer = setTimeout(() => {

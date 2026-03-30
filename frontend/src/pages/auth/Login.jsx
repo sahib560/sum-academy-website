@@ -34,6 +34,7 @@ function Login() {
   const [inlineToast, setInlineToast] = useState(null);
   const [error, setError] = useState("");
   const [showContactAdmin, setShowContactAdmin] = useState(false);
+  const [alertType, setAlertType] = useState("");
   const logoSrc = settings.general.logoUrl || logo;
   const siteName = settings.general.siteName || "SUM Academy";
 
@@ -57,6 +58,20 @@ function Login() {
       parsed = null;
     }
 
+    if (parsed?.type === "account_deactivated") {
+      const message =
+        parsed?.message ||
+        "Your account has been deactivated by admin. Please contact admin.";
+      setAlertType("account_deactivated");
+      setInlineToast({
+        type: "error",
+        message: "Account deactivated",
+      });
+      setError(message);
+      setShowContactAdmin(true);
+      return true;
+    }
+
     const message =
       parsed?.message ||
       "You are trying to login from another device or network.";
@@ -69,6 +84,7 @@ function Login() {
       message:
         "Device/IP mismatch detected. One more wrong attempt may block your account.",
     });
+    setAlertType("device_mismatch");
     setError(
       `${message} ${warning} Please contact your admin or teacher to restore access.`
     );
@@ -122,6 +138,7 @@ function Login() {
     setLoading(true);
     setError("");
     setShowContactAdmin(false);
+    setAlertType("");
 
     try {
       const result = await loginWithEmail(form.email, form.password);
@@ -156,7 +173,21 @@ function Login() {
         error.message ||
         "Login failed. Please try again.";
 
-      if (errCode === "DEVICE_MISMATCH" || errCode === "DEVICE_IP_MISMATCH") {
+      if (errCode === "PENDING_APPROVAL") {
+        setError(
+          "Your account is pending admin approval. " +
+            "Please wait — you will receive an email " +
+            "when your account is activated."
+        );
+        toast.error("Account pending approval", { duration: 6000 });
+      } else if (errCode === "ACCOUNT_DEACTIVATED") {
+        setError(
+          "Your account has been deactivated by admin. Please contact admin to reactivate access."
+        );
+        setShowContactAdmin(true);
+        setAlertType("account_deactivated");
+        toast.error("Account deactivated", { duration: 6000 });
+      } else if (errCode === "DEVICE_MISMATCH" || errCode === "DEVICE_IP_MISMATCH") {
         const registered = errData?.errors?.registeredDevice || "your registered device";
 
         setError(
@@ -166,6 +197,7 @@ function Login() {
             " or contact your admin or teacher to reset your device access."
         );
         setShowContactAdmin(true);
+        setAlertType("device_mismatch");
         toast.error("Login blocked — wrong device detected", { duration: 6000 });
       } else if (status === 403) {
         setError(errMsg);
@@ -200,30 +232,22 @@ function Login() {
   };
 
   const handleGoogleLogin = async () => {
-    const startedAt = Date.now();
     setGoogleLoading(true);
-    setError("");
-    setShowContactAdmin(false);
     try {
       const result = await loginWithGoogle();
-      await ensureMinSplashTime(startedAt);
-      if (!result) return;
-      const role = result?.user?.role || result?.role || result?.data?.role;
-      setInlineToast({ type: "success", message: "Welcome to SUM Academy!" });
+      if (!result) {
+        setGoogleLoading(false);
+        return;
+      }
+      const role = result?.data?.user?.role || result?.user?.role;
+      toast.success("Welcome to SUM Academy!");
       if (role === "admin") navigate("/admin/dashboard");
       else if (role === "teacher") navigate("/teacher/dashboard");
       else navigate("/student/dashboard");
     } catch (error) {
-      await ensureMinSplashTime(startedAt);
-      const message =
-        error?.response?.data?.message ||
-        error?.message ||
-        "Google sign in failed";
-      setInlineToast({
-        type: "error",
-        message,
-      });
-      setError(message);
+      if (error.message) {
+        toast.error(error.message, { duration: 5000 });
+      }
     } finally {
       setGoogleLoading(false);
     }
@@ -299,7 +323,9 @@ function Login() {
                       marginBottom: "8px",
                     }}
                   >
-                    Device not recognized. Contact admin to reset access.
+                    {alertType === "account_deactivated"
+                      ? "Your account has been deactivated. Contact admin to reactivate access."
+                      : "Device not recognized. Contact admin to reset access."}
                   </p>
                   <a
                     href="mailto:admin@sumacademy.net"

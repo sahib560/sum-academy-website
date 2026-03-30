@@ -64,6 +64,7 @@ function Register() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [toastState, setToastState] = useState(null);
+  const [registrationSuccess, setRegistrationSuccess] = useState(null);
   const logoSrc = settings.general.logoUrl || logo;
   const siteName = settings.general.siteName || "SUM Academy";
   const toast = {
@@ -186,7 +187,7 @@ function Register() {
           throw new Error("OTP verification failed. Please try again.");
         }
 
-        const registeredUser = await registerWithGoogle(otpVerificationToken, {
+        await registerWithGoogle(otpVerificationToken, {
           fullName: form.fullName,
           phoneNumber: form.phoneNumber,
           fatherName: form.fatherName,
@@ -198,19 +199,10 @@ function Register() {
           caste: form.caste,
         });
         await ensureMinSplashTime(startedAt);
-        toast.success("Account created successfully! Welcome to SUM Academy");
-        const nextRole =
-          registeredUser?.data?.user?.role ||
-          registeredUser?.user?.role ||
-          registeredUser?.role ||
-          "student";
-        if (nextRole === "admin") {
-          navigate("/admin/dashboard");
-        } else if (nextRole === "teacher") {
-          navigate("/teacher/dashboard");
-        } else {
-          navigate("/student/dashboard");
-        }
+        setRegistrationSuccess({
+          email: pendingGoogleUser.email,
+          isGoogle: true,
+        });
         return;
       }
 
@@ -240,7 +232,7 @@ function Register() {
         throw new Error("OTP verification failed. Please try again.");
       }
 
-      const registeredUser = await registerWithEmail(
+      await registerWithEmail(
         fullName,
         email,
         password,
@@ -257,15 +249,7 @@ function Register() {
         }
       );
       await ensureMinSplashTime(startedAt);
-      toast.success("Account created successfully! Welcome to SUM Academy");
-      const nextRole = registeredUser?.role || "student";
-      if (nextRole === "admin") {
-        navigate("/admin/dashboard");
-      } else if (nextRole === "teacher") {
-        navigate("/teacher/dashboard");
-      } else {
-        navigate("/student/dashboard");
-      }
+      setRegistrationSuccess({ email, isGoogle: false });
     } catch (error) {
       await ensureMinSplashTime(startedAt);
       console.error("Registration error:", error);
@@ -313,11 +297,7 @@ function Register() {
     try {
       const googleUser = await beginGoogleRegistration();
       await ensureMinSplashTime(startedAt);
-      if (!googleUser) {
-        setError("Google sign-in was closed or blocked. Please try again.");
-        toast.error("Google sign-in was closed or blocked.");
-        return;
-      }
+      if (!googleUser) return;
       if (!googleUser.email) {
         throw new Error("Google account did not provide an email address.");
       }
@@ -395,13 +375,40 @@ function Register() {
               </h1>
             </div>
 
-            <Motion.form
-              initial="hidden"
-              animate="visible"
-              variants={fadeUp}
-              onSubmit={handleSubmit}
-              className="mt-8 space-y-5"
-            >
+            {registrationSuccess ? (
+              <div className="mt-8 rounded-3xl border border-emerald-100 bg-emerald-50 p-6 text-center">
+                <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-500 text-white">
+                  <FiCheck className="h-7 w-7" />
+                </div>
+                <h2 className="mt-4 font-heading text-2xl text-emerald-900">
+                  Registration Submitted!
+                </h2>
+                <p className="mt-3 text-sm text-emerald-800">
+                  {registrationSuccess.isGoogle
+                    ? "Your Google account registration is pending admin approval."
+                    : "Your account is pending admin approval."}
+                </p>
+                <p className="mt-2 text-sm text-emerald-800">
+                  You will receive an email at{" "}
+                  <span className="font-semibold">{registrationSuccess.email}</span>{" "}
+                  once your account is activated.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => navigate("/login")}
+                  className="btn-primary mt-6 w-full"
+                >
+                  Back to Login
+                </button>
+              </div>
+            ) : (
+              <Motion.form
+                initial="hidden"
+                animate="visible"
+                variants={fadeUp}
+                onSubmit={handleSubmit}
+                className="mt-8 space-y-5"
+              >
               {error && (
                 <div className="rounded-2xl border border-rose-100 bg-rose-50 px-4 py-3 text-sm text-rose-600">
                   {error}
@@ -758,7 +765,8 @@ function Register() {
                   Sign In
                 </Link>
               </p>
-            </Motion.form>
+              </Motion.form>
+            )}
           </div>
         </div>
 

@@ -2,6 +2,7 @@ import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   signInWithPopup,
+  signInWithRedirect,
   updateProfile,
   signOut,
   onAuthStateChanged,
@@ -83,8 +84,16 @@ const beginGoogleRegistration = async () => {
         `Google login is not enabled for ${host}. Ask admin to add this domain in Firebase Authentication > Settings > Authorized domains.`
       );
     }
-    if (error.code === "auth/popup-closed-by-user") {
+    if (
+      error.code === "auth/popup-closed-by-user" ||
+      error.code === "auth/cancelled-popup-request"
+    ) {
       return null;
+    }
+    if (error.code === "auth/popup-blocked") {
+      throw new Error(
+        "Popup was blocked by your browser. Please allow popups and try again."
+      );
     }
     throw error;
   }
@@ -159,52 +168,89 @@ const loginWithGoogle = async () => {
   try {
     console.log("Step 1: Opening Google popup...");
 
-    const result = await signInWithPopup(firebaseAuth, googleProvider);
-    const user = result.user;
-
-    console.log("Step 2: Google sign in success:", user.email);
-
-    const idToken = await user.getIdToken();
-
-    console.log("Step 3: Calling backend login...");
-
-    let loginResponse;
+    let result;
     try {
-      loginResponse = await api.post(
-        "/auth/login",
-        { token: idToken },
+      result = await signInWithPopup(firebaseAuth, googleProvider);
+    } catch (popupError) {
+      if (
+        popupError.code === "auth/popup-closed-by-user" ||
+        popupError.code === "auth/cancelled-popup-request"
+      ) {
+        console.log("User closed popup - silent cancel");
+        return null;
+      }
+      if (popupError.code === "auth/popup-blocked") {
+        console.log("Popup blocked - trying redirect...");
+        await signInWithRedirect(firebaseAuth, googleProvider);
+        return null;
+      }
+      throw popupError;
+    }
+
+    if (!result || !result.user) return null;
+
+    const user = result.user;
+    const idToken = await user.getIdToken(true);
+
+    console.log("Step 2: Google auth success:", user.email);
+
+    try {
+      await api.post(
+        "/auth/register",
+        {
+          uid: user.uid,
+          email: user.email,
+          fullName: user.displayName || user.email.split("@")[0],
+          phoneNumber: "",
+        },
         { headers: { Authorization: `Bearer ${idToken}` } }
       );
-    } catch (loginError) {
-      await signOut(firebaseAuth);
-      throw loginError;
+      console.log("Step 3: New user registered");
+    } catch (regError) {
+      if (regError.response?.status === 409) {
+        console.log("Step 3: Existing user - skip register");
+      } else {
+        throw regError;
+      }
     }
 
-    console.log("Step 4: Login complete:", loginResponse.data);
-
-    return (
-      loginResponse.data?.data?.user ||
-      loginResponse.data?.user ||
-      loginResponse.data
+    console.log("Step 4: Calling backend login...");
+    const loginResponse = await api.post(
+      "/auth/login",
+      {},
+      { headers: { Authorization: `Bearer ${idToken}` } }
     );
+
+    console.log("Step 5: Login complete:", loginResponse.data);
+    return loginResponse.data;
   } catch (error) {
-    console.error("Google login error:", error);
-    if (error.code === "auth/unauthorized-domain") {
-      const host =
-        typeof window !== "undefined" ? window.location.hostname : "this domain";
-      throw new Error(
-        `Google login is not enabled for ${host}. Ask admin to add this domain in Firebase Authentication > Settings > Authorized domains.`
-      );
-    }
-    if (error.code === "auth/popup-closed-by-user") {
+    console.error("Google login error:", error.code, error.message);
+
+    if (
+      error.code === "auth/popup-closed-by-user" ||
+      error.code === "auth/cancelled-popup-request"
+    ) {
       return null;
     }
-    if (error.response?.status === 404) {
-      await signOut(firebaseAuth);
+
+    if (error.code === "auth/popup-blocked") {
       throw new Error(
-        "Account not registered. Please sign up and verify OTP first."
+        "Popup was blocked by your browser. " +
+          "Please allow popups for sumacademy.net and try again."
       );
     }
+
+    if (error.code === "auth/unauthorized-domain") {
+      throw new Error(
+        "Google login is not available. " +
+          "Please use email login instead."
+      );
+    }
+
+    if (error.code === "auth/network-request-failed") {
+      throw new Error("Network error. Check your connection and try again.");
+    }
+
     throw error;
   }
 };
@@ -295,3 +341,4 @@ export {
   verifyForgotPasswordOtp,
   resetForgotPassword,
 };
+

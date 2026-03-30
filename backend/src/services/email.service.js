@@ -511,6 +511,85 @@ export const sendWelcomeEmail = async (email, name, role) => {
   }
 };
 
+export const sendApprovalEmail = async (email, name) => {
+  try {
+    await sendMail({
+      from: MAIL_FROM,
+      to: email,
+      subject: "Your SUM Academy account is approved!",
+      html: `
+        <div style="font-family:sans-serif;max-width:480px;
+             margin:0 auto;padding:32px;background:#f8f9fe;
+             border-radius:16px;">
+          <div style="text-align:center;margin-bottom:24px;">
+            <div style="width:48px;height:48px;background:#4a63f5;
+                 border-radius:12px;display:inline-flex;
+                 align-items:center;justify-content:center;">
+              <span style="color:white;font-size:22px;
+                    font-weight:bold;">S</span>
+            </div>
+          </div>
+          <h2 style="color:#16a34a;text-align:center;">
+            Account Approved!
+          </h2>
+          <p style="color:#64748b;">
+            Hi ${name}, your SUM Academy account has been
+            approved by admin. You can now login and start
+            learning!
+          </p>
+          <div style="text-align:center;margin:24px 0;">
+            <a href="${process.env.CLIENT_URL}/login"
+               style="background:#4a63f5;color:white;
+                      padding:12px 28px;border-radius:10px;
+                      text-decoration:none;font-weight:bold;">
+              Login Now
+            </a>
+          </div>
+          <p style="color:#94a3b8;font-size:12px;
+               text-align:center;">
+            SUM Academy — sumacademy.net
+          </p>
+        </div>
+      `,
+    });
+  } catch (error) {
+    console.error("Approval email failed:", error.message);
+    throw error;
+  }
+};
+
+export const sendRejectionEmail = async (email, name, reason) => {
+  try {
+    await sendMail({
+      from: MAIL_FROM,
+      to: email,
+      subject: "SUM Academy registration update",
+      html: `
+        <div style="font-family:sans-serif;max-width:480px;
+             margin:0 auto;padding:32px;background:#f8f9fe;
+             border-radius:16px;">
+          <h2 style="color:#dc2626;">Registration Not Approved</h2>
+          <p style="color:#64748b;">Hi ${name},</p>
+          <p style="color:#64748b;">
+            Unfortunately your registration could not be
+            approved at this time.
+            ${reason ? "Reason: " + reason : ""}
+          </p>
+          <p style="color:#64748b;">
+            Please contact admin for more information.
+          </p>
+          <p style="color:#94a3b8;font-size:12px;">
+            SUM Academy — sumacademy.net
+          </p>
+        </div>
+      `,
+    });
+  } catch (error) {
+    console.error("Rejection email failed:", error.message);
+    throw error;
+  }
+};
+
 export const sendAnnouncementEmail = async (
   email,
   studentName,

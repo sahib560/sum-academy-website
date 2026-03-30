@@ -216,6 +216,7 @@ export const getDashboardStats = async () => {
     paymentsSnap,
     enrollmentsSnap,
     pendingPaymentsSnap,
+    pendingApprovalsSnap,
   ] = await Promise.all([
     db.collection(COLLECTIONS.USERS).where("role", "==", "student").count().get(),
     db.collection(COLLECTIONS.TEACHERS).count().get(),
@@ -231,6 +232,12 @@ export const getDashboardStats = async () => {
       .collection(COLLECTIONS.PAYMENTS)
       .where("status", "==", "pending")
       .where("method", "==", "bank_transfer")
+      .count()
+      .get(),
+    db
+      .collection(COLLECTIONS.USERS)
+      .where("role", "==", "student")
+      .where("status", "==", "pending_approval")
       .count()
       .get(),
   ]);
@@ -256,6 +263,7 @@ export const getDashboardStats = async () => {
     activeEnrollments: enrollmentsSnap.data().count,
     enrollmentsToday,
     pendingBankTransfers: pendingPaymentsSnap.data().count,
+    pendingApprovals: pendingApprovalsSnap.data().count,
   };
 };
 
@@ -561,6 +569,8 @@ export const getAllStudents = async () => {
       fullName,
       email: userData.email || "",
       isActive: userData.isActive ?? true,
+      status: userData.status || "",
+      approvalStatus: studentData.approvalStatus || "",
       createdAt: studentData.createdAt || userData.createdAt || null,
       lastLoginAt: userData.lastLoginAt || null,
       assignedWebDevice: userData.assignedWebDevice || "",
