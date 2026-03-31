@@ -590,8 +590,31 @@ export default function Certificates() {
             <option key={course.id} value={course.id}>{course.title}</option>
           ))}
         </select>
-        <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="rounded-full border border-slate-200 px-4 py-2 text-sm" />
-        <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="rounded-full border border-slate-200 px-4 py-2 text-sm" />
+        <div className="flex flex-col gap-1">
+          <span className="text-xs font-semibold text-slate-500">Issue Date From</span>
+          <input
+            type="date"
+            value={startDate}
+            onChange={(e) => setStartDate(e.target.value)}
+            aria-label="Issue date from"
+            title="Select start issue date"
+            className="rounded-full border border-slate-200 px-4 py-2 text-sm"
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <span className="text-xs font-semibold text-slate-500">Issue Date To</span>
+          <input
+            type="date"
+            value={endDate}
+            onChange={(e) => setEndDate(e.target.value)}
+            aria-label="Issue date to"
+            title="Select end issue date"
+            className="rounded-full border border-slate-200 px-4 py-2 text-sm"
+          />
+        </div>
+        <p className="w-full text-xs text-slate-500">
+          Hint: Use both dates to filter certificates by issue date range.
+        </p>
       </div>
 
       <div className="overflow-x-auto rounded-3xl border border-slate-200 bg-white shadow-sm">

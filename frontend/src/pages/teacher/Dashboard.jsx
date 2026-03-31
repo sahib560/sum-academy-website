@@ -23,7 +23,7 @@ const quickActions = [
   },
   {
     label: "Create Quiz",
-    to: "/teacher/courses",
+    to: "/teacher/quizzes",
     icon: <FiClipboard className="h-4 w-4" />,
   },
   {

@@ -151,6 +151,11 @@ function AppLayout({ showComingSoon }) {
   const location = useLocation();
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+  }, [location.pathname, location.search]);
+
+  useEffect(() => {
     const timer = setTimeout(() => {
       setShowStartupSplash(false);
     }, 2100);
