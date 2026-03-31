@@ -116,7 +116,7 @@ function StudentLayout() {
   const logoUrl = settings.general?.logoUrl || "";
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900">
+    <div className="min-h-screen overflow-x-hidden bg-slate-50 text-slate-900">
       <div
         className={`fixed inset-y-0 left-0 z-40 hidden w-[260px] flex-col bg-white shadow-lg transition-transform duration-300 lg:flex ${
           sidebarOpen ? "translate-x-0" : "translate-x-0"
@@ -198,12 +198,12 @@ function StudentLayout() {
         </div>
       </div>
 
-      <header className="sticky top-0 z-30 flex items-center justify-between gap-4 border-b border-slate-200 bg-white px-4 py-4 lg:ml-[260px] lg:px-6">
-        <div>
-          <p className="text-xs uppercase tracking-[0.3em] text-slate-400">
+      <header className="sticky top-0 z-30 flex min-w-0 items-center justify-between gap-4 border-b border-slate-200 bg-white px-4 py-4 lg:ml-[260px] lg:px-6">
+        <div className="min-w-0">
+          <p className="truncate text-xs uppercase tracking-[0.3em] text-slate-400">
             {siteName}
           </p>
-          <h1 className="font-heading text-2xl text-slate-900">
+          <h1 className="truncate font-heading text-2xl text-slate-900">
             {pageTitle}
           </h1>
         </div>
@@ -288,7 +288,7 @@ function StudentLayout() {
         </div>
       </header>
 
-      <main className="min-h-screen px-4 pb-20 pt-6 lg:ml-[260px] lg:px-6 lg:pb-6">
+      <main className="min-h-screen min-w-0 overflow-x-hidden px-4 pb-20 pt-6 lg:ml-[260px] lg:px-6 lg:pb-6">
         <Outlet />
       </main>
 

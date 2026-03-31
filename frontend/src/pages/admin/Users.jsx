@@ -85,10 +85,7 @@ const emptyEditForm = {
   role: "",
 };
 
-const emptyResetForm = {
-  device: "",
-  webIp: "",
-};
+const emptyResetForm = {};
 
 const normalizeRoleValue = (value = "") => {
   const role = String(value || "").trim().toLowerCase();
@@ -244,14 +241,6 @@ const validateEditForm = (values) => {
     errors.role = "Role is required.";
   }
 
-  return errors;
-};
-
-const validateResetForm = (values) => {
-  const errors = {};
-  if (!values.device.trim() && !values.webIp.trim()) {
-    errors.device = "Enter a new device or a new web IP.";
-  }
   return errors;
 };
 
@@ -443,7 +432,6 @@ function Users() {
 
   const [addTouched, setAddTouched] = useState({});
   const [editTouched, setEditTouched] = useState({});
-  const [resetTouched, setResetTouched] = useState({});
 
   const [selectedUser, setSelectedUser] = useState(null);
   const [pendingStatusMap, setPendingStatusMap] = useState({});
@@ -551,7 +539,6 @@ function Users() {
       await invalidateUsersData();
       setIsResetOpen(false);
       setSelectedUser(null);
-      setResetTouched({});
       setResetForm(emptyResetForm);
       toast.success("Device reset. User can login again.");
     },
@@ -625,8 +612,6 @@ function Users() {
 
   const addErrors = useMemo(() => validateAddForm(addForm), [addForm]);
   const editErrors = useMemo(() => validateEditForm(editForm), [editForm]);
-  const resetErrors = useMemo(() => validateResetForm(resetForm), [resetForm]);
-
   const isLoading =
     usersQuery.isLoading || teachersQuery.isLoading || studentsQuery.isLoading;
 
@@ -668,11 +653,7 @@ function Users() {
 
   const openResetModal = (user) => {
     setSelectedUser(user);
-    setResetForm({
-      device: user.assignedWebDevice || "",
-      webIp: user.assignedWebIp || "",
-    });
-    setResetTouched({});
+    setResetForm(emptyResetForm);
     setIsResetOpen(true);
   };
 
@@ -1471,37 +1452,18 @@ function Users() {
             className="mt-5 space-y-4"
             onSubmit={(event) => {
               event.preventDefault();
-              setResetTouched({ device: true, webIp: true });
-              if (Object.keys(resetErrors).length) return;
               resetDeviceMutation.mutate({
                 uid: selectedUser?.uid,
                 data: {
-                  device: resetForm.device.trim(),
-                  webIp: resetForm.webIp.trim(),
+                  resetDevice: true,
                 },
               });
             }}
           >
-            <TextInput
-              label="New Device"
-              value={resetForm.device}
-              onChange={(event) => {
-                setResetForm((prev) => ({ ...prev, device: event.target.value }));
-                setResetTouched((prev) => ({ ...prev, device: true }));
-              }}
-              placeholder="Chrome on Windows"
-              error={resetTouched.device ? resetErrors.device : ""}
-            />
-
-            <TextInput
-              label="New Web IP"
-              value={resetForm.webIp}
-              onChange={(event) => {
-                setResetForm((prev) => ({ ...prev, webIp: event.target.value }));
-                setResetTouched((prev) => ({ ...prev, webIp: true }));
-              }}
-              placeholder="127.0.0.1"
-            />
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+              This will clear old device and IP assignment.
+              On next login, the student&apos;s current device and IP will be captured automatically.
+            </div>
 
             <div className="flex justify-end gap-3 pt-2">
               <button
@@ -1516,7 +1478,7 @@ function Users() {
                 disabled={resetDeviceMutation.isPending}
                 className="btn-primary min-w-32"
               >
-                {resetDeviceMutation.isPending ? "Updating..." : "Reset Device"}
+                {resetDeviceMutation.isPending ? "Resetting..." : "Confirm Reset"}
               </button>
             </div>
           </form>

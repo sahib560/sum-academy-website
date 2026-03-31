@@ -94,6 +94,19 @@ function AdminLayout({ children }) {
     setNotifOpen(false);
   }, [location.pathname]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const isMobile = window.matchMedia("(max-width: 1023px)").matches;
+    if (isMobile && sidebarOpen) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "";
+    }
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [sidebarOpen]);
+
   const announcementsQuery = useQuery({
     queryKey: ["my-announcements", "admin", userProfile?.uid],
     queryFn: getMyAnnouncements,
@@ -141,15 +154,6 @@ function AdminLayout({ children }) {
 
   return (
     <div className="min-h-screen overflow-x-hidden bg-slate-50 font-body text-slate-900">
-      <div className="lg:hidden">
-        <button
-          type="button"
-          className="fixed left-4 top-4 z-50 rounded-full border border-slate-200 bg-white p-2 shadow-lg"
-          onClick={() => setSidebarOpen(true)}
-        >
-          <span className="block h-4 w-4 rounded bg-primary" />
-        </button>
-      </div>
 
       <div
         className={`fixed inset-y-0 left-0 z-40 flex flex-col bg-dark text-slate-200 transition-transform duration-300 lg:translate-x-0 ${
@@ -253,17 +257,25 @@ function AdminLayout({ children }) {
       )}
 
       <div
-        className={`min-h-screen transition-all duration-300 ${
+        className={`min-h-screen min-w-0 transition-all duration-300 ${
           collapsed ? "lg:pl-20" : "lg:pl-[260px]"
         }`}
       >
-        <header className="sticky top-0 z-20 flex items-center justify-between gap-4 border-b border-slate-200 bg-white px-6 py-4">
-          <div className="flex items-center gap-3">
-            <div>
-              <p className="text-xs uppercase tracking-[0.3em] text-slate-400">
+        <header className="sticky top-0 z-20 flex min-w-0 items-center justify-between gap-4 border-b border-slate-200 bg-white px-4 py-4 sm:px-6">
+          <div className="flex min-w-0 items-center gap-3">
+            <button
+              type="button"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 shadow-sm lg:hidden"
+              onClick={() => setSidebarOpen(true)}
+              aria-label="Open sidebar"
+            >
+              <FiMenu className="h-4 w-4" />
+            </button>
+            <div className="min-w-0">
+              <p className="truncate text-xs uppercase tracking-[0.3em] text-slate-400">
                 {siteName}
               </p>
-              <h1 className="font-heading text-2xl text-slate-900">{pageTitle}</h1>
+              <h1 className="truncate font-heading text-2xl text-slate-900">{pageTitle}</h1>
             </div>
           </div>
           <div className="flex flex-1 items-center justify-end gap-4">
@@ -272,7 +284,8 @@ function AdminLayout({ children }) {
                 type="text"
                 placeholder="Search..."
                 className="w-full rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 shadow-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
-              />              <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-slate-400">
+              />
+              <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-slate-400">
                 <FiSearch className="h-4 w-4" />
               </span>
             </div>
@@ -294,7 +307,7 @@ function AdminLayout({ children }) {
                     initial={{ opacity: 0, y: 8 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: 6 }}
-                    className="absolute right-0 z-20 mt-2 w-[min(92vw,20rem)] max-w-[calc(100vw-1.5rem)] rounded-2xl border border-slate-200 bg-white p-3 shadow-xl sm:w-80"
+                    className="fixed left-3 right-3 top-[4.5rem] z-40 w-auto rounded-2xl border border-slate-200 bg-white p-3 shadow-xl sm:absolute sm:left-auto sm:right-0 sm:top-auto sm:z-20 sm:mt-2 sm:w-[min(92vw,20rem)] sm:max-w-[calc(100vw-1.5rem)] sm:rounded-2xl"
                   >
                     <p className="mb-2 text-sm font-semibold text-slate-900">Notifications</p>
                     {notifications.length === 0 ? (
@@ -350,7 +363,7 @@ function AdminLayout({ children }) {
           </div>
         </header>
 
-        <main className="p-6">
+        <main className="min-w-0 overflow-x-hidden p-4 sm:p-6">
           {children || <Outlet />}
         </main>
       </div>

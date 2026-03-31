@@ -1591,6 +1591,7 @@ export const resetUserDevice = async (req, res) => {
       assignedUniqueDeviceId: "",
       assignedWebDevice: "",
       assignedWebIp: "",
+      lastKnownWebIp: "",
     };
 
     await userRef.update(updates);

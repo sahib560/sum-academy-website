@@ -33,7 +33,7 @@ export const deleteUser = (uid) =>
 export const setUserRole = (uid, role) =>
   api.patch(`/admin/users/${uid}/role`, { role }).then((r) => r.data);
 
-export const resetUserDevice = (uid, data) =>
+export const resetUserDevice = (uid, data = { resetDevice: true }) =>
   api.patch(`/admin/users/${uid}/reset-device`, data).then((r) => r.data);
 
 export const resetDevice = resetUserDevice;

@@ -8,6 +8,7 @@ import {
   FiCalendar,
   FiClipboard,
   FiGrid,
+  FiMenu,
   FiSettings,
   FiUsers,
 } from "react-icons/fi";
@@ -66,6 +67,19 @@ function TeacherLayout() {
     setNotifOpen(false);
   }, [location.pathname]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const isMobile = window.matchMedia("(max-width: 1023px)").matches;
+    if (isMobile && sidebarOpen) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "";
+    }
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [sidebarOpen]);
+
   const announcementsQuery = useQuery({
     queryKey: ["my-announcements", "teacher", userProfile?.uid],
     queryFn: getMyAnnouncements,
@@ -117,13 +131,6 @@ function TeacherLayout() {
 
   return (
     <div className="min-h-screen overflow-x-hidden bg-slate-50 text-slate-900">
-      <button
-        type="button"
-        className="fixed left-4 top-4 z-50 rounded-full border border-slate-200 bg-white p-2 shadow-lg lg:hidden"
-        onClick={() => setSidebarOpen(true)}
-      >
-        <span className="block h-4 w-4 rounded bg-primary" />
-      </button>
 
       <div
         className={`fixed inset-y-0 left-0 z-40 flex w-[240px] flex-col bg-white shadow-lg transition-transform duration-300 lg:translate-x-0 ${
@@ -209,15 +216,25 @@ function TeacherLayout() {
         />
       )}
 
-      <div className="min-h-screen lg:pl-[240px]">
-        <header className="sticky top-0 z-20 flex items-center justify-between gap-4 border-b border-slate-200 bg-white px-6 py-4">
-          <div>
-            <p className="text-xs uppercase tracking-[0.3em] text-slate-400">
-              {siteName}
-            </p>
-            <h1 className="font-heading text-2xl text-slate-900">
-              {pageTitle}
-            </h1>
+      <div className="min-h-screen min-w-0 lg:pl-[240px]">
+        <header className="sticky top-0 z-20 flex min-w-0 items-center justify-between gap-4 border-b border-slate-200 bg-white px-4 py-4 sm:px-6">
+          <div className="flex min-w-0 items-center gap-3">
+            <button
+              type="button"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 shadow-sm lg:hidden"
+              onClick={() => setSidebarOpen(true)}
+              aria-label="Open sidebar"
+            >
+              <FiMenu className="h-4 w-4" />
+            </button>
+            <div className="min-w-0">
+              <p className="truncate text-xs uppercase tracking-[0.3em] text-slate-400">
+                {siteName}
+              </p>
+              <h1 className="truncate font-heading text-2xl text-slate-900">
+                {pageTitle}
+              </h1>
+            </div>
           </div>
           <div className="flex items-center gap-3">
             <div className="relative hidden w-64 lg:block">
@@ -301,7 +318,7 @@ function TeacherLayout() {
           </div>
         </header>
 
-        <main className="p-6">
+        <main className="min-w-0 overflow-x-hidden p-4 sm:p-6">
           <Outlet />
         </main>
       </div>
