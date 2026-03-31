@@ -23,7 +23,7 @@ import {
   getStudents,
   getTeachers,
   getUsers,
-  resetUserDevice,
+  resetDevice,
   setUserRole,
   updateUser,
 } from "../../services/admin.service.js";
@@ -84,8 +84,6 @@ const emptyEditForm = {
   isActive: true,
   role: "",
 };
-
-const emptyResetForm = {};
 
 const normalizeRoleValue = (value = "") => {
   const role = String(value || "").trim().toLowerCase();
@@ -428,7 +426,7 @@ function Users() {
 
   const [addForm, setAddForm] = useState(emptyAddForm);
   const [editForm, setEditForm] = useState(emptyEditForm);
-  const [resetForm, setResetForm] = useState(emptyResetForm);
+  const [resetDeviceLoading, setResetDeviceLoading] = useState(false);
 
   const [addTouched, setAddTouched] = useState({});
   const [editTouched, setEditTouched] = useState({});
@@ -530,20 +528,6 @@ function Users() {
     },
     onError: (error) => {
       toast.error(error?.response?.data?.error || "Failed to delete user.");
-    },
-  });
-
-  const resetDeviceMutation = useMutation({
-    mutationFn: ({ uid, data }) => resetUserDevice(uid, data),
-    onSuccess: async () => {
-      await invalidateUsersData();
-      setIsResetOpen(false);
-      setSelectedUser(null);
-      setResetForm(emptyResetForm);
-      toast.success("Device reset. User can login again.");
-    },
-    onError: (error) => {
-      toast.error(error?.response?.data?.error || "Failed to reset device.");
     },
   });
 
@@ -653,8 +637,27 @@ function Users() {
 
   const openResetModal = (user) => {
     setSelectedUser(user);
-    setResetForm(emptyResetForm);
     setIsResetOpen(true);
+  };
+
+  const handleResetDevice = async (uid) => {
+    if (!uid) return;
+    setResetDeviceLoading(true);
+    try {
+      await resetDevice(uid);
+      toast.success("Device reset! Student can login from new device.");
+      setIsResetOpen(false);
+      setSelectedUser(null);
+      await invalidateUsersData();
+    } catch (error) {
+      toast.error(
+        error?.response?.data?.message ||
+        error?.response?.data?.error ||
+        "Failed to reset device"
+      );
+    } finally {
+      setResetDeviceLoading(false);
+    }
   };
 
   const handlePhoneChange = (value, setter) => {
@@ -1452,12 +1455,7 @@ function Users() {
             className="mt-5 space-y-4"
             onSubmit={(event) => {
               event.preventDefault();
-              resetDeviceMutation.mutate({
-                uid: selectedUser?.uid,
-                data: {
-                  resetDevice: true,
-                },
-              });
+              handleResetDevice(selectedUser?.uid);
             }}
           >
             <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
@@ -1475,10 +1473,10 @@ function Users() {
               </button>
               <button
                 type="submit"
-                disabled={resetDeviceMutation.isPending}
+                disabled={resetDeviceLoading}
                 className="btn-primary min-w-32"
               >
-                {resetDeviceMutation.isPending ? "Resetting..." : "Confirm Reset"}
+                {resetDeviceLoading ? "Resetting..." : "Reset Device"}
               </button>
             </div>
           </form>

@@ -36,7 +36,8 @@ export const setUserRole = (uid, role) =>
 export const resetUserDevice = (uid, data = { resetDevice: true }) =>
   api.patch(`/admin/users/${uid}/reset-device`, data).then((r) => r.data);
 
-export const resetDevice = resetUserDevice;
+export const resetDevice = (uid) =>
+  api.patch(`/admin/users/${uid}/reset-device`, {}).then((r) => r.data);
 
 export const getTeachers = () =>
   api.get("/admin/teachers").then((r) => r.data.data);

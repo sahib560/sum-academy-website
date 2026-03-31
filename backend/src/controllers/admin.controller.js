@@ -6,7 +6,6 @@ import {
   sendRegistrationOTP,
   sendApprovalEmail,
   sendRejectionEmail,
-  sendDeviceResetEmail,
 } from "../services/email.service.js";
 import { v4 as uuidv4 } from "uuid";
 
@@ -1556,60 +1555,51 @@ export const setUserRole = async (req, res) => {
 export const resetUserDevice = async (req, res) => {
   try {
     const { uid } = req.params;
-    const shouldReset = req.body?.resetDevice !== false;
-    if (!shouldReset) {
-      return errorResponse(
-        res,
-        "resetDevice must be true to clear assigned device access",
-        400
-      );
-    }
 
-    const userRef = db.collection(COLLECTIONS.USERS).doc(uid);
-    const userSnap = await userRef.get();
+    const userSnap = await db.collection("users")
+      .doc(uid).get();
+
     if (!userSnap.exists) {
       return errorResponse(res, "User not found", 404);
     }
 
-    const userData = userSnap.data() || {};
-    const role = String(userData.role || "").toLowerCase();
-    if (role !== "student") {
-      return errorResponse(res, "Device reset is only supported for students", 400);
+    const userData = userSnap.data();
+
+    if (userData.role !== "student") {
+      return errorResponse(
+        res,
+        "Device reset only applies to students",
+        400
+      );
     }
 
-    const studentSnap = await db.collection(COLLECTIONS.STUDENTS).doc(uid).get();
-    const studentData = studentSnap.exists ? studentSnap.data() || {} : {};
-    const fullName =
-      studentData.fullName ||
-      userData.fullName ||
-      (userData.email ? String(userData.email).split("@")[0] : "Student");
-
-    const updates = {
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      deviceResetBy: req.user.uid,
-      deviceResetAt: admin.firestore.FieldValue.serverTimestamp(),
+    // Clear ALL device fields — no replacement values
+    await db.collection("users").doc(uid).update({
+      assignedWebDevice:      "",
+      assignedWebIp:          "",
       assignedUniqueDeviceId: "",
-      assignedWebDevice: "",
-      assignedWebIp: "",
-      lastKnownWebIp: "",
-    };
+      lastKnownWebIp:         "",
+      deviceResetBy:          req.user.uid,
+      deviceResetAt:          admin.firestore.FieldValue
+                                .serverTimestamp(),
+    });
 
-    await userRef.update(updates);
-
-    if (userData.email) {
-      try {
-        await sendDeviceResetEmail(userData.email, fullName);
-      } catch (mailError) {
-        console.error("Failed to send device reset email:", mailError?.message || mailError);
-      }
-    }
+    // Log this action in auditLogs
+    await db.collection("auditLogs").add({
+      uid,
+      email:       userData.email,
+      action:      "device_reset_by_admin",
+      resetBy:     req.user.uid,
+      timestamp:   admin.firestore.FieldValue.serverTimestamp(),
+    });
 
     return successResponse(
       res,
-      { uid, resetDevice: true },
-      "Device reset. Student can login from a new device now."
+      { uid },
+      "Device reset successfully. Student can now login from any device once."
     );
   } catch (e) {
+    console.error("Reset device error:", e);
     return errorResponse(res, "Failed to reset device", 500);
   }
 };
