@@ -38,9 +38,9 @@ const navItems = [
 
 const mobileTabs = [
   { label: "Dashboard", to: "/student/dashboard", icon: "grid" },
-  { label: "My Courses", to: "/student/courses", icon: "book" },
+  { label: "Courses", to: "/student/courses", icon: "book" },
+  { label: "Quizzes", to: "/student/quizzes", icon: "clipboard" },
   { label: "Explore", to: "/student/explore", icon: "compass" },
-  { label: "Certificates", to: "/student/certificates", icon: "award" },
   { label: "Profile", to: "/student/settings", icon: "user" },
 ];
 
@@ -226,7 +226,7 @@ function StudentLayout() {
                   initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: 6 }}
-                  className="absolute right-0 z-20 mt-2 w-80 rounded-2xl border border-slate-200 bg-white p-3 shadow-xl"
+                  className="absolute right-0 z-20 mt-2 w-[min(92vw,20rem)] max-w-[calc(100vw-1.5rem)] rounded-2xl border border-slate-200 bg-white p-3 shadow-xl sm:w-80"
                 >
                   <p className="mb-2 text-sm font-semibold text-slate-900">Notifications</p>
                   {notifications.length === 0 ? (
@@ -300,13 +300,15 @@ function StudentLayout() {
               to={tab.to}
               end={tab.to === "/student/dashboard"}
               className={({ isActive }) =>
-                `flex flex-col items-center gap-1 rounded-xl px-2 py-2 text-[11px] font-semibold ${
+                `flex items-center justify-center rounded-xl px-2 py-2 ${
                   isActive ? "text-primary" : "text-slate-400"
                 }`
               }
+              aria-label={tab.label}
+              title={tab.label}
             >
-              <span className="text-base">{iconMap[tab.icon]}</span>
-              {tab.label}
+              <span className="text-lg">{iconMap[tab.icon]}</span>
+              <span className="sr-only">{tab.label}</span>
             </NavLink>
           ))}
         </div>

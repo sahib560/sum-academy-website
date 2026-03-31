@@ -109,6 +109,16 @@ const toMinutes = (value = "") => {
   return hour * 60 + minutes;
 };
 
+const toLocalDateInput = (dateValue = new Date()) => {
+  const date = new Date(dateValue);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const getTodayInputDate = () => toLocalDateInput(new Date());
+
 const normalizeStatus = (value = "upcoming") => {
   const normalized = String(value).trim().toLowerCase();
   return ["upcoming", "active", "completed"].includes(normalized)
@@ -222,8 +232,8 @@ const validateBasicInfo = (values) => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     start.setHours(0, 0, 0, 0);
-    if (start <= today) {
-      errors.startDate = "Start date must be in the future.";
+    if (start < today) {
+      errors.startDate = "Start date cannot be in the past.";
     }
   }
 
@@ -247,7 +257,7 @@ const validateCoursesStep = (values) => {
   return {};
 };
 
-const validateShiftRow = (shift, index = 0) => {
+const validateShiftRow = (shift, index = 0, classStartDate = "") => {
   const errors = {};
   const prefix = `shift-${index}`;
 
@@ -268,6 +278,18 @@ const validateShiftRow = (shift, index = 0) => {
   if (startMinutes !== null && endMinutes !== null && startMinutes >= endMinutes) {
     errors[`${prefix}-endTime`] = "End time must be after start time.";
   }
+  const todayInput = getTodayInputDate();
+  if (classStartDate === todayInput && startMinutes !== null) {
+    const now = new Date();
+    const minMinutes = now.getHours() * 60 + now.getMinutes() + 60;
+    if (minMinutes >= 24 * 60) {
+      errors[`${prefix}-startTime`] =
+        "Today is almost over. Please choose tomorrow as start date.";
+    } else if (startMinutes < minMinutes) {
+      errors[`${prefix}-startTime`] =
+        "For today, start time must be at least 1 hour from now.";
+    }
+  }
   if (!shift.courseId) {
     errors[`${prefix}-courseId`] = "Course is required.";
   }
@@ -285,7 +307,7 @@ const validateShiftsStep = (values) => {
     return errors;
   }
   values.shifts.forEach((shift, index) => {
-    Object.assign(errors, validateShiftRow(shift, index));
+    Object.assign(errors, validateShiftRow(shift, index, values.startDate));
   });
   return errors;
 };
@@ -1224,7 +1246,11 @@ function Classes() {
   };
 
   const validateShiftModal = () => {
-    const errors = validateShiftRow(shiftForm, 0);
+    const errors = validateShiftRow(
+      shiftForm,
+      0,
+      activeClass?.startDate ? toDateInput(activeClass.startDate) : ""
+    );
     const normalizedErrors = {
       name: errors["shift-0-name"],
       days: errors["shift-0-days"],
@@ -1608,6 +1634,7 @@ function Classes() {
                   onChange={(event) =>
                     setClassForm((prev) => ({ ...prev, startDate: event.target.value }))
                   }
+                  min={classModalMode === "create" ? getTodayInputDate() : undefined}
                   className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm"
                 />
                 <FieldError message={classErrors.startDate} />
@@ -1621,6 +1648,7 @@ function Classes() {
                   onChange={(event) =>
                     setClassForm((prev) => ({ ...prev, endDate: event.target.value }))
                   }
+                  min={classForm.startDate || getTodayInputDate()}
                   className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm"
                 />
                 <FieldError message={classErrors.endDate} />

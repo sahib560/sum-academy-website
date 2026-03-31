@@ -58,11 +58,6 @@ const emptyEditForm = {
   phone: "",
 };
 
-const emptyResetForm = {
-  device: "",
-  webIp: "",
-};
-
 const parseDate = (value) => {
   if (!value) return null;
   if (typeof value?.toDate === "function") return value.toDate();
@@ -233,14 +228,6 @@ const validateEditForm = (values) => {
   return errors;
 };
 
-const validateResetForm = (values) => {
-  const errors = {};
-  if (!values.device.trim() && !values.webIp.trim()) {
-    errors.device = "Enter a new device or new web IP.";
-  }
-  return errors;
-};
-
 const sortStudents = (students, sortBy) => {
   const list = [...students];
   if (sortBy === "name_asc") {
@@ -369,10 +356,8 @@ function Students() {
 
   const [addForm, setAddForm] = useState(emptyAddForm);
   const [editForm, setEditForm] = useState(emptyEditForm);
-  const [resetForm, setResetForm] = useState(emptyResetForm);
   const [addTouched, setAddTouched] = useState({});
   const [editTouched, setEditTouched] = useState({});
-  const [resetTouched, setResetTouched] = useState({});
   const [showPassword, setShowPassword] = useState(false);
   const [emailFieldError, setEmailFieldError] = useState("");
   const [bulkFile, setBulkFile] = useState(null);
@@ -439,8 +424,6 @@ function Students() {
 
   const addErrors = useMemo(() => validateAddForm(addForm), [addForm]);
   const editErrors = useMemo(() => validateEditForm(editForm), [editForm]);
-  const resetErrors = useMemo(() => validateResetForm(resetForm), [resetForm]);
-
   const invalidateStudents = async () => {
     await queryClient.invalidateQueries({ queryKey: ["admin", "students"] });
   };
@@ -543,8 +526,7 @@ function Students() {
     onSuccess: async () => {
       await invalidateStudents();
       setShowResetModal(false);
-      setResetForm(emptyResetForm);
-      setResetTouched({});
+      setSelectedStudent(null);
       toast.success("Device reset. Student can login again.");
     },
     onError: (error) => {
@@ -618,8 +600,6 @@ function Students() {
 
   const openReset = (student) => {
     setSelectedStudent(student);
-    setResetForm(emptyResetForm);
-    setResetTouched({});
     setShowResetModal(true);
   };
 
@@ -1234,36 +1214,49 @@ function Students() {
         </div>
       </ModalShell>
 
-      <ModalShell open={showResetModal && Boolean(selectedStudent)} title="Reset Device" onClose={() => { if (resetDeviceMutation.isPending) return; setShowResetModal(false); }}>
+      <ModalShell
+        open={showResetModal && Boolean(selectedStudent)}
+        title="Reset Device"
+        onClose={() => {
+          if (resetDeviceMutation.isPending) return;
+          setShowResetModal(false);
+          setSelectedStudent(null);
+        }}
+      >
         <form
           className="mt-6 space-y-4"
           onSubmit={(event) => {
             event.preventDefault();
-            setResetTouched({ device: true, webIp: true });
-            if (Object.keys(resetErrors).length) return;
             if (!selectedStudent) return;
             resetDeviceMutation.mutate({
               uid: selectedStudent.uid,
-              data: {
-                device: resetForm.device.trim(),
-                webIp: resetForm.webIp.trim(),
-              },
+              data: { resetDevice: true },
             });
           }}
         >
-          <div>
-            <label className="text-sm font-semibold text-slate-700">New Device</label>
-            <input type="text" value={resetForm.device} onChange={(event) => { setResetForm((prev) => ({ ...prev, device: event.target.value })); setResetTouched((prev) => ({ ...prev, device: true })); }} className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/10" placeholder="Chrome on Windows" />
-          </div>
-          <div>
-            <label className="text-sm font-semibold text-slate-700">New Web IP</label>
-            <input type="text" value={resetForm.webIp} onChange={(event) => { setResetForm((prev) => ({ ...prev, webIp: event.target.value })); setResetTouched((prev) => ({ ...prev, webIp: true })); }} className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/10" placeholder="123.45.67.89" />
-            <FieldError message={resetTouched.device || resetTouched.webIp ? resetErrors.device : ""} />
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+            <p className="font-semibold">Reset access for {selectedStudent?.fullName}?</p>
+            <p className="mt-2">
+              This will clear the current registered device and IP. The student will register a
+              new device automatically on next login.
+            </p>
+            <p className="mt-2">
+              A notification email will also be sent to <span className="font-semibold">{selectedStudent?.email}</span>.
+            </p>
           </div>
           <div className="flex justify-end gap-3 pt-2">
-            <button type="button" onClick={() => setShowResetModal(false)} className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600">Cancel</button>
+            <button
+              type="button"
+              onClick={() => {
+                setShowResetModal(false);
+                setSelectedStudent(null);
+              }}
+              className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600"
+            >
+              Cancel
+            </button>
             <button type="submit" disabled={resetDeviceMutation.isPending} className="btn-primary min-w-32">
-              {resetDeviceMutation.isPending ? <span className="flex items-center justify-center gap-2"><span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />Saving...</span> : "Reset Device"}
+              {resetDeviceMutation.isPending ? <span className="flex items-center justify-center gap-2"><span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />Resetting...</span> : "Confirm Reset"}
             </button>
           </div>
         </form>

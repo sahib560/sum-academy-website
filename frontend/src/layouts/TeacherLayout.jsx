@@ -38,10 +38,14 @@ const iconMap = {
   settings: <FiSettings className="h-4 w-4" />,
 };
 
-const isTeacherAudienceAnnouncement = (item) => {
+const isTeacherAudienceAnnouncement = (item, uid = "") => {
   const audienceRole = String(item?.audienceRole || "").toLowerCase();
   const postedByRole = String(item?.postedByRole || "").toLowerCase();
   const isAdminOrLegacy = !postedByRole || postedByRole === "admin";
+  const recipientIds = Array.isArray(item?.recipientIds) ? item.recipientIds : [];
+  if (item?.targetType === "single_user") {
+    return item?.targetId === uid || recipientIds.includes(uid);
+  }
   return (
     item?.targetType === "system" &&
     isAdminOrLegacy &&
@@ -71,9 +75,9 @@ function TeacherLayout() {
   const notifications = useMemo(
     () =>
       (Array.isArray(announcementsQuery.data) ? announcementsQuery.data : []).filter(
-        isTeacherAudienceAnnouncement
+        (item) => isTeacherAudienceAnnouncement(item, userProfile?.uid || "")
       ),
-    [announcementsQuery.data]
+    [announcementsQuery.data, userProfile?.uid]
   );
   const unreadCount = notifications.filter((item) => !item.isRead).length;
 
@@ -241,7 +245,7 @@ function TeacherLayout() {
                     initial={{ opacity: 0, y: 8 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: 6 }}
-                    className="absolute right-0 z-20 mt-2 w-80 rounded-2xl border border-slate-200 bg-white p-3 shadow-xl"
+                    className="absolute right-0 z-20 mt-2 w-[min(92vw,20rem)] max-w-[calc(100vw-1.5rem)] rounded-2xl border border-slate-200 bg-white p-3 shadow-xl sm:w-80"
                   >
                     <p className="mb-2 text-sm font-semibold text-slate-900">Incoming Notifications</p>
                     {notifications.length === 0 ? (

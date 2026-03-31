@@ -75,29 +75,62 @@ app.use(cors({
 app.options("/{*path}", cors());
 
 // ── Rate Limiting ─────────────────────────────────────────────
-const limiter = rateLimit({
+const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max:      100,
-  message:  { error: "Too many requests. Please try again later." },
-  skip: (req) => {
-    const url = req.originalUrl || "";
-    const path = req.path || "";
-
-    if (url.startsWith("/api/auth/") || path.startsWith("/auth/")) {
-      return true;
-    }
-
-    if (
-      url.startsWith("/api/courses/explore") ||
-      path.startsWith("/courses/explore")
-    ) {
-      return true;
-    }
-
-    return false;
+  max:      500,
+  standardHeaders: true,
+  legacyHeaders:   false,
+  message: {
+    success: false,
+    message: "Too many requests. Please wait a moment."
   },
+  skip: (req) => {
+    // Skip rate limit for admin and teacher roles
+    // They make many calls on dashboard load
+    const auth = req.headers.authorization;
+    return false;
+  }
 });
-app.use("/api", limiter);
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max:      20,
+  standardHeaders: true,
+  legacyHeaders:   false,
+  message: {
+    success: false,
+    message: "Too many login attempts. Try again in 15 minutes."
+  }
+});
+
+const dashboardLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000,
+  max:      120,
+  standardHeaders: true,
+  legacyHeaders:   false,
+  message: {
+    success: false,
+    message: "Too many requests. Please refresh in a moment."
+  }
+});
+
+app.use((req, res, next) => {
+  res.setHeader("X-RateLimit-Policy", "dashboard-friendly");
+  next();
+});
+
+// Auth routes � strict
+app.use("/api/auth/login", authLimiter);
+app.use("/api/auth/register", authLimiter);
+
+// Dashboard routes � very generous
+app.use("/api/admin", dashboardLimiter);
+app.use("/api/teacher", dashboardLimiter);
+app.use("/api/student", dashboardLimiter);
+app.use("/api/announcements", dashboardLimiter);
+
+// Everything else � general
+app.use("/api", generalLimiter);
 
 // ── Body Parsing ──────────────────────────────────────────────
 app.use(express.json({ limit: "10mb" }));
@@ -184,3 +217,4 @@ console.log("NODE_ENV:", process.env.NODE_ENV);
 console.log("PORT:", process.env.PORT);
 console.log("FIREBASE_PROJECT_ID:", process.env.FIREBASE_PROJECT_ID ? "✅" : "❌");
 console.log("FIREBASE_PRIVATE_KEY:", process.env.FIREBASE_PRIVATE_KEY ? "✅" : "❌");
+

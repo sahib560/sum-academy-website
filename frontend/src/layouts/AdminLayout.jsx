@@ -294,7 +294,7 @@ function AdminLayout({ children }) {
                     initial={{ opacity: 0, y: 8 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: 6 }}
-                    className="absolute right-0 z-20 mt-2 w-80 rounded-2xl border border-slate-200 bg-white p-3 shadow-xl"
+                    className="absolute right-0 z-20 mt-2 w-[min(92vw,20rem)] max-w-[calc(100vw-1.5rem)] rounded-2xl border border-slate-200 bg-white p-3 shadow-xl sm:w-80"
                   >
                     <p className="mb-2 text-sm font-semibold text-slate-900">Notifications</p>
                     {notifications.length === 0 ? (

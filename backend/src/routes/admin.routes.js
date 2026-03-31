@@ -43,6 +43,7 @@ router.get(
 );
 
 router.get("/users", adminOnly, adminController.getUsers);
+router.get("/users/:uid", adminOnly, adminController.getUserById);
 router.post("/users", adminOnly, adminController.createUser);
 router.put("/users/:uid", adminOnly, adminController.updateUser);
 router.delete("/users/:uid", adminOnly, adminController.deleteUser);
@@ -54,6 +55,7 @@ router.patch(
 );
 
 router.get("/teachers", adminOnly, adminController.getTeachers);
+router.get("/teachers/:uid", adminOnly, adminController.getTeacherById);
 router.get("/students", adminOnly, adminController.getStudents);
 router.patch(
   "/students/:uid/approve",
@@ -76,6 +78,8 @@ router.post(
   upload.single("file"),
   adminController.bulkUploadStudents
 );
+router.get("/students/:uid/progress", adminOnly, adminController.getStudentProgressById);
+router.get("/students/:uid", adminOnly, adminController.getStudentById);
 
 router.get("/courses", adminOnly, adminController.getCourses);
 router.post("/courses", adminOnly, adminController.createCourse);

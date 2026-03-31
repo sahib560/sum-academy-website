@@ -64,6 +64,9 @@ const registerWithEmail = async (
       { headers: { Authorization: `Bearer ${idToken}` } }
     );
 
+    // Student registration is pending admin approval, so keep user signed out.
+    await signOut(firebaseAuth);
+
     console.log("Step 5: Done:", response.data);
     return response.data;
   } catch (error) {

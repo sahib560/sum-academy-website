@@ -99,6 +99,23 @@ const verifyToken = async (req, res, next) => {
 
     const resolvedSnap = await userRef.get();
     const user = resolvedSnap.data();
+    const resolvedRole = user.role || decoded.role || null;
+    if (!resolvedRole) {
+      return res
+        .status(403)
+        .json({ success: false, message: "Access role missing for this account" });
+    }
+
+    if (!user.role && decoded.role) {
+      await userRef.set(
+        {
+          role: decoded.role,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+    }
+
     if (user.isActive === false) {
       return res
         .status(403)
@@ -108,7 +125,7 @@ const verifyToken = async (req, res, next) => {
     req.user = {
       uid: user.uid,
       email: user.email || null,
-      role: user.role || null,
+      role: resolvedRole,
       isActive: user.isActive,
     };
 

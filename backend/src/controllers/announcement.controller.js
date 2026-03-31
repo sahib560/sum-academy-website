@@ -283,7 +283,6 @@ const isAnnouncementVisibleToUser = (announcement, context) => {
   if (!isAudienceMatch) return false;
 
   if (isSingleUserTarget) {
-    if (role === "teacher") return false;
     const recipientIds = Array.isArray(announcement.recipientIds)
       ? announcement.recipientIds
       : [];

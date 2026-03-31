@@ -50,17 +50,6 @@ const resolveTargetLabel = (item) => {
   return "System";
 };
 
-const isTeacherAudienceAnnouncement = (item) => {
-  const audienceRole = String(item?.audienceRole || "").toLowerCase();
-  const postedByRole = String(item?.postedByRole || "").toLowerCase();
-  const isAdminOrLegacy = !postedByRole || postedByRole === "admin";
-  return (
-    item?.targetType === "system" &&
-    isAdminOrLegacy &&
-    (audienceRole === "teacher" || audienceRole === "all")
-  );
-};
-
 function Notifications() {
   const location = useLocation();
   const queryClient = useQueryClient();
@@ -91,9 +80,8 @@ function Notifications() {
     const source = Array.isArray(notificationsQuery.data)
       ? notificationsQuery.data
       : [];
-    if (basePath !== "/teacher") return source;
-    return source.filter(isTeacherAudienceAnnouncement);
-  }, [basePath, notificationsQuery.data]);
+    return source;
+  }, [notificationsQuery.data]);
   const unreadCount = notifications.filter((item) => !item.isRead).length;
   const readCount = notifications.length - unreadCount;
 
@@ -202,7 +190,7 @@ function Notifications() {
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-2">
           {[
             { key: "all", label: "All" },
@@ -223,7 +211,7 @@ function Notifications() {
           ))}
         </div>
         <input
-          className="w-full max-w-sm rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm sm:max-w-sm"
           placeholder="Search notifications..."
           value={search}
           onChange={(event) => setSearch(event.target.value)}
@@ -261,7 +249,7 @@ function Notifications() {
                   : "border-primary/20 bg-primary/5"
               }`}
             >
-              <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                   <div className="mb-2 flex items-center gap-2">
                     {!item.isRead ? (
@@ -279,7 +267,7 @@ function Notifications() {
                   <p className="text-base font-semibold text-slate-900">{item.title}</p>
                   <p className="mt-1 text-sm text-slate-600">{item.message}</p>
                 </div>
-                <div className="flex flex-col items-end gap-2">
+                <div className="flex flex-col items-start gap-2 sm:items-end">
                   <p className="text-xs text-slate-500">{formatDate(item.createdAt)}</p>
                   <p className="text-[11px] text-slate-400">{getRelativeTime(item.createdAt)}</p>
                   {!item.isRead ? (

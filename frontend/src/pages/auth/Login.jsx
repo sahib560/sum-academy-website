@@ -2,11 +2,10 @@ import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { motion as Motion } from "framer-motion";
 import toast from "react-hot-toast";
-import { FcGoogle } from "react-icons/fc";
 import { FiEye, FiEyeOff, FiLock, FiMail } from "react-icons/fi";
 import logo from "../../assets/logo.jpeg";
 import { useSettings } from "../../hooks/useSettings.js";
-import { loginWithEmail, loginWithGoogle } from "../../services/auth.service.js";
+import { loginWithEmail } from "../../services/auth.service.js";
 import SplashScreen from "../../components/SplashScreen.jsx";
 
 const fadeUp = {
@@ -30,7 +29,6 @@ function Login() {
   const [errors, setErrors] = useState({});
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [googleLoading, setGoogleLoading] = useState(false);
   const [inlineToast, setInlineToast] = useState(null);
   const [error, setError] = useState("");
   const [showContactAdmin, setShowContactAdmin] = useState(false);
@@ -231,31 +229,9 @@ function Login() {
     }
   };
 
-  const handleGoogleLogin = async () => {
-    setGoogleLoading(true);
-    try {
-      const result = await loginWithGoogle();
-      if (!result) {
-        setGoogleLoading(false);
-        return;
-      }
-      const role = result?.data?.user?.role || result?.user?.role;
-      toast.success("Welcome to SUM Academy!");
-      if (role === "admin") navigate("/admin/dashboard");
-      else if (role === "teacher") navigate("/teacher/dashboard");
-      else navigate("/student/dashboard");
-    } catch (error) {
-      if (error.message) {
-        toast.error(error.message, { duration: 5000 });
-      }
-    } finally {
-      setGoogleLoading(false);
-    }
-  };
-
   return (
     <main className="min-h-screen bg-white lg:h-screen lg:overflow-hidden">
-      {(loading || googleLoading) && (
+      {loading && (
         <SplashScreen
           message="Signing you in..."
           subMessage="Verifying your secure academy access"
@@ -429,24 +405,6 @@ function Login() {
               >
                 {loading ? "Please wait..." : "Sign In"}
               </button>
-
-              <div style={{ margin: "16px 0" }}>
-                <div className="my-4 flex items-center gap-3">
-                  <div className="h-px flex-1 bg-gray-200" />
-                  <span className="text-sm text-gray-400">or</span>
-                  <div className="h-px flex-1 bg-gray-200" />
-                </div>
-
-                <button
-                  type="button"
-                  onClick={handleGoogleLogin}
-                  disabled={googleLoading}
-                  className="flex w-full items-center justify-center gap-3 rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm font-medium text-gray-700 transition-all duration-200 hover:bg-gray-50"
-                >
-                  <FcGoogle className="h-5 w-5" />
-                  {googleLoading ? "Please wait..." : "Continue with Google"}
-                </button>
-              </div>
             </form>
 
             <p className="mt-6 text-sm text-slate-600">

@@ -1,14 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { motion as Motion } from "framer-motion";
-import { FcGoogle } from "react-icons/fc";
 import { FiCheck, FiEye, FiEyeOff, FiMail, FiUser } from "react-icons/fi";
 import logo from "../../assets/logo.jpeg";
 import { useSettings } from "../../hooks/useSettings.js";
 import {
   registerWithEmail,
-  beginGoogleRegistration,
-  registerWithGoogle,
   sendRegistrationOtp,
   verifyRegistrationOtp,
 } from "../../services/auth.service.js";
@@ -55,10 +52,7 @@ function Register() {
   const [errors, setErrors] = useState({});
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [googleLoading, setGoogleLoading] = useState(false);
   const [otpStep, setOtpStep] = useState(false);
-  const [otpMode, setOtpMode] = useState(null);
-  const [pendingGoogleUser, setPendingGoogleUser] = useState(null);
   const [otpCode, setOtpCode] = useState("");
   const [otpTimer, setOtpTimer] = useState(0);
   const [showPassword, setShowPassword] = useState(false);
@@ -138,24 +132,6 @@ function Register() {
     return Object.keys(nextErrors).length === 0;
   };
 
-  const validateGoogle = () => {
-    const nextErrors = {};
-    if (!form.fullName.trim()) nextErrors.fullName = "Name is required.";
-    if (!form.phoneNumber.trim()) {
-      nextErrors.phoneNumber = "Phone number is required.";
-    } else if (!phoneRegex.test(form.phoneNumber.trim())) {
-      nextErrors.phoneNumber = "Use +92XXXXXXXXXX format.";
-    }
-    if (!form.email.trim()) {
-      nextErrors.email = "Email is required.";
-    } else if (!emailRegex.test(form.email)) {
-      nextErrors.email = "Enter a valid email.";
-    }
-    if (!form.terms) nextErrors.terms = "You must accept terms.";
-    setErrors(nextErrors);
-    return Object.keys(nextErrors).length === 0;
-  };
-
   const handleSubmit = async (e) => {
     e.preventDefault();
     const startedAt = Date.now();
@@ -163,56 +139,12 @@ function Register() {
     setError("");
 
     try {
-      if (otpMode === "google") {
-        if (!validateGoogle()) {
-          await ensureMinSplashTime(startedAt);
-          return;
-        }
-        if (!pendingGoogleUser?.email) {
-          throw new Error("Google registration session expired. Please try again.");
-        }
-        if (!/^\d{6}$/.test(otpCode.trim())) {
-          await ensureMinSplashTime(startedAt);
-          setError("Enter the 6-digit OTP sent to your email.");
-          toast.error("Please enter a valid 6-digit OTP.");
-          return;
-        }
-
-        const verifyData = await verifyRegistrationOtp(
-          pendingGoogleUser.email,
-          otpCode.trim()
-        );
-        const otpVerificationToken = verifyData?.otpVerificationToken;
-        if (!otpVerificationToken) {
-          throw new Error("OTP verification failed. Please try again.");
-        }
-
-        await registerWithGoogle(otpVerificationToken, {
-          fullName: form.fullName,
-          phoneNumber: form.phoneNumber,
-          fatherName: form.fatherName,
-          fatherPhone: form.fatherPhone,
-          fatherOccupation: form.fatherOccupation,
-          address: form.address,
-          district: form.district,
-          domicile: form.domicile,
-          caste: form.caste,
-        });
-        await ensureMinSplashTime(startedAt);
-        setRegistrationSuccess({
-          email: pendingGoogleUser.email,
-          isGoogle: true,
-        });
-        return;
-      }
-
       if (!validate()) return;
 
       if (!otpStep) {
         await sendRegistrationOtp(email, fullName);
         await ensureMinSplashTime(startedAt);
         setOtpStep(true);
-        setOtpMode("email");
         setOtpCode("");
         setOtpTimer(60);
         toast.success("OTP sent to your email. Verify OTP to continue.");
@@ -249,7 +181,7 @@ function Register() {
         }
       );
       await ensureMinSplashTime(startedAt);
-      setRegistrationSuccess({ email, isGoogle: false });
+      setRegistrationSuccess({ email });
     } catch (error) {
       await ensureMinSplashTime(startedAt);
       console.error("Registration error:", error);
@@ -269,13 +201,10 @@ function Register() {
     try {
       setLoading(true);
       setError("");
-      const targetEmail = otpMode === "google" ? pendingGoogleUser?.email : email;
-      const targetName =
-        otpMode === "google" ? pendingGoogleUser?.displayName || fullName : fullName;
-      if (!targetEmail) {
+      if (!email) {
         throw new Error("Email is required to resend OTP.");
       }
-      await sendRegistrationOtp(targetEmail, targetName);
+      await sendRegistrationOtp(email, fullName);
       setOtpCode("");
       setOtpTimer(60);
       toast.success("OTP resent successfully.");
@@ -291,65 +220,9 @@ function Register() {
     }
   };
 
-  const handleGoogleRegistration = async () => {
-    const startedAt = Date.now();
-    setGoogleLoading(true);
-    try {
-      const googleUser = await beginGoogleRegistration();
-      await ensureMinSplashTime(startedAt);
-      if (!googleUser) return;
-      if (!googleUser.email) {
-        throw new Error("Google account did not provide an email address.");
-      }
-
-      setForm((prev) => ({
-        ...prev,
-        email: googleUser.email || prev.email,
-        fullName:
-          googleUser.displayName ||
-          prev.fullName ||
-          (googleUser.email ? googleUser.email.split("@")[0] : ""),
-      }));
-
-      try {
-        await sendRegistrationOtp(
-          googleUser.email,
-          googleUser.displayName || googleUser.email?.split("@")[0] || ""
-        );
-      } catch (otpError) {
-        const message =
-          otpError?.response?.data?.message ||
-          otpError?.message ||
-          "Failed to send OTP.";
-        setError(message);
-        toast.error(message);
-        return;
-      }
-      setPendingGoogleUser({
-        uid: googleUser.uid,
-        email: googleUser.email,
-        displayName: googleUser.displayName || "",
-      });
-      setOtpMode("google");
-      setOtpStep(true);
-      setOtpCode("");
-      setOtpTimer(60);
-      toast.success("OTP sent to your email. Verify OTP to continue.");
-    } catch (error) {
-      await ensureMinSplashTime(startedAt);
-      const message =
-        error?.response?.data?.message ||
-        error?.message ||
-        "Google sign in failed";
-      toast.error(message);
-    } finally {
-      setGoogleLoading(false);
-    }
-  };
-
   return (
     <main className="min-h-screen bg-white lg:h-screen lg:overflow-hidden">
-      {(loading || googleLoading) && (
+      {loading && (
         <SplashScreen
           message="Creating your account..."
           subMessage="Securing your profile and setting up your classroom access"
@@ -384,9 +257,7 @@ function Register() {
                   Registration Submitted!
                 </h2>
                 <p className="mt-3 text-sm text-emerald-800">
-                  {registrationSuccess.isGoogle
-                    ? "Your Google account registration is pending admin approval."
-                    : "Your account is pending admin approval."}
+                  Your account is pending admin approval.
                 </p>
                 <p className="mt-2 text-sm text-emerald-800">
                   You will receive an email at{" "}
@@ -453,12 +324,8 @@ function Register() {
                         setOtpStep(false);
                         setOtpCode("");
                         setOtpTimer(0);
-                        setOtpMode(null);
-                        setPendingGoogleUser(null);
                       }
                     }}
-                    readOnly={otpMode === "google"}
-                    disabled={otpMode === "google"}
                     className="w-full rounded-full border border-slate-200 bg-white py-3 pl-11 pr-4 text-sm text-slate-700 shadow-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
                     placeholder="you@example.com"
                   />
@@ -718,8 +585,7 @@ function Register() {
                   />
                   <div className="mt-2 flex items-center justify-between text-xs text-slate-500">
                     <span>
-                      Code sent to{" "}
-                      {otpMode === "google" ? pendingGoogleUser?.email : email}
+                      Code sent to {email}
                     </span>
                     <button
                       type="button"
@@ -740,24 +606,6 @@ function Register() {
                   ? "Verify OTP & Create Account"
                   : "Send OTP"}
               </button>
-
-              <div style={{ margin: "16px 0" }}>
-                <div className="my-4 flex items-center gap-3">
-                  <div className="h-px flex-1 bg-gray-200" />
-                  <span className="text-sm text-gray-400">or</span>
-                  <div className="h-px flex-1 bg-gray-200" />
-                </div>
-
-                <button
-                  type="button"
-                  onClick={handleGoogleRegistration}
-                  disabled={googleLoading}
-                  className="flex w-full items-center justify-center gap-3 rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm font-medium text-gray-700 transition-all duration-200 hover:bg-gray-50"
-                >
-                  <FcGoogle className="h-5 w-5" />
-                  {googleLoading ? "Please wait..." : "Continue with Google"}
-                </button>
-              </div>
 
               <p className="text-sm text-slate-600">
                 Already have an account?{" "}

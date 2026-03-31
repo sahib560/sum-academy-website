@@ -192,6 +192,38 @@ export const sendNewDeviceAlert = async (email, name, ip, device, time) => {
   }
 };
 
+export const sendDeviceResetEmail = async (email, name) => {
+  try {
+    await sendMail({
+      from: MAIL_FROM,
+      to: email,
+      subject: "Device access reset — SUM Academy",
+      html: `
+        <div style="font-family: sans-serif; max-width: 520px; margin: 0 auto; padding: 28px; background: #f8f9fe; border-radius: 16px;">
+          <h2 style="color: #1f2937; margin-top: 0;">Device Access Reset</h2>
+          <p style="color: #64748b; line-height: 1.6;">
+            Hi ${name || "Student"}, your registered web device access has been reset by admin.
+          </p>
+          <p style="color: #64748b; line-height: 1.6;">
+            Please login again from your new device. Your first successful login will automatically register that device.
+          </p>
+          <div style="margin: 24px 0;">
+            <a href="${process.env.CLIENT_URL || "https://sumacademy.net"}/login" style="display: inline-block; background: #4a63f5; color: #fff; text-decoration: none; padding: 10px 18px; border-radius: 10px; font-weight: 600;">
+              Login to SUM Academy
+            </a>
+          </div>
+          <p style="color: #94a3b8; font-size: 12px; margin-bottom: 0;">
+            If you did not request this, please contact admin immediately.
+          </p>
+        </div>
+      `,
+    });
+  } catch (error) {
+    console.error("Device reset email failed:", error.message);
+    throw error;
+  }
+};
+
 export const sendPaymentConfirmation = async (email, name, 
   courseName, amount) => {
   try {

@@ -6,6 +6,7 @@ import {
   sendRegistrationOTP,
   sendApprovalEmail,
   sendRejectionEmail,
+  sendDeviceResetEmail,
 } from "../services/email.service.js";
 import { v4 as uuidv4 } from "uuid";
 
@@ -312,6 +313,39 @@ const isStartBeforeEnd = (start, end) => {
   return sh * 60 + sm < eh * 60 + em;
 };
 
+const toTimeMinutes = (value) => {
+  if (!isValidTime(value)) return null;
+  const [hours, minutes] = String(value).split(":").map(Number);
+  return hours * 60 + minutes;
+};
+
+const isSameCalendarDay = (left, right) =>
+  left.getFullYear() === right.getFullYear() &&
+  left.getMonth() === right.getMonth() &&
+  left.getDate() === right.getDate();
+
+const validateShiftStartWindowForToday = (classStartDate, shiftStartTime) => {
+  const parsedStartDate = normalizeDateValue(classStartDate);
+  if (!parsedStartDate) return null;
+
+  const now = new Date();
+  if (!isSameCalendarDay(parsedStartDate, now)) return null;
+
+  const shiftStartMinutes = toTimeMinutes(shiftStartTime);
+  if (shiftStartMinutes === null) return null;
+
+  const minAllowedMinutes = now.getHours() * 60 + now.getMinutes() + 60;
+  if (minAllowedMinutes >= 24 * 60) {
+    return "Today is almost over. Please choose tomorrow as class start date.";
+  }
+
+  if (shiftStartMinutes < minAllowedMinutes) {
+    return "For classes starting today, shift start time must be at least 1 hour from now";
+  }
+
+  return null;
+};
+
 const generateBatchCode = (name = "CLS") => {
   const prefix = String(name)
     .replace(/[^a-z0-9]/gi, "")
@@ -331,8 +365,8 @@ const validateClassDates = (startDate, endDate, checkFutureStart = true) => {
     today.setHours(0, 0, 0, 0);
     const startFloor = new Date(start);
     startFloor.setHours(0, 0, 0, 0);
-    if (startFloor <= today) {
-      return "Start date must be in the future";
+    if (startFloor < today) {
+      return "Start date cannot be in the past";
     }
   }
 
@@ -406,7 +440,7 @@ const ensureTeacher = async (teacherId) => {
   };
 };
 
-const buildShiftPayload = async (shiftInput, assignedCourses) => {
+const buildShiftPayload = async (shiftInput, assignedCourses, classStartDate = null) => {
   const name = normalizeShiftName(shiftInput?.name);
   const days = normalizeDays(shiftInput?.days || []);
   const startTime = String(shiftInput?.startTime || "").trim();
@@ -426,6 +460,10 @@ const buildShiftPayload = async (shiftInput, assignedCourses) => {
   }
   if (!isStartBeforeEnd(startTime, endTime)) {
     return { error: "Shift start time must be before end time" };
+  }
+  const startWindowError = validateShiftStartWindowForToday(classStartDate, startTime);
+  if (startWindowError) {
+    return { error: startWindowError };
   }
   if (!courseId) {
     return { error: "Shift course is required" };
@@ -522,6 +560,272 @@ export const getRecentActivity = async (req, res) => {
   }
 };
 
+const resolveUidParam = (req) =>
+  String(req.params?.uid || req.params?.id || "").trim();
+
+const toIsoOrNull = (value) => {
+  if (!value) return null;
+  if (typeof value?.toDate === "function") {
+    const parsed = value.toDate();
+    return Number.isNaN(parsed?.getTime?.()) ? null : parsed.toISOString();
+  }
+  if (typeof value?._seconds === "number") {
+    return new Date(value._seconds * 1000).toISOString();
+  }
+  if (typeof value?.seconds === "number") {
+    return new Date(value.seconds * 1000).toISOString();
+  }
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+};
+
+const normalizeProgressPercent = (row = {}) => {
+  const direct = [
+    row.progress,
+    row.progressPercent,
+    row.completionPercent,
+    row.percent,
+  ]
+    .map((value) => Number(value))
+    .find((value) => Number.isFinite(value));
+  if (Number.isFinite(direct)) {
+    return Math.max(0, Math.min(100, direct));
+  }
+  return null;
+};
+
+export const getUserById = async (req, res) => {
+  try {
+    const uid = resolveUidParam(req);
+    if (!uid) return errorResponse(res, "uid is required", 400);
+
+    const userSnap = await db.collection(COLLECTIONS.USERS).doc(uid).get();
+    if (!userSnap.exists) {
+      return errorResponse(res, "User not found", 404);
+    }
+
+    const userData = userSnap.data() || {};
+    return successResponse(
+      res,
+      {
+        uid,
+        ...userData,
+        createdAt: toIsoOrNull(userData.createdAt),
+        updatedAt: toIsoOrNull(userData.updatedAt),
+        lastLoginAt: toIsoOrNull(userData.lastLoginAt),
+      },
+      "User fetched"
+    );
+  } catch (e) {
+    return errorResponse(res, "Failed to fetch user", 500);
+  }
+};
+
+export const getTeacherById = async (req, res) => {
+  try {
+    const uid = resolveUidParam(req);
+    if (!uid) return errorResponse(res, "uid is required", 400);
+
+    const [userSnap, teacherSnap] = await Promise.all([
+      db.collection(COLLECTIONS.USERS).doc(uid).get(),
+      db.collection(COLLECTIONS.TEACHERS).doc(uid).get(),
+    ]);
+
+    if (!userSnap.exists || !teacherSnap.exists) {
+      return errorResponse(res, "Teacher not found", 404);
+    }
+
+    const userData = userSnap.data() || {};
+    if (String(userData.role || "").toLowerCase() !== "teacher") {
+      return errorResponse(res, "Teacher not found", 404);
+    }
+
+    const teacherData = teacherSnap.data() || {};
+    return successResponse(
+      res,
+      {
+        uid,
+        ...userData,
+        ...teacherData,
+        createdAt: toIsoOrNull(teacherData.createdAt || userData.createdAt),
+        updatedAt: toIsoOrNull(teacherData.updatedAt || userData.updatedAt),
+        lastLoginAt: toIsoOrNull(userData.lastLoginAt),
+      },
+      "Teacher fetched"
+    );
+  } catch (e) {
+    return errorResponse(res, "Failed to fetch teacher", 500);
+  }
+};
+
+export const getStudentById = async (req, res) => {
+  try {
+    const uid = resolveUidParam(req);
+    if (!uid) return errorResponse(res, "uid is required", 400);
+
+    const [userSnap, studentSnap] = await Promise.all([
+      db.collection(COLLECTIONS.USERS).doc(uid).get(),
+      db.collection(COLLECTIONS.STUDENTS).doc(uid).get(),
+    ]);
+
+    if (!userSnap.exists || !studentSnap.exists) {
+      return errorResponse(res, "Student not found", 404);
+    }
+
+    const userData = userSnap.data() || {};
+    if (String(userData.role || "").toLowerCase() !== "student") {
+      return errorResponse(res, "Student not found", 404);
+    }
+
+    const studentData = studentSnap.data() || {};
+    return successResponse(
+      res,
+      {
+        uid,
+        ...userData,
+        ...studentData,
+        createdAt: toIsoOrNull(studentData.createdAt || userData.createdAt),
+        updatedAt: toIsoOrNull(studentData.updatedAt || userData.updatedAt),
+        lastLoginAt: toIsoOrNull(userData.lastLoginAt),
+      },
+      "Student fetched"
+    );
+  } catch (e) {
+    return errorResponse(res, "Failed to fetch student", 500);
+  }
+};
+
+export const getStudentProgressById = async (req, res) => {
+  try {
+    const uid = resolveUidParam(req);
+    if (!uid) return errorResponse(res, "uid is required", 400);
+
+    const [userSnap, studentSnap, progressSnap, enrollmentSnap] = await Promise.all([
+      db.collection(COLLECTIONS.USERS).doc(uid).get(),
+      db.collection(COLLECTIONS.STUDENTS).doc(uid).get(),
+      db.collection(COLLECTIONS.PROGRESS).where("studentId", "==", uid).get(),
+      db.collection(COLLECTIONS.ENROLLMENTS).where("studentId", "==", uid).get(),
+    ]);
+
+    if (!userSnap.exists || !studentSnap.exists) {
+      return errorResponse(res, "Student not found", 404);
+    }
+    const userData = userSnap.data() || {};
+    if (String(userData.role || "").toLowerCase() !== "student") {
+      return errorResponse(res, "Student not found", 404);
+    }
+
+    const enrolledCourseIds = new Set();
+    const studentEnrolledCourses = Array.isArray(studentSnap.data()?.enrolledCourses)
+      ? studentSnap.data().enrolledCourses
+      : [];
+
+    studentEnrolledCourses.forEach((entry) => {
+      if (typeof entry === "string") {
+        if (entry.trim()) enrolledCourseIds.add(entry.trim());
+        return;
+      }
+      const courseId = String(entry?.courseId || entry?.id || "").trim();
+      if (courseId) enrolledCourseIds.add(courseId);
+    });
+
+    enrollmentSnap.docs.forEach((doc) => {
+      const courseId = String(doc.data()?.courseId || "").trim();
+      if (courseId) enrolledCourseIds.add(courseId);
+    });
+
+    const progressRows = progressSnap.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+    }));
+
+    progressRows.forEach((row) => {
+      const courseId = String(row.courseId || "").trim();
+      if (courseId) enrolledCourseIds.add(courseId);
+    });
+
+    const courseIds = [...enrolledCourseIds];
+    const courseSnaps = await Promise.all(
+      courseIds.map((courseId) =>
+        db.collection(COLLECTIONS.COURSES).doc(courseId).get()
+      )
+    );
+    const courseTitleMap = courseSnaps.reduce((acc, snap) => {
+      if (snap.exists) {
+        const data = snap.data() || {};
+        acc[snap.id] = data.title || "Course";
+      }
+      return acc;
+    }, {});
+
+    const rowsByCourse = progressRows.reduce((acc, row) => {
+      const courseId = String(row.courseId || "").trim();
+      if (!courseId) return acc;
+      if (!acc[courseId]) acc[courseId] = [];
+      acc[courseId].push(row);
+      return acc;
+    }, {});
+
+    const courses = courseIds.map((courseId) => {
+      const rows = Array.isArray(rowsByCourse[courseId]) ? rowsByCourse[courseId] : [];
+      const directPercents = rows
+        .map((row) => normalizeProgressPercent(row))
+        .filter((value) => Number.isFinite(value));
+      const percent =
+        directPercents.length > 0
+          ? Math.max(...directPercents)
+          : 0;
+      const completedLectures = rows.filter((row) => row.isCompleted === true).length;
+      const lastActivity = rows
+        .map((row) => toIsoOrNull(row.updatedAt || row.completedAt || row.createdAt))
+        .filter(Boolean)
+        .sort()
+        .pop() || null;
+
+      return {
+        courseId,
+        courseName: courseTitleMap[courseId] || "Course",
+        progress: Math.round(percent),
+        completedLectures,
+        lastActivityAt: lastActivity,
+      };
+    });
+
+    const avgProgress =
+      courses.length > 0
+        ? Math.round(
+            courses.reduce((sum, row) => sum + Number(row.progress || 0), 0) /
+              courses.length
+          )
+        : 0;
+
+    const summary = {
+      totalCourses: courses.length,
+      avgProgress,
+      completedCourses: courses.filter((row) => Number(row.progress || 0) >= 100).length,
+      progressRecords: progressRows.length,
+    };
+
+    return successResponse(
+      res,
+      {
+        uid,
+        summary,
+        courses,
+        progressRows: progressRows.map((row) => ({
+          ...row,
+          createdAt: toIsoOrNull(row.createdAt),
+          updatedAt: toIsoOrNull(row.updatedAt),
+          completedAt: toIsoOrNull(row.completedAt),
+        })),
+      },
+      "Student progress fetched"
+    );
+  } catch (e) {
+    return errorResponse(res, "Failed to fetch student progress", 500);
+  }
+};
+
 export const getUsers = async (req, res) => {
   try {
     const { role, isActive, search } = req.query;
@@ -579,12 +883,24 @@ export const approveStudent = async (req, res) => {
 
     const email = userSnap.data()?.email || "";
     const fullName = studentSnap.data()?.fullName || "";
+    let emailSent = false;
 
     if (email) {
-      await sendApprovalEmail(email, fullName || "Student");
+      try {
+        await sendApprovalEmail(email, fullName || "Student");
+        emailSent = true;
+      } catch (mailError) {
+        console.error("approveStudent email error:", mailError);
+      }
     }
 
-    return successResponse(res, { uid }, "Student approved successfully");
+    return successResponse(
+      res,
+      { uid, emailSent },
+      emailSent
+        ? "Student approved successfully"
+        : "Student approved successfully (email pending/retry needed)"
+    );
   } catch (e) {
     return errorResponse(res, "Failed to approve student", 500);
   }
@@ -1240,23 +1556,58 @@ export const setUserRole = async (req, res) => {
 export const resetUserDevice = async (req, res) => {
   try {
     const { uid } = req.params;
-    const { device, webIp, resetDevice } = req.body;
+    const shouldReset = req.body?.resetDevice !== false;
+    if (!shouldReset) {
+      return errorResponse(
+        res,
+        "resetDevice must be true to clear assigned device access",
+        400
+      );
+    }
+
+    const userRef = db.collection(COLLECTIONS.USERS).doc(uid);
+    const userSnap = await userRef.get();
+    if (!userSnap.exists) {
+      return errorResponse(res, "User not found", 404);
+    }
+
+    const userData = userSnap.data() || {};
+    const role = String(userData.role || "").toLowerCase();
+    if (role !== "student") {
+      return errorResponse(res, "Device reset is only supported for students", 400);
+    }
+
+    const studentSnap = await db.collection(COLLECTIONS.STUDENTS).doc(uid).get();
+    const studentData = studentSnap.exists ? studentSnap.data() || {} : {};
+    const fullName =
+      studentData.fullName ||
+      userData.fullName ||
+      (userData.email ? String(userData.email).split("@")[0] : "Student");
 
     const updates = {
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       deviceResetBy: req.user.uid,
+      deviceResetAt: admin.firestore.FieldValue.serverTimestamp(),
+      assignedUniqueDeviceId: "",
+      assignedWebDevice: "",
+      assignedWebIp: "",
     };
-    if (resetDevice) {
-      updates.assignedUniqueDeviceId = "";
-      updates.assignedWebDevice = "";
-      updates.assignedWebIp = "";
-    } else {
-      if (device) updates.assignedWebDevice = device;
-      if (webIp) updates.assignedWebIp = webIp;
+
+    await userRef.update(updates);
+
+    if (userData.email) {
+      try {
+        await sendDeviceResetEmail(userData.email, fullName);
+      } catch (mailError) {
+        console.error("Failed to send device reset email:", mailError?.message || mailError);
+      }
     }
 
-    await db.collection(COLLECTIONS.USERS).doc(uid).update(updates);
-    return successResponse(res, updates, "Device reset");
+    return successResponse(
+      res,
+      { uid, resetDevice: true },
+      "Device reset. Student can login from a new device now."
+    );
   } catch (e) {
     return errorResponse(res, "Failed to reset device", 500);
   }
@@ -1671,7 +2022,7 @@ export const createClass = async (req, res) => {
 
     const normalizedShifts = [];
     for (const shift of shifts) {
-      const resolved = await buildShiftPayload(shift, resolvedCourses);
+      const resolved = await buildShiftPayload(shift, resolvedCourses, startDate);
       if (resolved.error) {
         return errorResponse(res, resolved.error, 400);
       }
@@ -1785,7 +2136,7 @@ export const updateClass = async (req, res) => {
       }
       const rebuiltShifts = [];
       for (const shift of req.body.shifts) {
-        const resolved = await buildShiftPayload(shift, nextAssignedCourses);
+        const resolved = await buildShiftPayload(shift, nextAssignedCourses, nextStartDate);
         if (resolved.error) {
           return errorResponse(res, resolved.error, 400);
         }
@@ -1807,6 +2158,13 @@ export const updateClass = async (req, res) => {
           400
         );
       }
+    }
+
+    const todayShiftError = nextShifts
+      .map((shift) => validateShiftStartWindowForToday(nextStartDate, shift?.startTime))
+      .find(Boolean);
+    if (todayShiftError) {
+      return errorResponse(res, todayShiftError, 400);
     }
 
     if (req.body.batchCode !== undefined) {
@@ -1962,7 +2320,11 @@ export const addClassShift = async (req, res) => {
       return errorResponse(res, "Assign at least one course before adding shifts", 400);
     }
 
-    const resolved = await buildShiftPayload(req.body, assignedCourses);
+    const resolved = await buildShiftPayload(
+      req.body,
+      assignedCourses,
+      classData.startDate
+    );
     if (resolved.error) {
       return errorResponse(res, resolved.error, 400);
     }
@@ -2004,7 +2366,8 @@ export const updateClassShift = async (req, res) => {
 
     const resolved = await buildShiftPayload(
       { ...currentShift, ...req.body, id: currentShift.id },
-      assignedCourses
+      assignedCourses,
+      classData.startDate
     );
     if (resolved.error) {
       return errorResponse(res, resolved.error, 400);

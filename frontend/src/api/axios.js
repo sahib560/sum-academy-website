@@ -4,8 +4,9 @@ import { firebaseAuth } from "../config/firebase.js";
 
 const LOGIN_ALERT_STORAGE_KEY = "sumacademy:login-alert";
 const LOGIN_ALERT_EVENT = "sumacademy:login-alert";
+const DEVICE_ID_STORAGE_KEY = "sumacademy:device-fingerprint:v2";
 
-const getDeviceFingerprint = () => {
+const buildLegacyDeviceFingerprint = () => {
   if (typeof window === "undefined") return "server";
   const nav = window.navigator;
   const screen = window.screen;
@@ -42,7 +43,24 @@ const getDeviceFingerprint = () => {
   );
 };
 
-const DEVICE_FINGERPRINT = getDeviceFingerprint();
+const getPersistentDeviceFingerprint = () => {
+  if (typeof window === "undefined") return "server";
+
+  try {
+    const existing = window.localStorage.getItem(DEVICE_ID_STORAGE_KEY);
+    if (existing && String(existing).trim()) return String(existing).trim();
+
+    // Seed with legacy fingerprint for backward compatibility with already assigned users.
+    const seeded = buildLegacyDeviceFingerprint();
+    window.localStorage.setItem(DEVICE_ID_STORAGE_KEY, seeded);
+    return seeded;
+  } catch {
+    // Fallback when storage is blocked.
+    return buildLegacyDeviceFingerprint();
+  }
+};
+
+const DEVICE_FINGERPRINT = getPersistentDeviceFingerprint();
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL,
