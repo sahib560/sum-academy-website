@@ -188,13 +188,15 @@ function StudentLayout() {
                 {enrolledCount} Courses
               </span>
             </div>
-            <button
-              className="rounded-full border border-slate-200 p-2 text-slate-500"
-              onClick={handleLogout}
-            >
-              <FiLogOut className="h-4 w-4" />
-            </button>
           </div>
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="mt-4 flex w-full items-center justify-start gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-100"
+          >
+            <FiLogOut className="h-4 w-4" />
+            <span>Logout</span>
+          </button>
         </div>
       </div>
 

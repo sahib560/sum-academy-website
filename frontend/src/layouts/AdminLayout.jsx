@@ -12,6 +12,7 @@ import {
   FiClock,
   FiCreditCard,
   FiGrid,
+  FiLogOut,
   FiMenu,
   FiSearch,
   FiSettings,
@@ -238,12 +239,21 @@ function AdminLayout({ children }) {
             {!collapsed && (
               <div className="flex-1">
                 <p className="text-sm font-semibold text-white">{displayName}</p>
-                <button className="text-xs text-white/60" onClick={handleLogout}>
-                  Logout
-                </button>
               </div>
             )}
           </div>
+          <button
+            type="button"
+            onClick={handleLogout}
+            className={`mt-4 flex items-center rounded-xl border border-white/15 bg-white/5 text-sm font-semibold text-white/90 transition hover:bg-white/10 ${
+              collapsed ? "justify-center px-0 py-2.5" : "w-full justify-start gap-2 px-3 py-2.5"
+            }`}
+            title="Logout"
+            aria-label="Logout"
+          >
+            <FiLogOut className="h-4 w-4" />
+            {!collapsed && <span>Logout</span>}
+          </button>
         </div>
       </div>
 
