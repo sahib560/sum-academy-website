@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, NavLink } from "react-router-dom";
+import { Link, NavLink, useLocation } from "react-router-dom";
 import { Toaster, toast } from "react-hot-toast";
 import { FaDownload } from "react-icons/fa";
 import logo from "../assets/logo.jpeg";
@@ -14,6 +14,7 @@ const navLinks = [
 ];
 
 function Navbar() {
+  const location = useLocation();
   const { settings } = useSettings();
   const [isScrolled, setIsScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -44,6 +45,22 @@ function Navbar() {
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
+  useEffect(() => {
+    setMenuOpen(false);
+  }, [location.pathname]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    if (menuOpen) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "";
+    }
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [menuOpen]);
+
   const toggleTheme = () => {
     const nextTheme = theme === "dark" ? "light" : "dark";
     setTheme(nextTheme);
@@ -69,7 +86,7 @@ function Navbar() {
   ].join(" ");
 
   const containerClasses = [
-    "mx-auto flex max-w-7xl items-center justify-between px-4 transition-all duration-300 sm:px-6 lg:px-8",
+    "mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 transition-all duration-300 sm:px-6 lg:px-8",
     isScrolled ? "py-3" : "py-5",
   ].join(" ");
 
@@ -103,7 +120,7 @@ function Navbar() {
               className="h-full w-full object-cover"
             />
           </span>
-          <span className="font-heading text-lg tracking-wide text-slate-900 dark:text-white">
+          <span className="max-w-[9.5rem] truncate font-heading text-base tracking-wide text-slate-900 dark:text-white sm:max-w-none sm:text-lg">
             {siteName}
           </span>
         </Link>
@@ -175,12 +192,21 @@ function Navbar() {
         </button>
       </nav>
 
+      {menuOpen ? (
+        <button
+          type="button"
+          aria-label="Close menu"
+          onClick={closeMenu}
+          className="fixed inset-0 top-[68px] z-40 bg-slate-950/35 lg:hidden"
+        />
+      ) : null}
+
       <div
         className={`overflow-hidden transition-all duration-300 lg:hidden ${
-          menuOpen ? "max-h-[420px] opacity-100" : "max-h-0 opacity-0"
+          menuOpen ? "max-h-[calc(100vh-68px)] opacity-100" : "max-h-0 opacity-0"
         }`}
       >
-        <div className={menuPanelClasses}>
+        <div className={`${menuPanelClasses} relative z-50 max-h-[calc(100vh-90px)] overflow-y-auto`}>
           <div className="flex flex-col gap-4">
             {navLinks.map((link) => (
               <NavLink

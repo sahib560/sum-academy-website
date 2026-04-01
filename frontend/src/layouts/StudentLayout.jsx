@@ -13,6 +13,7 @@ import {
   FiGrid,
   FiHelpCircle,
   FiLogOut,
+  FiMenu,
   FiSettings,
   FiUser,
 } from "react-icons/fi";
@@ -71,6 +72,19 @@ function StudentLayout() {
     setNotifOpen(false);
   }, [location.pathname]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const isMobile = window.matchMedia("(max-width: 1023px)").matches;
+    if (isMobile && sidebarOpen) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "";
+    }
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [sidebarOpen]);
+
   const announcementsQuery = useQuery({
     queryKey: ["my-announcements", "student", userProfile?.uid],
     queryFn: getMyAnnouncements,
@@ -118,8 +132,8 @@ function StudentLayout() {
   return (
     <div className="min-h-screen overflow-x-hidden bg-slate-50 text-slate-900">
       <div
-        className={`fixed inset-y-0 left-0 z-40 hidden w-[260px] flex-col bg-white shadow-lg transition-transform duration-300 lg:flex ${
-          sidebarOpen ? "translate-x-0" : "translate-x-0"
+        className={`fixed inset-y-0 left-0 z-[70] flex w-[260px] flex-col bg-white shadow-lg transition-transform duration-300 ${
+          sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
         }`}
       >
         <div className="flex items-center gap-3 px-6 py-6">
@@ -200,14 +214,33 @@ function StudentLayout() {
         </div>
       </div>
 
+      {sidebarOpen && (
+        <button
+          type="button"
+          className="fixed inset-0 z-[60] bg-slate-900/50 lg:hidden"
+          onClick={() => setSidebarOpen(false)}
+          aria-label="Close sidebar"
+        />
+      )}
+
       <header className="sticky top-0 z-30 flex min-w-0 items-center justify-between gap-4 border-b border-slate-200 bg-white px-4 py-4 lg:ml-[260px] lg:px-6">
-        <div className="min-w-0">
+        <div className="flex min-w-0 items-center gap-3">
+          <button
+            type="button"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 shadow-sm lg:hidden"
+            onClick={() => setSidebarOpen(true)}
+            aria-label="Open sidebar"
+          >
+            <FiMenu className="h-4 w-4" />
+          </button>
+          <div className="min-w-0">
           <p className="truncate text-xs uppercase tracking-[0.3em] text-slate-400">
             {siteName}
           </p>
           <h1 className="truncate font-heading text-2xl text-slate-900">
             {pageTitle}
           </h1>
+          </div>
         </div>
         <div className="flex items-center gap-3">
           <div className="relative">
@@ -224,38 +257,40 @@ function StudentLayout() {
             </button>
             <AnimatePresence>
               {notifOpen ? (
-                <MotionDiv
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: 6 }}
-                  className="fixed left-1/2 top-[4.5rem] z-40 w-[calc(100vw-1.5rem)] max-w-sm -translate-x-1/2 rounded-2xl border border-slate-200 bg-white p-3 shadow-xl sm:absolute sm:left-auto sm:right-0 sm:top-auto sm:z-20 sm:mt-2 sm:w-[min(92vw,20rem)] sm:max-w-[calc(100vw-1.5rem)] sm:translate-x-0"
-                >
-                  <p className="mb-2 text-sm font-semibold text-slate-900">Notifications</p>
-                  {notifications.length === 0 ? (
-                    <p className="text-xs text-slate-500">No announcements yet.</p>
-                  ) : (
-                    <div className="max-h-72 space-y-2 overflow-auto">
-                      {notifications.slice(0, 8).map((item) => (
-                        <div
-                          key={item.id}
-                          className={`rounded-xl border p-2 ${
-                            item.isRead
-                              ? "border-slate-100 bg-white"
-                              : "border-primary/20 bg-primary/5"
-                          }`}
-                        >
-                          <p className="text-sm font-semibold text-slate-800">{item.title}</p>
-                          <p className="line-clamp-2 text-xs text-slate-500">{item.message}</p>
-                        </div>
-                      ))}
+                <div className="fixed inset-x-0 top-[4.5rem] z-[80] flex justify-center px-3 sm:absolute sm:inset-auto sm:right-0 sm:top-full sm:z-20 sm:mt-2 sm:block sm:px-0">
+                  <MotionDiv
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 6 }}
+                    className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-3 shadow-xl sm:w-[min(92vw,20rem)]"
+                  >
+                    <p className="mb-2 text-sm font-semibold text-slate-900">Notifications</p>
+                    {notifications.length === 0 ? (
+                      <p className="text-xs text-slate-500">No announcements yet.</p>
+                    ) : (
+                      <div className="max-h-72 space-y-2 overflow-auto">
+                        {notifications.slice(0, 8).map((item) => (
+                          <div
+                            key={item.id}
+                            className={`rounded-xl border p-2 ${
+                              item.isRead
+                                ? "border-slate-100 bg-white"
+                                : "border-primary/20 bg-primary/5"
+                            }`}
+                          >
+                            <p className="text-sm font-semibold text-slate-800">{item.title}</p>
+                            <p className="line-clamp-2 text-xs text-slate-500">{item.message}</p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <div className="mt-3 border-t border-slate-200 pt-2 text-xs font-semibold">
+                      <Link className="text-primary hover:underline" to="/student/notifications">
+                        See all announcements
+                      </Link>
                     </div>
-                  )}
-                  <div className="mt-3 border-t border-slate-200 pt-2 text-xs font-semibold">
-                    <Link className="text-primary hover:underline" to="/student/notifications">
-                      See all announcements
-                    </Link>
-                  </div>
-                </MotionDiv>
+                  </MotionDiv>
+                </div>
               ) : null}
             </AnimatePresence>
           </div>
