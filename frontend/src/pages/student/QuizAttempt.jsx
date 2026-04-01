@@ -6,12 +6,13 @@ import toast, { Toaster } from "react-hot-toast";
 import { Skeleton } from "../../components/Skeleton.jsx";
 import { getQuizById, submitQuizAttempt } from "../../services/student.service.js";
 import { useAuth } from "../../hooks/useAuth.js";
+import { WatermarkOverlay } from "../../utils/security.js";
 import {
-  WatermarkOverlay,
-  disableContentProtection,
-  enableContentProtection,
-  useDevToolsDetection,
-} from "../../utils/security.js";
+  setupMaxProtection,
+  getViolationCount,
+  blurContent,
+  unblurContent,
+} from "../../utils/maxProtection.js";
 const TAB_SWITCH_LIMIT = 3;
 
 const toNumber = (value, fallback = 0) => {
@@ -79,6 +80,8 @@ function StudentQuizAttempt() {
   const submitLockRef = useRef(false);
   const answersRef = useRef({});
   const questionsRef = useRef([]);
+  const violationsRef = useRef(0);
+  const cleanupRef = useRef(null);
 
   const [started, setStarted] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -89,7 +92,6 @@ function StudentQuizAttempt() {
   const [showExitModal, setShowExitModal] = useState(false);
   const [showSubmitModal, setShowSubmitModal] = useState(false);
   const [showFullscreenWarning, setShowFullscreenWarning] = useState(false);
-  const [devToolsOpen, setDevToolsOpen] = useState(false);
   const [submittedResult, setSubmittedResult] = useState(null);
   const [showReview, setShowReview] = useState(false);
   const [animatedPercent, setAnimatedPercent] = useState(0);
@@ -168,6 +170,22 @@ function StudentQuizAttempt() {
     submitMutation.mutate(payloadAnswers);
   }, [submitMutation, submittedResult]);
 
+  const handleSubmitQuiz = useCallback(() => {
+    finalizeSubmit("manual");
+  }, [finalizeSubmit]);
+
+  const getViolationMessage = (reason) => {
+    const messages = {
+      tab_switch: "Do not switch tabs during quiz",
+      window_blur: "Do not minimize or switch windows",
+      printscreen: "Screenshots are not allowed",
+      devtools: "Developer tools are not allowed",
+      screenshot: "Screenshots are not allowed",
+      screen_record: "Screen recording is blocked",
+    };
+    return messages[reason] || "Security violation detected";
+  };
+
   useEffect(() => {
     if (!started || submittedResult || submitMutation.isPending) return undefined;
     const intervalId = window.setInterval(() => {
@@ -184,46 +202,41 @@ function StudentQuizAttempt() {
   }, [started, submittedResult, submitMutation.isPending, finalizeSubmit]);
 
   useEffect(() => {
-    let lastToastAt = 0;
-    enableContentProtection({
-      onBlocked: (message) => {
-        const now = Date.now();
-        if (now - lastToastAt < 1200) return;
-        lastToastAt = now;
-        toast.error(message || "Content protection is active");
+    if (!started || submittedResult) return undefined;
+
+    const cleanup = setupMaxProtection({
+      enforceFullscreenMode: true,
+      quizMode: true,
+      onViolation: (count, reason) => {
+        violationsRef.current = count;
+        setTabSwitchCount(count);
+        blurContent();
+        setTimeout(() => {
+          unblurContent();
+        }, 1200);
+
+        if (count >= TAB_SWITCH_LIMIT) {
+          toast.error("3 violations detected. Quiz auto-submitted.");
+          setTimeout(() => {
+            handleSubmitQuiz();
+          }, 2000);
+          return;
+        }
+
+        toast.error(`Warning ${count}/3: ${getViolationMessage(reason)}`, {
+          duration: 4000,
+        });
       },
     });
+
+    cleanupRef.current = cleanup;
+    setTabSwitchCount(getViolationCount());
+
     return () => {
-      disableContentProtection();
+      if (cleanupRef.current) cleanupRef.current();
+      cleanupRef.current = null;
     };
-  }, []);
-
-  useEffect(() => {
-    const onVisibilityChange = () => {
-      if (!started || submittedResult || !document.hidden) return;
-      setTabSwitchCount((previous) => {
-        const next = previous + 1;
-        toast.error(
-          `Warning ${next}: Do not switch tabs during quiz. Auto-submit after 3 warnings.`
-        );
-        if (next >= TAB_SWITCH_LIMIT) {
-          finalizeSubmit("tab_limit");
-        }
-        return next;
-      });
-    };
-
-    document.addEventListener("visibilitychange", onVisibilityChange);
-    return () => {
-      document.removeEventListener("visibilitychange", onVisibilityChange);
-    };
-  }, [started, submittedResult, finalizeSubmit]);
-
-  const handleDevToolsDetected = useCallback((isOpen) => {
-    setDevToolsOpen(isOpen);
-  }, []);
-
-  useDevToolsDetection(handleDevToolsDetected);
+  }, [handleSubmitQuiz, started, submittedResult]);
 
   useEffect(() => {
     const onFullscreenChange = () => {
@@ -323,7 +336,6 @@ function StudentQuizAttempt() {
     const totalScore = toNumber(submittedResult.autoScore, 0);
     const totalMarks = Math.max(0, toNumber(submittedResult.totalMarks, 0));
     const percentage = Math.max(0, toNumber(submittedResult.percentage, 0));
-    const isPassed = Boolean(submittedResult.isPassed);
     return {
       rows,
       correct,
@@ -332,13 +344,15 @@ function StudentQuizAttempt() {
       totalScore,
       totalMarks,
       percentage,
-      isPassed,
     };
   }, [submittedResult]);
 
   if (submittedResult && resultSummary) {
     return (
-      <div className="relative min-h-screen bg-slate-50 px-4 py-8 protected-content">
+      <div
+        className="protected-zone quiz-content relative min-h-screen bg-slate-50 px-4 py-8 protected-content"
+        style={{ position: "relative" }}
+      >
         <Toaster position="top-right" />
         <WatermarkOverlay
           studentName={
@@ -363,7 +377,7 @@ function StudentQuizAttempt() {
                   style={{
                     left: `${(index * 13) % 95}%`,
                     top: `${(index * 17) % 90}%`,
-                    backgroundColor: resultSummary.isPassed ? "#22c55e" : "#ef4444",
+                    backgroundColor: "#4a63f5",
                     opacity: 0.7,
                     animationDelay: `${(index % 7) * 0.08}s`,
                   }}
@@ -377,13 +391,7 @@ function StudentQuizAttempt() {
               </span>
             </div>
 
-            <p
-              className={`mt-4 text-lg font-semibold ${
-                resultSummary.isPassed ? "text-emerald-600" : "text-rose-600"
-              }`}
-            >
-              {resultSummary.isPassed ? "Pass" : "Fail"}
-            </p>
+            <p className="mt-4 text-lg font-semibold text-primary">Result Summary</p>
             <p className="mt-2 text-sm text-slate-600">
               Score: {resultSummary.totalScore} / {resultSummary.totalMarks} marks (
               {Math.round(resultSummary.percentage)}%)
@@ -481,7 +489,10 @@ function StudentQuizAttempt() {
   }
 
   return (
-    <div className="relative min-h-screen bg-slate-50 px-4 py-6 protected-content">
+    <div
+      className="protected-zone quiz-content relative min-h-screen bg-slate-50 px-4 py-6 protected-content"
+      style={{ position: "relative" }}
+    >
       <Toaster position="top-right" />
       <WatermarkOverlay
         studentName={
@@ -535,7 +546,7 @@ function StudentQuizAttempt() {
                       Question {currentIndex + 1} of {questions.length}
                     </span>
                     <span className="rounded-full bg-amber-100 px-3 py-1 text-xs text-amber-700">
-                      Tab warnings: {tabSwitchCount}/{TAB_SWITCH_LIMIT}
+                      Security warnings: {tabSwitchCount}/{TAB_SWITCH_LIMIT}
                     </span>
                     <button
                       className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-700"
@@ -818,16 +829,6 @@ function StudentQuizAttempt() {
         )}
       </AnimatePresence>
 
-      {devToolsOpen && (
-        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/90 px-6 text-center text-white">
-          <div>
-            <p className="font-heading text-2xl">Developer tools detected.</p>
-            <p className="mt-2 text-sm text-slate-200">
-              Content is protected. Please close DevTools to continue.
-            </p>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

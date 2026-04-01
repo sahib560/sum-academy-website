@@ -139,3 +139,31 @@
     display: none;
   }
 }
+
+.protected-zone,
+.quiz-content,
+.video-wrapper,
+.lecture-content {
+  user-select: none !important;
+  -webkit-user-select: none !important;
+  -moz-user-select: none !important;
+  -ms-user-select: none !important;
+  -webkit-touch-callout: none !important;
+}
+
+.protected-zone img,
+.quiz-content img,
+.video-wrapper img {
+  pointer-events: none !important;
+  -webkit-user-drag: none !important;
+  user-drag: none !important;
+}
+
+@media print {
+  .protected-zone,
+  .quiz-content,
+  .video-wrapper,
+  .lecture-content {
+    display: none !important;
+  }
+}

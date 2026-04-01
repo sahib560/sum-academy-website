@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion as Motion } from "framer-motion";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -11,12 +11,8 @@ import {
   markLectureComplete,
 } from "../../services/student.service.js";
 import api from "../../api/axios.js";
-import {
-  WatermarkOverlay,
-  disableContentProtection,
-  enableContentProtection,
-  useDevToolsDetection,
-} from "../../utils/security.js";
+import { WatermarkOverlay } from "../../utils/security.js";
+import { setupMaxProtection } from "../../utils/maxProtection.js";
 
 const fadeUp = {
   initial: { opacity: 0, y: 16 },
@@ -119,7 +115,6 @@ function StudentCoursePlayer() {
   const [playbackRate, setPlaybackRate] = useState(1);
   const [videoSrc, setVideoSrc] = useState("");
   const [isLoadingVideo, setIsLoadingVideo] = useState(false);
-  const [devToolsOpen, setDevToolsOpen] = useState(false);
   const [maxWatchedSeconds, setMaxWatchedSeconds] = useState(0);
   const [showCelebration, setShowCelebration] = useState(false);
 
@@ -212,29 +207,21 @@ function StudentCoursePlayer() {
   }, [normalized.lectures, routeLectureId, currentLectureId]);
 
   useEffect(() => {
-    let lastToastAt = 0;
-    enableContentProtection({
-      onBlocked: (message) => {
-        const now = Date.now();
-        if (now - lastToastAt < 1200) return;
-        lastToastAt = now;
-        toast.error(message || "Content protection is active");
+    const cleanup = setupMaxProtection({
+      enforceFullscreenMode: false,
+      quizMode: false,
+      onViolation: (_count, reason) => {
+        if (
+          (reason === "tab_switch" || reason === "window_blur") &&
+          videoRef.current
+        ) {
+          videoRef.current.pause();
+          setIsPlaying(false);
+        }
       },
     });
-    return () => {
-      disableContentProtection();
-    };
+    return cleanup;
   }, []);
-
-  const handleDevToolsDetected = useCallback((isOpen) => {
-    setDevToolsOpen(isOpen);
-    if (isOpen && videoRef.current) {
-      videoRef.current.pause();
-      setIsPlaying(false);
-    }
-  }, []);
-
-  useDevToolsDetection(handleDevToolsDetected);
 
   useEffect(() => {
     const onVisibilityChange = () => {
@@ -306,7 +293,7 @@ function StudentCoursePlayer() {
 
   const handlePlayPause = async () => {
     const video = videoRef.current;
-    if (!video || devToolsOpen || currentLecture?.hasAccess === false || !videoSrc) return;
+    if (!video || currentLecture?.hasAccess === false || !videoSrc) return;
     try {
       if (video.paused) {
         await video.play();
@@ -383,11 +370,10 @@ function StudentCoursePlayer() {
     !currentLecture.isCompleted &&
     !markCompleteMutation.isPending;
 
-  const contentBlocked = devToolsOpen;
   const showLockedOverlay = !currentLecture || currentLecture.hasAccess === false || !videoSrc;
 
   return (
-    <div className="relative space-y-6 protected-content">
+    <div className="protected-zone lecture-content relative space-y-6 protected-content">
       <Toaster position="top-right" />
 
       <Motion.section {...fadeUp}>
@@ -405,9 +391,8 @@ function StudentCoursePlayer() {
           <Motion.section {...fadeUp} className="space-y-4">
             <div
               ref={playerRef}
-              className={`relative overflow-hidden rounded-3xl border border-slate-200 bg-black ${
-                contentBlocked ? "blur-sm" : ""
-              }`}
+              className="protected-zone video-wrapper relative overflow-hidden rounded-3xl border border-slate-200 bg-black"
+              style={{ position: "relative" }}
             >
               <div className="aspect-video">
                 <video
@@ -416,8 +401,9 @@ function StudentCoursePlayer() {
                   className="h-full w-full object-cover"
                   style={{ pointerEvents: "none", filter: "none" }}
                   controls={false}
-                  controlsList="nodownload"
+                  controlsList="nodownload nofullscreen"
                   disablePictureInPicture
+                  disableRemotePlayback
                   onContextMenu={(event) => event.preventDefault()}
                   onLoadedMetadata={(event) => {
                     const media = event.currentTarget;
@@ -489,7 +475,7 @@ function StudentCoursePlayer() {
                   <button
                     className="rounded-full bg-primary px-4 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
                     onClick={handlePlayPause}
-                    disabled={showLockedOverlay || contentBlocked}
+                    disabled={showLockedOverlay}
                   >
                     {isPlaying ? "Pause" : "Play"}
                   </button>
@@ -506,7 +492,7 @@ function StudentCoursePlayer() {
                   value={currentTime}
                   onChange={handleSeek}
                   className="w-full"
-                  disabled={showLockedOverlay || contentBlocked}
+                  disabled={showLockedOverlay}
                 />
 
                 <div className="grid gap-3 md:grid-cols-3">
@@ -542,7 +528,7 @@ function StudentCoursePlayer() {
                     <button
                       className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700"
                       onClick={handleFullscreen}
-                      disabled={showLockedOverlay || contentBlocked}
+                      disabled={showLockedOverlay}
                     >
                       Fullscreen
                     </button>
@@ -706,16 +692,6 @@ function StudentCoursePlayer() {
         )}
       </AnimatePresence>
 
-      {devToolsOpen && (
-        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/90 px-6 text-center text-white">
-          <div>
-            <p className="font-heading text-2xl">Developer tools detected.</p>
-            <p className="mt-2 text-sm text-slate-200">
-              Content is protected. Please close DevTools to continue.
-            </p>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

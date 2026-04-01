@@ -6,6 +6,16 @@ import {
 } from "../middlewares/auth.middleware.js";
 import * as adminController from "../controllers/admin.controller.js";
 import * as paymentController from "../controllers/payment.controller.js";
+import {
+  getTeacherQuizzes,
+  getTeacherQuizById,
+  assignQuizToStudents,
+  getQuizAnalytics,
+  createTeacherQuiz,
+  downloadQuizBulkTemplate,
+  bulkUploadTeacherQuiz,
+  getQuizSubmissions,
+} from "../controllers/teacher.quiz.controller.js";
 
 const router = Router();
 const upload = multer({
@@ -80,6 +90,15 @@ router.post(
 );
 router.get("/students/:uid/progress", adminOnly, adminController.getStudentProgressById);
 router.get("/students/:uid", adminOnly, adminController.getStudentById);
+
+router.get("/quizzes/template", adminOnly, downloadQuizBulkTemplate);
+router.get("/quizzes", adminOnly, getTeacherQuizzes);
+router.get("/quizzes/:quizId", adminOnly, getTeacherQuizById);
+router.get("/quizzes/:quizId/analytics", adminOnly, getQuizAnalytics);
+router.post("/quizzes", adminOnly, createTeacherQuiz);
+router.post("/quizzes/bulk-upload", adminOnly, upload.single("file"), bulkUploadTeacherQuiz);
+router.patch("/quizzes/:quizId/assign", adminOnly, assignQuizToStudents);
+router.get("/quizzes/:quizId/submissions", adminOnly, getQuizSubmissions);
 
 router.get("/courses", adminOnly, adminController.getCourses);
 router.post("/courses", adminOnly, adminController.createCourse);

@@ -21,6 +21,7 @@ import {
 import {
   getTeacherCourses,
   getTeacherStudents,
+  getTeacherClasses,
   getTeacherQuizzes,
   getTeacherQuizAnalytics,
   assignTeacherQuiz,
@@ -61,18 +62,16 @@ const scoreColors = ["#4a63f5", "#8090ff", "#a3b0ff", "#c8d0ff", "#e2e7ff"];
 
 const createDefaultQuestion = () => ({
   questionText: "",
-  type: "mcq",
   optionA: "",
   optionB: "",
   optionC: "",
   optionD: "",
   correctAnswer: "A",
-  expectedAnswer: "",
   marks: 1,
 });
 
 const createDefaultQuizMeta = () => ({
-  scope: "chapter",
+  scope: "subject",
   courseId: "",
   subjectId: "",
   chapterId: "",
@@ -120,12 +119,6 @@ const mapQuestionType = (value = "") => {
   const normalized = lowerText(value);
   if (["mcq", "multiple_choice", "multiple-choice", "quiz"].includes(normalized)) {
     return "mcq";
-  }
-  if (["true_false", "true-false", "truefalse", "tf"].includes(normalized)) {
-    return "true_false";
-  }
-  if (["short_answer", "short-answer", "shortanswer", "short"].includes(normalized)) {
-    return "short_answer";
   }
   return normalized;
 };
@@ -259,8 +252,8 @@ const parseCsvForPreview = (csvText = "") => {
 
     if (!row.questionText) rowErrors.push("questionText is required");
     if (!questionType) rowErrors.push("questionType is required");
-    if (!["mcq", "true_false", "short_answer"].includes(questionType)) {
-      rowErrors.push("questionType must be mcq, true_false, or short_answer");
+    if (questionType !== "mcq") {
+      rowErrors.push("questionType must be mcq");
     }
     if (!row.marks || !Number.isFinite(marksNumber) || marksNumber <= 0) {
       rowErrors.push("marks must be a positive number");
@@ -273,17 +266,6 @@ const parseCsvForPreview = (csvText = "") => {
       if (!["A", "B", "C", "D"].includes(row.correctAnswer.toUpperCase())) {
         rowErrors.push("MCQ correctAnswer must be A, B, C, or D");
       }
-    }
-
-    if (questionType === "true_false") {
-      const answer = row.correctAnswer.toUpperCase();
-      if (!["TRUE", "FALSE"].includes(answer)) {
-        rowErrors.push("True/False correctAnswer must be TRUE or FALSE");
-      }
-    }
-
-    if (questionType === "short_answer" && !row.expectedAnswer) {
-      rowErrors.push("Short answer expectedAnswer is required");
     }
 
     return {
@@ -341,6 +323,8 @@ function TeacherQuizzes() {
   const [showQuizPanel, setShowQuizPanel] = useState(false);
   const [gradeDrafts, setGradeDrafts] = useState({});
   const [assignmentDueAt, setAssignmentDueAt] = useState("");
+  const [assignmentTargetType, setAssignmentTargetType] = useState("students");
+  const [assignmentClassId, setAssignmentClassId] = useState("");
   const [assignmentStudentIds, setAssignmentStudentIds] = useState([]);
   const [studentSearch, setStudentSearch] = useState("");
 
@@ -360,6 +344,12 @@ function TeacherQuizzes() {
   const teacherStudentsQuery = useQuery({
     queryKey: ["teacher-students-for-quiz-assign"],
     queryFn: getTeacherStudents,
+    staleTime: 60 * 1000,
+  });
+
+  const teacherClassesQuery = useQuery({
+    queryKey: ["teacher-classes-for-quiz-assign"],
+    queryFn: getTeacherClasses,
     staleTime: 60 * 1000,
   });
 
@@ -479,7 +469,7 @@ function TeacherQuizzes() {
     mutationFn: ({ quizId, resultId, payload }) =>
       gradeTeacherShortAnswers(quizId, resultId, payload),
     onSuccess: () => {
-      toast.success("Short answers graded");
+      toast.success("Manual grades saved");
       queryClient.invalidateQueries({
         queryKey: ["teacher-quiz-submissions", selectedQuizId],
       });
@@ -543,6 +533,19 @@ function TeacherQuizzes() {
   }, [teacherStudents, studentSearch, selectedQuiz?.courseId]);
 
   const assignmentSummary = analyticsData?.assignment || selectedQuiz?.assignment || null;
+  const classOptions = useMemo(() => {
+    const rows = Array.isArray(teacherClassesQuery.data) ? teacherClassesQuery.data : [];
+    const targetCourseId = selectedQuiz?.courseId || "";
+    if (!targetCourseId) return rows;
+    return rows.filter((row) =>
+      (Array.isArray(row.assignedCourses) ? row.assignedCourses : []).some((entry) => {
+        const courseId = trimText(
+          typeof entry === "string" ? entry : entry?.courseId || entry?.id
+        );
+        return courseId === targetCourseId;
+      })
+    );
+  }, [teacherClassesQuery.data, selectedQuiz?.courseId]);
 
   const onAddQuestion = () => {
     setQuestions((prev) => [...prev, createDefaultQuestion()]);
@@ -571,6 +574,14 @@ function TeacherQuizzes() {
         .filter(Boolean)
     );
     setAssignmentDueAt(toDateTimeLocalValue(quiz?.assignment?.dueAt));
+    setAssignmentTargetType(
+      ["students", "course", "class"].includes(
+        lowerText(quiz?.assignment?.targetType || "")
+      )
+        ? lowerText(quiz.assignment.targetType)
+        : "students"
+    );
+    setAssignmentClassId(trimText(quiz?.assignment?.classId));
   };
 
   const toggleAssignStudent = (studentId) => {
@@ -590,7 +601,11 @@ function TeacherQuizzes() {
       toast.error("Select due date and time");
       return;
     }
-    if (!assignmentStudentIds.length) {
+    if (assignmentTargetType === "class" && !assignmentClassId) {
+      toast.error("Select a class for class assignment");
+      return;
+    }
+    if (assignmentTargetType === "students" && !assignmentStudentIds.length) {
       toast.error("Select at least one student");
       return;
     }
@@ -598,7 +613,10 @@ function TeacherQuizzes() {
       quizId: selectedQuizId,
       payload: {
         dueAt: new Date(assignmentDueAt).toISOString(),
-        studentIds: assignmentStudentIds,
+        targetType: assignmentTargetType,
+        classId: assignmentTargetType === "class" ? assignmentClassId : "",
+        courseId: assignmentTargetType === "course" ? selectedQuiz?.courseId || "" : "",
+        studentIds: assignmentTargetType === "students" ? assignmentStudentIds : [],
       },
     });
   };
@@ -620,26 +638,41 @@ function TeacherQuizzes() {
       toast.error("Add at least one question");
       return false;
     }
-    const hasInvalid = questions.some((row) => {
-      if (!trimText(row.questionText)) return true;
+    let rowError = "";
+    for (let index = 0; index < questions.length; index += 1) {
+      const row = questions[index];
+      const rowNo = index + 1;
+      if (!trimText(row.questionText)) {
+        rowError = `Question ${rowNo}: question text is required`;
+        break;
+      }
       const marks = Number(row.marks);
-      if (!Number.isFinite(marks) || marks <= 0) return true;
-      if (row.type === "mcq") {
-        if (!trimText(row.optionA) || !trimText(row.optionB)) return true;
-        if (!["A", "B", "C", "D"].includes(String(row.correctAnswer || "").toUpperCase())) {
-          return true;
-        }
+      if (!Number.isFinite(marks) || marks <= 0) {
+        rowError = `Question ${rowNo}: marks must be greater than 0`;
+        break;
       }
-      if (row.type === "true_false") {
-        if (!["true", "false"].includes(String(row.correctAnswer || "").toLowerCase())) {
-          return true;
-        }
+      if (!trimText(row.optionA) || !trimText(row.optionB)) {
+        rowError = `Question ${rowNo}: option A and option B are required`;
+        break;
       }
-      if (row.type === "short_answer" && !trimText(row.expectedAnswer)) return true;
-      return false;
-    });
-    if (hasInvalid) {
-      toast.error("Please complete all required question fields");
+      const correctLetter = String(row.correctAnswer || "").toUpperCase();
+      if (!["A", "B", "C", "D"].includes(correctLetter)) {
+        rowError = `Question ${rowNo}: correct answer must be A, B, C, or D`;
+        break;
+      }
+      const optionMap = {
+        A: trimText(row.optionA),
+        B: trimText(row.optionB),
+        C: trimText(row.optionC),
+        D: trimText(row.optionD),
+      };
+      if (!optionMap[correctLetter]) {
+        rowError = `Question ${rowNo}: selected correct option ${correctLetter} is empty`;
+        break;
+      }
+    }
+    if (rowError) {
+      toast.error(rowError);
       return false;
     }
     return true;
@@ -649,38 +682,20 @@ function TeacherQuizzes() {
     if (!validateCreateForm()) return;
 
     const payloadQuestions = questions.map((row) => {
-      if (row.type === "mcq") {
-        const options = [row.optionA, row.optionB, row.optionC, row.optionD]
-          .map((option) => option.trim())
-          .filter(Boolean);
-        const optionMap = {
-          A: options[0],
-          B: options[1],
-          C: options[2],
-          D: options[3],
-        };
-        return {
-          type: row.type,
-          questionText: row.questionText,
-          options,
-          correctAnswer: optionMap[String(row.correctAnswer || "A").toUpperCase()] || "",
-          marks: Number(row.marks) || 1,
-        };
-      }
-
-      if (row.type === "true_false") {
-        return {
-          type: row.type,
-          questionText: row.questionText,
-          correctAnswer: String(row.correctAnswer) === "true",
-          marks: Number(row.marks) || 1,
-        };
-      }
-
+      const options = [row.optionA, row.optionB, row.optionC, row.optionD]
+        .map((option) => option.trim())
+        .filter(Boolean);
+      const optionMap = {
+        A: options[0],
+        B: options[1],
+        C: options[2],
+        D: options[3],
+      };
       return {
-        type: row.type,
+        type: "mcq",
         questionText: row.questionText,
-        expectedAnswer: row.expectedAnswer || "",
+        options,
+        correctAnswer: optionMap[String(row.correctAnswer || "A").toUpperCase()] || "",
         marks: Number(row.marks) || 1,
       };
     });
@@ -984,15 +999,9 @@ function TeacherQuizzes() {
                   </button>
                 </div>
                 <div className="grid gap-2">
-                  <select
-                    className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                    value={question.type}
-                    onChange={(event) => onUpdateQuestion(index, "type", event.target.value)}
-                  >
-                    <option value="mcq">MCQ</option>
-                    <option value="true_false">True / False</option>
-                    <option value="short_answer">Short Answer</option>
-                  </select>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    MCQ Question
+                  </p>
                   <input
                     className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
                     placeholder="Question text"
@@ -1009,80 +1018,50 @@ function TeacherQuizzes() {
                     value={question.marks}
                     onChange={(event) => onUpdateQuestion(index, "marks", event.target.value)}
                   />
-
-                  {question.type === "mcq" ? (
-                    <>
-                      <input
-                        className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                        placeholder="Option A"
-                        value={question.optionA}
-                        onChange={(event) =>
-                          onUpdateQuestion(index, "optionA", event.target.value)
-                        }
-                      />
-                      <input
-                        className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                        placeholder="Option B"
-                        value={question.optionB}
-                        onChange={(event) =>
-                          onUpdateQuestion(index, "optionB", event.target.value)
-                        }
-                      />
-                      <input
-                        className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                        placeholder="Option C"
-                        value={question.optionC}
-                        onChange={(event) =>
-                          onUpdateQuestion(index, "optionC", event.target.value)
-                        }
-                      />
-                      <input
-                        className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                        placeholder="Option D"
-                        value={question.optionD}
-                        onChange={(event) =>
-                          onUpdateQuestion(index, "optionD", event.target.value)
-                        }
-                      />
-                      <select
-                        className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                        value={String(question.correctAnswer || "A").toUpperCase()}
-                        onChange={(event) =>
-                          onUpdateQuestion(index, "correctAnswer", event.target.value)
-                        }
-                      >
-                        <option value="A">Correct: A</option>
-                        <option value="B">Correct: B</option>
-                        <option value="C">Correct: C</option>
-                        <option value="D">Correct: D</option>
-                      </select>
-                    </>
-                  ) : null}
-
-                  {question.type === "true_false" ? (
-                    <select
-                      className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                      value={String(question.correctAnswer || "true")}
-                      onChange={(event) =>
-                        onUpdateQuestion(index, "correctAnswer", event.target.value)
-                      }
-                    >
-                      <option value="true">Correct: True</option>
-                      <option value="false">Correct: False</option>
-                    </select>
-                  ) : null}
-
-                  {question.type === "short_answer" ? (
-                    <textarea
-                      className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                      rows={2}
-                      placeholder="Expected answer guidance"
-                      value={question.expectedAnswer}
-                      onChange={(event) =>
-                        onUpdateQuestion(index, "expectedAnswer", event.target.value)
-                      }
-                    />
-                  ) : null}
+                  <input
+                    className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                    placeholder="Option A"
+                    value={question.optionA}
+                    onChange={(event) =>
+                      onUpdateQuestion(index, "optionA", event.target.value)
+                    }
+                  />
+                  <input
+                    className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                    placeholder="Option B"
+                    value={question.optionB}
+                    onChange={(event) =>
+                      onUpdateQuestion(index, "optionB", event.target.value)
+                    }
+                  />
+                  <input
+                    className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                    placeholder="Option C"
+                    value={question.optionC}
+                    onChange={(event) =>
+                      onUpdateQuestion(index, "optionC", event.target.value)
+                    }
+                  />
+                  <input
+                    className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                    placeholder="Option D"
+                    value={question.optionD}
+                    onChange={(event) =>
+                      onUpdateQuestion(index, "optionD", event.target.value)
+                    }
+                  />
+                  <select
+                    className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                    value={String(question.correctAnswer || "A").toUpperCase()}
+                    onChange={(event) =>
+                      onUpdateQuestion(index, "correctAnswer", event.target.value)
+                    }
+                  >
+                    <option value="A">Correct: A</option>
+                    <option value="B">Correct: B</option>
+                    <option value="C">Correct: C</option>
+                    <option value="D">Correct: D</option>
+                  </select>
                 </div>
               </div>
             ))}
@@ -1515,60 +1494,110 @@ function TeacherQuizzes() {
                           value={assignmentDueAt}
                           onChange={(event) => setAssignmentDueAt(event.target.value)}
                         />
-                        <input
-                          className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                          placeholder="Search student by name/email"
-                          value={studentSearch}
-                          onChange={(event) => setStudentSearch(event.target.value)}
-                        />
                         <div className="flex flex-wrap gap-2">
-                          <button
-                            type="button"
-                            className="btn-outline"
-                            onClick={() =>
-                              setAssignmentStudentIds(
-                                filteredStudents.map((student) => student.studentId)
-                              )
-                            }
-                          >
-                            Select All
-                          </button>
-                          <button
-                            type="button"
-                            className="btn-outline"
-                            onClick={() => setAssignmentStudentIds([])}
-                          >
-                            Clear
-                          </button>
+                          {[
+                            { key: "course", label: "Whole Course" },
+                            { key: "class", label: "By Class" },
+                            { key: "students", label: "Selected Students" },
+                          ].map((item) => (
+                            <button
+                              key={item.key}
+                              type="button"
+                              className={`rounded-full px-3 py-1.5 text-xs font-semibold ${
+                                assignmentTargetType === item.key
+                                  ? "bg-[#4a63f5] text-white"
+                                  : "border border-slate-200 text-slate-600"
+                              }`}
+                              onClick={() => {
+                                setAssignmentTargetType(item.key);
+                                if (item.key !== "class") setAssignmentClassId("");
+                              }}
+                            >
+                              {item.label}
+                            </button>
+                          ))}
                         </div>
-                        <div className="max-h-52 space-y-2 overflow-auto rounded-xl border border-slate-200 p-2">
-                          {(filteredStudents || []).map((student) => {
-                            const checked = assignmentStudentIds.includes(student.studentId);
-                            return (
-                              <label
-                                key={student.studentId}
-                                className={`flex cursor-pointer items-center justify-between rounded-lg px-2 py-2 text-xs ${
-                                  checked ? "bg-[#4a63f5]/10" : "bg-slate-50"
-                                }`}
+
+                        {assignmentTargetType === "class" ? (
+                          <select
+                            className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                            value={assignmentClassId}
+                            onChange={(event) => setAssignmentClassId(event.target.value)}
+                          >
+                            <option value="">Select Class</option>
+                            {classOptions.map((row) => (
+                              <option key={row.id} value={row.id}>
+                                {row.name} {row.batchCode ? `(${row.batchCode})` : ""}
+                              </option>
+                            ))}
+                          </select>
+                        ) : null}
+
+                        {assignmentTargetType === "course" ? (
+                          <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
+                            This will assign the quiz to all students enrolled in{" "}
+                            <span className="font-semibold">{selectedQuiz?.courseName || "course"}</span>.
+                          </p>
+                        ) : null}
+
+                        {assignmentTargetType === "students" ? (
+                          <>
+                            <input
+                              className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                              placeholder="Search student by name/email"
+                              value={studentSearch}
+                              onChange={(event) => setStudentSearch(event.target.value)}
+                            />
+                            <div className="flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                className="btn-outline"
+                                onClick={() =>
+                                  setAssignmentStudentIds(
+                                    filteredStudents.map((student) => student.studentId)
+                                  )
+                                }
                               >
-                                <span>
-                                  <span className="block font-semibold text-slate-800">
-                                    {student.fullName}
-                                  </span>
-                                  <span className="text-slate-500">{student.email || "-"}</span>
-                                </span>
-                                <input
-                                  type="checkbox"
-                                  checked={checked}
-                                  onChange={() => toggleAssignStudent(student.studentId)}
-                                />
-                              </label>
-                            );
-                          })}
-                          {filteredStudents.length === 0 ? (
-                            <p className="text-xs text-slate-500">No students found.</p>
-                          ) : null}
-                        </div>
+                                Select All
+                              </button>
+                              <button
+                                type="button"
+                                className="btn-outline"
+                                onClick={() => setAssignmentStudentIds([])}
+                              >
+                                Clear
+                              </button>
+                            </div>
+                            <div className="max-h-52 space-y-2 overflow-auto rounded-xl border border-slate-200 p-2">
+                              {(filteredStudents || []).map((student) => {
+                                const checked = assignmentStudentIds.includes(student.studentId);
+                                return (
+                                  <label
+                                    key={student.studentId}
+                                    className={`flex cursor-pointer items-center justify-between rounded-lg px-2 py-2 text-xs ${
+                                      checked ? "bg-[#4a63f5]/10" : "bg-slate-50"
+                                    }`}
+                                  >
+                                    <span>
+                                      <span className="block font-semibold text-slate-800">
+                                        {student.fullName}
+                                      </span>
+                                      <span className="text-slate-500">{student.email || "-"}</span>
+                                    </span>
+                                    <input
+                                      type="checkbox"
+                                      checked={checked}
+                                      onChange={() => toggleAssignStudent(student.studentId)}
+                                    />
+                                  </label>
+                                );
+                              })}
+                              {filteredStudents.length === 0 ? (
+                                <p className="text-xs text-slate-500">No students found.</p>
+                              ) : null}
+                            </div>
+                          </>
+                        ) : null}
                         <button
                           type="button"
                           className="btn-primary"
@@ -1692,7 +1721,7 @@ function TeacherQuizzes() {
 
               <div className="border-t border-slate-200 pt-4">
                 <h4 className="text-sm font-semibold text-slate-800">
-                  Manual Grading (Short Answers)
+                  Manual Grading (Legacy Non-MCQ Quizzes)
                 </h4>
                 {submissionsQuery.isLoading ? (
                   <div className="mt-4 space-y-2">
@@ -1702,7 +1731,7 @@ function TeacherQuizzes() {
                   </div>
                 ) : pendingSubmissions.length === 0 ? (
                   <p className="mt-3 text-sm text-slate-500">
-                    No pending short-answer submissions.
+                    No manual grading required for MCQ quizzes.
                   </p>
                 ) : (
                   <div className="mt-4 space-y-4">

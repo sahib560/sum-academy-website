@@ -12,7 +12,7 @@ const fadeUp = {
   transition: { duration: 0.45 },
 };
 
-const tabs = ["Available", "Attempted", "Passed", "Failed"];
+const tabs = ["Available", "Attempted"];
 
 const toNumber = (value, fallback = 0) => {
   const parsed = Number(value);
@@ -34,7 +34,8 @@ const toTitle = (value = "") => {
 const resolveDisplayStatus = (quiz = {}) => {
   const raw = normalizeStatus(quiz.status);
   if (raw === "partial" || raw === "pending_review") return "partial";
-  if (["attempted", "passed", "failed", "available"].includes(raw)) return raw;
+  if (["attempted", "passed", "failed"].includes(raw)) return "attempted";
+  if (raw === "available") return "available";
   return "available";
 };
 
@@ -46,14 +47,6 @@ const statusStyles = {
   attempted: {
     bar: "bg-slate-500",
     badge: "bg-slate-100 text-slate-700",
-  },
-  passed: {
-    bar: "bg-emerald-500",
-    badge: "bg-emerald-50 text-emerald-600",
-  },
-  failed: {
-    bar: "bg-rose-500",
-    badge: "bg-rose-50 text-rose-600",
   },
   partial: {
     bar: "bg-amber-400",
@@ -101,8 +94,6 @@ function StudentQuizzes() {
       Attempted: quizzes.filter(
         (quiz) => quiz.displayStatus === "attempted" || quiz.displayStatus === "partial"
       ).length,
-      Passed: quizzes.filter((quiz) => quiz.displayStatus === "passed").length,
-      Failed: quizzes.filter((quiz) => quiz.displayStatus === "failed").length,
     }),
     [quizzes]
   );
@@ -111,15 +102,9 @@ function StudentQuizzes() {
     if (activeTab === "Available") {
       return quizzes.filter((quiz) => quiz.displayStatus === "available");
     }
-    if (activeTab === "Attempted") {
-      return quizzes.filter(
-        (quiz) => quiz.displayStatus === "attempted" || quiz.displayStatus === "partial"
-      );
-    }
-    if (activeTab === "Passed") {
-      return quizzes.filter((quiz) => quiz.displayStatus === "passed");
-    }
-    return quizzes.filter((quiz) => quiz.displayStatus === "failed");
+    return quizzes.filter(
+      (quiz) => quiz.displayStatus === "attempted" || quiz.displayStatus === "partial"
+    );
   }, [activeTab, quizzes]);
 
   return (
@@ -177,10 +162,7 @@ function StudentQuizzes() {
             const style = statusStyles[quiz.displayStatus] || statusStyles.available;
             const isPartial = quiz.displayStatus === "partial";
             const isAvailable = quiz.displayStatus === "available";
-            const isAttempted =
-              quiz.displayStatus === "attempted" ||
-              quiz.displayStatus === "passed" ||
-              quiz.displayStatus === "failed";
+            const isAttempted = quiz.displayStatus === "attempted";
             return (
               <article
                 key={quiz.id}
@@ -196,7 +178,11 @@ function StudentQuizzes() {
                       <span
                         className={`rounded-full px-3 py-1 text-xs font-semibold ${style.badge}`}
                       >
-                        {isPartial ? "Partial" : toTitle(quiz.displayStatus)}
+                        {isPartial
+                          ? "Partial"
+                          : quiz.displayStatus === "attempted"
+                            ? "Attempted"
+                            : toTitle(quiz.displayStatus)}
                       </span>
                     </div>
 
@@ -215,7 +201,6 @@ function StudentQuizzes() {
                     <div className="mt-3 flex flex-wrap items-center gap-4 text-xs text-slate-500">
                       <span>{quiz.questionsCount} Questions</span>
                       <span>{quiz.totalMarks} Marks</span>
-                      <span>Pass {quiz.passScore}%</span>
                     </div>
 
                     {(isAttempted || isPartial) && (
@@ -225,28 +210,9 @@ function StudentQuizzes() {
                             Awaiting teacher review
                           </span>
                         ) : (
-                          (() => {
-                            const passedByScore = quiz.scorePercent >= quiz.passScore;
-                            const label =
-                              quiz.displayStatus === "passed"
-                                ? "Passed"
-                                : quiz.displayStatus === "failed"
-                                  ? "Failed"
-                                  : passedByScore
-                                    ? "Passed"
-                                    : "Failed";
-                            const classes =
-                              label === "Passed"
-                                ? "bg-emerald-50 text-emerald-600"
-                                : "bg-rose-50 text-rose-600";
-                            return (
-                              <span
-                                className={`rounded-full px-3 py-1 text-xs font-semibold ${classes}`}
-                              >
-                                {Math.round(quiz.scorePercent)}% - {label}
-                              </span>
-                            );
-                          })()
+                          <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+                            {Math.round(quiz.scorePercent)}%
+                          </span>
                         )}
                       </div>
                     )}
@@ -302,17 +268,6 @@ function StudentQuizzes() {
               <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
                 <p className="text-sm text-slate-600">
                   Score: {Math.round(resultPreview.scorePercent)}%
-                </p>
-                <p
-                  className={`mt-2 inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
-                    resultPreview.displayStatus === "passed"
-                      ? "bg-emerald-50 text-emerald-600"
-                      : resultPreview.displayStatus === "failed"
-                        ? "bg-rose-50 text-rose-600"
-                        : "bg-slate-100 text-slate-700"
-                  }`}
-                >
-                  {toTitle(resultPreview.displayStatus)}
                 </p>
                 {resultPreview.lastAttempt?.submittedAt && (
                   <p className="mt-2 text-xs text-slate-500">

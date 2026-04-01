@@ -228,7 +228,7 @@ function StudentLayout() {
                   initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: 6 }}
-                  className="absolute right-0 z-20 mt-2 w-[min(92vw,20rem)] max-w-[calc(100vw-1.5rem)] rounded-2xl border border-slate-200 bg-white p-3 shadow-xl sm:w-80"
+                  className="fixed left-1/2 top-[4.5rem] z-40 w-[calc(100vw-1.5rem)] max-w-sm -translate-x-1/2 rounded-2xl border border-slate-200 bg-white p-3 shadow-xl sm:absolute sm:left-auto sm:right-0 sm:top-auto sm:z-20 sm:mt-2 sm:w-[min(92vw,20rem)] sm:max-w-[calc(100vw-1.5rem)] sm:translate-x-0"
                 >
                   <p className="mb-2 text-sm font-semibold text-slate-900">Notifications</p>
                   {notifications.length === 0 ? (

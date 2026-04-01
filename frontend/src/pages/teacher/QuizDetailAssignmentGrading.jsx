@@ -25,6 +25,7 @@ import {
   getTeacherQuizzes,
   getTeacherQuizSubmissions,
   getTeacherStudents,
+  getTeacherClasses,
   gradeTeacherShortAnswers,
 } from "../../services/teacher.service.js";
 
@@ -64,6 +65,8 @@ function TeacherQuizDetailAssignmentGrading() {
   const { quizId = "" } = useParams();
 
   const [assignmentDueAt, setAssignmentDueAt] = useState("");
+  const [assignmentTargetType, setAssignmentTargetType] = useState("students");
+  const [assignmentClassId, setAssignmentClassId] = useState("");
   const [assignmentStudentIds, setAssignmentStudentIds] = useState([]);
   const [studentSearch, setStudentSearch] = useState("");
   const [gradeDrafts, setGradeDrafts] = useState({});
@@ -104,6 +107,12 @@ function TeacherQuizDetailAssignmentGrading() {
     staleTime: 60 * 1000,
   });
 
+  const teacherClassesQuery = useQuery({
+    queryKey: ["teacher-classes-for-quiz-assign"],
+    queryFn: getTeacherClasses,
+    staleTime: 60 * 1000,
+  });
+
   const assignMutation = useMutation({
     mutationFn: ({ id, payload }) => assignTeacherQuiz(id, payload),
     onSuccess: (response) => {
@@ -122,7 +131,7 @@ function TeacherQuizDetailAssignmentGrading() {
     mutationFn: ({ id, resultId, payload }) =>
       gradeTeacherShortAnswers(id, resultId, payload),
     onSuccess: () => {
-      toast.success("Short answers graded");
+      toast.success("Manual grades saved");
       queryClient.invalidateQueries({ queryKey: ["teacher-quiz-submissions", quizId] });
       queryClient.invalidateQueries({ queryKey: ["teacher-quiz-analytics", quizId] });
       queryClient.invalidateQueries({ queryKey: ["teacher-quizzes"] });
@@ -138,6 +147,20 @@ function TeacherQuizDetailAssignmentGrading() {
 
   const analyticsData = analyticsQuery.data || null;
   const assignmentSummary = analyticsData?.assignment || selectedQuiz?.assignment || null;
+  const classOptions = useMemo(() => {
+    const rows = Array.isArray(teacherClassesQuery.data) ? teacherClassesQuery.data : [];
+    const targetCourseId = selectedQuiz?.courseId || "";
+    if (!targetCourseId) return rows;
+    return rows.filter((row) =>
+      (Array.isArray(row.assignedCourses) ? row.assignedCourses : []).some((entry) => {
+        const courseId =
+          (typeof entry === "string" ? entry : entry?.courseId || entry?.id || "")
+            .toString()
+            .trim();
+        return courseId === targetCourseId;
+      })
+    );
+  }, [teacherClassesQuery.data, selectedQuiz?.courseId]);
 
   const teacherStudents = useMemo(() => {
     const rows = Array.isArray(teacherStudentsQuery.data) ? teacherStudentsQuery.data : [];
@@ -183,7 +206,15 @@ function TeacherQuizDetailAssignmentGrading() {
         .filter(Boolean)
     );
     setAssignmentDueAt(toDateTimeLocalValue(selectedQuiz?.assignment?.dueAt));
-  }, [selectedQuiz?.id, selectedQuiz?.assignment?.dueAt, selectedQuiz?.assignment?.students]);
+    setAssignmentTargetType(
+      ["students", "course", "class"].includes(
+        lowerText(selectedQuiz?.assignment?.targetType || "")
+      )
+        ? lowerText(selectedQuiz.assignment.targetType)
+        : "students"
+    );
+    setAssignmentClassId(String(selectedQuiz?.assignment?.classId || "").trim());
+  }, [selectedQuiz?.id, selectedQuiz?.assignment?.dueAt, selectedQuiz?.assignment?.students, selectedQuiz?.assignment?.targetType, selectedQuiz?.assignment?.classId]);
 
   const submissions = Array.isArray(submissionsQuery.data) ? submissionsQuery.data : [];
   const pendingSubmissions = submissions.filter((row) => {
@@ -212,7 +243,11 @@ function TeacherQuizDetailAssignmentGrading() {
       toast.error("Select due date and time");
       return;
     }
-    if (!assignmentStudentIds.length) {
+    if (assignmentTargetType === "class" && !assignmentClassId) {
+      toast.error("Select a class for class assignment");
+      return;
+    }
+    if (assignmentTargetType === "students" && !assignmentStudentIds.length) {
       toast.error("Select at least one student");
       return;
     }
@@ -220,7 +255,10 @@ function TeacherQuizDetailAssignmentGrading() {
       id: quizId,
       payload: {
         dueAt: new Date(assignmentDueAt).toISOString(),
-        studentIds: assignmentStudentIds,
+        targetType: assignmentTargetType,
+        classId: assignmentTargetType === "class" ? assignmentClassId : "",
+        courseId: assignmentTargetType === "course" ? selectedQuiz?.courseId || "" : "",
+        studentIds: assignmentTargetType === "students" ? assignmentStudentIds : [],
       },
     });
   };
@@ -266,7 +304,7 @@ function TeacherQuizDetailAssignmentGrading() {
               Quiz Detail, Assignment & Grading
             </h2>
             <p className="mt-1 text-sm text-slate-500">
-              Assign quizzes to students, track results, and manually grade short answers.
+              Assign MCQ quizzes by course, class, or selected students and track results.
             </p>
           </div>
           <div className="flex gap-2">
@@ -371,60 +409,107 @@ function TeacherQuizDetailAssignmentGrading() {
                   value={assignmentDueAt}
                   onChange={(event) => setAssignmentDueAt(event.target.value)}
                 />
-                <input
-                  className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                  placeholder="Search student by name/email"
-                  value={studentSearch}
-                  onChange={(event) => setStudentSearch(event.target.value)}
-                />
                 <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    className="btn-outline"
-                    onClick={() =>
-                      setAssignmentStudentIds(
-                        filteredStudents.map((student) => student.studentId)
-                      )
-                    }
-                  >
-                    Select All
-                  </button>
-                  <button
-                    type="button"
-                    className="btn-outline"
-                    onClick={() => setAssignmentStudentIds([])}
-                  >
-                    Clear
-                  </button>
+                  {[
+                    { key: "course", label: "Whole Course" },
+                    { key: "class", label: "By Class" },
+                    { key: "students", label: "Selected Students" },
+                  ].map((item) => (
+                    <button
+                      key={item.key}
+                      type="button"
+                      className={`rounded-full px-3 py-1.5 text-xs font-semibold ${
+                        assignmentTargetType === item.key
+                          ? "bg-[#4a63f5] text-white"
+                          : "border border-slate-200 text-slate-600"
+                      }`}
+                      onClick={() => {
+                        setAssignmentTargetType(item.key);
+                        if (item.key !== "class") setAssignmentClassId("");
+                      }}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
                 </div>
-                <div className="max-h-56 space-y-2 overflow-auto rounded-xl border border-slate-200 p-2">
-                  {filteredStudents.map((student) => {
-                    const checked = assignmentStudentIds.includes(student.studentId);
-                    return (
-                      <label
-                        key={student.studentId}
-                        className={`flex cursor-pointer items-center justify-between rounded-lg px-2 py-2 text-xs ${
-                          checked ? "bg-[#4a63f5]/10" : "bg-slate-50"
-                        }`}
+                {assignmentTargetType === "class" ? (
+                  <select
+                    className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                    value={assignmentClassId}
+                    onChange={(event) => setAssignmentClassId(event.target.value)}
+                  >
+                    <option value="">Select Class</option>
+                    {classOptions.map((row) => (
+                      <option key={row.id} value={row.id}>
+                        {row.name} {row.batchCode ? `(${row.batchCode})` : ""}
+                      </option>
+                    ))}
+                  </select>
+                ) : null}
+                {assignmentTargetType === "course" ? (
+                  <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
+                    This will assign the quiz to all students enrolled in{" "}
+                    <span className="font-semibold">{selectedQuiz?.courseName || "course"}</span>.
+                  </p>
+                ) : null}
+                {assignmentTargetType === "students" ? (
+                  <>
+                    <input
+                      className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                      placeholder="Search student by name/email"
+                      value={studentSearch}
+                      onChange={(event) => setStudentSearch(event.target.value)}
+                    />
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        className="btn-outline"
+                        onClick={() =>
+                          setAssignmentStudentIds(
+                            filteredStudents.map((student) => student.studentId)
+                          )
+                        }
                       >
-                        <span>
-                          <span className="block font-semibold text-slate-800">
-                            {student.fullName}
-                          </span>
-                          <span className="text-slate-500">{student.email || "-"}</span>
-                        </span>
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={() => toggleAssignStudent(student.studentId)}
-                        />
-                      </label>
-                    );
-                  })}
-                  {filteredStudents.length < 1 ? (
-                    <p className="text-xs text-slate-500">No students found.</p>
-                  ) : null}
-                </div>
+                        Select All
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-outline"
+                        onClick={() => setAssignmentStudentIds([])}
+                      >
+                        Clear
+                      </button>
+                    </div>
+                    <div className="max-h-56 space-y-2 overflow-auto rounded-xl border border-slate-200 p-2">
+                      {filteredStudents.map((student) => {
+                        const checked = assignmentStudentIds.includes(student.studentId);
+                        return (
+                          <label
+                            key={student.studentId}
+                            className={`flex cursor-pointer items-center justify-between rounded-lg px-2 py-2 text-xs ${
+                              checked ? "bg-[#4a63f5]/10" : "bg-slate-50"
+                            }`}
+                          >
+                            <span>
+                              <span className="block font-semibold text-slate-800">
+                                {student.fullName}
+                              </span>
+                              <span className="text-slate-500">{student.email || "-"}</span>
+                            </span>
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => toggleAssignStudent(student.studentId)}
+                            />
+                          </label>
+                        );
+                      })}
+                      {filteredStudents.length < 1 ? (
+                        <p className="text-xs text-slate-500">No students found.</p>
+                      ) : null}
+                    </div>
+                  </>
+                ) : null}
                 <button
                   type="button"
                   className="btn-primary"
@@ -551,7 +636,7 @@ function TeacherQuizDetailAssignmentGrading() {
             className="xl:col-span-2 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"
           >
             <h4 className="text-sm font-semibold text-slate-800">
-              Manual Grading (Short Answers)
+              Manual Grading (Legacy Non-MCQ Quizzes)
             </h4>
             {submissionsQuery.isLoading ? (
               <div className="mt-4 space-y-2">
@@ -561,7 +646,7 @@ function TeacherQuizDetailAssignmentGrading() {
               </div>
             ) : pendingSubmissions.length === 0 ? (
               <p className="mt-3 text-sm text-slate-500">
-                No pending short-answer submissions.
+                No manual grading required for MCQ quizzes.
               </p>
             ) : (
               <div className="mt-4 space-y-4">

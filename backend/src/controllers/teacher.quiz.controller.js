@@ -24,7 +24,8 @@ const makeId = () => {
 };
 
 const QUIZ_SCOPE = new Set(["chapter", "subject"]);
-const QUESTION_TYPES = new Set(["mcq", "true_false", "short_answer"]);
+const QUESTION_TYPES = new Set(["mcq"]);
+const ASSIGNMENT_TARGET_TYPES = new Set(["students", "course", "class"]);
 const CSV_HEADERS = [
   "scope",
   "courseid",
@@ -158,12 +159,6 @@ const mapQuestionType = (value = "") => {
   if (["mcq", "multiple_choice", "multiple-choice", "quiz"].includes(normalized)) {
     return "mcq";
   }
-  if (["true_false", "true-false", "truefalse", "tf"].includes(normalized)) {
-    return "true_false";
-  }
-  if (["short_answer", "short-answer", "shortanswer", "short"].includes(normalized)) {
-    return "short_answer";
-  }
   return normalized;
 };
 
@@ -192,7 +187,7 @@ const normalizeQuestionInput = (questionInput = {}, rowRef = 1) => {
   const rowLabel = Number.isFinite(Number(rowRef)) ? Number(rowRef) : rowRef;
 
   if (!QUESTION_TYPES.has(type)) {
-    throw new Error(`Invalid question type at row ${rowLabel}`);
+    throw new Error(`Only mcq questionType is allowed (row ${rowLabel})`);
   }
   if (questionText.length < 3) {
     throw new Error(`Question text too short at row ${rowLabel}`);
@@ -249,51 +244,15 @@ const normalizeQuestionInput = (questionInput = {}, rowRef = 1) => {
     };
   }
 
-  if (type === "true_false") {
-    const parsed = parseBooleanLike(questionInput.correctAnswer);
-    if (parsed === null) {
-      throw new Error(`True/False answer must be true or false at row ${rowLabel}`);
-    }
-    return {
-      questionId: trimText(questionInput.questionId) || makeId(),
-      type: "true_false",
-      questionType: "true_false",
-      questionText,
-      options: ["True", "False"],
-      correctAnswer: parsed,
-      expectedAnswer: "",
-      marks,
-      requiresManualReview: false,
-      order: Number.isFinite(Number(rowRef)) ? Number(rowRef) : 1,
-    };
-  }
-
-  const expectedAnswer = trimText(
-    questionInput.expectedAnswer || questionInput.correctAnswer
-  );
-  if (!expectedAnswer) {
-    throw new Error(`Short answer expectedAnswer is required at row ${rowLabel}`);
-  }
-
-  return {
-    questionId: trimText(questionInput.questionId) || makeId(),
-    type: "short_answer",
-    questionType: "short_answer",
-    questionText,
-    options: [],
-    correctAnswer: null,
-    expectedAnswer,
-    marks,
-    requiresManualReview: true,
-    order: Number.isFinite(Number(rowRef)) ? Number(rowRef) : 1,
-  };
+  throw new Error(`Invalid mcq row ${rowLabel}`);
 };
 
 const getTeacherCourseSubjectContext = async (
   uid,
   courseId,
   subjectId,
-  chapterId = ""
+  chapterId = "",
+  role = "teacher"
 ) => {
   const courseSnap = await db.collection(COLLECTIONS.COURSES).doc(courseId).get();
   if (!courseSnap.exists) return { error: "Course not found", status: 404 };
@@ -307,10 +266,12 @@ const getTeacherCourseSubjectContext = async (
   );
   if (!subject) return { error: "Subject not found in this course", status: 404 };
 
-  const subjectTeacherId = trimText(subject.teacherId);
-  const courseTeacherId = trimText(courseData.teacherId);
-  const assigned = subjectTeacherId === uid || courseTeacherId === uid;
-  if (!assigned) return { error: "You are not assigned to this subject", status: 403 };
+  if (role !== "admin") {
+    const subjectTeacherId = trimText(subject.teacherId);
+    const courseTeacherId = trimText(courseData.teacherId);
+    const assigned = subjectTeacherId === uid || courseTeacherId === uid;
+    if (!assigned) return { error: "You are not assigned to this subject", status: 403 };
+  }
 
   let chapterData = null;
   if (chapterId) {
@@ -332,6 +293,84 @@ const getTeacherCourseSubjectContext = async (
   };
 };
 
+const getActorRole = (req = {}) => lowerText(req.user?.role || "teacher");
+const isAdminActor = (req = {}) => getActorRole(req) === "admin";
+
+const isTeacherAssignedToClass = (classData = {}, uid = "") => {
+  if (!uid) return false;
+  if (trimText(classData.teacherId) === uid) return true;
+
+  const teachers = Array.isArray(classData.teachers) ? classData.teachers : [];
+  if (
+    teachers.some((entry) => {
+      if (typeof entry === "string") return trimText(entry) === uid;
+      return (
+        trimText(entry?.teacherId) === uid ||
+        trimText(entry?.id) === uid ||
+        trimText(entry?.uid) === uid
+      );
+    })
+  ) {
+    return true;
+  }
+
+  const shifts = Array.isArray(classData.shifts) ? classData.shifts : [];
+  return shifts.some((shift) => trimText(shift?.teacherId) === uid);
+};
+
+const getClassStudentIds = (classData = {}) => {
+  const raw = Array.isArray(classData.students) ? classData.students : [];
+  return [
+    ...new Set(
+      raw
+        .map((entry) =>
+          typeof entry === "string"
+            ? trimText(entry)
+            : trimText(entry?.studentId || entry?.id || entry?.uid)
+        )
+        .filter(Boolean)
+    ),
+  ];
+};
+
+const getClassAssignedCourseIds = (classData = {}) => {
+  const assigned = Array.isArray(classData.assignedCourses) ? classData.assignedCourses : [];
+  const ids = assigned
+    .map((entry) =>
+      typeof entry === "string" ? trimText(entry) : trimText(entry?.courseId || entry?.id)
+    )
+    .filter(Boolean);
+  const fallbackCourseId = trimText(classData.courseId);
+  if (fallbackCourseId) ids.push(fallbackCourseId);
+  return [...new Set(ids)];
+};
+
+const getStudentIdsForCourse = async (courseId = "") => {
+  const cleanCourseId = trimText(courseId);
+  if (!cleanCourseId) return [];
+
+  const statuses = new Set(["", "active", "completed", "pending_review"]);
+  const enrollmentSnap = await db
+    .collection(COLLECTIONS.ENROLLMENTS)
+    .where("courseId", "==", cleanCourseId)
+    .get();
+  const fromEnrollments = enrollmentSnap.docs
+    .map((doc) => doc.data() || {})
+    .filter((row) => statuses.has(lowerText(row.status || "active")))
+    .map((row) => trimText(row.studentId))
+    .filter(Boolean);
+
+  const classesSnap = await db.collection(COLLECTIONS.CLASSES).get();
+  const fromClasses = classesSnap.docs.flatMap((doc) => {
+    const classData = doc.data() || {};
+    const classCourseIds = getClassAssignedCourseIds(classData);
+    if (!classCourseIds.includes(cleanCourseId)) return [];
+    return getClassStudentIds(classData);
+  });
+
+  return [...new Set([...fromEnrollments, ...fromClasses])];
+};
+
 const normalizeAssignmentInfo = (assignment = {}) => {
   const students = Array.isArray(assignment.students) ? assignment.students : [];
   const normalizedStudents = students
@@ -343,6 +382,11 @@ const normalizeAssignmentInfo = (assignment = {}) => {
     .filter((student) => student.studentId);
 
   return {
+    targetType: ASSIGNMENT_TARGET_TYPES.has(lowerText(assignment.targetType))
+      ? lowerText(assignment.targetType)
+      : "students",
+    classId: trimText(assignment.classId),
+    courseId: trimText(assignment.courseId),
     assignedAt: toIso(assignment.assignedAt),
     dueAt: toIso(assignment.dueAt),
     assignedBy: trimText(assignment.assignedBy),
@@ -395,6 +439,9 @@ const normalizeQuizSummary = (quizId, data = {}) => ({
 const buildQuizDocument = ({
   teacherId,
   teacherName,
+  createdBy,
+  createdByName,
+  createdByRole,
   scope,
   title,
   description,
@@ -418,6 +465,9 @@ const buildQuizDocument = ({
   return {
     teacherId,
     teacherName,
+    createdBy,
+    createdByName,
+    createdByRole,
     scope,
     status: "active",
     title,
@@ -550,12 +600,12 @@ const evaluateQuizAnswersInternal = (quizData = {}, submittedAnswers = {}) => {
   };
 };
 
-const getOwnedQuiz = async (quizId, teacherId) => {
+const getOwnedQuiz = async (quizId, teacherId, role = "teacher") => {
   const quizRef = db.collection(COLLECTIONS.QUIZZES).doc(quizId);
   const quizSnap = await quizRef.get();
   if (!quizSnap.exists) return { error: "Quiz not found", status: 404 };
   const quizData = quizSnap.data() || {};
-  if (trimText(quizData.teacherId) !== teacherId) {
+  if (role !== "admin" && trimText(quizData.teacherId) !== teacherId) {
     return { error: "Forbidden", status: 403 };
   }
   return { quizRef, quizSnap, quizData };
@@ -592,28 +642,48 @@ const getStudentAssignmentProfile = async (studentId) => {
 export const getTeacherQuizzes = async (req, res) => {
   try {
     const uid = trimText(req.user?.uid);
-    if (!uid) return errorResponse(res, "Missing teacher uid", 400);
+    const role = getActorRole(req);
+    if (!uid) return errorResponse(res, "Missing user uid", 400);
 
     let rows = [];
-    try {
-      const snap = await db
-        .collection(COLLECTIONS.QUIZZES)
-        .where("teacherId", "==", uid)
-        .orderBy("createdAt", "desc")
-        .get();
-      rows = snap.docs.map((doc) => ({ id: doc.id, data: doc.data() || {} }));
-    } catch {
-      const snap = await db
-        .collection(COLLECTIONS.QUIZZES)
-        .where("teacherId", "==", uid)
-        .get();
-      rows = snap.docs
-        .map((doc) => ({ id: doc.id, data: doc.data() || {} }))
-        .sort(
-          (a, b) =>
-            (new Date(toIso(b.data.createdAt) || 0).getTime() || 0) -
-            (new Date(toIso(a.data.createdAt) || 0).getTime() || 0)
-        );
+    if (role === "admin") {
+      try {
+        const snap = await db
+          .collection(COLLECTIONS.QUIZZES)
+          .orderBy("createdAt", "desc")
+          .get();
+        rows = snap.docs.map((doc) => ({ id: doc.id, data: doc.data() || {} }));
+      } catch {
+        const snap = await db.collection(COLLECTIONS.QUIZZES).get();
+        rows = snap.docs
+          .map((doc) => ({ id: doc.id, data: doc.data() || {} }))
+          .sort(
+            (a, b) =>
+              (new Date(toIso(b.data.createdAt) || 0).getTime() || 0) -
+              (new Date(toIso(a.data.createdAt) || 0).getTime() || 0)
+          );
+      }
+    } else {
+      try {
+        const snap = await db
+          .collection(COLLECTIONS.QUIZZES)
+          .where("teacherId", "==", uid)
+          .orderBy("createdAt", "desc")
+          .get();
+        rows = snap.docs.map((doc) => ({ id: doc.id, data: doc.data() || {} }));
+      } catch {
+        const snap = await db
+          .collection(COLLECTIONS.QUIZZES)
+          .where("teacherId", "==", uid)
+          .get();
+        rows = snap.docs
+          .map((doc) => ({ id: doc.id, data: doc.data() || {} }))
+          .sort(
+            (a, b) =>
+              (new Date(toIso(b.data.createdAt) || 0).getTime() || 0) -
+              (new Date(toIso(a.data.createdAt) || 0).getTime() || 0)
+          );
+      }
     }
 
     const payload = rows.map((row) => normalizeQuizSummary(row.id, row.data));
@@ -627,11 +697,12 @@ export const getTeacherQuizzes = async (req, res) => {
 export const getTeacherQuizById = async (req, res) => {
   try {
     const uid = trimText(req.user?.uid);
+    const role = getActorRole(req);
     const quizId = trimText(req.params?.quizId);
-    if (!uid) return errorResponse(res, "Missing teacher uid", 400);
+    if (!uid) return errorResponse(res, "Missing user uid", 400);
     if (!quizId) return errorResponse(res, "quizId is required", 400);
 
-    const owned = await getOwnedQuiz(quizId, uid);
+    const owned = await getOwnedQuiz(quizId, uid, role);
     if (owned.error) return errorResponse(res, owned.error, owned.status);
 
     const quiz = normalizeQuizSummary(quizId, owned.quizData);
@@ -656,8 +727,14 @@ export const getTeacherQuizById = async (req, res) => {
 export const assignQuizToStudents = async (req, res) => {
   try {
     const uid = trimText(req.user?.uid);
+    const role = getActorRole(req);
     const quizId = trimText(req.params?.quizId);
     const dueAtRaw = trimText(req.body?.dueAt);
+    const targetType = ASSIGNMENT_TARGET_TYPES.has(lowerText(req.body?.targetType))
+      ? lowerText(req.body?.targetType)
+      : "students";
+    const classId = trimText(req.body?.classId);
+    const requestedCourseId = trimText(req.body?.courseId);
     const studentIds = [
       ...new Set(
         (Array.isArray(req.body?.studentIds) ? req.body.studentIds : [])
@@ -666,11 +743,8 @@ export const assignQuizToStudents = async (req, res) => {
       ),
     ];
 
-    if (!uid) return errorResponse(res, "Missing teacher uid", 400);
+    if (!uid) return errorResponse(res, "Missing user uid", 400);
     if (!quizId) return errorResponse(res, "quizId is required", 400);
-    if (!studentIds.length) {
-      return errorResponse(res, "Select at least one student", 400);
-    }
     if (!dueAtRaw) {
       return errorResponse(res, "dueAt is required", 400);
     }
@@ -683,13 +757,96 @@ export const assignQuizToStudents = async (req, res) => {
       return errorResponse(res, "dueAt must be in the future", 400);
     }
 
-    const owned = await getOwnedQuiz(quizId, uid);
+    const owned = await getOwnedQuiz(quizId, uid, role);
     if (owned.error) return errorResponse(res, owned.error, owned.status);
+    const quizData = owned.quizData || {};
+    const quizCourseId = trimText(quizData.courseId);
+    const quizSubjectId = trimText(quizData.subjectId);
+    const quizChapterId = trimText(quizData.chapterId);
+
+    if (!quizCourseId || !quizSubjectId) {
+      return errorResponse(res, "Quiz is missing course/subject linkage", 400);
+    }
+
+    if (!isAdminActor(req)) {
+      const teacherContext = await getTeacherCourseSubjectContext(
+        uid,
+        quizCourseId,
+        quizSubjectId,
+        quizChapterId,
+        role
+      );
+      if (teacherContext.error) {
+        return errorResponse(res, teacherContext.error, teacherContext.status);
+      }
+    }
+
+    const effectiveCourseId = requestedCourseId || quizCourseId;
+    if (effectiveCourseId !== quizCourseId) {
+      return errorResponse(res, "Quiz can only be assigned within its own course", 400);
+    }
+
+    let targetStudentIds = [];
+    if (targetType === "course") {
+      targetStudentIds = await getStudentIdsForCourse(quizCourseId);
+      if (!targetStudentIds.length) {
+        return errorResponse(res, "No students found in this course", 400);
+      }
+    } else if (targetType === "class") {
+      if (!classId) {
+        return errorResponse(res, "classId is required for class assignment", 400);
+      }
+
+      const classSnap = await db.collection(COLLECTIONS.CLASSES).doc(classId).get();
+      if (!classSnap.exists) return errorResponse(res, "Class not found", 404);
+      const classData = classSnap.data() || {};
+
+      const classCourseIds = getClassAssignedCourseIds(classData);
+      if (!classCourseIds.includes(quizCourseId)) {
+        return errorResponse(
+          res,
+          "Selected class is not assigned to this quiz course",
+          400
+        );
+      }
+
+      if (!isAdminActor(req) && !isTeacherAssignedToClass(classData, uid)) {
+        return errorResponse(
+          res,
+          "You can only assign to your assigned classes",
+          403
+        );
+      }
+
+      targetStudentIds = getClassStudentIds(classData);
+      if (!targetStudentIds.length) {
+        return errorResponse(res, "No students found in selected class", 400);
+      }
+    } else {
+      if (!studentIds.length) {
+        return errorResponse(res, "Select at least one student", 400);
+      }
+      const eligibleCourseStudents = new Set(await getStudentIdsForCourse(quizCourseId));
+      const invalidStudentIds = studentIds.filter((studentId) => !eligibleCourseStudents.has(studentId));
+      if (invalidStudentIds.length) {
+        return errorResponse(
+          res,
+          `Some students are not enrolled in this quiz course: ${invalidStudentIds.join(", ")}`,
+          400
+        );
+      }
+      targetStudentIds = studentIds;
+    }
+
+    const uniqueStudentIds = [...new Set(targetStudentIds.map((id) => trimText(id)).filter(Boolean))];
+    if (!uniqueStudentIds.length) {
+      return errorResponse(res, "No valid students found for assignment", 400);
+    }
 
     const profiles = await Promise.all(
-      studentIds.map((studentId) => getStudentAssignmentProfile(studentId))
+      uniqueStudentIds.map((studentId) => getStudentAssignmentProfile(studentId))
     );
-    const missingIds = studentIds.filter((_, index) => !profiles[index]);
+    const missingIds = uniqueStudentIds.filter((_, index) => !profiles[index]);
     if (missingIds.length) {
       return errorResponse(
         res,
@@ -709,6 +866,9 @@ export const assignQuizToStudents = async (req, res) => {
         assignedBy: uid,
         assignedAt: serverTimestamp(),
         dueAt: dueDate.toISOString(),
+        targetType,
+        classId: targetType === "class" ? classId : "",
+        courseId: quizCourseId,
         totalAssigned: students.length,
         students,
       },
@@ -735,12 +895,13 @@ export const assignQuizToStudents = async (req, res) => {
 export const getQuizAnalytics = async (req, res) => {
   try {
     const uid = trimText(req.user?.uid);
+    const role = getActorRole(req);
     const quizId = trimText(req.params?.quizId);
 
-    if (!uid) return errorResponse(res, "Missing teacher uid", 400);
+    if (!uid) return errorResponse(res, "Missing user uid", 400);
     if (!quizId) return errorResponse(res, "quizId is required", 400);
 
-    const owned = await getOwnedQuiz(quizId, uid);
+    const owned = await getOwnedQuiz(quizId, uid, role);
     if (owned.error) return errorResponse(res, owned.error, owned.status);
 
     const assignment = normalizeAssignmentInfo(owned.quizData.assignment || {});
@@ -881,7 +1042,8 @@ export const getQuizAnalytics = async (req, res) => {
 export const createTeacherQuiz = async (req, res) => {
   try {
     const uid = trimText(req.user?.uid);
-    if (!uid) return errorResponse(res, "Missing teacher uid", 400);
+    const role = getActorRole(req);
+    if (!uid) return errorResponse(res, "Missing user uid", 400);
 
     const scope = lowerText(req.body?.scope || "subject");
     const title = trimText(req.body?.title);
@@ -911,7 +1073,8 @@ export const createTeacherQuiz = async (req, res) => {
       uid,
       courseId,
       subjectId,
-      scope === "chapter" ? chapterId : ""
+      scope === "chapter" ? chapterId : "",
+      role
     );
     if (context.error) return errorResponse(res, context.error, context.status);
 
@@ -919,10 +1082,13 @@ export const createTeacherQuiz = async (req, res) => {
       normalizeQuestionInput(row, index + 1)
     );
 
-    const teacherName = await getTeacherDisplayName(uid, req.user?.email || "");
+    const actorName = await getTeacherDisplayName(uid, req.user?.email || "");
     const payload = buildQuizDocument({
-      teacherId: uid,
-      teacherName,
+      teacherId: role === "teacher" ? uid : "",
+      teacherName: role === "teacher" ? actorName : "",
+      createdBy: uid,
+      createdByName: actorName,
+      createdByRole: role || "teacher",
       scope,
       title,
       description,
@@ -958,7 +1124,8 @@ export const createTeacherQuiz = async (req, res) => {
 export const downloadQuizBulkTemplate = async (req, res) => {
   try {
     const uid = trimText(req.user?.uid);
-    if (!uid) return errorResponse(res, "Missing teacher uid", 400);
+    const role = getActorRole(req);
+    if (!uid) return errorResponse(res, "Missing user uid", 400);
 
     const scope = lowerText(req.query?.scope || "subject");
     const courseId = trimText(req.query?.courseId);
@@ -982,7 +1149,8 @@ export const downloadQuizBulkTemplate = async (req, res) => {
       uid,
       courseId,
       subjectId,
-      scope === "chapter" ? chapterId : ""
+      scope === "chapter" ? chapterId : "",
+      role
     );
     if (context.error) return errorResponse(res, context.error, context.status);
 
@@ -1023,13 +1191,13 @@ export const downloadQuizBulkTemplate = async (req, res) => {
         chapterValue,
         quizTitle,
         description,
-        "true_false",
+        "mcq",
         "Sun rises from the east.",
+        "True",
+        "False",
         "",
         "",
-        "",
-        "",
-        "TRUE",
+        "A",
         "",
         "1",
       ],
@@ -1040,15 +1208,15 @@ export const downloadQuizBulkTemplate = async (req, res) => {
         chapterValue,
         quizTitle,
         description,
-        "short_answer",
+        "mcq",
         "Define osmosis.",
+        "Movement of water",
+        "Cell division",
+        "Gravity",
+        "Mitosis",
+        "A",
         "",
-        "",
-        "",
-        "",
-        "",
-        "Movement of water across semipermeable membrane",
-        "5",
+        "2",
       ],
       [
         scope,
@@ -1074,13 +1242,13 @@ export const downloadQuizBulkTemplate = async (req, res) => {
         chapterValue,
         quizTitle,
         description,
-        "true_false",
+        "mcq",
         "Water boils at 100C at sea level.",
+        "True",
+        "False",
         "",
         "",
-        "",
-        "",
-        "TRUE",
+        "A",
         "",
         "1",
       ],
@@ -1105,7 +1273,7 @@ export const downloadQuizBulkTemplate = async (req, res) => {
     ];
 
     const commentRow =
-      "# scope: chapter or subject | courseId/subjectId/chapterId: DO NOT EDIT | questionType: mcq or true_false or short_answer | correctAnswer for mcq: A B C or D | correctAnswer for true_false: TRUE or FALSE | expectedAnswer: for short_answer only | marks: number of marks for this question";
+      "# scope: chapter or subject | courseId/subjectId/chapterId: DO NOT EDIT | questionType: mcq only | correctAnswer for mcq: A B C or D | marks: number of marks for this question";
     const guidanceRow =
       "# DO NOT EDIT columns A-D (scope courseId subjectId chapterId). Fill questions from column E onwards. Delete comment rows before uploading.";
 
@@ -1135,7 +1303,8 @@ export const downloadQuizBulkTemplate = async (req, res) => {
 export const bulkUploadTeacherQuiz = async (req, res) => {
   try {
     const uid = trimText(req.user?.uid);
-    if (!uid) return errorResponse(res, "Missing teacher uid", 400);
+    const role = getActorRole(req);
+    if (!uid) return errorResponse(res, "Missing user uid", 400);
     const fileBuffer = req.file?.buffer;
     const csvText = fileBuffer
       ? fileBuffer.toString("utf8")
@@ -1230,7 +1399,8 @@ export const bulkUploadTeacherQuiz = async (req, res) => {
       uid,
       courseId,
       subjectId,
-      chapterId
+      chapterId,
+      role
     );
     if (context.error) return errorResponse(res, context.error, context.status);
 
@@ -1289,7 +1459,7 @@ export const bulkUploadTeacherQuiz = async (req, res) => {
       return errorResponse(res, "No valid questions found in CSV", 400);
     }
 
-    const teacherName = await getTeacherDisplayName(uid, req.user?.email || "");
+    const actorName = await getTeacherDisplayName(uid, req.user?.email || "");
     const courseName = trimText(context.courseData.title) || "Course";
     const subjectName =
       trimText(context.subjectData.subjectName || context.subjectData.name) || "Subject";
@@ -1300,8 +1470,11 @@ export const bulkUploadTeacherQuiz = async (req, res) => {
 
     for (const group of groupedByTitle.values()) {
       const payload = buildQuizDocument({
-        teacherId: uid,
-        teacherName,
+        teacherId: role === "teacher" ? uid : "",
+        teacherName: role === "teacher" ? actorName : "",
+        createdBy: uid,
+        createdByName: actorName,
+        createdByRole: role || "teacher",
         scope,
         title: group.title,
         description: group.description,
@@ -1342,13 +1515,14 @@ export const bulkUploadTeacherQuiz = async (req, res) => {
 export const previewQuizEvaluation = async (req, res) => {
   try {
     const uid = trimText(req.user?.uid);
+    const role = getActorRole(req);
     const quizId = trimText(req.params?.quizId);
     const answers = req.body?.answers;
 
-    if (!uid) return errorResponse(res, "Missing teacher uid", 400);
+    if (!uid) return errorResponse(res, "Missing user uid", 400);
     if (!quizId) return errorResponse(res, "quizId is required", 400);
 
-    const owned = await getOwnedQuiz(quizId, uid);
+    const owned = await getOwnedQuiz(quizId, uid, role);
     if (owned.error) return errorResponse(res, owned.error, owned.status);
 
     const evaluation = evaluateQuizAnswersInternal(owned.quizData, answers);
@@ -1362,16 +1536,17 @@ export const previewQuizEvaluation = async (req, res) => {
 export const submitQuizAttempt = async (req, res) => {
   try {
     const uid = trimText(req.user?.uid);
+    const role = getActorRole(req);
     const quizId = trimText(req.params?.quizId);
     const studentId = trimText(req.body?.studentId);
     const studentName = trimText(req.body?.studentName);
     const answers = req.body?.answers;
 
-    if (!uid) return errorResponse(res, "Missing teacher uid", 400);
+    if (!uid) return errorResponse(res, "Missing user uid", 400);
     if (!quizId) return errorResponse(res, "quizId is required", 400);
     if (!studentId) return errorResponse(res, "studentId is required", 400);
 
-    const owned = await getOwnedQuiz(quizId, uid);
+    const owned = await getOwnedQuiz(quizId, uid, role);
     if (owned.error) return errorResponse(res, owned.error, owned.status);
 
     const evaluation = evaluateQuizAnswersInternal(owned.quizData, answers);
@@ -1422,12 +1597,13 @@ export const submitQuizAttempt = async (req, res) => {
 export const getQuizSubmissions = async (req, res) => {
   try {
     const uid = trimText(req.user?.uid);
+    const role = getActorRole(req);
     const quizId = trimText(req.params?.quizId);
 
-    if (!uid) return errorResponse(res, "Missing teacher uid", 400);
+    if (!uid) return errorResponse(res, "Missing user uid", 400);
     if (!quizId) return errorResponse(res, "quizId is required", 400);
 
-    const owned = await getOwnedQuiz(quizId, uid);
+    const owned = await getOwnedQuiz(quizId, uid, role);
     if (owned.error) return errorResponse(res, owned.error, owned.status);
 
     let rows = [];
@@ -1515,18 +1691,19 @@ export const getQuizSubmissions = async (req, res) => {
 export const gradeShortAnswerSubmission = async (req, res) => {
   try {
     const uid = trimText(req.user?.uid);
+    const role = getActorRole(req);
     const quizId = trimText(req.params?.quizId);
     const resultId = trimText(req.params?.resultId);
     const gradedAnswers = Array.isArray(req.body?.gradedAnswers)
       ? req.body.gradedAnswers
       : [];
 
-    if (!uid) return errorResponse(res, "Missing teacher uid", 400);
+    if (!uid) return errorResponse(res, "Missing user uid", 400);
     if (!quizId || !resultId) {
       return errorResponse(res, "quizId and resultId are required", 400);
     }
 
-    const owned = await getOwnedQuiz(quizId, uid);
+    const owned = await getOwnedQuiz(quizId, uid, role);
     if (owned.error) return errorResponse(res, owned.error, owned.status);
 
     const resultRef = db.collection(COLLECTIONS.QUIZ_RESULTS).doc(resultId);

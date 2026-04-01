@@ -131,9 +131,14 @@ export const getTeacherDashboard = async (req, res) => {
       data: doc.data() || {},
     }));
 
-    const teacherCourseIds = new Set(
-      normalizeTeacherCourseIds(allCourses, teacherId)
-    );
+    const teacherClassDocs = classesSnap.docs
+      .map((doc) => ({ id: doc.id, data: doc.data() || {} }))
+      .filter((row) => isTeacherAssignedToClass(row.data, teacherId));
+
+    const teacherCourseIds = new Set([
+      ...normalizeTeacherCourseIds(allCourses, teacherId),
+      ...getTeacherClassDerivedCourseIds(teacherClassDocs, teacherId),
+    ]);
 
     const teacherCourses = allCourses.filter((course) =>
       teacherCourseIds.has(course.id)
@@ -148,9 +153,6 @@ export const getTeacherDashboard = async (req, res) => {
       .map((doc) => ({ id: doc.id, ...(doc.data() || {}) }))
       .filter((row) => teacherCourseIds.has(String(row.courseId || "")));
 
-    const teacherClassDocs = classesSnap.docs
-      .map((doc) => ({ id: doc.id, data: doc.data() || {} }))
-      .filter((row) => isTeacherAssignedToClass(row.data, teacherId));
     const inferredEnrollments = buildClassDerivedEnrollmentRows(
       teacherClassDocs,
       Array.from(teacherCourseIds)
@@ -430,6 +432,73 @@ const getClassAssignedCourseIds = (classData = {}) => {
   });
 
   return [...new Set(ids)];
+};
+
+const isTeacherListedInClassTeachers = (classData = {}, uid = "") => {
+  const cleanUid = trimText(uid);
+  if (!cleanUid) return false;
+  const teachers = Array.isArray(classData.teachers) ? classData.teachers : [];
+  return teachers.some((entry) => {
+    if (typeof entry === "string") return trimText(entry) === cleanUid;
+    return (
+      trimText(entry?.teacherId) === cleanUid ||
+      trimText(entry?.id) === cleanUid ||
+      trimText(entry?.uid) === cleanUid
+    );
+  });
+};
+
+const getTeacherCourseIdsFromClassData = (classData = {}, uid = "") => {
+  const cleanUid = trimText(uid);
+  if (!cleanUid) return [];
+
+  const shiftCourses = (Array.isArray(classData.shifts) ? classData.shifts : [])
+    .filter((shift) => trimText(shift?.teacherId) === cleanUid)
+    .map((shift) => trimText(shift?.courseId))
+    .filter(Boolean);
+  if (shiftCourses.length) return [...new Set(shiftCourses)];
+
+  if (
+    trimText(classData.teacherId) === cleanUid ||
+    isTeacherListedInClassTeachers(classData, cleanUid)
+  ) {
+    return getClassAssignedCourseIds(classData);
+  }
+
+  return [];
+};
+
+const getTeacherClassDerivedCourseIds = (classDocs = [], uid = "") => {
+  const courseIds = new Set();
+  classDocs.forEach((row) => {
+    getTeacherCourseIdsFromClassData(row?.data || {}, uid).forEach((courseId) => {
+      const cleanCourseId = trimText(courseId);
+      if (cleanCourseId) courseIds.add(cleanCourseId);
+    });
+  });
+  return Array.from(courseIds);
+};
+
+const getTeacherClassesByCourseId = (classDocs = [], uid = "") => {
+  const map = {};
+  classDocs.forEach((row) => {
+    const classId = trimText(row?.id);
+    const classData = row?.data || {};
+    if (!classId) return;
+    const linkedCourseIds = getTeacherCourseIdsFromClassData(classData, uid);
+    linkedCourseIds.forEach((courseId) => {
+      const cleanCourseId = trimText(courseId);
+      if (!cleanCourseId) return;
+      if (!Array.isArray(map[cleanCourseId])) map[cleanCourseId] = [];
+      if (map[cleanCourseId].some((item) => item.id === classId)) return;
+      map[cleanCourseId].push({
+        id: classId,
+        name: trimText(classData.name) || "Class",
+        batchCode: trimText(classData.batchCode),
+      });
+    });
+  });
+  return map;
 };
 
 const resolveClassEntryCourseIds = (entry = {}, classData = {}) => {
@@ -879,12 +948,26 @@ export const getTeacherCourses = async (req, res) => {
     const uid = req.user?.uid;
     if (!uid) return errorResponse(res, "Missing teacher uid", 400);
 
+    const classDocs = await getTeacherAssignedClassDocs(uid);
+    const classDerivedCourseIds = new Set(
+      getTeacherClassDerivedCourseIds(classDocs, uid)
+    );
+    const classesByCourseId = getTeacherClassesByCourseId(classDocs, uid);
+
     const coursesSnap = await db.collection(COLLECTIONS.COURSES).get();
     const mappedCourses = coursesSnap.docs
       .map((doc) => ({ id: doc.id, data: doc.data() || {} }))
       .map((row) => {
         const course = serializeCourse(row.id, row.data);
-        const mySubjects = getTeacherAssignedSubjects(row.data, uid);
+        const assignedSubjects = getTeacherAssignedSubjects(row.data, uid);
+        const isLegacyOwner = trimText(row.data?.teacherId) === trimText(uid);
+        const isClassLinked = classDerivedCourseIds.has(course.id);
+        const mySubjects =
+          assignedSubjects.length > 0
+            ? assignedSubjects
+            : isLegacyOwner || isClassLinked
+              ? getAllCourseSubjects(row.data)
+              : [];
         return {
           id: course.id,
           title: course.title,
@@ -895,6 +978,7 @@ export const getTeacherCourses = async (req, res) => {
           price: course.price,
           mySubjects,
           enrollmentCount: course.enrollmentCount,
+          classes: classesByCourseId[course.id] || [],
           createdAt: course.createdAt,
         };
       })
@@ -1629,16 +1713,22 @@ const chunkArray = (rows = [], size = 10) => {
 };
 
 const getTeacherAssignedCourses = async (uid) => {
+  const classDocs = await getTeacherAssignedClassDocs(uid);
+  const classDerivedCourseIds = new Set(
+    getTeacherClassDerivedCourseIds(classDocs, uid)
+  );
+
   const coursesSnap = await db.collection(COLLECTIONS.COURSES).get();
   const courses = coursesSnap.docs
     .map((doc) => ({ id: doc.id, data: doc.data() || {} }))
     .map((row) => {
       const assignedSubjects = getTeacherAssignedSubjects(row.data, uid);
       const legacyOwner = trimText(row.data?.teacherId) === uid;
+      const classLinked = classDerivedCourseIds.has(row.id);
       const mySubjects =
         assignedSubjects.length > 0
           ? assignedSubjects
-          : legacyOwner
+          : legacyOwner || classLinked
             ? getAllCourseSubjects(row.data)
             : [];
       return {

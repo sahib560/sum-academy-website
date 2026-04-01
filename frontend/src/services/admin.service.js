@@ -234,6 +234,46 @@ export const verifyCertificatePublic = (certId) =>
 export const getAnnouncements = () =>
   api.get("/admin/announcements").then((r) => r.data.data);
 
+export const getAdminQuizzes = () =>
+  api.get("/admin/quizzes").then((r) => r.data.data);
+
+export const getAdminQuizById = (quizId) =>
+  api.get(`/admin/quizzes/${quizId}`).then((r) => r.data.data);
+
+export const getAdminQuizAnalytics = (quizId) =>
+  api.get(`/admin/quizzes/${quizId}/analytics`).then((r) => r.data.data);
+
+export const createAdminQuiz = (data) =>
+  api.post("/admin/quizzes", data).then((r) => r.data);
+
+export const assignAdminQuiz = (quizId, data) =>
+  api.patch(`/admin/quizzes/${quizId}/assign`, data).then((r) => r.data);
+
+export const getAdminQuizSubmissions = (quizId) =>
+  api.get(`/admin/quizzes/${quizId}/submissions`).then((r) => r.data.data);
+
+export const bulkUploadAdminQuiz = (file, onUploadProgress) => {
+  const formData = new FormData();
+  formData.append("file", file);
+  return api
+    .post("/admin/quizzes/bulk-upload", formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+      onUploadProgress,
+    })
+    .then((r) => r.data);
+};
+
+export const downloadAdminQuizTemplate = async (params) => {
+  const response = await api.get("/admin/quizzes/template", {
+    params,
+    responseType: "blob",
+  });
+  return {
+    blob: response.data,
+    filename: "quiz_template.csv",
+  };
+};
+
 export const createAnnouncement = (data) =>
   api.post("/admin/announcements", data).then((r) => r.data);
 
