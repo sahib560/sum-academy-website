@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { motion as Motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import { Skeleton } from "../../components/Skeleton.jsx";
@@ -21,6 +21,8 @@ const formatDateTime = (value) => {
 
 function TeacherMyQuizzes() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const routeBase = location.pathname.startsWith("/admin") ? "/admin/quizzes" : "/teacher/quizzes";
   const [search, setSearch] = useState("");
 
   const quizzesQuery = useQuery({
@@ -61,7 +63,7 @@ function TeacherMyQuizzes() {
               Open any quiz to manage assignment, analytics, and grading.
             </p>
           </div>
-          <Link to="/teacher/quizzes" className="btn-primary">
+          <Link to={routeBase} className="btn-primary">
             Create Quiz
           </Link>
         </div>
@@ -96,7 +98,7 @@ function TeacherMyQuizzes() {
               <button
                 key={quiz.id}
                 type="button"
-                onClick={() => navigate(`/teacher/quizzes/detail/${quiz.id}`)}
+                onClick={() => navigate(`${routeBase}/detail/${quiz.id}`)}
                 className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left text-sm hover:bg-slate-50"
               >
                 <div className="flex items-center justify-between gap-2">

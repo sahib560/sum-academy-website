@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { motion as Motion } from "framer-motion";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast, Toaster } from "react-hot-toast";
@@ -62,6 +62,8 @@ const toDateTimeLocalValue = (value) => {
 function TeacherQuizDetailAssignmentGrading() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const location = useLocation();
+  const routeBase = location.pathname.startsWith("/admin") ? "/admin/quizzes" : "/teacher/quizzes";
   const { quizId = "" } = useParams();
 
   const [assignmentDueAt, setAssignmentDueAt] = useState("");
@@ -308,10 +310,10 @@ function TeacherQuizDetailAssignmentGrading() {
             </p>
           </div>
           <div className="flex gap-2">
-            <Link to="/teacher/quizzes/my" className="btn-outline">
+            <Link to={`${routeBase}/my`} className="btn-outline">
               My Quizzes
             </Link>
-            <Link to="/teacher/quizzes" className="btn-primary">
+            <Link to={routeBase} className="btn-primary">
               Quiz Builder
             </Link>
           </div>
@@ -324,7 +326,7 @@ function TeacherQuizDetailAssignmentGrading() {
             onChange={(event) => {
               const nextId = event.target.value;
               if (!nextId) return;
-              navigate(`/teacher/quizzes/detail/${nextId}`);
+              navigate(`${routeBase}/detail/${nextId}`);
             }}
           >
             <option value="">Select Quiz</option>

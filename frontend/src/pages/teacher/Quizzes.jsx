@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { AnimatePresence, motion as Motion } from "framer-motion";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Toaster, toast } from "react-hot-toast";
@@ -308,7 +308,9 @@ const normalizeUploadError = (rawError = "") => {
 function TeacherQuizzes() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const location = useLocation();
   const fileInputRef = useRef(null);
+  const routeBase = location.pathname.startsWith("/admin") ? "/admin/quizzes" : "/teacher/quizzes";
 
   const [createMeta, setCreateMeta] = useState(createDefaultQuizMeta());
   const [questions, setQuestions] = useState([createDefaultQuestion()]);
@@ -327,6 +329,8 @@ function TeacherQuizzes() {
   const [assignmentClassId, setAssignmentClassId] = useState("");
   const [assignmentStudentIds, setAssignmentStudentIds] = useState([]);
   const [studentSearch, setStudentSearch] = useState("");
+  const [createAssignClassId, setCreateAssignClassId] = useState("");
+  const [createAssignDueAt, setCreateAssignDueAt] = useState("");
 
   const coursesQuery = useQuery({
     queryKey: ["teacher-courses-for-quiz"],
@@ -426,6 +430,8 @@ function TeacherQuizzes() {
       toast.success("Quiz created");
       setCreateMeta(createDefaultQuizMeta());
       setQuestions([createDefaultQuestion()]);
+      setCreateAssignClassId("");
+      setCreateAssignDueAt("");
       queryClient.invalidateQueries({ queryKey: ["teacher-quizzes"] });
     },
     onError: (error) => {
@@ -547,6 +553,19 @@ function TeacherQuizzes() {
     );
   }, [teacherClassesQuery.data, selectedQuiz?.courseId]);
 
+  const createClassOptions = useMemo(() => {
+    const rows = Array.isArray(teacherClassesQuery.data) ? teacherClassesQuery.data : [];
+    if (!createMeta.courseId) return rows;
+    return rows.filter((row) =>
+      (Array.isArray(row.assignedCourses) ? row.assignedCourses : []).some((entry) => {
+        const courseId = trimText(
+          typeof entry === "string" ? entry : entry?.courseId || entry?.id
+        );
+        return courseId === createMeta.courseId;
+      })
+    );
+  }, [teacherClassesQuery.data, createMeta.courseId]);
+
   const onAddQuestion = () => {
     setQuestions((prev) => [...prev, createDefaultQuestion()]);
   };
@@ -638,6 +657,10 @@ function TeacherQuizzes() {
       toast.error("Add at least one question");
       return false;
     }
+    if (createAssignClassId && !createAssignDueAt) {
+      toast.error("Select due date/time for class assignment");
+      return false;
+    }
     let rowError = "";
     for (let index = 0; index < questions.length; index += 1) {
       const row = questions[index];
@@ -702,6 +725,9 @@ function TeacherQuizzes() {
 
     createQuizMutation.mutate({
       ...createMeta,
+      assignmentTargetType: createAssignClassId ? "class" : "",
+      assignToClassId: createAssignClassId || "",
+      dueAt: createAssignClassId ? new Date(createAssignDueAt).toISOString() : "",
       questions: payloadQuestions,
     });
   };
@@ -853,14 +879,14 @@ function TeacherQuizzes() {
             <button
               type="button"
               className="btn-outline"
-              onClick={() => navigate("/teacher/quizzes/my")}
+              onClick={() => navigate(`${routeBase}/my`)}
             >
               My Quizzes
             </button>
             <button
               type="button"
               className="btn-outline"
-              onClick={() => navigate("/teacher/quizzes/detail")}
+              onClick={() => navigate(`${routeBase}/detail`)}
             >
               Assignment & Grading
             </button>
@@ -983,6 +1009,29 @@ function TeacherQuizzes() {
                 setCreateMeta((prev) => ({ ...prev, description: event.target.value }))
               }
             />
+
+            <select
+              className="rounded-xl border border-slate-200 px-3 py-2 text-sm sm:col-span-2"
+              value={createAssignClassId}
+              onChange={(event) => setCreateAssignClassId(event.target.value)}
+            >
+              <option value="">Assign later (optional)</option>
+              {createClassOptions.map((classRow) => (
+                <option key={classRow.id} value={classRow.id}>
+                  {classRow.name}
+                  {classRow.batchCode ? ` (${classRow.batchCode})` : ""}
+                </option>
+              ))}
+            </select>
+
+            {createAssignClassId ? (
+              <input
+                type="datetime-local"
+                className="rounded-xl border border-slate-200 px-3 py-2 text-sm sm:col-span-2"
+                value={createAssignDueAt}
+                onChange={(event) => setCreateAssignDueAt(event.target.value)}
+              />
+            ) : null}
           </div>
 
           <div className="mt-4 space-y-3">
@@ -1368,7 +1417,7 @@ function TeacherQuizzes() {
                     <button
                       type="button"
                       className="btn-outline mt-3"
-                      onClick={() => navigate("/teacher/quizzes/my")}
+                      onClick={() => navigate(`${routeBase}/my`)}
                     >
                       View Quizzes
                     </button>

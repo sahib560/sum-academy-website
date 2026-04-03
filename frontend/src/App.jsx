@@ -38,6 +38,7 @@ import TeacherSessions from "./pages/teacher/Sessions.jsx";
 import TeacherQuizzes from "./pages/teacher/Quizzes.jsx";
 import TeacherMyQuizzes from "./pages/teacher/MyQuizzes.jsx";
 import TeacherQuizDetailAssignmentGrading from "./pages/teacher/QuizDetailAssignmentGrading.jsx";
+import TeacherTimetable from "./pages/teacher/Timetable.jsx";
 import StudentLayout from "./layouts/StudentLayout.jsx";
 import StudentDashboard from "./pages/student/Dashboard.jsx";
 import StudentMyCourses from "./pages/student/MyCourses.jsx";
@@ -321,6 +322,16 @@ function AppLayout({ showComingSoon }) {
           <Route path="teachers" element={<AdminTeachers />} />
           <Route path="students" element={<Students />} />
           <Route path="classes" element={<Classes />} />
+          <Route path="quizzes" element={<TeacherQuizzes />} />
+          <Route path="quizzes/my" element={<TeacherMyQuizzes />} />
+          <Route
+            path="quizzes/detail"
+            element={<TeacherQuizDetailAssignmentGrading />}
+          />
+          <Route
+            path="quizzes/detail/:quizId"
+            element={<TeacherQuizDetailAssignmentGrading />}
+          />
           <Route path="payments" element={<Payments />} />
           <Route path="transactions" element={<Transactions />} />
           <Route path="installments" element={<Installments />} />
@@ -344,6 +355,7 @@ function AppLayout({ showComingSoon }) {
           <Route path="courses" element={<TeacherMyCourses />} />
           <Route path="students" element={<TeacherStudents />} />
           <Route path="sessions" element={<TeacherSessions />} />
+          <Route path="timetable" element={<TeacherTimetable />} />
           <Route path="quizzes" element={<TeacherQuizzes />} />
           <Route path="quizzes/my" element={<TeacherMyQuizzes />} />
           <Route

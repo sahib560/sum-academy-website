@@ -7,6 +7,7 @@ import {
   FiBookOpen,
   FiCalendar,
   FiClipboard,
+  FiClock,
   FiGrid,
   FiLogOut,
   FiMenu,
@@ -25,6 +26,7 @@ const navItems = [
   { label: "My Courses", to: "/teacher/courses", icon: "book" },
   { label: "Students", to: "/teacher/students", icon: "users" },
   { label: "Sessions", to: "/teacher/sessions", icon: "calendar" },
+  { label: "Timetable", to: "/teacher/timetable", icon: "clock" },
   { label: "Quizzes", to: "/teacher/quizzes", icon: "clipboard" },
   { label: "Announcements", to: "/teacher/announcements", icon: "bell" },
   { label: "Settings", to: "/teacher/settings", icon: "settings" },
@@ -36,6 +38,7 @@ const iconMap = {
   users: <FiUsers className="h-4 w-4" />,
   calendar: <FiCalendar className="h-4 w-4" />,
   clipboard: <FiClipboard className="h-4 w-4" />,
+  clock: <FiClock className="h-4 w-4" />,
   bell: <FiBell className="h-4 w-4" />,
   settings: <FiSettings className="h-4 w-4" />,
 };

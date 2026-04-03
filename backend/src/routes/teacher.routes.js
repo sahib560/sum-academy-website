@@ -48,6 +48,7 @@ import {
   getSessionAttendance,
   saveSessionAttendance,
   getTeacherClasses,
+  getTeacherTimetable,
   getTeacherSettingsProfile,
   updateTeacherSettingsProfile,
   getTeacherSettingsSecurity,
@@ -57,7 +58,7 @@ import {
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
-router.use(verifyToken, requireRole("teacher"));
+router.use(verifyToken, requireRole("teacher", "admin"));
 
 router.get("/dashboard", getTeacherDashboard);
 
@@ -99,6 +100,7 @@ router.get("/sessions/:sessionId/attendance", getSessionAttendance);
 router.post("/sessions/:sessionId/attendance", saveSessionAttendance);
 
 router.get("/classes", getTeacherClasses);
+router.get("/timetable", getTeacherTimetable);
 router.get("/announcements", getTeacherOutgoingAnnouncements);
 router.post("/announcements", createTeacherAnnouncement);
 router.get("/quizzes/template", downloadQuizBulkTemplate);

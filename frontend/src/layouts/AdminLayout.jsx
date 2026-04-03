@@ -9,6 +9,7 @@ import {
   FiBell,
   FiBookOpen,
   FiCalendar,
+  FiClipboard,
   FiClock,
   FiCreditCard,
   FiGrid,
@@ -58,6 +59,7 @@ const navSections = [
   {
     title: "Content",
     items: [
+      { label: "Quizzes", to: "/admin/quizzes", icon: "clipboard" },
       { label: "Certificates", to: "/admin/certificates", icon: "award" },
       { label: "Announcements", to: "/admin/announcements", icon: "bell" },
       { label: "Site Settings", to: "/admin/settings", icon: "settings" },
@@ -76,6 +78,7 @@ const iconMap = {
   card: <FiCreditCard className="h-4 w-4" />,
   clock: <FiClock className="h-4 w-4" />,
   tag: <FiTag className="h-4 w-4" />,
+  clipboard: <FiClipboard className="h-4 w-4" />,
   award: <FiAward className="h-4 w-4" />,
   bell: <FiBell className="h-4 w-4" />,
   settings: <FiSettings className="h-4 w-4" />,

@@ -541,11 +541,7 @@ function Checkout() {
                 className="btn-primary w-full"
                 disabled={initiateMutation.isPending}
                 onClick={() => {
-                  const requiresClassSelection = classes.length > 0;
-                  if (
-                    requiresClassSelection &&
-                    (!selectedClassId || !selectedShiftId)
-                  ) {
+                  if (!selectedClassId || !selectedShiftId) {
                     toast.error("Please select class and shift first");
                     setStep(1);
                     return;

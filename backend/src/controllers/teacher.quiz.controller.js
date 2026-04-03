@@ -1052,6 +1052,11 @@ export const createTeacherQuiz = async (req, res) => {
     const subjectId = trimText(req.body?.subjectId);
     const chapterId = trimText(req.body?.chapterId);
     const questionInput = Array.isArray(req.body?.questions) ? req.body.questions : [];
+    const createTargetType = lowerText(
+      req.body?.assignmentTargetType || req.body?.targetType || ""
+    );
+    const assignClassId = trimText(req.body?.assignToClassId || req.body?.classId);
+    const assignDueAtRaw = trimText(req.body?.dueAt);
 
     if (!QUIZ_SCOPE.has(scope)) {
       return errorResponse(res, "scope must be chapter or subject", 400);
@@ -1101,6 +1106,73 @@ export const createTeacherQuiz = async (req, res) => {
       chapterTitle: trimText(context.chapterData?.title),
       questions,
     });
+
+    const shouldAssignToClass =
+      createTargetType === "class" || Boolean(assignClassId);
+    if (shouldAssignToClass) {
+      if (!assignClassId) {
+        return errorResponse(res, "classId is required for class assignment", 400);
+      }
+      if (!assignDueAtRaw) {
+        return errorResponse(res, "dueAt is required for class assignment", 400);
+      }
+
+      const dueDate = new Date(assignDueAtRaw);
+      if (Number.isNaN(dueDate.getTime())) {
+        return errorResponse(res, "Invalid dueAt date/time", 400);
+      }
+      if (dueDate.getTime() < Date.now() - 60 * 1000) {
+        return errorResponse(res, "dueAt must be in the future", 400);
+      }
+
+      const classSnap = await db.collection(COLLECTIONS.CLASSES).doc(assignClassId).get();
+      if (!classSnap.exists) return errorResponse(res, "Class not found", 404);
+      const classData = classSnap.data() || {};
+
+      const classCourseIds = getClassAssignedCourseIds(classData);
+      if (!classCourseIds.includes(courseId)) {
+        return errorResponse(
+          res,
+          "Selected class is not assigned to this quiz course",
+          400
+        );
+      }
+
+      if (!isAdminActor(req) && !isTeacherAssignedToClass(classData, uid)) {
+        return errorResponse(
+          res,
+          "You can only add quizzes for your assigned classes",
+          403
+        );
+      }
+
+      const targetStudentIds = getClassStudentIds(classData);
+      if (!targetStudentIds.length) {
+        return errorResponse(res, "No students found in selected class", 400);
+      }
+
+      const profiles = await Promise.all(
+        targetStudentIds.map((studentId) => getStudentAssignmentProfile(studentId))
+      );
+      const students = profiles
+        .filter(Boolean)
+        .map((profile) => ({
+          studentId: profile.studentId,
+          fullName: profile.fullName,
+          email: profile.email,
+        }));
+
+      payload.assignment = {
+        assignedBy: uid,
+        assignedAt: serverTimestamp(),
+        dueAt: dueDate.toISOString(),
+        targetType: "class",
+        classId: assignClassId,
+        courseId,
+        totalAssigned: students.length,
+        students,
+      };
+    }
 
     const quizRef = await db.collection(COLLECTIONS.QUIZZES).add(payload);
     const createdSnap = await quizRef.get();

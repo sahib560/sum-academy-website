@@ -190,6 +190,70 @@ const getClassById = async (classId) => {
   return { id: classSnap.id, ...(classSnap.data() || {}) };
 };
 
+const getClassAssignedCourseIds = (classData = {}) => {
+  const ids = [];
+
+  const directCourseId = String(classData.courseId || "").trim();
+  if (directCourseId) ids.push(directCourseId);
+
+  const assignedCourses = Array.isArray(classData.assignedCourses)
+    ? classData.assignedCourses
+    : [];
+  assignedCourses.forEach((entry) => {
+    const courseId =
+      typeof entry === "string"
+        ? String(entry).trim()
+        : String(entry?.courseId || entry?.id || "").trim();
+    if (courseId) ids.push(courseId);
+  });
+
+  const shifts = Array.isArray(classData.shifts) ? classData.shifts : [];
+  shifts.forEach((shift) => {
+    const courseId = String(shift?.courseId || "").trim();
+    if (courseId) ids.push(courseId);
+  });
+
+  return [...new Set(ids)];
+};
+
+const validateClassShiftSelection = ({ classData = {}, shiftId = "", courseId = "" }) => {
+  const normalizedShiftId = String(shiftId || "").trim();
+  const normalizedCourseId = String(courseId || "").trim();
+  if (!normalizedShiftId) {
+    return { error: "shiftId is required", status: 400 };
+  }
+
+  const shifts = Array.isArray(classData.shifts) ? classData.shifts : [];
+  const selectedShift = shifts.find(
+    (shift) => String(shift?.id || "").trim() === normalizedShiftId
+  );
+  if (!selectedShift) {
+    return { error: "Selected shift was not found in this class", status: 400 };
+  }
+
+  const shiftCourseId = String(selectedShift.courseId || "").trim();
+  if (!shiftCourseId) {
+    return { error: "Selected shift is missing a linked course", status: 400 };
+  }
+
+  if (normalizedCourseId && shiftCourseId !== normalizedCourseId) {
+    return {
+      error: "Selected class shift does not belong to the selected course",
+      status: 400,
+    };
+  }
+
+  const classCourseIds = getClassAssignedCourseIds(classData);
+  if (normalizedCourseId && !classCourseIds.includes(normalizedCourseId)) {
+    return {
+      error: "Selected class is not assigned to the selected course",
+      status: 400,
+    };
+  }
+
+  return { shift: selectedShift, shiftCourseId };
+};
+
 const fetchMergedPayments = async () => {
   const paymentsSnap = await db.collection(COLLECTIONS.PAYMENTS).get();
   const payments = paymentsSnap.docs.map((doc) => ({ id: doc.id, ...(doc.data() || {}) }));
@@ -450,6 +514,15 @@ const addStudentToClassFromPayment = async ({ classId, studentId, shiftId, cours
     if (enrollmentStatus === "completed") {
       throw new Error("CLASS_ENDED");
     }
+
+    const classShiftValidation = validateClassShiftSelection({
+      classData,
+      shiftId,
+      courseId,
+    });
+    if (classShiftValidation.error) {
+      throw new Error("CLASS_SHIFT_COURSE_MISMATCH");
+    }
     const students = Array.isArray(classData.students) ? classData.students : [];
     const normalizedStudents = students.map((entry) =>
       typeof entry === "string"
@@ -513,8 +586,12 @@ export const initiatePayment = async (req, res) => {
       installments = 1,
     } = req.body || {};
 
-    if (!courseId || !method) {
-      return errorResponse(res, "courseId and method are required", 400);
+    if (!courseId || !method || !classId || !shiftId) {
+      return errorResponse(
+        res,
+        "courseId, classId, shiftId and method are required",
+        400
+      );
     }
 
     const paymentMethod = String(method).trim().toLowerCase();
@@ -535,7 +612,25 @@ export const initiatePayment = async (req, res) => {
 
     if (!student) return errorResponse(res, "Student profile not found", 404);
     if (!course) return errorResponse(res, "Course not found", 404);
-    if (classId && !classData) return errorResponse(res, "Class not found", 404);
+    if (!classData) return errorResponse(res, "Class not found", 404);
+
+    const enrollmentStatus = getEnrollmentStatusFromClassDates(classData);
+    if (enrollmentStatus === "completed") {
+      return errorResponse(
+        res,
+        "Selected class has already ended. Choose an active class.",
+        400
+      );
+    }
+
+    const classShiftValidation = validateClassShiftSelection({
+      classData,
+      shiftId,
+      courseId,
+    });
+    if (classShiftValidation.error) {
+      return errorResponse(res, classShiftValidation.error, classShiftValidation.status || 400);
+    }
 
     const originalAmount = Math.max(toNumber(course.price), 0);
     let promoDoc = null;
@@ -1289,6 +1384,13 @@ export const verifyBankTransfer = async (req, res) => {
       return errorResponse(
         res,
         "Cannot approve payment for an ended class. Use an active/upcoming class.",
+        400
+      );
+    }
+    if (error?.message === "CLASS_SHIFT_COURSE_MISMATCH") {
+      return errorResponse(
+        res,
+        "Selected class shift is invalid for this course. Please update class/shift selection.",
         400
       );
     }

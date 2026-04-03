@@ -101,6 +101,9 @@ export const saveSessionAttendance = (sessionId, data) =>
 export const getTeacherClasses = () =>
   api.get("/teacher/classes").then((r) => r.data.data);
 
+export const getTeacherTimetable = () =>
+  api.get("/teacher/timetable").then((r) => r.data.data);
+
 export const createTeacherAnnouncement = (data) =>
   api.post("/teacher/announcements", data).then((r) => r.data);
 

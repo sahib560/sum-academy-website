@@ -80,6 +80,33 @@ const getNameFromEmail = (email = "") =>
     .join(" ")
     .trim();
 
+const normalizeStudentCourseRefs = (rawCourses = [], enrolledAtMap = {}) => {
+  const list = Array.isArray(rawCourses) ? rawCourses : [];
+  const rows = [];
+  const seen = new Set();
+
+  list.forEach((entry) => {
+    const courseId =
+      typeof entry === "string"
+        ? trimText(entry)
+        : trimText(entry?.courseId || entry?.id);
+    if (!courseId || seen.has(courseId)) return;
+    seen.add(courseId);
+    rows.push({
+      courseId,
+      enrolledAt:
+        toIso(enrolledAtMap?.[courseId]) ||
+        toIso(
+          typeof entry === "object"
+            ? entry?.enrolledAt || entry?.createdAt
+            : null
+        ),
+    });
+  });
+
+  return rows;
+};
+
 const resolveStudentName = (studentDoc = {}, userDoc = {}) => {
   return (
     studentDoc.fullName ||
@@ -970,7 +997,76 @@ const getLectureWithAssignedSubject = async (lectureId, uid) => {
 export const getTeacherCourses = async (req, res) => {
   try {
     const uid = req.user?.uid;
+    const role = lowerText(req.user?.role);
     if (!uid) return errorResponse(res, "Missing teacher uid", 400);
+
+    if (role === "admin") {
+      const [coursesSnap, classesSnap] = await Promise.all([
+        db.collection(COLLECTIONS.COURSES).get(),
+        db.collection(COLLECTIONS.CLASSES).get(),
+      ]);
+
+      const classesByCourseId = {};
+      classesSnap.docs.forEach((doc) => {
+        const classData = doc.data() || {};
+        const classInfo = {
+          id: doc.id,
+          name: trimText(classData.name) || "Class",
+          batchCode: trimText(classData.batchCode),
+        };
+        const classCourseIds = getClassAssignedCourseIds(classData);
+        classCourseIds.forEach((courseId) => {
+          const cleanCourseId = trimText(courseId);
+          if (!cleanCourseId) return;
+          if (!Array.isArray(classesByCourseId[cleanCourseId])) {
+            classesByCourseId[cleanCourseId] = [];
+          }
+          if (!classesByCourseId[cleanCourseId].some((row) => row.id === classInfo.id)) {
+            classesByCourseId[cleanCourseId].push(classInfo);
+          }
+        });
+      });
+
+      const mappedCourses = coursesSnap.docs
+        .map((doc) => ({ id: doc.id, data: doc.data() || {} }))
+        .map((row) => {
+          const course = serializeCourse(row.id, row.data);
+          return {
+            id: course.id,
+            title: course.title,
+            category: course.category,
+            level: course.level,
+            status: course.status,
+            thumbnail: course.thumbnail,
+            price: course.price,
+            mySubjects: getAllCourseSubjects(row.data),
+            enrollmentCount: course.enrollmentCount,
+            classes: classesByCourseId[course.id] || [],
+            createdAt: course.createdAt,
+          };
+        })
+        .filter((course) => course.mySubjects.length > 0);
+
+      const liveEnrollmentCountByCourse = await getLiveEnrollmentCountByCourse(
+        mappedCourses.map((course) => course.id)
+      );
+
+      const courses = mappedCourses
+        .map((course) => ({
+          ...course,
+          enrollmentCount: Math.max(
+            toPositiveNumber(course.enrollmentCount, 0),
+            toPositiveNumber(liveEnrollmentCountByCourse[course.id], 0)
+          ),
+        }))
+        .sort(
+          (a, b) =>
+            (new Date(b.createdAt || 0).getTime() || 0) -
+            (new Date(a.createdAt || 0).getTime() || 0)
+        );
+
+      return successResponse(res, courses, "Courses fetched");
+    }
 
     const classDocs = await getTeacherAssignedClassDocs(uid);
     const classDerivedCourseIds = new Set(
@@ -1117,6 +1213,7 @@ export const getTeacherCourseById = async (req, res) => {
 export const getChapters = async (req, res) => {
   try {
     const uid = req.user?.uid;
+    const role = lowerText(req.user?.role);
     const courseId = trimText(req.params?.courseId);
     const subjectId = trimText(req.params?.subjectId);
     if (!uid) return errorResponse(res, "Missing teacher uid", 400);
@@ -1124,14 +1221,16 @@ export const getChapters = async (req, res) => {
       return errorResponse(res, "courseId and subjectId are required", 400);
     }
 
-    const linkedCourse = await getCourseWithAssignedSubjects(courseId, uid);
-    if (linkedCourse.error) {
-      return errorResponse(res, linkedCourse.error, linkedCourse.status);
+    if (role !== "admin") {
+      const linkedCourse = await getCourseWithAssignedSubjects(courseId, uid);
+      if (linkedCourse.error) {
+        return errorResponse(res, linkedCourse.error, linkedCourse.status);
+      }
+      const ownsSubject = linkedCourse.mySubjects.some(
+        (subject) => subject.subjectId === subjectId
+      );
+      if (!ownsSubject) return errorResponse(res, "Forbidden", 403);
     }
-    const ownsSubject = linkedCourse.mySubjects.some(
-      (subject) => subject.subjectId === subjectId
-    );
-    if (!ownsSubject) return errorResponse(res, "Forbidden", 403);
 
     const chaptersSnap = await getOrderedDocsWhere(COLLECTIONS.CHAPTERS, [
       ["courseId", "==", courseId],
@@ -1831,7 +1930,127 @@ const extractCourseProgress = (progressRows = [], courseId = "", fallbackProgres
 export const getTeacherStudents = async (req, res) => {
   try {
     const uid = trimText(req.user?.uid);
+    const role = lowerText(req.user?.role);
     if (!uid) return errorResponse(res, "Missing teacher uid", 400);
+
+    if (role === "admin") {
+      const [usersSnap, studentsSnap, enrollmentsSnap, coursesSnap] = await Promise.all([
+        db.collection(COLLECTIONS.USERS).where("role", "==", "student").get(),
+        db.collection(COLLECTIONS.STUDENTS).get(),
+        db.collection(COLLECTIONS.ENROLLMENTS).get(),
+        db.collection(COLLECTIONS.COURSES).get(),
+      ]);
+
+      const studentDocById = Object.fromEntries(
+        studentsSnap.docs.map((doc) => [doc.id, doc.data() || {}])
+      );
+      const courseNameById = Object.fromEntries(
+        coursesSnap.docs.map((doc) => [doc.id, trimText(doc.data()?.title) || "Course"])
+      );
+      const enrollmentsByStudent = {};
+      enrollmentsSnap.docs.forEach((doc) => {
+        const row = doc.data() || {};
+        const studentId = trimText(row.studentId);
+        const courseId = trimText(row.courseId);
+        if (!studentId || !courseId) return;
+        if (!Array.isArray(enrollmentsByStudent[studentId])) {
+          enrollmentsByStudent[studentId] = [];
+        }
+        enrollmentsByStudent[studentId].push({
+          courseId,
+          courseName: courseNameById[courseId] || "Course",
+          progress: clampPercent(row.progress),
+          completedAt: toIso(row.completedAt),
+          enrolledAt: toIso(row.createdAt || row.enrolledAt),
+        });
+      });
+
+      const rows = usersSnap.docs
+        .map((doc) => {
+          const userData = doc.data() || {};
+          const studentData = studentDocById[doc.id] || {};
+          const fromStudentDoc = normalizeStudentCourseRefs(
+            studentData.enrolledCourses,
+            studentData.enrolledAtMap || {}
+          ).map((entry) => ({
+            courseId: entry.courseId,
+            courseName: courseNameById[entry.courseId] || "Course",
+            progress: 0,
+            completedAt: null,
+            enrolledAt: entry.enrolledAt || null,
+          }));
+          const fromEnrollments = Array.isArray(enrollmentsByStudent[doc.id])
+            ? enrollmentsByStudent[doc.id]
+            : [];
+
+          const byCourse = new Map();
+          [...fromStudentDoc, ...fromEnrollments].forEach((entry) => {
+            const courseId = trimText(entry.courseId);
+            if (!courseId) return;
+            if (!byCourse.has(courseId)) {
+              byCourse.set(courseId, {
+                courseId,
+                courseName: entry.courseName || courseNameById[courseId] || "Course",
+                progress: clampPercent(entry.progress),
+                completedAt: entry.completedAt || null,
+                enrolledAt: entry.enrolledAt || null,
+              });
+              return;
+            }
+            const current = byCourse.get(courseId);
+            byCourse.set(courseId, {
+              ...current,
+              progress: Math.max(
+                clampPercent(current.progress),
+                clampPercent(entry.progress)
+              ),
+              completedAt: current.completedAt || entry.completedAt || null,
+              enrolledAt: current.enrolledAt || entry.enrolledAt || null,
+            });
+          });
+
+          const enrolledCourses = Array.from(byCourse.values());
+          const avgProgress =
+            enrolledCourses.length > 0
+              ? Math.round(
+                  enrolledCourses.reduce(
+                    (sum, courseRow) => sum + clampPercent(courseRow.progress),
+                    0
+                  ) / enrolledCourses.length
+                )
+              : 0;
+          const completedCourses = enrolledCourses.filter(
+            (courseRow) =>
+              clampPercent(courseRow.progress) >= 100 || Boolean(courseRow.completedAt)
+          ).length;
+
+          const fullName =
+            trimText(studentData.fullName) ||
+            trimText(studentData.name) ||
+            trimText(userData.fullName) ||
+            trimText(userData.name) ||
+            trimText(userData.displayName) ||
+            getNameFromEmail(userData.email || "") ||
+            "Student";
+
+          return {
+            uid: doc.id,
+            fullName,
+            email: trimText(userData.email),
+            phoneNumber: trimText(
+              studentData.phoneNumber || studentData.phone || userData.phoneNumber
+            ),
+            isActive: userData.isActive !== false,
+            lastLoginAt: toIso(userData.lastLoginAt),
+            enrolledCourses,
+            avgProgress,
+            completedCourses,
+          };
+        })
+        .sort((a, b) => a.fullName.localeCompare(b.fullName));
+
+      return successResponse(res, rows, "Students fetched");
+    }
 
     const { courseIds, courseNameById } = await getTeacherAssignedCourses(uid);
     if (!courseIds.length) {
@@ -3641,13 +3860,39 @@ export const saveSessionAttendance = async (req, res) => {
 export const getTeacherClasses = async (req, res) => {
   try {
     const uid = trimText(req.user?.uid);
+    const role = lowerText(req.user?.role);
     if (!uid) return errorResponse(res, "Missing teacher uid", 400);
 
-    const classDocs = await getTeacherAssignedClassDocs(uid);
+    const classDocs =
+      role === "admin"
+        ? (
+            await db.collection(COLLECTIONS.CLASSES).get()
+          ).docs.map((doc) => ({ id: doc.id, data: doc.data() || {} }))
+        : await getTeacherAssignedClassDocs(uid);
     const payload = classDocs
       .map((row) => {
         const data = row.data || {};
         const students = getClassStudentEntries(data);
+        const shifts = Array.isArray(data.shifts) ? data.shifts : [];
+        const classAssignedTeacher = trimText(data.teacherId);
+        const teacherShifts = shifts
+          .filter((shift) => {
+            if (role === "admin") return true;
+            const shiftTeacherId = trimText(shift?.teacherId);
+            if (shiftTeacherId) return shiftTeacherId === uid;
+            return classAssignedTeacher === uid || isTeacherListedInClassTeachers(data, uid);
+          })
+          .map((shift) => ({
+            id: trimText(shift?.id),
+            name: trimText(shift?.name) || "Shift",
+            courseId: trimText(shift?.courseId),
+            courseName: trimText(shift?.courseName),
+            teacherId: trimText(shift?.teacherId),
+            startTime: trimText(shift?.startTime),
+            endTime: trimText(shift?.endTime),
+            days: Array.isArray(shift?.days) ? shift.days : [],
+          }));
+
         return {
           id: row.id,
           name: trimText(data.name) || "Class",
@@ -3663,6 +3908,9 @@ export const getTeacherClasses = async (req, res) => {
           assignedCourses: Array.isArray(data.assignedCourses)
             ? data.assignedCourses
             : [],
+          startDate: toIso(data.startDate),
+          endDate: toIso(data.endDate),
+          shifts: teacherShifts,
         };
       })
       .sort((a, b) => a.name.localeCompare(b.name));
@@ -3671,6 +3919,102 @@ export const getTeacherClasses = async (req, res) => {
   } catch (error) {
     console.error("getTeacherClasses error:", error);
     return errorResponse(res, "Failed to fetch teacher classes", 500);
+  }
+};
+
+export const getTeacherTimetable = async (req, res) => {
+  try {
+    const uid = trimText(req.user?.uid);
+    const role = lowerText(req.user?.role);
+    if (!uid) return errorResponse(res, "Missing teacher uid", 400);
+
+    const classDocs =
+      role === "admin"
+        ? (
+            await db.collection(COLLECTIONS.CLASSES).get()
+          ).docs.map((doc) => ({ id: doc.id, data: doc.data() || {} }))
+        : await getTeacherAssignedClassDocs(uid);
+
+    const classRows = [];
+    const timetable = [];
+    classDocs.forEach((row) => {
+      const classData = row.data || {};
+      const classId = trimText(row.id);
+      const className = trimText(classData.name) || "Class";
+      const batchCode = trimText(classData.batchCode);
+      const startDate = toIso(classData.startDate);
+      const endDate = toIso(classData.endDate);
+      const shifts = Array.isArray(classData.shifts) ? classData.shifts : [];
+      const classAssignedTeacher = trimText(classData.teacherId);
+
+      const filteredShifts = shifts.filter((shift) => {
+        if (role === "admin") return true;
+        const shiftTeacherId = trimText(shift?.teacherId);
+        if (shiftTeacherId) return shiftTeacherId === uid;
+        return classAssignedTeacher === uid || isTeacherListedInClassTeachers(classData, uid);
+      });
+
+      classRows.push({
+        classId,
+        className,
+        batchCode,
+        startDate,
+        endDate,
+      });
+
+      filteredShifts.forEach((shift) => {
+        const days = Array.isArray(shift?.days) ? shift.days : [];
+        const dayLabels = days.map((day) => trimText(day)).filter(Boolean);
+        const sortedDays = dayLabels.sort((a, b) => {
+          const aIndex = DAY_INDEX[lowerText(a)];
+          const bIndex = DAY_INDEX[lowerText(b)];
+          if (!Number.isInteger(aIndex) || !Number.isInteger(bIndex)) {
+            return a.localeCompare(b);
+          }
+          return aIndex - bIndex;
+        });
+
+        timetable.push({
+          id: `${classId}_${trimText(shift?.id) || uuidv4()}`,
+          classId,
+          className,
+          batchCode,
+          shiftId: trimText(shift?.id),
+          shiftName: trimText(shift?.name) || "Shift",
+          courseId: trimText(shift?.courseId),
+          courseName: trimText(shift?.courseName) || "Course",
+          teacherId: trimText(shift?.teacherId) || classAssignedTeacher,
+          startTime: trimText(shift?.startTime),
+          endTime: trimText(shift?.endTime),
+          days: sortedDays,
+          startDate,
+          endDate,
+        });
+      });
+    });
+
+    timetable.sort((a, b) => {
+      const dayA = Array.isArray(a.days) && a.days.length
+        ? DAY_INDEX[lowerText(a.days[0])]
+        : 99;
+      const dayB = Array.isArray(b.days) && b.days.length
+        ? DAY_INDEX[lowerText(b.days[0])]
+        : 99;
+      if (dayA !== dayB) return dayA - dayB;
+      return String(a.startTime || "").localeCompare(String(b.startTime || ""));
+    });
+
+    return successResponse(
+      res,
+      {
+        classes: classRows.sort((a, b) => a.className.localeCompare(b.className)),
+        timetable,
+      },
+      "Teacher timetable fetched"
+    );
+  } catch (error) {
+    console.error("getTeacherTimetable error:", error);
+    return errorResponse(res, "Failed to fetch teacher timetable", 500);
   }
 };
 
