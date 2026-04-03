@@ -1226,6 +1226,7 @@ export const bulkUploadStudents = async (req, res) => {
 };
 
 export const createUser = async (req, res) => {
+  let normalizedEmail = "";
   try {
     const { name, email, password, phone, role, subject, bio } = req.body;
 
@@ -1238,84 +1239,274 @@ export const createUser = async (req, res) => {
       return errorResponse(res, "Invalid role", 400);
     }
 
-    const firebaseUser = await admin.auth().createUser({
-      email,
-      password,
-      displayName: name,
-      emailVerified: true,
-    });
+    normalizedEmail = String(email || "").trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+      return errorResponse(res, "Enter a valid email address", 400);
+    }
+
+    const roleCollectionByRole = {
+      student: COLLECTIONS.STUDENTS,
+      teacher: COLLECTIONS.TEACHERS,
+      admin: COLLECTIONS.ADMINS,
+    };
+
+    const hasCompleteProfile = async (uid, userRole) => {
+      const roleCollection = roleCollectionByRole[String(userRole || "").toLowerCase()];
+      if (!uid || !roleCollection) return false;
+      const roleSnap = await db.collection(roleCollection).doc(uid).get();
+      return roleSnap.exists;
+    };
+
+    const upsertUserWithRoleProfile = async (uid) => {
+      const batch = db.batch();
+
+      const userPayload = {
+        uid,
+        email: normalizedEmail,
+        fullName: name,
+        name,
+        phoneNumber: phone || "",
+        role,
+        isActive: true,
+        status: role === "student" ? "approved" : "active",
+        assignedWebDevice: "",
+        assignedWebIp: "",
+        assignedUniqueDeviceId: "",
+        lastKnownWebIp: "",
+        lastLoginAt: null,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      };
+      if (role === "student") {
+        userPayload.approvedBy = req.user.uid;
+        userPayload.approvedAt = admin.firestore.FieldValue.serverTimestamp();
+      }
+
+      batch.set(db.collection(COLLECTIONS.USERS).doc(uid), userPayload, { merge: true });
+
+      if (role === "student") {
+        batch.set(
+          db.collection(COLLECTIONS.STUDENTS).doc(uid),
+          {
+            uid,
+            fullName: name,
+            phoneNumber: phone || "",
+            enrolledCourses: [],
+            certificates: [],
+            approvalStatus: "approved",
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
+      } else if (role === "teacher") {
+        batch.set(
+          db.collection(COLLECTIONS.TEACHERS).doc(uid),
+          {
+            uid,
+            fullName: name,
+            phoneNumber: phone || "",
+            subject: subject || "",
+            bio: bio || "",
+            assignedSubjects: subject ? [subject] : [],
+            assignedClasses: [],
+            assignedCourses: [],
+            profilePicture: null,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
+      } else if (role === "admin") {
+        batch.set(
+          db.collection(COLLECTIONS.ADMINS).doc(uid),
+          {
+            uid,
+            fullName: name,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
+      }
+
+      await batch.commit();
+    };
+
+    const existingByEmailSnap = await db
+      .collection(COLLECTIONS.USERS)
+      .where("email", "==", normalizedEmail)
+      .limit(1)
+      .get();
+    if (!existingByEmailSnap.empty) {
+      const existingDoc = existingByEmailSnap.docs[0];
+      const existingData = existingDoc.data() || {};
+      const isComplete = await hasCompleteProfile(existingDoc.id, existingData.role || role);
+      if (isComplete) {
+        return errorResponse(res, "Email already in use", 409);
+      }
+      await db.collection(COLLECTIONS.USERS).doc(existingDoc.id).delete();
+    }
+
+    let firebaseUser = null;
+    try {
+      firebaseUser = await admin.auth().getUserByEmail(normalizedEmail);
+
+      const existingUserDoc = await db.collection(COLLECTIONS.USERS).doc(firebaseUser.uid).get();
+      if (existingUserDoc.exists) {
+        const existingData = existingUserDoc.data() || {};
+        const isComplete = await hasCompleteProfile(firebaseUser.uid, existingData.role || role);
+        if (isComplete) {
+          return errorResponse(res, "Email already in use", 409);
+        }
+        await db.collection(COLLECTIONS.USERS).doc(firebaseUser.uid).delete();
+      }
+
+      await admin.auth().updateUser(firebaseUser.uid, {
+        email: normalizedEmail,
+        password,
+        displayName: name,
+        emailVerified: true,
+        disabled: false,
+      });
+    } catch (authLookupError) {
+      if (authLookupError?.code !== "auth/user-not-found") {
+        throw authLookupError;
+      }
+      firebaseUser = await admin.auth().createUser({
+        email: normalizedEmail,
+        password,
+        displayName: name,
+        emailVerified: true,
+      });
+    }
 
     const uid = firebaseUser.uid;
     await admin.auth().setCustomUserClaims(uid, { role });
-
-    const batch = db.batch();
-
-    const userPayload = {
-      uid,
-      email,
-      fullName: name,
-      name,
-      phoneNumber: phone || "",
-      role,
-      isActive: true,
-      status: role === "student" ? "approved" : "active",
-      assignedWebDevice: "",
-      assignedWebIp: "",
-      assignedUniqueDeviceId: "",
-      lastKnownWebIp: "",
-      lastLoginAt: null,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    };
-    if (role === "student") {
-      userPayload.approvedBy = req.user.uid;
-      userPayload.approvedAt = admin.firestore.FieldValue.serverTimestamp();
-    }
-
-    batch.set(db.collection(COLLECTIONS.USERS).doc(uid), userPayload);
-
-    if (role === "student") {
-      batch.set(db.collection(COLLECTIONS.STUDENTS).doc(uid), {
-        uid,
-        fullName: name,
-        phoneNumber: phone || "",
-        enrolledCourses: [],
-        certificates: [],
-        approvalStatus: "approved",
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
-    } else if (role === "teacher") {
-      batch.set(db.collection(COLLECTIONS.TEACHERS).doc(uid), {
-        uid,
-        fullName: name,
-        phoneNumber: phone || "",
-        subject: subject || "",
-        bio: bio || "",
-        assignedSubjects: subject ? [subject] : [],
-        assignedClasses: [],
-        assignedCourses: [],
-        profilePicture: null,
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
-    } else if (role === "admin") {
-      batch.set(db.collection(COLLECTIONS.ADMINS).doc(uid), {
-        uid,
-        fullName: name,
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
-    }
-
-    await batch.commit();
+    await upsertUserWithRoleProfile(uid);
 
     return successResponse(
       res,
-      { uid, email, role, name },
+      { uid, email: normalizedEmail, role, name },
       `${role} created successfully`,
       201
     );
   } catch (e) {
     if (e.code === "auth/email-already-exists") {
-      return errorResponse(res, "Email already in use", 409);
+      try {
+        const { name, password, role, phone, subject, bio } = req.body || {};
+        const allowedRoles = ["student", "teacher", "admin"];
+        if (!allowedRoles.includes(role) || !normalizedEmail || !name || !password) {
+          return errorResponse(res, "Email already in use", 409);
+        }
+
+        const roleCollectionByRole = {
+          student: COLLECTIONS.STUDENTS,
+          teacher: COLLECTIONS.TEACHERS,
+          admin: COLLECTIONS.ADMINS,
+        };
+        const authUser = await admin.auth().getUserByEmail(normalizedEmail);
+        const existingUserDoc = await db.collection(COLLECTIONS.USERS).doc(authUser.uid).get();
+
+        let canRecover = true;
+        if (existingUserDoc.exists) {
+          const existingData = existingUserDoc.data() || {};
+          const roleCollection = roleCollectionByRole[String(existingData.role || "").toLowerCase()];
+          if (roleCollection) {
+            const roleSnap = await db.collection(roleCollection).doc(authUser.uid).get();
+            if (roleSnap.exists) canRecover = false;
+          } else {
+            canRecover = false;
+          }
+        }
+
+        if (!canRecover) {
+          return errorResponse(res, "Email already in use", 409);
+        }
+
+        await admin.auth().updateUser(authUser.uid, {
+          email: normalizedEmail,
+          password,
+          displayName: name,
+          emailVerified: true,
+          disabled: false,
+        });
+        await admin.auth().setCustomUserClaims(authUser.uid, { role });
+
+        const batch = db.batch();
+        batch.set(
+          db.collection(COLLECTIONS.USERS).doc(authUser.uid),
+          {
+            uid: authUser.uid,
+            email: normalizedEmail,
+            fullName: name,
+            name,
+            phoneNumber: phone || "",
+            role,
+            isActive: true,
+            status: role === "student" ? "approved" : "active",
+            assignedWebDevice: "",
+            assignedWebIp: "",
+            assignedUniqueDeviceId: "",
+            lastKnownWebIp: "",
+            lastLoginAt: null,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
+
+        if (role === "student") {
+          batch.set(
+            db.collection(COLLECTIONS.STUDENTS).doc(authUser.uid),
+            {
+              uid: authUser.uid,
+              fullName: name,
+              phoneNumber: phone || "",
+              enrolledCourses: [],
+              certificates: [],
+              approvalStatus: "approved",
+              createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            },
+            { merge: true }
+          );
+        } else if (role === "teacher") {
+          batch.set(
+            db.collection(COLLECTIONS.TEACHERS).doc(authUser.uid),
+            {
+              uid: authUser.uid,
+              fullName: name,
+              phoneNumber: phone || "",
+              subject: subject || "",
+              bio: bio || "",
+              assignedSubjects: subject ? [subject] : [],
+              assignedClasses: [],
+              assignedCourses: [],
+              profilePicture: null,
+              createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            },
+            { merge: true }
+          );
+        } else {
+          batch.set(
+            db.collection(COLLECTIONS.ADMINS).doc(authUser.uid),
+            {
+              uid: authUser.uid,
+              fullName: name,
+              createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            },
+            { merge: true }
+          );
+        }
+        await batch.commit();
+
+        return successResponse(
+          res,
+          { uid: authUser.uid, email: normalizedEmail, role, name },
+          `${role} created successfully`,
+          201
+        );
+      } catch (recoveryError) {
+        console.error("createUser recovery error:", recoveryError);
+        return errorResponse(res, "Email already in use", 409);
+      }
     }
+    console.error("createUser error:", e);
     return errorResponse(res, "Failed to create user", 500);
   }
 };
