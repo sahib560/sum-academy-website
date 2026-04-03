@@ -61,6 +61,28 @@ const resolveClientContext = (req) => {
 const getOtpRef = (purpose, email) =>
   db.collection(OTP_COLLECTION).doc(otpDocId(purpose, email));
 
+const getRoleCollection = (role = "") => {
+  const normalizedRole = trimText(role).toLowerCase();
+  if (normalizedRole === "student") return "students";
+  if (normalizedRole === "teacher") return "teachers";
+  if (normalizedRole === "admin") return "admins";
+  return "";
+};
+
+const hasRoleProfile = async (uid, role) => {
+  const roleCollection = getRoleCollection(role);
+  if (!uid || !roleCollection) return false;
+  const snap = await db.collection(roleCollection).doc(uid).get();
+  return snap.exists;
+};
+
+const isCompleteUserRecord = async (uid, userData = {}) => {
+  if (!uid) return false;
+  const role = trimText(userData.role).toLowerCase();
+  if (!["student", "teacher", "admin"].includes(role)) return false;
+  return hasRoleProfile(uid, role);
+};
+
 const validateVerifiedOtpToken = async (purpose, email, token) => {
   const ref = getOtpRef(purpose, email);
   const snap = await ref.get();
@@ -146,24 +168,24 @@ const sendRegistrationOtp = async (req, res) => {
       return errorResponse(res, "Valid email is required", 400);
     }
 
-    let authUser = null;
-    try {
-      authUser = await admin.auth().getUserByEmail(email);
-    } catch (authError) {
-      if (authError?.code !== "auth/user-not-found") {
-        throw authError;
-      }
-    }
+    const existingUserSnap = await db
+      .collection("users")
+      .where("email", "==", email)
+      .limit(1)
+      .get();
 
-    if (authUser) {
-      const existingUserSnap = await db
-        .collection("users")
-        .where("email", "==", email)
-        .limit(1)
-        .get();
-      if (!existingUserSnap.empty) {
+    if (!existingUserSnap.empty) {
+      const existingDoc = existingUserSnap.docs[0];
+      const existingData = existingDoc.data() || {};
+      const isComplete = await isCompleteUserRecord(existingDoc.id, existingData);
+      if (isComplete) {
         return errorResponse(res, "Email is already registered", 409);
       }
+
+      await db.collection("users").doc(existingDoc.id).delete();
+      console.warn(
+        `Recovered orphan user record for email ${email}; users/${existingDoc.id} removed`
+      );
     }
 
     const ref = getOtpRef("register", email);
@@ -575,7 +597,11 @@ const registerUser = async (req, res) => {
 
     const existingUser = await db.collection("users").doc(uid).get();
     if (existingUser.exists) {
-      return errorResponse(res, "User already registered", 409);
+      const existingData = existingUser.data() || {};
+      const isComplete = await isCompleteUserRecord(uid, existingData);
+      if (isComplete) {
+        return errorResponse(res, "User already registered", 409);
+      }
     }
 
     const existingByEmailSnap = await db
@@ -587,11 +613,20 @@ const registerUser = async (req, res) => {
     if (!existingByEmailSnap.empty) {
       const existingDoc = existingByEmailSnap.docs[0];
       if (existingDoc.id !== uid) {
-        return errorResponse(
-          res,
-          "This email is already linked with another account. Please login using your original account/device.",
-          409,
-          { code: "EMAIL_ALREADY_REGISTERED_WITH_DIFFERENT_ACCOUNT" }
+        const existingData = existingDoc.data() || {};
+        const isComplete = await isCompleteUserRecord(existingDoc.id, existingData);
+        if (isComplete) {
+          return errorResponse(
+            res,
+            "This email is already linked with another account. Please login using your original account/device.",
+            409,
+            { code: "EMAIL_ALREADY_REGISTERED_WITH_DIFFERENT_ACCOUNT" }
+          );
+        }
+
+        await db.collection("users").doc(existingDoc.id).delete();
+        console.warn(
+          `Recovered orphan email mapping for ${normalizedEmail}; users/${existingDoc.id} removed`
         );
       }
     }

@@ -411,6 +411,7 @@ const addStudentToClassFromPayment = async ({ classId, studentId, shiftId, cours
 
   await db.runTransaction(async (transaction) => {
     const classRef = db.collection(COLLECTIONS.CLASSES).doc(classId);
+    const studentRef = db.collection(COLLECTIONS.STUDENTS).doc(studentId);
     const classSnap = await transaction.get(classRef);
     if (!classSnap.exists) throw new Error("CLASS_NOT_FOUND");
 
@@ -448,6 +449,17 @@ const addStudentToClassFromPayment = async ({ classId, studentId, shiftId, cours
       enrolledCount: normalizedStudents.length,
       updatedAt: FieldValue.serverTimestamp(),
     });
+
+    if (courseId) {
+      transaction.set(
+        studentRef,
+        {
+          enrolledCourses: FieldValue.arrayUnion(courseId),
+          updatedAt: FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+    }
   });
 };
 
@@ -1077,6 +1089,7 @@ export const verifyBankTransfer = async (req, res) => {
         const row = doc.data() || {};
         return row.courseId === freshPayment.courseId;
       });
+      const studentRef = db.collection(COLLECTIONS.STUDENTS).doc(freshPayment.studentId);
 
       if (!hasEnrollment) {
         const enrollmentRef = db.collection(COLLECTIONS.ENROLLMENTS).doc();
@@ -1091,13 +1104,23 @@ export const verifyBankTransfer = async (req, res) => {
           completedAt: null,
           createdAt: FieldValue.serverTimestamp(),
         });
+        const courseRef = db.collection(COLLECTIONS.COURSES).doc(freshPayment.courseId);
+        transaction.update(courseRef, {
+          enrollmentCount: FieldValue.increment(1),
+          updatedAt: FieldValue.serverTimestamp(),
+        });
       }
 
-      const courseRef = db.collection(COLLECTIONS.COURSES).doc(freshPayment.courseId);
-      transaction.update(courseRef, {
-        enrollmentCount: FieldValue.increment(1),
-        updatedAt: FieldValue.serverTimestamp(),
-      });
+      if (freshPayment.courseId) {
+        transaction.set(
+          studentRef,
+          {
+            enrolledCourses: FieldValue.arrayUnion(freshPayment.courseId),
+            updatedAt: FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
+      }
 
       if (freshPayment.promoCodeId) {
         const promoRef = db.collection(COLLECTIONS.PROMO_CODES).doc(freshPayment.promoCodeId);

@@ -199,6 +199,14 @@ const hasTeacherLinks = async (teacherId) => {
     db.collection(COLLECTIONS.COURSES).get(),
   ]);
 
+  const toRefId = (value, key) => {
+    if (typeof value === "string") return value.trim();
+    if (!value || typeof value !== "object") return "";
+    if (key && value[key]) return String(value[key]).trim();
+    if (value.id) return String(value.id).trim();
+    return "";
+  };
+
   const teacherData = teacherSnap.exists ? teacherSnap.data() || {} : {};
   const assignedCourses = Array.isArray(teacherData.assignedCourses)
     ? teacherData.assignedCourses
@@ -210,21 +218,79 @@ const hasTeacherLinks = async (teacherId) => {
     ? teacherData.assignedSubjects
     : [];
 
-  if (assignedCourses.length || assignedClasses.length || assignedSubjects.length) {
+  const existingCourseIds = new Set(
+    coursesSnap.docs.map((doc) => String(doc.id || "").trim()).filter(Boolean)
+  );
+  const existingClassIds = new Set(
+    classesSnap.docs.map((doc) => String(doc.id || "").trim()).filter(Boolean)
+  );
+
+  const validAssignedCourses = assignedCourses.filter((course) =>
+    existingCourseIds.has(toRefId(course, "courseId"))
+  );
+  const validAssignedClasses = assignedClasses.filter((classItem) =>
+    existingClassIds.has(toRefId(classItem, "classId"))
+  );
+
+  const validAssignedSubjects = assignedSubjects.filter((subjectItem) => {
+    const subjectId = toRefId(subjectItem, "subjectId");
+    if (!subjectId) return false;
+    return coursesSnap.docs.some((doc) => {
+      const subjects = Array.isArray(doc.data()?.subjects) ? doc.data().subjects : [];
+      return subjects.some(
+        (subject) =>
+          String(subject?.id || "").trim() === subjectId &&
+          String(subject?.teacherId || "").trim() === teacherId
+      );
+    });
+  });
+
+  const needsCleanup =
+    validAssignedCourses.length !== assignedCourses.length ||
+    validAssignedClasses.length !== assignedClasses.length ||
+    validAssignedSubjects.length !== assignedSubjects.length;
+
+  if (needsCleanup && teacherSnap.exists) {
+    await db.collection(COLLECTIONS.TEACHERS).doc(teacherId).set(
+      {
+        assignedCourses: validAssignedCourses,
+        assignedClasses: validAssignedClasses,
+        assignedSubjects: validAssignedSubjects,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+  }
+
+  if (
+    validAssignedCourses.length ||
+    validAssignedClasses.length ||
+    validAssignedSubjects.length
+  ) {
     return true;
   }
 
   const classLinked = classesSnap.docs.some((doc) => {
     const data = doc.data() || {};
     const teachers = Array.isArray(data.teachers) ? data.teachers : [];
-    return teachers.some((entry) => entry?.teacherId === teacherId);
+    const shifts = Array.isArray(data.shifts) ? data.shifts : [];
+    const directTeacherId = String(data.teacherId || "").trim();
+    return (
+      directTeacherId === teacherId ||
+      teachers.some((entry) => toRefId(entry, "teacherId") === teacherId) ||
+      shifts.some((shift) => String(shift?.teacherId || "").trim() === teacherId)
+    );
   });
   if (classLinked) return true;
 
   const courseLinked = coursesSnap.docs.some((doc) => {
     const data = doc.data() || {};
+    const directTeacherId = String(data.teacherId || "").trim();
     const subjects = Array.isArray(data.subjects) ? data.subjects : [];
-    return subjects.some((subject) => subject?.teacherId === teacherId);
+    return (
+      directTeacherId === teacherId ||
+      subjects.some((subject) => String(subject?.teacherId || "").trim() === teacherId)
+    );
   });
 
   return courseLinked;

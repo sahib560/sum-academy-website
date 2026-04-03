@@ -1,5 +1,6 @@
 import {
   createUserWithEmailAndPassword,
+  deleteUser as deleteAuthUser,
   signInWithEmailAndPassword,
   signInWithPopup,
   signInWithRedirect,
@@ -29,14 +30,30 @@ const registerWithEmail = async (
   otpVerificationToken,
   profileData = {}
 ) => {
+  let user = null;
+  let isNewAuthUser = false;
   try {
     console.log("Step 1: Creating Firebase user...");
-    const result = await createUserWithEmailAndPassword(
-      firebaseAuth,
-      email,
-      password
-    );
-    const user = result.user;
+    try {
+      const result = await createUserWithEmailAndPassword(
+        firebaseAuth,
+        email,
+        password
+      );
+      user = result.user;
+      isNewAuthUser = true;
+    } catch (createError) {
+      if (createError?.code === "auth/email-already-in-use") {
+        const signInResult = await signInWithEmailAndPassword(
+          firebaseAuth,
+          email,
+          password
+        );
+        user = signInResult.user;
+      } else {
+        throw createError;
+      }
+    }
 
     console.log("Step 2: Updating profile...");
     await updateProfile(user, { displayName: fullName });
@@ -70,6 +87,13 @@ const registerWithEmail = async (
     console.log("Step 5: Done:", response.data);
     return response.data;
   } catch (error) {
+    if (isNewAuthUser && user) {
+      try {
+        await deleteAuthUser(user);
+      } catch (cleanupError) {
+        console.warn("Partial auth cleanup failed:", cleanupError?.message || cleanupError);
+      }
+    }
     console.error("Register error:", error.response?.data || error.message);
     throw error;
   }
