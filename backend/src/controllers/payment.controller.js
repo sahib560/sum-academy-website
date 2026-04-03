@@ -26,6 +26,36 @@ const parseDate = (value) => {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 };
 
+const getEnrollmentStatusFromClassDates = (classData = {}) => {
+  const start = parseDate(classData?.startDate);
+  const end = parseDate(classData?.endDate);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  if (start) {
+    const startDay = new Date(start);
+    startDay.setHours(0, 0, 0, 0);
+    if (today.getTime() < startDay.getTime()) return "upcoming";
+  }
+
+  if (end) {
+    const endDay = new Date(end);
+    endDay.setHours(0, 0, 0, 0);
+    if (today.getTime() > endDay.getTime()) return "completed";
+  }
+
+  return "active";
+};
+
+const mergeEnrollmentStatus = (currentStatus = "", nextStatus = "") => {
+  const current = String(currentStatus || "").trim().toLowerCase();
+  const next = String(nextStatus || "").trim().toLowerCase();
+  if (current === "active" || next === "active") return "active";
+  if (current === "upcoming" || next === "upcoming") return "upcoming";
+  if (next) return next;
+  return current || "active";
+};
+
 const serializeTimestamp = (value) => {
   const date = parseDate(value);
   return date ? date.toISOString() : null;
@@ -416,6 +446,10 @@ const addStudentToClassFromPayment = async ({ classId, studentId, shiftId, cours
     if (!classSnap.exists) throw new Error("CLASS_NOT_FOUND");
 
     const classData = classSnap.data() || {};
+    const enrollmentStatus = getEnrollmentStatusFromClassDates(classData);
+    if (enrollmentStatus === "completed") {
+      throw new Error("CLASS_ENDED");
+    }
     const students = Array.isArray(classData.students) ? classData.students : [];
     const normalizedStudents = students.map((entry) =>
       typeof entry === "string"
@@ -451,12 +485,16 @@ const addStudentToClassFromPayment = async ({ classId, studentId, shiftId, cours
     });
 
     if (courseId) {
+      const studentUpdates = {
+        enrolledCourses: FieldValue.arrayUnion(courseId),
+        updatedAt: FieldValue.serverTimestamp(),
+      };
+      if (classId) {
+        studentUpdates.enrolledClasses = FieldValue.arrayUnion(classId);
+      }
       transaction.set(
         studentRef,
-        {
-          enrolledCourses: FieldValue.arrayUnion(courseId),
-          updatedAt: FieldValue.serverTimestamp(),
-        },
+        studentUpdates,
         { merge: true }
       );
     }
@@ -1073,6 +1111,19 @@ export const verifyBankTransfer = async (req, res) => {
       const freshSnap = await transaction.get(paymentRef);
       if (!freshSnap.exists) throw new Error("PAYMENT_NOT_FOUND");
       const freshPayment = freshSnap.data() || {};
+      let classData = null;
+      let enrollmentStatus = "active";
+      if (freshPayment.classId) {
+        const classRef = db.collection(COLLECTIONS.CLASSES).doc(freshPayment.classId);
+        const classSnap = await transaction.get(classRef);
+        if (classSnap.exists) {
+          classData = classSnap.data() || {};
+          enrollmentStatus = getEnrollmentStatusFromClassDates(classData);
+        }
+      }
+      if (enrollmentStatus === "completed") {
+        throw new Error("CLASS_ENDED");
+      }
 
       transaction.update(paymentRef, {
         status: "paid",
@@ -1090,6 +1141,10 @@ export const verifyBankTransfer = async (req, res) => {
         return row.courseId === freshPayment.courseId;
       });
       const studentRef = db.collection(COLLECTIONS.STUDENTS).doc(freshPayment.studentId);
+      const existingEnrollmentDoc = enrollmentQuery.docs.find((doc) => {
+        const row = doc.data() || {};
+        return row.courseId === freshPayment.courseId;
+      });
 
       if (!hasEnrollment) {
         const enrollmentRef = db.collection(COLLECTIONS.ENROLLMENTS).doc();
@@ -1099,9 +1154,11 @@ export const verifyBankTransfer = async (req, res) => {
           paymentId,
           classId: freshPayment.classId || null,
           shiftId: freshPayment.shiftId || null,
-          status: "active",
+          status: enrollmentStatus,
           progress: 0,
           completedAt: null,
+          classStartDate: classData?.startDate || null,
+          classEndDate: classData?.endDate || null,
           createdAt: FieldValue.serverTimestamp(),
         });
         const courseRef = db.collection(COLLECTIONS.COURSES).doc(freshPayment.courseId);
@@ -1109,15 +1166,37 @@ export const verifyBankTransfer = async (req, res) => {
           enrollmentCount: FieldValue.increment(1),
           updatedAt: FieldValue.serverTimestamp(),
         });
+      } else if (existingEnrollmentDoc) {
+        const existingEnrollmentData = existingEnrollmentDoc.data() || {};
+        const mergedStatus = mergeEnrollmentStatus(
+          existingEnrollmentData.status,
+          enrollmentStatus
+        );
+        transaction.set(
+          existingEnrollmentDoc.ref,
+          {
+            classId: freshPayment.classId || null,
+            shiftId: freshPayment.shiftId || null,
+            status: mergedStatus,
+            classStartDate: classData?.startDate || null,
+            classEndDate: classData?.endDate || null,
+            updatedAt: FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
       }
 
       if (freshPayment.courseId) {
+        const studentUpdates = {
+          enrolledCourses: FieldValue.arrayUnion(freshPayment.courseId),
+          updatedAt: FieldValue.serverTimestamp(),
+        };
+        if (freshPayment.classId) {
+          studentUpdates.enrolledClasses = FieldValue.arrayUnion(freshPayment.classId);
+        }
         transaction.set(
           studentRef,
-          {
-            enrolledCourses: FieldValue.arrayUnion(freshPayment.courseId),
-            updatedAt: FieldValue.serverTimestamp(),
-          },
+          studentUpdates,
           { merge: true }
         );
       }
@@ -1206,6 +1285,13 @@ export const verifyBankTransfer = async (req, res) => {
       "Payment approved"
     );
   } catch (error) {
+    if (error?.message === "CLASS_ENDED") {
+      return errorResponse(
+        res,
+        "Cannot approve payment for an ended class. Use an active/upcoming class.",
+        400
+      );
+    }
     console.error("verifyBankTransfer error:", error);
     return errorResponse(res, "Failed to verify payment", 500);
   }

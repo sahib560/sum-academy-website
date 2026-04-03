@@ -34,6 +34,27 @@ const toDate = (value) => {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 };
 
+const getEnrollmentStatusFromClassDates = (classData = {}) => {
+  const start = toDate(classData?.startDate);
+  const end = toDate(classData?.endDate);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  if (start) {
+    const startDay = new Date(start);
+    startDay.setHours(0, 0, 0, 0);
+    if (today.getTime() < startDay.getTime()) return "upcoming";
+  }
+
+  if (end) {
+    const endDay = new Date(end);
+    endDay.setHours(0, 0, 0, 0);
+    if (today.getTime() > endDay.getTime()) return "completed";
+  }
+
+  return "active";
+};
+
 const toIso = (value) => {
   const parsed = toDate(value);
   return parsed ? parsed.toISOString() : null;
@@ -394,6 +415,7 @@ const toPositiveNumber = (value, fallback = 0) => {
 
 const ACTIVE_ENROLLMENT_STATUSES = new Set([
   "active",
+  "upcoming",
   "completed",
   "pending_review",
   "",
@@ -542,8 +564,10 @@ const buildClassDerivedEnrollmentRows = (classDocs = [], allowedCourseIds = []) 
           courseId: cleanCourseId,
           classId,
           shiftId: trimText(entry?.shiftId),
-          status: "active",
+          status: getEnrollmentStatusFromClassDates(classData),
           progress: 0,
+          classStartDate: classData?.startDate || null,
+          classEndDate: classData?.endDate || null,
           createdAt: entry?.enrolledAt || classData.updatedAt || classData.createdAt || null,
           updatedAt: entry?.enrolledAt || classData.updatedAt || classData.createdAt || null,
           source: "class_membership",

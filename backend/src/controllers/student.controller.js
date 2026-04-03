@@ -189,8 +189,6 @@ const getStudentCourseIdsFromClassRow = (classData = {}, uid = "") => {
       courseIds.add(classCourseId);
     } else if (assignedCourseIds.length === 1) {
       courseIds.add(assignedCourseIds[0]);
-    } else if (assignedCourseIds.length > 1) {
-      assignedCourseIds.forEach((courseId) => courseIds.add(courseId));
     }
   }
 
@@ -214,7 +212,7 @@ const getStudentEnrolledCourseIds = async (uid) => {
 
   const enrollmentIds = enrollments
     .filter((row) =>
-      ["active", "completed", "pending_review", ""].includes(
+      ["active", "upcoming", "completed", "pending_review", ""].includes(
         lowerText(row.status || "active")
       )
     )

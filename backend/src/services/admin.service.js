@@ -8,6 +8,32 @@ const toNumber = (value, fallback = 0) => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 const clampPercent = (value) => Math.max(0, Math.min(100, toNumber(value, 0)));
+const parseDate = (value) => {
+  if (!value) return null;
+  if (typeof value?.toDate === "function") return value.toDate();
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+const getEnrollmentStatusFromClassDates = (classData = {}) => {
+  const start = parseDate(classData?.startDate);
+  const end = parseDate(classData?.endDate);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  if (start) {
+    const startDay = new Date(start);
+    startDay.setHours(0, 0, 0, 0);
+    if (today.getTime() < startDay.getTime()) return "upcoming";
+  }
+
+  if (end) {
+    const endDay = new Date(end);
+    endDay.setHours(0, 0, 0, 0);
+    if (today.getTime() > endDay.getTime()) return "completed";
+  }
+
+  return "active";
+};
 const chunkArray = (rows = [], size = 10) => {
   const chunks = [];
   for (let index = 0; index < rows.length; index += size) {
@@ -18,6 +44,7 @@ const chunkArray = (rows = [], size = 10) => {
 
 const ACTIVE_ENROLLMENT_STATUSES = new Set([
   "active",
+  "upcoming",
   "completed",
   "pending_review",
   "",
@@ -114,7 +141,9 @@ const buildClassDerivedEnrollmentRows = (classDocs = [], allowedCourseIds = []) 
           studentId,
           courseId: cleanCourseId,
           classId,
-          status: "active",
+          status: getEnrollmentStatusFromClassDates(classData),
+          classStartDate: classData?.startDate || null,
+          classEndDate: classData?.endDate || null,
           source: "class_membership",
         });
       });
@@ -225,7 +254,7 @@ export const getDashboardStats = async () => {
     db.collection(COLLECTIONS.PAYMENTS).where("status", "==", "paid").get(),
     db
       .collection(COLLECTIONS.ENROLLMENTS)
-      .where("status", "==", "active")
+      .where("status", "in", ["active", "upcoming"])
       .count()
       .get(),
     db

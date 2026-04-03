@@ -340,6 +340,36 @@ const normalizeDateValue = (value) => {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 };
 
+const getEnrollmentStatusFromClassDates = (classData = {}) => {
+  const start = normalizeDateValue(classData?.startDate);
+  const end = normalizeDateValue(classData?.endDate);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  if (start) {
+    const startDay = new Date(start);
+    startDay.setHours(0, 0, 0, 0);
+    if (today.getTime() < startDay.getTime()) return "upcoming";
+  }
+
+  if (end) {
+    const endDay = new Date(end);
+    endDay.setHours(0, 0, 0, 0);
+    if (today.getTime() > endDay.getTime()) return "completed";
+  }
+
+  return "active";
+};
+
+const mergeEnrollmentStatus = (currentStatus = "", nextStatus = "") => {
+  const current = String(currentStatus || "").trim().toLowerCase();
+  const next = String(nextStatus || "").trim().toLowerCase();
+  if (current === "active" || next === "active") return "active";
+  if (current === "upcoming" || next === "upcoming") return "upcoming";
+  if (next) return next;
+  return current || "active";
+};
+
 const normalizeStatus = (value) => {
   const normalized = String(value || "").trim().toLowerCase();
   return CLASS_STATUSES.has(normalized) ? normalized : "upcoming";
@@ -2742,6 +2772,10 @@ export const addStudentToClass = async (req, res) => {
       if (!shift) {
         throw new Error("SHIFT_NOT_FOUND");
       }
+      const enrollmentStatus = getEnrollmentStatusFromClassDates(classData);
+      if (enrollmentStatus === "completed") {
+        throw new Error("CLASS_ENDED");
+      }
 
       const finalCourseId = requestedCourseId || shift.courseId || "";
       if (!finalCourseId) {
@@ -2774,12 +2808,19 @@ export const addStudentToClass = async (req, res) => {
       });
 
       if (existingEnrollmentDoc) {
+        const existingEnrollmentData = existingEnrollmentDoc.data() || {};
+        const mergedStatus = mergeEnrollmentStatus(
+          existingEnrollmentData.status,
+          enrollmentStatus
+        );
         transaction.set(
           existingEnrollmentDoc.ref,
           {
             classId,
             shiftId,
-            status: "active",
+            status: mergedStatus,
+            classStartDate: classData.startDate || null,
+            classEndDate: classData.endDate || null,
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
           },
           { merge: true }
@@ -2790,9 +2831,11 @@ export const addStudentToClass = async (req, res) => {
           courseId: finalCourseId,
           classId,
           shiftId,
-          status: "active",
+          status: enrollmentStatus,
           progress: 0,
           completedAt: null,
+          classStartDate: classData.startDate || null,
+          classEndDate: classData.endDate || null,
           createdAt: admin.firestore.FieldValue.serverTimestamp(),
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
           source: "class_assignment",
@@ -2803,6 +2846,7 @@ export const addStudentToClass = async (req, res) => {
         db.collection(COLLECTIONS.STUDENTS).doc(studentId),
         {
           enrolledCourses: admin.firestore.FieldValue.arrayUnion(finalCourseId),
+          enrolledClasses: admin.firestore.FieldValue.arrayUnion(classId),
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         },
         { merge: true }
@@ -2826,6 +2870,13 @@ export const addStudentToClass = async (req, res) => {
     }
     if (e.message === "SHIFT_NOT_FOUND") {
       return errorResponse(res, "Shift not found", 404);
+    }
+    if (e.message === "CLASS_ENDED") {
+      return errorResponse(
+        res,
+        "Cannot enroll student. This class has already ended.",
+        400
+      );
     }
     if (e.message === "COURSE_REQUIRED") {
       return errorResponse(res, "Course is required for enrollment", 400);
