@@ -1,5 +1,11 @@
 import { admin, db } from "../config/firebase.js";
 
+const normalizeRole = (role) => {
+  if (typeof role !== "string") return null;
+  const value = role.trim().toLowerCase();
+  return value || null;
+};
+
 const getTokenFromHeader = (req) => {
   const authHeader = req.headers.authorization || "";
   const [scheme, token] = authHeader.split(" ");
@@ -30,10 +36,11 @@ const verifyFirebaseToken = async (req, res, next) => {
 
   try {
     const decoded = await admin.auth().verifyIdToken(token);
+    const normalizedRole = normalizeRole(decoded.role);
     req.user = {
       uid: decoded.uid,
       email: decoded.email || null,
-      role: decoded.role || null,
+      role: normalizedRole,
     };
     return next();
   } catch (error) {
@@ -99,17 +106,19 @@ const verifyToken = async (req, res, next) => {
 
     const resolvedSnap = await userRef.get();
     const user = resolvedSnap.data();
-    const resolvedRole = user.role || decoded.role || null;
+    const userRole = normalizeRole(user?.role);
+    const tokenRole = normalizeRole(decoded?.role);
+    const resolvedRole = userRole || tokenRole || null;
     if (!resolvedRole) {
       return res
         .status(403)
         .json({ success: false, message: "Access role missing for this account" });
     }
 
-    if (!user.role && decoded.role) {
+    if (userRole !== resolvedRole) {
       await userRef.set(
         {
-          role: decoded.role,
+          role: resolvedRole,
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         },
         { merge: true }
@@ -150,11 +159,19 @@ const verifyToken = async (req, res, next) => {
 const requireRole =
   (...roles) =>
   (req, res, next) => {
-    const role = req.user?.role;
-    if (!role || !roles.includes(role)) {
+    const role = normalizeRole(req.user?.role);
+    const allowedRoles = roles.map((entry) => normalizeRole(entry)).filter(Boolean);
+
+    if (!role || !allowedRoles.includes(role)) {
       return res
         .status(403)
-        .json({ success: false, message: "Access denied" });
+        .json({
+          success: false,
+          message: "Access denied",
+          code: "ACCESS_DENIED",
+          requiredRoles: allowedRoles,
+          actualRole: role,
+        });
     }
     return next();
   };

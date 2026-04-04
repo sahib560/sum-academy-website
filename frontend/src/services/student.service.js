@@ -36,6 +36,9 @@ export const getStudentAnnouncements = () =>
 export const markAnnouncementRead = (id) =>
   api.patch(`/student/announcements/${id}/read`).then((r) => r.data);
 
+export const markAllStudentAnnouncementsRead = () =>
+  api.patch("/announcements/read-all").then((r) => r.data);
+
 export const getStudentAttendance = () =>
   api.get("/student/attendance").then((r) => r.data.data);
 

@@ -145,6 +145,7 @@ function TeacherAnnouncements() {
       setSendForm(initialSendForm);
       setSendErrors({});
       queryClient.invalidateQueries({ queryKey: ["teacher-announcements"] });
+      queryClient.invalidateQueries({ queryKey: ["my-announcements"] });
     },
     onError: (error) => {
       toast.error(error?.response?.data?.message || "Failed to send announcement");

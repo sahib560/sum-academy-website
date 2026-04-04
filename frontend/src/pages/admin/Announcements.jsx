@@ -115,6 +115,8 @@ function Announcements() {
   const announcementsQuery = useQuery({
     queryKey: ["admin-announcements"],
     queryFn: getAnnouncements,
+    staleTime: 60 * 1000,
+    refetchInterval: 60 * 1000,
   });
   const classesQuery = useQuery({
     queryKey: ["admin-classes-for-announcements"],
@@ -264,6 +266,7 @@ function Announcements() {
     mutationFn: createAnnouncement,
     onSuccess: (response) => {
       queryClient.invalidateQueries({ queryKey: ["admin-announcements"] });
+      queryClient.invalidateQueries({ queryKey: ["my-announcements"] });
       const reached = response?.data?.studentsReached ?? studentReachPreview;
       const emailsSent = response?.data?.emailsSent || 0;
       toast.success(`Announcement posted! Reached ${reached} users`);
@@ -282,6 +285,7 @@ function Announcements() {
     mutationFn: ({ id, payload }) => updateAnnouncement(id, payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin-announcements"] });
+      queryClient.invalidateQueries({ queryKey: ["my-announcements"] });
       toast.success("Announcement updated");
       setEditItem(null);
       resetFormState();
@@ -295,6 +299,7 @@ function Announcements() {
     mutationFn: (id) => deleteAnnouncement(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin-announcements"] });
+      queryClient.invalidateQueries({ queryKey: ["my-announcements"] });
       toast.success("Announcement deleted");
       setDeleteItem(null);
     },
@@ -307,6 +312,7 @@ function Announcements() {
     mutationFn: ({ id, isPinned }) => toggleAnnouncementPin(id, isPinned),
     onSuccess: (_, vars) => {
       queryClient.invalidateQueries({ queryKey: ["admin-announcements"] });
+      queryClient.invalidateQueries({ queryKey: ["my-announcements"] });
       toast.success(vars.isPinned ? "Announcement pinned" : "Announcement unpinned");
     },
     onError: (error) => {
