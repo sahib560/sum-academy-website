@@ -159,6 +159,49 @@ const getUserNameByEmail = async (email) => {
   );
 };
 
+const cleanupOrphanAuthAccountByEmail = async (email) => {
+  const normalizedEmail = normalizeEmail(email);
+  if (!isValidEmail(normalizedEmail)) {
+    return { cleaned: false, reason: "INVALID_EMAIL" };
+  }
+
+  let authUser = null;
+  try {
+    authUser = await admin.auth().getUserByEmail(normalizedEmail);
+  } catch (error) {
+    if (error?.code === "auth/user-not-found") {
+      return { cleaned: false, reason: "AUTH_NOT_FOUND" };
+    }
+    throw error;
+  }
+
+  const userSnap = await db.collection("users").doc(authUser.uid).get();
+  if (userSnap.exists) {
+    const userData = userSnap.data() || {};
+    const isComplete = await isCompleteUserRecord(authUser.uid, userData);
+    if (isComplete) {
+      return { cleaned: false, reason: "COMPLETE_ACCOUNT_EXISTS" };
+    }
+  }
+
+  const batch = db.batch();
+  batch.delete(db.collection("users").doc(authUser.uid));
+  batch.delete(db.collection("students").doc(authUser.uid));
+  batch.delete(db.collection("teachers").doc(authUser.uid));
+  batch.delete(db.collection("admins").doc(authUser.uid));
+  await batch.commit();
+
+  try {
+    await admin.auth().deleteUser(authUser.uid);
+  } catch (error) {
+    if (error?.code !== "auth/user-not-found") {
+      throw error;
+    }
+  }
+
+  return { cleaned: true, uid: authUser.uid };
+};
+
 const sendRegistrationOtp = async (req, res) => {
   try {
     const email = normalizeEmail(req.body?.email);
@@ -185,6 +228,16 @@ const sendRegistrationOtp = async (req, res) => {
       await db.collection("users").doc(existingDoc.id).delete();
       console.warn(
         `Recovered orphan user record for email ${email}; users/${existingDoc.id} removed`
+      );
+    }
+
+    const orphanCleanup = await cleanupOrphanAuthAccountByEmail(email);
+    if (orphanCleanup.reason === "COMPLETE_ACCOUNT_EXISTS") {
+      return errorResponse(res, "Email is already registered", 409);
+    }
+    if (orphanCleanup.cleaned) {
+      console.warn(
+        `Recovered orphan auth account for ${email}; auth/${orphanCleanup.uid} deleted`
       );
     }
 

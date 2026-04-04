@@ -1717,22 +1717,34 @@ export const deleteUser = async (req, res) => {
         );
       }
     }
-    const roleCol =
-      userData.role === "student"
-        ? COLLECTIONS.STUDENTS
-        : userData.role === "teacher"
-        ? COLLECTIONS.TEACHERS
-        : COLLECTIONS.ADMINS;
+    try {
+      await admin.auth().deleteUser(uid);
+    } catch (authError) {
+      if (authError?.code !== "auth/user-not-found") {
+        console.error("deleteUser auth delete error:", authError);
+        return errorResponse(
+          res,
+          "Failed to delete user from authentication. No database changes were made.",
+          500,
+          { code: "AUTH_DELETE_FAILED" }
+        );
+      }
+    }
 
     const batch = db.batch();
     batch.delete(db.collection(COLLECTIONS.USERS).doc(uid));
-    batch.delete(db.collection(roleCol).doc(uid));
+    batch.delete(db.collection(COLLECTIONS.STUDENTS).doc(uid));
+    batch.delete(db.collection(COLLECTIONS.TEACHERS).doc(uid));
+    batch.delete(db.collection(COLLECTIONS.ADMINS).doc(uid));
     await batch.commit();
 
-    await admin.auth().deleteUser(uid);
-
-    return successResponse(res, { uid }, "User deleted");
+    return successResponse(
+      res,
+      { uid },
+      "User deleted from authentication and database"
+    );
   } catch (e) {
+    console.error("deleteUser error:", e);
     return errorResponse(res, "Failed to delete user", 500);
   }
 };
