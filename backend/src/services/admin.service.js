@@ -110,7 +110,7 @@ const resolveClassEntryCourseIds = (entry = {}, classData = {}) => {
   if (shiftId && shiftCourseMap[shiftId]) return [shiftCourseMap[shiftId]];
 
   const assignedCourseIds = getClassAssignedCourseIds(classData);
-  if (assignedCourseIds.length === 1) return [assignedCourseIds[0]];
+  if (assignedCourseIds.length > 0) return assignedCourseIds;
 
   return [];
 };
@@ -214,20 +214,11 @@ const getLiveEnrollmentCountByCourse = async (courseIds = []) => {
   const cleanCourseIds = [...new Set(courseIds.map((id) => trimText(id)).filter(Boolean))];
   if (!cleanCourseIds.length) return {};
 
-  const enrollmentSnapshots = await Promise.all(
-    chunkArray(cleanCourseIds, 10).map((ids) =>
-      db.collection(COLLECTIONS.ENROLLMENTS).where("courseId", "in", ids).get()
-    )
-  );
-  const directRows = enrollmentSnapshots.flatMap((snap) =>
-    snap.docs.map((doc) => ({ id: doc.id, ...(doc.data() || {}) }))
-  );
-
   const classesSnap = await db.collection(COLLECTIONS.CLASSES).get();
   const classDocs = classesSnap.docs.map((doc) => ({ id: doc.id, data: doc.data() || {} }));
   const inferredRows = buildClassDerivedEnrollmentRows(classDocs, cleanCourseIds);
 
-  const mergedRows = mergeEnrollmentRowsByStudentCourse(directRows, inferredRows);
+  const mergedRows = mergeEnrollmentRowsByStudentCourse([], inferredRows);
   return mergedRows.reduce((acc, row) => {
     const courseId = trimText(row.courseId);
     if (!courseId) return acc;
@@ -495,6 +486,23 @@ export const getAllStudents = async () => {
     id: doc.id,
     data: doc.data() || {},
   }));
+  const classMap = classDocs.reduce((acc, row) => {
+    acc[row.id] = row.data || {};
+    return acc;
+  }, {});
+  const classMembershipByStudent = classDocs.reduce((acc, row) => {
+    const classId = trimText(row.id);
+    if (!classId) return acc;
+    const entries = getClassStudentEntries(row.data || {});
+    entries.forEach((entry) => {
+      const studentId = trimText(entry.studentId);
+      if (!studentId) return;
+      if (!acc[studentId]) acc[studentId] = new Set();
+      acc[studentId].add(classId);
+    });
+    return acc;
+  }, {});
+
   const inferredEnrollments = buildClassDerivedEnrollmentRows(classDocs);
   const mergedEnrollments = mergeEnrollmentRowsByStudentCourse(
     directEnrollments,
@@ -521,6 +529,7 @@ export const getAllStudents = async () => {
     const userData = doc.data();
     const studentData = studentsMap[doc.id] || {};
     const studentId = doc.id;
+    const enrolledClasses = Array.from(classMembershipByStudent[studentId] || []);
     const studentEnrollments = Array.isArray(enrollmentsByStudentId[studentId])
       ? enrollmentsByStudentId[studentId]
       : [];
@@ -541,48 +550,52 @@ export const getAllStudents = async () => {
       fallbackName ||
       "Unknown Student";
 
-    const enrolledCoursesFromRows = studentEnrollments.map((row) => {
-      const courseId = trimText(row.courseId);
-      return {
-        id: `${studentId}_${courseId}`,
-        courseId,
-        classId: trimText(row.classId),
-        courseName: courseNameById[courseId] || "Course",
-        enrolledAt: row.createdAt || row.enrolledAt || null,
-        completedAt: row.completedAt || null,
-        progress: extractCourseProgress(studentProgressRows, courseId, row.progress),
-      };
-    });
-
-    const profileCourses = Array.isArray(studentData.enrolledCourses)
-      ? studentData.enrolledCourses
-      : [];
-    const mergedCourseMap = new Map(
-      enrolledCoursesFromRows.map((course) => [trimText(course.courseId), course])
-    );
-    profileCourses.forEach((entry, index) => {
-      const courseId = trimText(typeof entry === "string" ? entry : entry?.courseId || entry?.id);
-      if (!courseId) return;
-      if (mergedCourseMap.has(courseId)) return;
-      mergedCourseMap.set(courseId, {
-        id: `${studentId}_profile_${index}`,
-        courseId,
-        classId: trimText(entry?.classId),
-        courseName:
-          trimText(typeof entry === "string" ? "" : entry?.courseName || entry?.name) ||
-          courseNameById[courseId] ||
-          "Course",
-        enrolledAt: typeof entry === "string" ? null : entry?.enrolledAt || entry?.createdAt || null,
-        completedAt: typeof entry === "string" ? null : entry?.completedAt || null,
-        progress: extractCourseProgress(
-          studentProgressRows,
-          courseId,
-          typeof entry === "string" ? 0 : entry?.progress
-        ),
+    const classCourseMap = new Map();
+    enrolledClasses.forEach((classId) => {
+      const classData = classMap[classId] || {};
+      const classCourseIds = getClassAssignedCourseIds(classData);
+      classCourseIds.forEach((courseId) => {
+        const cleanCourseId = trimText(courseId);
+        if (!cleanCourseId) return;
+        const current = classCourseMap.get(cleanCourseId) || {
+          courseId: cleanCourseId,
+          classIds: [],
+        };
+        if (!current.classIds.includes(classId)) {
+          current.classIds.push(classId);
+        }
+        classCourseMap.set(cleanCourseId, current);
       });
     });
 
-    const enrolledCourses = Array.from(mergedCourseMap.values());
+    const enrolledCourses = Array.from(classCourseMap.values()).map((row) => {
+      const matchingEnrollment = studentEnrollments.find((enrollment) => {
+        const rowCourseId = trimText(enrollment.courseId);
+        const rowClassId = trimText(enrollment.classId);
+        return (
+          rowCourseId === row.courseId &&
+          (!rowClassId || row.classIds.includes(rowClassId))
+        );
+      });
+      const classId = row.classIds[0] || "";
+      return {
+        id: `${studentId}_${row.courseId}_${classId || "class"}`,
+        courseId: row.courseId,
+        classId,
+        classIds: row.classIds,
+        courseName: courseNameById[row.courseId] || "Course",
+        enrolledAt:
+          matchingEnrollment?.createdAt ||
+          matchingEnrollment?.enrolledAt ||
+          null,
+        completedAt: matchingEnrollment?.completedAt || null,
+        progress: extractCourseProgress(
+          studentProgressRows,
+          row.courseId,
+          matchingEnrollment?.progress
+        ),
+      };
+    });
     const avgProgress =
       enrolledCourses.length > 0
         ? Math.round(
@@ -605,6 +618,8 @@ export const getAllStudents = async () => {
       assignedWebDevice: userData.assignedWebDevice || "",
       assignedWebIp: userData.assignedWebIp || "",
       lastKnownWebIp: userData.lastKnownWebIp || "",
+      enrolledClasses,
+      enrolledClassesCount: enrolledClasses.length,
       enrolledCourses,
       avgProgress,
       completedCourses: enrolledCourses.filter(

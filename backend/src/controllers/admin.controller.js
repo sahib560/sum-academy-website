@@ -2709,6 +2709,221 @@ export const removeClassShift = async (req, res) => {
   }
 };
 
+const normalizeClassStudentEntries = (students = []) =>
+  students
+    .map((entry) =>
+      typeof entry === "string"
+        ? { studentId: String(entry).trim(), shiftId: "", courseId: "", enrolledAt: null }
+        : {
+            studentId: String(entry?.studentId || entry?.id || entry?.uid || "").trim(),
+            shiftId: String(entry?.shiftId || "").trim(),
+            courseId: String(entry?.courseId || "").trim(),
+            enrolledAt: entry?.enrolledAt || null,
+          }
+    )
+    .filter((entry) => Boolean(entry.studentId));
+
+const getClassAssignedCourseIds = (classData = {}) => {
+  const ids = [];
+  const assignedCourses = Array.isArray(classData.assignedCourses)
+    ? classData.assignedCourses
+    : [];
+  assignedCourses.forEach((entry) => {
+    const courseId =
+      typeof entry === "string"
+        ? String(entry || "").trim()
+        : String(entry?.courseId || entry?.id || "").trim();
+    if (courseId) ids.push(courseId);
+  });
+
+  const classCourseId = String(classData.courseId || "").trim();
+  if (classCourseId) ids.push(classCourseId);
+
+  const shifts = Array.isArray(classData.shifts) ? classData.shifts : [];
+  shifts.forEach((shift) => {
+    const shiftCourseId = String(shift?.courseId || "").trim();
+    if (shiftCourseId) ids.push(shiftCourseId);
+  });
+
+  return [...new Set(ids)];
+};
+
+const buildKnownError = (message, meta = {}) => {
+  const error = new Error(message);
+  error.meta = meta;
+  return error;
+};
+
+const enrollStudentInClassCore = async ({ classId, studentId, shiftId = "" }) => {
+  const cleanClassId = String(classId || "").trim();
+  const cleanStudentId = String(studentId || "").trim();
+  const cleanShiftId = String(shiftId || "").trim();
+  if (!cleanClassId) throw buildKnownError("CLASS_NOT_FOUND");
+  if (!cleanStudentId) throw buildKnownError("STUDENT_REQUIRED");
+
+  let result = null;
+
+  await db.runTransaction(async (transaction) => {
+    const classRef = db.collection(COLLECTIONS.CLASSES).doc(cleanClassId);
+    const studentRef = db.collection(COLLECTIONS.STUDENTS).doc(cleanStudentId);
+    const userRef = db.collection(COLLECTIONS.USERS).doc(cleanStudentId);
+
+    const [classSnap, studentSnap, userSnap] = await Promise.all([
+      transaction.get(classRef),
+      transaction.get(studentRef),
+      transaction.get(userRef),
+    ]);
+
+    if (!classSnap.exists) {
+      throw buildKnownError("CLASS_NOT_FOUND");
+    }
+    if (!studentSnap.exists || !userSnap.exists || userSnap.data()?.role !== "student") {
+      throw buildKnownError("STUDENT_NOT_FOUND");
+    }
+
+    const classData = classSnap.data() || {};
+    const className = String(classData.name || "").trim();
+    const normalizedStudents = normalizeClassStudentEntries(
+      Array.isArray(classData.students) ? classData.students : []
+    );
+    const currentCount = normalizedStudents.length;
+    const capacity = Math.max(Number(classData.capacity || 30), 1);
+
+    if (normalizedStudents.some((entry) => entry.studentId === cleanStudentId)) {
+      throw buildKnownError("ALREADY_ENROLLED");
+    }
+    if (currentCount >= capacity) {
+      throw buildKnownError("CLASS_FULL", { capacity, currentCount });
+    }
+
+    const enrollmentStatus = getEnrollmentStatusFromClassDates(classData);
+    if (enrollmentStatus === "completed") {
+      throw buildKnownError("CLASS_ENDED");
+    }
+
+    const shifts = Array.isArray(classData.shifts) ? classData.shifts : [];
+    const selectedShift = cleanShiftId
+      ? shifts.find((shift) => String(shift?.id || "").trim() === cleanShiftId)
+      : shifts[0] || null;
+    if (cleanShiftId && !selectedShift) {
+      throw buildKnownError("SHIFT_NOT_FOUND");
+    }
+
+    const assignedCourseIds = getClassAssignedCourseIds(classData);
+    if (!assignedCourseIds.length) {
+      throw buildKnownError("CLASS_HAS_NO_COURSES");
+    }
+
+    const enrollmentQuery = db
+      .collection(COLLECTIONS.ENROLLMENTS)
+      .where("studentId", "==", cleanStudentId);
+    const enrollmentSnap = await transaction.get(enrollmentQuery);
+    const existingRows = enrollmentSnap.docs.map((doc) => ({
+      ref: doc.ref,
+      data: doc.data() || {},
+    }));
+
+    const enrolledAt = new Date().toISOString();
+    const nextStudents = [
+      ...normalizedStudents,
+      {
+        studentId: cleanStudentId,
+        shiftId: String(selectedShift?.id || "").trim(),
+        courseId: String(selectedShift?.courseId || "").trim(),
+        enrolledAt,
+      },
+    ];
+
+    transaction.update(classRef, {
+      students: nextStudents,
+      enrolledCount: nextStudents.length,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    let createdEnrollmentCount = 0;
+    for (const courseId of assignedCourseIds) {
+      const existingEnrollment = existingRows.find((row) => {
+        const existingCourseId = String(row.data?.courseId || "").trim();
+        const existingClassId = String(row.data?.classId || "").trim();
+        return existingCourseId === courseId && existingClassId === cleanClassId;
+      });
+
+      if (existingEnrollment) {
+        const existingData = existingEnrollment.data || {};
+        const mergedStatus = mergeEnrollmentStatus(
+          existingData.status,
+          enrollmentStatus
+        );
+        transaction.set(
+          existingEnrollment.ref,
+          {
+            classId: cleanClassId,
+            shiftId: String(selectedShift?.id || "").trim(),
+            status: mergedStatus,
+            classStartDate: classData.startDate || null,
+            classEndDate: classData.endDate || null,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
+        continue;
+      }
+
+      const enrollmentRef = db.collection(COLLECTIONS.ENROLLMENTS).doc();
+      transaction.set(enrollmentRef, {
+        studentId: cleanStudentId,
+        courseId,
+        classId: cleanClassId,
+        shiftId: String(selectedShift?.id || "").trim() || null,
+        status: enrollmentStatus,
+        progress: 0,
+        completedAt: null,
+        enrolledAt: admin.firestore.FieldValue.serverTimestamp(),
+        classStartDate: classData.startDate || null,
+        classEndDate: classData.endDate || null,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        source: "class_enrollment",
+      });
+
+      transaction.set(
+        db.collection(COLLECTIONS.COURSES).doc(courseId),
+        {
+          enrollmentCount: admin.firestore.FieldValue.increment(1),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+      createdEnrollmentCount += 1;
+    }
+
+    const studentUpdates = {
+      enrolledClasses: admin.firestore.FieldValue.arrayUnion(cleanClassId),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+    if (assignedCourseIds.length > 0) {
+      studentUpdates.enrolledCourses = admin.firestore.FieldValue.arrayUnion(
+        ...assignedCourseIds
+      );
+    }
+    transaction.set(studentRef, studentUpdates, { merge: true });
+
+    result = {
+      classId: cleanClassId,
+      className,
+      studentId: cleanStudentId,
+      coursesEnrolled: assignedCourseIds.length,
+      createdEnrollments: createdEnrollmentCount,
+      remainingCapacity: Math.max(capacity - nextStudents.length, 0),
+      capacity,
+      currentCount: nextStudents.length,
+      shiftId: String(selectedShift?.id || "").trim() || null,
+    };
+  });
+
+  return result;
+};
+
 export const addStudentToClass = async (req, res) => {
   try {
     const { classId } = req.params;
@@ -2719,8 +2934,6 @@ export const addStudentToClass = async (req, res) => {
         ? req.user.uid
         : requestedStudentId;
     const shiftId = String(req.body?.shiftId || "").trim();
-    const requestedCourseId = String(req.body?.courseId || "").trim();
-    let enrolledCourseId = "";
 
     if (!studentId) {
       return errorResponse(res, "studentId is required", 400);
@@ -2729,144 +2942,44 @@ export const addStudentToClass = async (req, res) => {
       return errorResponse(res, "shiftId is required", 400);
     }
 
-    const userSnap = await db.collection(COLLECTIONS.USERS).doc(studentId).get();
-    if (!userSnap.exists || userSnap.data()?.role !== "student") {
-      return errorResponse(res, "Student not found", 404);
-    }
-
-    await db.runTransaction(async (transaction) => {
-      const classRef = db.collection(COLLECTIONS.CLASSES).doc(classId);
-      const classSnap = await transaction.get(classRef);
-      if (!classSnap.exists) {
-        throw new Error("CLASS_NOT_FOUND");
-      }
-
-      const classData = classSnap.data() || {};
-      const shifts = Array.isArray(classData.shifts) ? classData.shifts : [];
-      const assignedCourses = Array.isArray(classData.assignedCourses)
-        ? classData.assignedCourses
-        : [];
-      const students = Array.isArray(classData.students) ? classData.students : [];
-
-      const normalizedStudents = students.map((entry) =>
-        typeof entry === "string"
-          ? { studentId: entry, shiftId: "", courseId: "", enrolledAt: null }
-          : {
-              studentId: entry.studentId,
-              shiftId: entry.shiftId || "",
-              courseId: entry.courseId || "",
-              enrolledAt: entry.enrolledAt || null,
-            }
-      );
-
-      if (normalizedStudents.some((entry) => entry.studentId === studentId)) {
-        throw new Error("STUDENT_ALREADY_ENROLLED");
-      }
-
-      const capacity = Number(classData.capacity || 0);
-      if (normalizedStudents.length >= capacity) {
-        throw new Error("CLASS_FULL");
-      }
-
-      const shift = shifts.find((item) => item.id === shiftId);
-      if (!shift) {
-        throw new Error("SHIFT_NOT_FOUND");
-      }
-      const enrollmentStatus = getEnrollmentStatusFromClassDates(classData);
-      if (enrollmentStatus === "completed") {
-        throw new Error("CLASS_ENDED");
-      }
-
-      const finalCourseId = requestedCourseId || shift.courseId || "";
-      if (!finalCourseId) {
-        throw new Error("COURSE_REQUIRED");
-      }
-      if (!assignedCourses.some((course) => course.courseId === finalCourseId)) {
-        throw new Error("COURSE_NOT_ASSIGNED");
-      }
-      enrolledCourseId = finalCourseId;
-      const enrollmentQuery = db
-        .collection(COLLECTIONS.ENROLLMENTS)
-        .where("studentId", "==", studentId);
-      const enrollmentSnap = await transaction.get(enrollmentQuery);
-      const existingEnrollmentDoc = enrollmentSnap.docs.find((doc) => {
-        const row = doc.data() || {};
-        return String(row.courseId || "").trim() === finalCourseId;
-      });
-
-      normalizedStudents.push({
-        studentId,
-        shiftId,
-        courseId: finalCourseId,
-        enrolledAt: new Date().toISOString(),
-      });
-
-      transaction.update(classRef, {
-        students: normalizedStudents,
-        enrolledCount: normalizedStudents.length,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
-
-      if (existingEnrollmentDoc) {
-        const existingEnrollmentData = existingEnrollmentDoc.data() || {};
-        const mergedStatus = mergeEnrollmentStatus(
-          existingEnrollmentData.status,
-          enrollmentStatus
-        );
-        transaction.set(
-          existingEnrollmentDoc.ref,
-          {
-            classId,
-            shiftId,
-            status: mergedStatus,
-            classStartDate: classData.startDate || null,
-            classEndDate: classData.endDate || null,
-            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-          },
-          { merge: true }
-        );
-      } else {
-        transaction.set(db.collection(COLLECTIONS.ENROLLMENTS).doc(), {
-          studentId,
-          courseId: finalCourseId,
-          classId,
-          shiftId,
-          status: enrollmentStatus,
-          progress: 0,
-          completedAt: null,
-          classStartDate: classData.startDate || null,
-          classEndDate: classData.endDate || null,
-          createdAt: admin.firestore.FieldValue.serverTimestamp(),
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-          source: "class_assignment",
-        });
-      }
-
-      transaction.set(
-        db.collection(COLLECTIONS.STUDENTS).doc(studentId),
-        {
-          enrolledCourses: admin.firestore.FieldValue.arrayUnion(finalCourseId),
-          enrolledClasses: admin.firestore.FieldValue.arrayUnion(classId),
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        },
-        { merge: true }
-      );
+    const result = await enrollStudentInClassCore({
+      classId,
+      studentId,
+      shiftId,
     });
 
     return successResponse(
       res,
-      { classId, studentId, shiftId, courseId: enrolledCourseId || requestedCourseId },
-      "Student enrolled in class"
+      result,
+      `Student enrolled in ${result.className || "class"}! Access granted to ${result.coursesEnrolled} course(s).`
     );
   } catch (e) {
+    const meta = e?.meta || {};
     if (e.message === "CLASS_NOT_FOUND") {
       return errorResponse(res, "Class not found", 404);
     }
-    if (e.message === "STUDENT_ALREADY_ENROLLED") {
-      return errorResponse(res, "Student already enrolled in this class", 409);
+    if (e.message === "STUDENT_NOT_FOUND") {
+      return errorResponse(res, "Student not found", 404);
+    }
+    if (e.message === "ALREADY_ENROLLED") {
+      return errorResponse(
+        res,
+        "Student is already enrolled in this class",
+        409,
+        { code: "ALREADY_ENROLLED" }
+      );
     }
     if (e.message === "CLASS_FULL") {
-      return errorResponse(res, "Class is full", 400);
+      return errorResponse(
+        res,
+        `Class is full. Capacity is ${meta.capacity} students. Currently ${meta.currentCount} enrolled.`,
+        400,
+        {
+          code: "CLASS_FULL",
+          capacity: meta.capacity,
+          currentCount: meta.currentCount,
+        }
+      );
     }
     if (e.message === "SHIFT_NOT_FOUND") {
       return errorResponse(res, "Shift not found", 404);
@@ -2878,11 +2991,8 @@ export const addStudentToClass = async (req, res) => {
         400
       );
     }
-    if (e.message === "COURSE_REQUIRED") {
-      return errorResponse(res, "Course is required for enrollment", 400);
-    }
-    if (e.message === "COURSE_NOT_ASSIGNED") {
-      return errorResponse(res, "Selected course is not assigned to class", 400);
+    if (e.message === "CLASS_HAS_NO_COURSES") {
+      return errorResponse(res, "This class has no assigned courses", 400);
     }
     return errorResponse(res, "Failed to enroll student", 500);
   }
@@ -2987,13 +3097,66 @@ export const getClassStudents = async (req, res) => {
 export const enrollStudentInClass = async (req, res) => {
   try {
     const { classId } = req.params;
-    if (!req.body?.shiftId) {
-      const classSnap = await db.collection(COLLECTIONS.CLASSES).doc(classId).get();
-      const firstShift = classSnap.data()?.shifts?.[0];
-      req.body.shiftId = firstShift?.id || "";
+    const studentId = String(req.body?.studentId || "").trim();
+    const shiftId = String(req.body?.shiftId || "").trim();
+
+    if (!studentId) {
+      return errorResponse(res, "studentId is required", 400);
     }
-    return addStudentToClass(req, res);
+
+    const result = await enrollStudentInClassCore({
+      classId,
+      studentId,
+      shiftId,
+    });
+
+    return successResponse(
+      res,
+      result,
+      `Student enrolled in ${result.className || "class"}! Access granted to ${result.coursesEnrolled} course(s).`
+    );
   } catch (e) {
+    const meta = e?.meta || {};
+    if (e.message === "CLASS_NOT_FOUND") {
+      return errorResponse(res, "Class not found", 404);
+    }
+    if (e.message === "STUDENT_NOT_FOUND") {
+      return errorResponse(res, "Student not found", 404);
+    }
+    if (e.message === "ALREADY_ENROLLED") {
+      return errorResponse(
+        res,
+        "Student is already enrolled in this class",
+        409,
+        { code: "ALREADY_ENROLLED" }
+      );
+    }
+    if (e.message === "CLASS_FULL") {
+      return errorResponse(
+        res,
+        `Class is full. Capacity is ${meta.capacity} students. Currently ${meta.currentCount} enrolled.`,
+        400,
+        {
+          code: "CLASS_FULL",
+          capacity: meta.capacity,
+          currentCount: meta.currentCount,
+        }
+      );
+    }
+    if (e.message === "SHIFT_NOT_FOUND") {
+      return errorResponse(res, "Shift not found", 404);
+    }
+    if (e.message === "CLASS_HAS_NO_COURSES") {
+      return errorResponse(res, "This class has no assigned courses", 400);
+    }
+    if (e.message === "CLASS_ENDED") {
+      return errorResponse(
+        res,
+        "Cannot enroll student. This class has already ended.",
+        400
+      );
+    }
+    console.error("Enroll student error:", e);
     return errorResponse(res, "Failed to enroll student", 500);
   }
 };
@@ -3001,50 +3164,129 @@ export const enrollStudentInClass = async (req, res) => {
 export const removeStudentFromClass = async (req, res) => {
   try {
     const { classId, studentId } = req.params;
+    const cleanClassId = String(classId || "").trim();
+    const cleanStudentId = String(studentId || "").trim();
+    let studentName = "Student";
 
-    await db.runTransaction(async (transaction) => {
-      const classRef = db.collection(COLLECTIONS.CLASSES).doc(classId);
-      const classSnap = await transaction.get(classRef);
-      if (!classSnap.exists) {
-        throw new Error("CLASS_NOT_FOUND");
-      }
-
-      const classData = classSnap.data() || {};
-      const students = Array.isArray(classData.students) ? classData.students : [];
-      const normalizedStudents = students.map((entry) =>
-        typeof entry === "string"
-          ? { studentId: entry, shiftId: "", courseId: "", enrolledAt: null }
-          : {
-              studentId: entry.studentId,
-              shiftId: entry.shiftId || "",
-              courseId: entry.courseId || "",
-              enrolledAt: entry.enrolledAt || null,
-            }
-      );
-
-      const nextStudents = normalizedStudents.filter(
-        (entry) => entry.studentId !== studentId
-      );
-
-      if (nextStudents.length === normalizedStudents.length) {
-        throw new Error("STUDENT_NOT_IN_CLASS");
-      }
-
-      transaction.update(classRef, {
-        students: nextStudents,
-        enrolledCount: nextStudents.length,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
-    });
-
-    return successResponse(res, {}, "Student removed from class");
-  } catch (e) {
-    if (e.message === "CLASS_NOT_FOUND") {
+    const classRef = db.collection(COLLECTIONS.CLASSES).doc(cleanClassId);
+    const classSnap = await classRef.get();
+    if (!classSnap.exists) {
       return errorResponse(res, "Class not found", 404);
     }
-    if (e.message === "STUDENT_NOT_IN_CLASS") {
+
+    const classData = classSnap.data() || {};
+    const normalizedStudents = normalizeClassStudentEntries(
+      Array.isArray(classData.students) ? classData.students : []
+    );
+    const studentEntry = normalizedStudents.find(
+      (entry) => entry.studentId === cleanStudentId
+    );
+    if (!studentEntry) {
       return errorResponse(res, "Student is not enrolled in this class", 404);
     }
+    try {
+      const [studentSnap, userSnap] = await Promise.all([
+        db.collection(COLLECTIONS.STUDENTS).doc(cleanStudentId).get(),
+        db.collection(COLLECTIONS.USERS).doc(cleanStudentId).get(),
+      ]);
+      studentName =
+        String(studentSnap.data()?.fullName || "").trim() ||
+        String(studentSnap.data()?.name || "").trim() ||
+        (userSnap.data()?.email ? userSnap.data().email.split("@")[0] : "Student");
+    } catch {
+      studentName = "Student";
+    }
+
+    const nextStudents = normalizedStudents.filter(
+      (entry) => entry.studentId !== cleanStudentId
+    );
+    const assignedCourseIds = getClassAssignedCourseIds(classData);
+
+    const enrollmentSnap = await db
+      .collection(COLLECTIONS.ENROLLMENTS)
+      .where("studentId", "==", cleanStudentId)
+      .get();
+    const studentEnrollments = enrollmentSnap.docs.map((doc) => ({
+      id: doc.id,
+      ref: doc.ref,
+      data: doc.data() || {},
+    }));
+
+    const docsToDelete = studentEnrollments.filter((row) => {
+      const rowClassId = String(row.data.classId || "").trim();
+      const rowCourseId = String(row.data.courseId || "").trim();
+      if (rowClassId !== cleanClassId) return false;
+      if (!assignedCourseIds.length) return true;
+      return assignedCourseIds.includes(rowCourseId);
+    });
+
+    const decrementByCourse = docsToDelete.reduce((acc, row) => {
+      const courseId = String(row.data.courseId || "").trim();
+      if (!courseId) return acc;
+      acc[courseId] = (acc[courseId] || 0) + 1;
+      return acc;
+    }, {});
+
+    const remainingEnrollments = studentEnrollments.filter(
+      (row) => !docsToDelete.some((removeRow) => removeRow.id === row.id)
+    );
+    const remainingCourseIds = new Set(
+      remainingEnrollments
+        .map((row) => String(row.data.courseId || "").trim())
+        .filter(Boolean)
+    );
+    const removedCourseIds = [
+      ...new Set(docsToDelete.map((row) => String(row.data.courseId || "").trim()).filter(Boolean)),
+    ];
+    const coursesToRemoveFromStudent = removedCourseIds.filter(
+      (courseId) => !remainingCourseIds.has(courseId)
+    );
+
+    const batch = db.batch();
+    batch.update(classRef, {
+      students: nextStudents,
+      enrolledCount: nextStudents.length,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    docsToDelete.forEach((row) => batch.delete(row.ref));
+
+    Object.entries(decrementByCourse).forEach(([courseId, count]) => {
+      if (!courseId || count < 1) return;
+      batch.set(
+        db.collection(COLLECTIONS.COURSES).doc(courseId),
+        {
+          enrollmentCount: admin.firestore.FieldValue.increment(-count),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+    });
+
+    const studentUpdates = {
+      enrolledClasses: admin.firestore.FieldValue.arrayRemove(cleanClassId),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+    if (coursesToRemoveFromStudent.length > 0) {
+      studentUpdates.enrolledCourses = admin.firestore.FieldValue.arrayRemove(
+        ...coursesToRemoveFromStudent
+      );
+    }
+    batch.set(
+      db.collection(COLLECTIONS.STUDENTS).doc(cleanStudentId),
+      studentUpdates,
+      { merge: true }
+    );
+
+    await batch.commit();
+
+    return successResponse(
+      res,
+      { classId: cleanClassId, studentId: cleanStudentId },
+      `${studentName} removed from class. Access to class courses revoked.`
+    );
+  } catch (e) {
+    console.error("removeStudentFromClass error:", e);
     return errorResponse(res, "Failed to remove student", 500);
   }
 };

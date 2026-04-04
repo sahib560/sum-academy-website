@@ -2,6 +2,10 @@ const violationCount = { current: 0 };
 let onViolationCallback = null;
 let blurTimeout = null;
 let activeCleanup = null;
+let maxViolationLimit = Number.POSITIVE_INFINITY;
+let onMaxViolationCallback = null;
+let hasReachedViolationLimit = false;
+let lastViolation = { reason: "", at: 0 };
 
 export const setViolationCallback = (cb) => {
   onViolationCallback = typeof cb === "function" ? cb : null;
@@ -115,14 +119,39 @@ export const showWarningOverlay = (reason, count) => {
 };
 
 const recordViolation = (reason) => {
+  const now = Date.now();
+  const normalizedReason = String(reason || "default");
+
+  if (hasReachedViolationLimit) return violationCount.current;
+  if (
+    lastViolation.reason === normalizedReason &&
+    now - lastViolation.at < 1200
+  ) {
+    return violationCount.current;
+  }
+
+  lastViolation = { reason: normalizedReason, at: now };
   violationCount.current += 1;
+
+  if (
+    Number.isFinite(maxViolationLimit) &&
+    maxViolationLimit > 0 &&
+    violationCount.current >= maxViolationLimit
+  ) {
+    violationCount.current = maxViolationLimit;
+    hasReachedViolationLimit = true;
+  }
+
   console.warn(
-    `[Protection] Violation #${violationCount.current}: ${String(reason || "default")}`
+    `[Protection] Violation #${violationCount.current}: ${normalizedReason}`
   );
   blurContent();
-  showWarningOverlay(reason, violationCount.current);
+  showWarningOverlay(normalizedReason, violationCount.current);
   if (typeof onViolationCallback === "function") {
-    onViolationCallback(violationCount.current, reason);
+    onViolationCallback(violationCount.current, normalizedReason);
+  }
+  if (hasReachedViolationLimit && typeof onMaxViolationCallback === "function") {
+    onMaxViolationCallback(violationCount.current, normalizedReason);
   }
 };
 
@@ -330,6 +359,8 @@ export const enforceFullscreen = (onExit) => {
 
 export const setupMaxProtection = ({
   onViolation,
+  onMaxViolation,
+  maxViolations = Number.POSITIVE_INFINITY,
   enforceFullscreenMode = false,
   quizMode = false,
 } = {}) => {
@@ -339,6 +370,14 @@ export const setupMaxProtection = ({
 
   setViolationCallback(onViolation);
   violationCount.current = 0;
+  maxViolationLimit =
+    Number.isFinite(Number(maxViolations)) && Number(maxViolations) > 0
+      ? Math.floor(Number(maxViolations))
+      : Number.POSITIVE_INFINITY;
+  onMaxViolationCallback =
+    typeof onMaxViolation === "function" ? onMaxViolation : null;
+  hasReachedViolationLimit = false;
+  lastViolation = { reason: "", at: 0 };
   applyCSSScreenshotBlock();
 
   const previousBodyUserSelect = document.body.style.userSelect;
@@ -410,6 +449,10 @@ export const setupMaxProtection = ({
     clearTimeout(blurTimeout);
     unblurContent();
     setViolationCallback(null);
+    onMaxViolationCallback = null;
+    maxViolationLimit = Number.POSITIVE_INFINITY;
+    hasReachedViolationLimit = false;
+    lastViolation = { reason: "", at: 0 };
     activeCleanup = null;
   };
 

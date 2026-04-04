@@ -917,14 +917,36 @@ function Classes() {
 
   const addStudentMutation = useMutation({
     mutationFn: ({ classId, data }) => addStudentToClass(classId, data),
-    onSuccess: async () => {
+    onSuccess: async (response, variables) => {
       await refreshClasses();
       await refreshClassStudents();
       setEnrollStudentId("");
       setEnrollShiftId("");
-      toast.success("Student added to class.");
+      const selectedClass = classes.find((row) => row.id === variables?.classId);
+      const grantedCourses = Number(response?.data?.coursesEnrolled || 0);
+      toast.success(
+        `Student enrolled in ${selectedClass?.name || "class"}! Access granted to ${grantedCourses} course(s).`
+      );
     },
     onError: (error) => {
+      const code = error?.response?.data?.errors?.code;
+      const selectedStudent = students.find((row) => row.uid === enrollStudentId);
+      if (code === "CLASS_FULL") {
+        const capacity = Number(error?.response?.data?.errors?.capacity || activeClass?.capacity || 0);
+        const currentCount = Number(
+          error?.response?.data?.errors?.currentCount || activeClass?.enrolledCount || 0
+        );
+        toast.error(
+          `This class is full (${currentCount}/${capacity} students).\nIncrease capacity in class settings or create a new batch.`
+        );
+        return;
+      }
+      if (code === "ALREADY_ENROLLED") {
+        toast.error(
+          `${selectedStudent?.fullName || "Student"} is already in this class.`
+        );
+        return;
+      }
       toast.error(error?.response?.data?.error || "Failed to add student.");
     },
   });
@@ -934,8 +956,11 @@ function Classes() {
     onSuccess: async () => {
       await refreshClasses();
       await refreshClassStudents();
+      const removedStudentName = removeStudentTarget?.fullName || "Student";
       setRemoveStudentTarget(null);
-      toast.success("Student removed from class.");
+      toast.success(
+        `${removedStudentName} removed from class. Access to class courses revoked.`
+      );
     },
     onError: (error) => {
       toast.error(error?.response?.data?.error || "Failed to remove student.");
@@ -1322,9 +1347,26 @@ function Classes() {
     [activeClass?.shifts, enrollShiftId]
   );
 
-  const remainingSeats = activeClass
-    ? Math.max(Number(activeClass.capacity || 0) - Number(activeClass.enrolledCount || 0), 0)
+  const classCapacity = activeClass
+    ? Math.max(1, Number(activeClass.capacity || 30))
+    : 30;
+  const enrolledStudentsCount = activeClass
+    ? Math.max(
+        Number(classStudents.length || 0),
+        Number(activeClass.enrolledCount || 0)
+      )
     : 0;
+  const classFillPercent = Math.min(
+    100,
+    Math.round((enrolledStudentsCount / classCapacity) * 100)
+  );
+  const isClassFull = enrolledStudentsCount >= classCapacity;
+  const classFillColor =
+    classFillPercent >= 100
+      ? "bg-rose-500"
+      : classFillPercent >= 80
+      ? "bg-amber-500"
+      : "bg-emerald-500";
   const drawerAssignedCourses = activeClass?.assignedCourses || [];
   const isSingleDrawerCourse = drawerAssignedCourses.length === 1;
   const singleDrawerCourseId = isSingleDrawerCourse
@@ -2077,7 +2119,12 @@ function Classes() {
               <div className="space-y-5">
                 <div className="rounded-3xl border border-slate-200 bg-white p-5">
                   <div className="flex flex-wrap items-center justify-between gap-3">
-                    <h4 className="font-heading text-2xl text-slate-900">Students</h4>
+                    <div>
+                      <h4 className="font-heading text-2xl text-slate-900">Students</h4>
+                      <p className="mt-1 text-sm text-slate-500">
+                        {enrolledStudentsCount} / {classCapacity} students enrolled
+                      </p>
+                    </div>
                     <input
                       type="text"
                       value={studentSearch}
@@ -2087,13 +2134,28 @@ function Classes() {
                     />
                   </div>
 
+                  <div className="mt-4">
+                    <div className="mb-2 flex items-center justify-between text-xs text-slate-500">
+                      <span>
+                        Enrolled: {enrolledStudentsCount} / {classCapacity} (capacity)
+                      </span>
+                      <span>{classFillPercent}% full</span>
+                    </div>
+                    <div className="h-2 rounded-full bg-slate-100">
+                      <div
+                        className={`h-2 rounded-full transition-all ${classFillColor}`}
+                        style={{ width: `${classFillPercent}%` }}
+                      />
+                    </div>
+                  </div>
+
                   <div className="mt-4 overflow-x-auto rounded-2xl border border-slate-200">
                     <table className="min-w-full text-sm">
                       <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
                         <tr>
                           <th className="px-4 py-3">Student</th>
+                          <th className="px-4 py-3">Email</th>
                           <th className="px-4 py-3">Shift</th>
-                          <th className="px-4 py-3">Course</th>
                           <th className="px-4 py-3">Enrolled Date</th>
                           <th className="px-4 py-3 text-right">Action</th>
                         </tr>
@@ -2128,17 +2190,14 @@ function Classes() {
                                     <p className="font-semibold text-slate-900">
                                       {student.fullName || "Unknown Student"}
                                     </p>
-                                    <p className="text-xs text-slate-500">
-                                      {student.email || "No email"}
-                                    </p>
                                   </div>
                                 </div>
                               </td>
                               <td className="px-4 py-3 text-slate-600">
-                                {student.shiftName || "N/A"}
+                                {student.email || "No email"}
                               </td>
                               <td className="px-4 py-3 text-slate-600">
-                                {student.courseName || "N/A"}
+                                {student.shiftName || "N/A"}
                               </td>
                               <td className="px-4 py-3 text-slate-600">
                                 {student.enrolledAt ? formatDate(student.enrolledAt) : "N/A"}
@@ -2169,13 +2228,19 @@ function Classes() {
                 <div className="rounded-3xl border border-slate-200 bg-white p-5">
                   <h4 className="font-heading text-2xl text-slate-900">Add Student</h4>
                   <p className="mt-1 text-sm text-slate-500">
-                    Remaining seats: {remainingSeats}
+                    Enrolled: {enrolledStudentsCount} / {classCapacity} (capacity)
                   </p>
+                  {isClassFull ? (
+                    <div className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">
+                      Class is full ({enrolledStudentsCount}/{classCapacity} students)
+                    </div>
+                  ) : null}
                   <div className="mt-4 grid gap-3 md:grid-cols-3">
                     <select
                       value={enrollStudentId}
                       onChange={(event) => setEnrollStudentId(event.target.value)}
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm"
+                      disabled={isClassFull}
                     >
                       <option value="">Select student</option>
                       {availableStudentsForClass.map((student) => (
@@ -2189,6 +2254,7 @@ function Classes() {
                       value={enrollShiftId}
                       onChange={(event) => setEnrollShiftId(event.target.value)}
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm"
+                      disabled={isClassFull}
                     >
                       <option value="">Select shift</option>
                       {activeClass.shifts.map((shift) => (
@@ -2210,8 +2276,8 @@ function Classes() {
                           toast.error("Select a shift first.");
                           return;
                         }
-                        if (remainingSeats < 1) {
-                          toast.error("Class is full.");
+                        if (isClassFull) {
+                          toast.error("Class is full. Cannot add more students.");
                           return;
                         }
                         addStudentMutation.mutate({
@@ -2223,9 +2289,13 @@ function Classes() {
                         });
                       }}
                       className="btn-primary"
-                      disabled={addStudentMutation.isPending}
+                      disabled={addStudentMutation.isPending || isClassFull}
                     >
-                      {addStudentMutation.isPending ? "Adding..." : "Add to Class"}
+                      {isClassFull
+                        ? "Class Full"
+                        : addStudentMutation.isPending
+                        ? "Adding..."
+                        : "Add Student"}
                     </button>
                   </div>
                   {selectedEnrollShift ? (

@@ -26,8 +26,8 @@ const MotionDiv = motion.div;
 
 const navItems = [
   { label: "Dashboard", to: "/student/dashboard", icon: "grid" },
-  { label: "My Courses", to: "/student/courses", icon: "book" },
-  { label: "Explore Courses", to: "/student/explore", icon: "compass" },
+  { label: "My Classes", to: "/student/courses", icon: "book" },
+  { label: "Explore Classes", to: "/student/explore", icon: "compass" },
   { label: "Certificates", to: "/student/certificates", icon: "award" },
   { label: "Quizzes", to: "/student/quizzes", icon: "clipboard" },
   { label: "Payments", to: "/student/payments", icon: "credit" },
@@ -39,7 +39,7 @@ const navItems = [
 
 const mobileTabs = [
   { label: "Dashboard", to: "/student/dashboard", icon: "grid" },
-  { label: "Courses", to: "/student/courses", icon: "book" },
+  { label: "Classes", to: "/student/courses", icon: "book" },
   { label: "Quizzes", to: "/student/quizzes", icon: "clipboard" },
   { label: "Explore", to: "/student/explore", icon: "compass" },
   { label: "Profile", to: "/student/settings", icon: "user" },

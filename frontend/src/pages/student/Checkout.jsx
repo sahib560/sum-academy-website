@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { motion as Motion } from "framer-motion";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -41,12 +41,14 @@ function Checkout() {
   const navigate = useNavigate();
   const course = location.state?.course || null;
   const courseId = course?.id || "";
+  const prefillClassId = location.state?.prefillClassId || "";
+  const prefillShiftId = location.state?.prefillShiftId || "";
 
   const [step, setStep] = useState(1);
   const [promoCode, setPromoCode] = useState("");
   const [promoInfo, setPromoInfo] = useState(null);
-  const [selectedClassId, setSelectedClassId] = useState("");
-  const [selectedShiftId, setSelectedShiftId] = useState("");
+  const [selectedClassId, setSelectedClassId] = useState(prefillClassId);
+  const [selectedShiftId, setSelectedShiftId] = useState(prefillShiftId);
   const [installmentMode, setInstallmentMode] = useState("full");
   const [installments, setInstallments] = useState(2);
   const [paymentMethod, setPaymentMethod] = useState("bank_transfer");
@@ -77,6 +79,14 @@ function Checkout() {
       null,
     [selectedClass, selectedShiftId]
   );
+
+  useEffect(() => {
+    if (!selectedClassId || !prefillClassId) return;
+    if (selectedClassId !== prefillClassId) return;
+    if (selectedShiftId) return;
+    if (!prefillShiftId) return;
+    setSelectedShiftId(prefillShiftId);
+  }, [prefillClassId, prefillShiftId, selectedClassId, selectedShiftId]);
 
   const originalAmount = Number(course?.price || 0);
   const discountAmount = useMemo(() => {
@@ -314,12 +324,18 @@ function Checkout() {
                   <option value="">
                     {classesLoading ? "Loading classes..." : "Choose class"}
                   </option>
-                  {classes.map((classItem) => (
-                    <option key={classItem.id} value={classItem.id}>
-                      {classItem.name} ({classItem.batchCode || "No Batch"}) ·{" "}
-                      {classItem.availableSpots} spots left
-                    </option>
-                  ))}
+                  {classes.map((classItem) => {
+  const spotsText = `${classItem.availableSpots} spots left`;
+  return (
+    <option
+      key={classItem.id}
+      value={classItem.id}
+      disabled={Boolean(classItem.isFull)}
+    >
+      {classItem.name} ({classItem.batchCode || "No Batch"}) - {spotsText}
+    </option>
+  );
+})}
                 </select>
               </div>
               <div>
@@ -546,6 +562,11 @@ function Checkout() {
                     setStep(1);
                     return;
                   }
+                  if (selectedClass?.isFull) {
+                    toast.error("This class is full. Please choose another class.");
+                    setStep(1);
+                    return;
+                  }
                   initiateMutation.mutate();
                 }}
               >
@@ -630,3 +651,4 @@ function Checkout() {
 }
 
 export default Checkout;
+

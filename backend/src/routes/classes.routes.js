@@ -5,6 +5,63 @@ import { successResponse, errorResponse } from "../utils/response.utils.js";
 
 const router = Router();
 
+const trimText = (value = "") => String(value || "").trim();
+const toNumber = (value, fallback = 0) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+const parseDate = (value) => {
+  if (!value) return null;
+  if (typeof value?.toDate === "function") return value.toDate();
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+const getStatusFromDates = (classData = {}) => {
+  const explicitStatus = trimText(classData.status).toLowerCase();
+  if (explicitStatus) return explicitStatus;
+
+  const start = parseDate(classData.startDate);
+  const end = parseDate(classData.endDate);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  if (start) {
+    const startDay = new Date(start);
+    startDay.setHours(0, 0, 0, 0);
+    if (today.getTime() < startDay.getTime()) return "upcoming";
+  }
+  if (end) {
+    const endDay = new Date(end);
+    endDay.setHours(0, 0, 0, 0);
+    if (today.getTime() > endDay.getTime()) return "completed";
+  }
+
+  return "active";
+};
+
+const getAssignedCourseIds = (classData = {}) => {
+  const ids = [];
+  const assigned = Array.isArray(classData.assignedCourses) ? classData.assignedCourses : [];
+  assigned.forEach((entry) => {
+    const courseId =
+      typeof entry === "string"
+        ? trimText(entry)
+        : trimText(entry?.courseId || entry?.id);
+    if (courseId) ids.push(courseId);
+  });
+
+  const classCourseId = trimText(classData.courseId);
+  if (classCourseId) ids.push(classCourseId);
+
+  const shifts = Array.isArray(classData.shifts) ? classData.shifts : [];
+  shifts.forEach((shift) => {
+    const shiftCourseId = trimText(shift?.courseId);
+    if (shiftCourseId) ids.push(shiftCourseId);
+  });
+
+  return [...new Set(ids)];
+};
+
 router.get("/catalog", async (req, res) => {
   try {
     const coursesSnap = await db.collection(COLLECTIONS.COURSES).get();
@@ -51,52 +108,120 @@ router.get("/catalog", async (req, res) => {
 
 router.get("/available", async (req, res) => {
   try {
-    const courseId = String(req.query.courseId || "").trim();
-    if (!courseId) {
-      return errorResponse(res, "courseId query is required", 400);
-    }
+    const courseId = trimText(req.query.courseId);
+    const [classesSnap, coursesSnap] = await Promise.all([
+      db.collection(COLLECTIONS.CLASSES).get(),
+      db.collection(COLLECTIONS.COURSES).get(),
+    ]);
 
-    const classesSnap = await db.collection(COLLECTIONS.CLASSES).get();
+    const courseMap = coursesSnap.docs.reduce((acc, doc) => {
+      acc[doc.id] = doc.data() || {};
+      return acc;
+    }, {});
+
     const data = classesSnap.docs
       .map((doc) => ({ id: doc.id, ...(doc.data() || {}) }))
-      .filter((classItem) => {
-        const status = String(classItem.status || "").toLowerCase();
-        if (status === "completed") return false;
-
-        const assignedCourses = Array.isArray(classItem.assignedCourses)
-          ? classItem.assignedCourses
-          : [];
-        return assignedCourses.some((course) => course.courseId === courseId);
-      })
       .map((classItem) => {
-        const assignedCourses = Array.isArray(classItem.assignedCourses)
-          ? classItem.assignedCourses
-          : [];
-        const courseMeta = assignedCourses.find(
-          (course) => course.courseId === courseId
-        );
+        const status = getStatusFromDates(classItem);
+        const assignedCourseIds = getAssignedCourseIds(classItem);
+        const capacity = Math.max(1, toNumber(classItem.capacity, 30));
+        const students = Array.isArray(classItem.students) ? classItem.students : [];
+        const enrolledCount = Math.max(students.length, toNumber(classItem.enrolledCount, 0));
+        const spotsLeft = Math.max(capacity - enrolledCount, 0);
+        const isFull = enrolledCount >= capacity;
 
-        const shifts = Array.isArray(classItem.shifts) ? classItem.shifts : [];
-        const filteredShifts = shifts.filter((shift) => shift.courseId === courseId);
-        const enrolledCount = Number(classItem.enrolledCount || 0);
-        const capacity = Number(classItem.capacity || 0);
-        const availableSpots = Math.max(capacity - enrolledCount, 0);
+        const assignedCourses = assignedCourseIds
+          .map((id) => {
+            const course = courseMap[id] || {};
+            const courseSubjects = Array.isArray(course.subjects)
+              ? course.subjects.map((subject) => ({
+                  subjectId: trimText(subject?.id || subject?.subjectId),
+                  name: trimText(subject?.name || subject?.subjectName) || "Subject",
+                  teacherId: trimText(subject?.teacherId),
+                  teacherName: trimText(subject?.teacherName) || "Teacher",
+                }))
+              : [];
+            const subjectNames = courseSubjects.map((subject) => subject.name).filter(Boolean);
+            const teacherNameFromSubject = courseSubjects.find(
+              (subject) => trimText(subject.teacherName)
+            )?.teacherName;
+            return {
+              courseId: id,
+              title: trimText(course.title) || "Course",
+              thumbnail: course.thumbnail || null,
+              price: toNumber(course.price, 0),
+              discountPercent: toNumber(course.discountPercent, 0),
+              subjects: subjectNames,
+              teacherName: teacherNameFromSubject || trimText(course.teacherName) || "Teacher",
+              courseName: trimText(course.title) || "Course",
+            };
+          })
+          .filter((course) => trimText(course.courseId));
+
+        const shifts = (Array.isArray(classItem.shifts) ? classItem.shifts : [])
+          .filter((shift) =>
+            courseId ? trimText(shift?.courseId) === courseId : true
+          )
+          .map((shift) => ({
+            id: trimText(shift?.id),
+            name: trimText(shift?.name) || "Shift",
+            days: Array.isArray(shift?.days) ? shift.days : [],
+            startTime: trimText(shift?.startTime),
+            endTime: trimText(shift?.endTime),
+            teacherId: trimText(shift?.teacherId),
+            teacherName: trimText(shift?.teacherName) || "Teacher",
+            room: trimText(shift?.room),
+            courseId: trimText(shift?.courseId),
+            courseName: trimText(shift?.courseName),
+          }))
+          .filter((shift) => Boolean(shift.id));
+
+        const teacherName =
+          trimText(classItem.teacherName) ||
+          trimText(classItem.teachers?.[0]?.teacherName) ||
+          trimText(shifts[0]?.teacherName) ||
+          "Teacher";
+
+        const selectedCourse =
+          assignedCourses.find((course) => course.courseId === courseId) ||
+          assignedCourses[0] ||
+          null;
 
         return {
           id: classItem.id,
-          name: classItem.name || "",
-          batchCode: classItem.batchCode || "",
-          description: classItem.description || "",
-          status: classItem.status || "upcoming",
+          name: trimText(classItem.name) || "Class",
+          batchCode: trimText(classItem.batchCode),
+          description: trimText(classItem.description),
+          teacherName,
+          teacherId:
+            trimText(classItem.teacherId) ||
+            trimText(classItem.teachers?.[0]?.teacherId) ||
+            trimText(shifts[0]?.teacherId),
           capacity,
           enrolledCount,
-          availableSpots,
+          spotsLeft,
+          availableSpots: spotsLeft,
+          isFull,
+          status,
           startDate: classItem.startDate || null,
           endDate: classItem.endDate || null,
-          course: courseMeta || { courseId, courseName: "", subjectName: "" },
-          shifts: filteredShifts,
+          assignedCourses,
+          course: selectedCourse
+            ? {
+                courseId: selectedCourse.courseId,
+                courseName: selectedCourse.title,
+                subjectName: selectedCourse.subjects?.[0] || "",
+              }
+            : null,
+          shifts,
         };
       })
+      .filter((classItem) => classItem.status !== "completed")
+      .filter((classItem) =>
+        courseId
+          ? classItem.assignedCourses.some((course) => course.courseId === courseId)
+          : true
+      )
       .sort((a, b) => a.name.localeCompare(b.name));
 
     return successResponse(res, data, "Available classes fetched");

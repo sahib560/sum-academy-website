@@ -500,79 +500,17 @@ const calculateDiscount = (amount, promoData) => {
   return Number(((original * percent) / 100).toFixed(2));
 };
 
-const addStudentToClassFromPayment = async ({ classId, studentId, shiftId, courseId }) => {
-  if (!classId || !shiftId || !studentId) return;
-
-  await db.runTransaction(async (transaction) => {
-    const classRef = db.collection(COLLECTIONS.CLASSES).doc(classId);
-    const studentRef = db.collection(COLLECTIONS.STUDENTS).doc(studentId);
-    const classSnap = await transaction.get(classRef);
-    if (!classSnap.exists) throw new Error("CLASS_NOT_FOUND");
-
-    const classData = classSnap.data() || {};
-    const enrollmentStatus = getEnrollmentStatusFromClassDates(classData);
-    if (enrollmentStatus === "completed") {
-      throw new Error("CLASS_ENDED");
-    }
-
-    const classShiftValidation = validateClassShiftSelection({
-      classData,
-      shiftId,
-      courseId,
-    });
-    if (classShiftValidation.error) {
-      throw new Error("CLASS_SHIFT_COURSE_MISMATCH");
-    }
-    const students = Array.isArray(classData.students) ? classData.students : [];
-    const normalizedStudents = students.map((entry) =>
-      typeof entry === "string"
-        ? { studentId: entry, shiftId: "", courseId: "", enrolledAt: null }
-        : {
-            studentId: entry.studentId,
-            shiftId: entry.shiftId || "",
-            courseId: entry.courseId || "",
-            enrolledAt: entry.enrolledAt || null,
-          }
-    );
-
-    if (normalizedStudents.some((entry) => entry.studentId === studentId)) {
-      return;
-    }
-
-    const capacity = Math.max(toNumber(classData.capacity), 0);
-    if (capacity > 0 && normalizedStudents.length >= capacity) {
-      throw new Error("CLASS_FULL");
-    }
-
-    normalizedStudents.push({
-      studentId,
-      shiftId: shiftId || "",
-      courseId: courseId || "",
-      enrolledAt: new Date().toISOString(),
-    });
-
-    transaction.update(classRef, {
-      students: normalizedStudents,
-      enrolledCount: normalizedStudents.length,
-      updatedAt: FieldValue.serverTimestamp(),
-    });
-
-    if (courseId) {
-      const studentUpdates = {
-        enrolledCourses: FieldValue.arrayUnion(courseId),
-        updatedAt: FieldValue.serverTimestamp(),
-      };
-      if (classId) {
-        studentUpdates.enrolledClasses = FieldValue.arrayUnion(classId);
-      }
-      transaction.set(
-        studentRef,
-        studentUpdates,
-        { merge: true }
-      );
-    }
-  });
-};
+const normalizeClassStudents = (students = []) =>
+  students.map((entry) =>
+    typeof entry === "string"
+      ? { studentId: entry, shiftId: "", courseId: "", enrolledAt: null }
+      : {
+          studentId: String(entry?.studentId || "").trim(),
+          shiftId: String(entry?.shiftId || "").trim(),
+          courseId: String(entry?.courseId || "").trim(),
+          enrolledAt: entry?.enrolledAt || null,
+        }
+  );
 
 export const initiatePayment = async (req, res) => {
   try {
@@ -630,6 +568,21 @@ export const initiatePayment = async (req, res) => {
     });
     if (classShiftValidation.error) {
       return errorResponse(res, classShiftValidation.error, classShiftValidation.status || 400);
+    }
+
+    const classStudents = normalizeClassStudents(
+      Array.isArray(classData.students) ? classData.students : []
+    );
+    const studentAlreadyInClass = classStudents.some(
+      (entry) => entry.studentId === studentId
+    );
+    const classCapacity = Math.max(toNumber(classData.capacity), 0);
+    if (classCapacity > 0 && !studentAlreadyInClass && classStudents.length >= classCapacity) {
+      return errorResponse(
+        res,
+        "Class seats are fully reserved. Please select another class.",
+        400
+      );
     }
 
     const originalAmount = Math.max(toNumber(course.price), 0);
@@ -1207,17 +1160,46 @@ export const verifyBankTransfer = async (req, res) => {
       if (!freshSnap.exists) throw new Error("PAYMENT_NOT_FOUND");
       const freshPayment = freshSnap.data() || {};
       let classData = null;
+      let classRef = null;
+      let normalizedClassStudents = [];
+      let studentAlreadyInClass = false;
       let enrollmentStatus = "active";
       if (freshPayment.classId) {
-        const classRef = db.collection(COLLECTIONS.CLASSES).doc(freshPayment.classId);
+        classRef = db.collection(COLLECTIONS.CLASSES).doc(freshPayment.classId);
         const classSnap = await transaction.get(classRef);
-        if (classSnap.exists) {
-          classData = classSnap.data() || {};
-          enrollmentStatus = getEnrollmentStatusFromClassDates(classData);
-        }
+        if (!classSnap.exists) throw new Error("CLASS_NOT_FOUND");
+        classData = classSnap.data() || {};
+        enrollmentStatus = getEnrollmentStatusFromClassDates(classData);
       }
       if (enrollmentStatus === "completed") {
         throw new Error("CLASS_ENDED");
+      }
+      if (classData && freshPayment.shiftId) {
+        const classShiftValidation = validateClassShiftSelection({
+          classData,
+          shiftId: freshPayment.shiftId,
+          courseId: freshPayment.courseId,
+        });
+        if (classShiftValidation.error) {
+          throw new Error("CLASS_SHIFT_COURSE_MISMATCH");
+        }
+      }
+
+      if (classData) {
+        normalizedClassStudents = normalizeClassStudents(
+          Array.isArray(classData.students) ? classData.students : []
+        );
+        studentAlreadyInClass = normalizedClassStudents.some(
+          (entry) => entry.studentId === freshPayment.studentId
+        );
+        const classCapacity = Math.max(toNumber(classData.capacity), 0);
+        if (
+          classCapacity > 0 &&
+          !studentAlreadyInClass &&
+          normalizedClassStudents.length >= classCapacity
+        ) {
+          throw new Error("CLASS_FULL");
+        }
       }
 
       transaction.update(paymentRef, {
@@ -1227,16 +1209,16 @@ export const verifyBankTransfer = async (req, res) => {
         updatedAt: FieldValue.serverTimestamp(),
       });
 
-      const enrollmentQuery = await db
+      const enrollmentQuery = db
         .collection(COLLECTIONS.ENROLLMENTS)
-        .where("studentId", "==", freshPayment.studentId)
-        .get();
-      const hasEnrollment = enrollmentQuery.docs.some((doc) => {
+        .where("studentId", "==", freshPayment.studentId);
+      const enrollmentSnap = await transaction.get(enrollmentQuery);
+      const hasEnrollment = enrollmentSnap.docs.some((doc) => {
         const row = doc.data() || {};
         return row.courseId === freshPayment.courseId;
       });
       const studentRef = db.collection(COLLECTIONS.STUDENTS).doc(freshPayment.studentId);
-      const existingEnrollmentDoc = enrollmentQuery.docs.find((doc) => {
+      const existingEnrollmentDoc = enrollmentSnap.docs.find((doc) => {
         const row = doc.data() || {};
         return row.courseId === freshPayment.courseId;
       });
@@ -1303,20 +1285,21 @@ export const verifyBankTransfer = async (req, res) => {
           updatedAt: FieldValue.serverTimestamp(),
         });
       }
-    });
 
-    if (payment.classId && payment.shiftId) {
-      try {
-        await addStudentToClassFromPayment({
-          classId: payment.classId,
-          studentId: payment.studentId,
-          shiftId: payment.shiftId,
-          courseId: payment.courseId,
+      if (classRef && classData && !studentAlreadyInClass) {
+        normalizedClassStudents.push({
+          studentId: freshPayment.studentId,
+          shiftId: freshPayment.shiftId || "",
+          courseId: freshPayment.courseId || "",
+          enrolledAt: new Date().toISOString(),
         });
-      } catch (classError) {
-        console.error("addStudentToClassFromPayment error:", classError.message);
+        transaction.update(classRef, {
+          students: normalizedClassStudents,
+          enrolledCount: normalizedClassStudents.length,
+          updatedAt: FieldValue.serverTimestamp(),
+        });
       }
-    }
+    });
 
     let installmentPlanId = null;
     if (payment.isInstallment && Array.isArray(payment.installments) && payment.installments.length > 0) {
@@ -1391,6 +1374,20 @@ export const verifyBankTransfer = async (req, res) => {
       return errorResponse(
         res,
         "Selected class shift is invalid for this course. Please update class/shift selection.",
+        400
+      );
+    }
+    if (error?.message === "CLASS_NOT_FOUND") {
+      return errorResponse(
+        res,
+        "Selected class no longer exists. Please ask student to choose another class.",
+        400
+      );
+    }
+    if (error?.message === "CLASS_FULL") {
+      return errorResponse(
+        res,
+        "Class seats are fully reserved. Cannot approve this enrollment.",
         400
       );
     }

@@ -12,7 +12,9 @@ import {
 } from "../../services/student.service.js";
 import api from "../../api/axios.js";
 import { WatermarkOverlay } from "../../utils/security.js";
-import { setupMaxProtection } from "../../utils/maxProtection.js";
+import { getViolationCount, setupMaxProtection } from "../../utils/maxProtection.js";
+
+const VIDEO_VIOLATION_LIMIT = 3;
 
 const fadeUp = {
   initial: { opacity: 0, y: 16 },
@@ -117,6 +119,8 @@ function StudentCoursePlayer() {
   const [isLoadingVideo, setIsLoadingVideo] = useState(false);
   const [maxWatchedSeconds, setMaxWatchedSeconds] = useState(0);
   const [showCelebration, setShowCelebration] = useState(false);
+  const [securityWarningCount, setSecurityWarningCount] = useState(0);
+  const [securityLocked, setSecurityLocked] = useState(false);
 
   const {
     data: progressPayload,
@@ -207,10 +211,24 @@ function StudentCoursePlayer() {
   }, [normalized.lectures, routeLectureId, currentLectureId]);
 
   useEffect(() => {
+    const getViolationMessage = (reason) => {
+      const messages = {
+        tab_switch: "Do not switch tabs while watching",
+        window_blur: "Do not minimize or switch windows",
+        screenshot: "Screenshots are not allowed",
+        printscreen: "Screenshots are not allowed",
+        devtools: "Developer tools are not allowed",
+        screen_record: "Screen recording is blocked",
+      };
+      return messages[reason] || "Security violation detected";
+    };
+
     const cleanup = setupMaxProtection({
       enforceFullscreenMode: false,
-      quizMode: false,
-      onViolation: (_count, reason) => {
+      quizMode: true,
+      maxViolations: VIDEO_VIOLATION_LIMIT,
+      onViolation: (count, reason) => {
+        setSecurityWarningCount(count);
         if (
           (reason === "tab_switch" || reason === "window_blur") &&
           videoRef.current
@@ -218,8 +236,21 @@ function StudentCoursePlayer() {
           videoRef.current.pause();
           setIsPlaying(false);
         }
+        if (count < VIDEO_VIOLATION_LIMIT) {
+          toast.error(`Warning ${count}/${VIDEO_VIOLATION_LIMIT}: ${getViolationMessage(reason)}`);
+        }
+      },
+      onMaxViolation: () => {
+        setSecurityWarningCount(VIDEO_VIOLATION_LIMIT);
+        setSecurityLocked(true);
+        if (videoRef.current) {
+          videoRef.current.pause();
+        }
+        setIsPlaying(false);
+        toast.error("3 violations detected. Video locked for this session.");
       },
     });
+    setSecurityWarningCount(getViolationCount());
     return cleanup;
   }, []);
 
@@ -293,7 +324,7 @@ function StudentCoursePlayer() {
 
   const handlePlayPause = async () => {
     const video = videoRef.current;
-    if (!video || currentLecture?.hasAccess === false || !videoSrc) return;
+    if (!video || currentLecture?.hasAccess === false || !videoSrc || securityLocked) return;
     try {
       if (video.paused) {
         await video.play();
@@ -309,7 +340,7 @@ function StudentCoursePlayer() {
 
   const handleSeek = (event) => {
     const video = videoRef.current;
-    if (!video || duration <= 0) return;
+    if (!video || duration <= 0 || securityLocked) return;
     const nextTime = clamp(toNumber(event.target.value, 0), 0, duration);
     video.currentTime = nextTime;
     setCurrentTime(nextTime);
@@ -346,6 +377,10 @@ function StudentCoursePlayer() {
   };
 
   const selectLecture = (lecture) => {
+    if (securityLocked) {
+      toast.error("Video is locked due to security violations.");
+      return;
+    }
     if (lecture.hasAccess === false) {
       toast.error("This video is locked");
       return;
@@ -365,12 +400,14 @@ function StudentCoursePlayer() {
 
   const canMarkComplete =
     Boolean(currentLecture) &&
+    !securityLocked &&
     currentLecture.hasAccess !== false &&
     watchedPercent >= 80 &&
     !currentLecture.isCompleted &&
     !markCompleteMutation.isPending;
 
-  const showLockedOverlay = !currentLecture || currentLecture.hasAccess === false || !videoSrc;
+  const showLockedOverlay =
+    securityLocked || !currentLecture || currentLecture.hasAccess === false || !videoSrc;
 
   return (
     <div className="protected-zone lecture-content relative space-y-6 protected-content">
@@ -436,7 +473,11 @@ function StudentCoursePlayer() {
                 <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-slate-900/75 text-center text-white backdrop-blur-sm">
                   <FiLock className="h-8 w-8" />
                   <p className="text-sm font-semibold">This video is locked</p>
-                  <p className="text-xs text-slate-200">Contact your teacher to unlock</p>
+                  <p className="text-xs text-slate-200">
+                    {securityLocked
+                      ? "Locked due to security violations in this session."
+                      : "Contact your teacher to unlock"}
+                  </p>
                 </div>
               )}
 
@@ -466,6 +507,9 @@ function StudentCoursePlayer() {
                   </p>
                   <p>
                     Lecture: {currentLecture?.duration || "--"}
+                  </p>
+                  <p>
+                    Security warnings: {securityWarningCount}/{VIDEO_VIOLATION_LIMIT}
                   </p>
                 </div>
               </div>

@@ -78,6 +78,7 @@ function StudentQuizAttempt() {
   const navigate = useNavigate();
   const { userProfile } = useAuth();
   const submitLockRef = useRef(false);
+  const autoSubmitQueuedRef = useRef(false);
   const answersRef = useRef({});
   const questionsRef = useRef([]);
   const violationsRef = useRef(0);
@@ -143,6 +144,7 @@ function StudentQuizAttempt() {
     },
     onError: (mutationError) => {
       submitLockRef.current = false;
+      autoSubmitQueuedRef.current = false;
       toast.error(
         mutationError?.response?.data?.message || "Failed to submit quiz attempt"
       );
@@ -169,10 +171,6 @@ function StudentQuizAttempt() {
 
     submitMutation.mutate(payloadAnswers);
   }, [submitMutation, submittedResult]);
-
-  const handleSubmitQuiz = useCallback(() => {
-    finalizeSubmit("manual");
-  }, [finalizeSubmit]);
 
   const getViolationMessage = (reason) => {
     const messages = {
@@ -203,10 +201,12 @@ function StudentQuizAttempt() {
 
   useEffect(() => {
     if (!started || submittedResult) return undefined;
+    autoSubmitQueuedRef.current = false;
 
     const cleanup = setupMaxProtection({
       enforceFullscreenMode: true,
       quizMode: true,
+      maxViolations: TAB_SWITCH_LIMIT,
       onViolation: (count, reason) => {
         violationsRef.current = count;
         setTabSwitchCount(count);
@@ -215,17 +215,19 @@ function StudentQuizAttempt() {
           unblurContent();
         }, 1200);
 
-        if (count >= TAB_SWITCH_LIMIT) {
-          toast.error("3 violations detected. Quiz auto-submitted.");
-          setTimeout(() => {
-            handleSubmitQuiz();
-          }, 2000);
-          return;
+        if (count < TAB_SWITCH_LIMIT) {
+          toast.error(`Warning ${count}/3: ${getViolationMessage(reason)}`, {
+            duration: 4000,
+          });
         }
-
-        toast.error(`Warning ${count}/3: ${getViolationMessage(reason)}`, {
-          duration: 4000,
-        });
+      },
+      onMaxViolation: () => {
+        if (autoSubmitQueuedRef.current || submitMutation.isPending || submittedResult) return;
+        autoSubmitQueuedRef.current = true;
+        toast.error("3 violations detected. Quiz auto-submitted.");
+        setTimeout(() => {
+          finalizeSubmit("tab_limit");
+        }, 500);
       },
     });
 
@@ -236,7 +238,7 @@ function StudentQuizAttempt() {
       if (cleanupRef.current) cleanupRef.current();
       cleanupRef.current = null;
     };
-  }, [handleSubmitQuiz, started, submittedResult]);
+  }, [finalizeSubmit, started, submittedResult, submitMutation.isPending]);
 
   useEffect(() => {
     const onFullscreenChange = () => {

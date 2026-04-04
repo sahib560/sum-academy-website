@@ -176,6 +176,12 @@ const getStudentCourseIdsFromClassRow = (classData = {}, uid = "") => {
     )
     .filter((entry) => entry.studentId === uid);
 
+  if (matchingEntries.length < 1) return [];
+
+  assignedCourseIds.forEach((courseId) => {
+    if (courseId) courseIds.add(courseId);
+  });
+
   matchingEntries.forEach((entry) => {
     if (entry.courseId) courseIds.add(entry.courseId);
     if (entry.shiftId && shiftCourseMap[entry.shiftId]) {
@@ -183,7 +189,7 @@ const getStudentCourseIdsFromClassRow = (classData = {}, uid = "") => {
     }
   });
 
-  if (!courseIds.size && matchingEntries.length > 0) {
+  if (!courseIds.size) {
     const classCourseId = trimText(classData.courseId);
     if (classCourseId) {
       courseIds.add(classCourseId);
@@ -196,19 +202,7 @@ const getStudentCourseIdsFromClassRow = (classData = {}, uid = "") => {
 };
 
 const getStudentEnrolledCourseIds = async (uid) => {
-  const [profile, enrollments] = await Promise.all([
-    db.collection(COLLECTIONS.STUDENTS).doc(uid).get(),
-    getEnrolledRows(uid),
-  ]);
-
-  const studentData = profile.exists ? profile.data() || {} : {};
-  const fromProfile = Array.isArray(studentData.enrolledCourses)
-    ? studentData.enrolledCourses
-    : [];
-  const profileIds = fromProfile
-    .map((entry) => (typeof entry === "string" ? entry : entry?.courseId))
-    .map((entry) => trimText(entry))
-    .filter(Boolean);
+  const enrollments = await getEnrolledRows(uid);
 
   const enrollmentIds = enrollments
     .filter((row) =>
@@ -216,18 +210,16 @@ const getStudentEnrolledCourseIds = async (uid) => {
         lowerText(row.status || "active")
       )
     )
+    .filter((row) => trimText(row.classId))
     .map((row) => trimText(row.courseId))
     .filter(Boolean);
 
-  let classCourseIds = [];
-  if (!profileIds.length && !enrollmentIds.length) {
-    const classMembershipRows = await getStudentClassMembershipRows(uid);
-    classCourseIds = classMembershipRows.flatMap((row) =>
-      getStudentCourseIdsFromClassRow(row, uid)
-    );
-  }
+  const classMembershipRows = await getStudentClassMembershipRows(uid);
+  const classCourseIds = classMembershipRows.flatMap((row) =>
+    getStudentCourseIdsFromClassRow(row, uid)
+  );
 
-  return [...new Set([...profileIds, ...enrollmentIds, ...classCourseIds])];
+  return [...new Set([...classCourseIds, ...enrollmentIds])];
 };
 
 const getStudentClassIds = async (uid, enrollments = null) => {
@@ -239,6 +231,172 @@ const getStudentClassIds = async (uid, enrollments = null) => {
   const fromClassMembership = (await getStudentClassMembershipRows(uid)).map((row) => row.id);
 
   return [...new Set([...classFromEnrollments, ...fromClassMembership])];
+};
+
+const getClassStatus = (classData = {}) => {
+  const explicitStatus = lowerText(classData.status || "");
+  if (explicitStatus) return explicitStatus;
+  const start = parseDate(classData.startDate);
+  const end = parseDate(classData.endDate);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  if (start) {
+    const startDay = new Date(start);
+    startDay.setHours(0, 0, 0, 0);
+    if (today.getTime() < startDay.getTime()) return "upcoming";
+  }
+  if (end) {
+    const endDay = new Date(end);
+    endDay.setHours(0, 0, 0, 0);
+    if (today.getTime() > endDay.getTime()) return "completed";
+  }
+  return "active";
+};
+
+const buildStudentClassAndCourseData = ({
+  uid = "",
+  classRows = [],
+  enrollments = [],
+  courseMap = {},
+  progressRows = [],
+}) => {
+  const classes = [];
+  const courseRows = [];
+
+  classRows.forEach((classData = {}) => {
+    const classId = trimText(classData.id);
+    if (!classId) return;
+
+    const classCourseIds = getStudentCourseIdsFromClassRow(classData, uid);
+    const enrollmentCourseIds = enrollments
+      .filter(
+        (row) =>
+          trimText(row.studentId) === uid &&
+          trimText(row.classId) === classId &&
+          trimText(row.courseId)
+      )
+      .map((row) => trimText(row.courseId));
+    const resolvedCourseIds =
+      classCourseIds.length > 0
+        ? classCourseIds
+        : [...new Set(enrollmentCourseIds)];
+    const shifts = Array.isArray(classData.shifts) ? classData.shifts : [];
+    const students = Array.isArray(classData.students) ? classData.students : [];
+    const studentEntry = students
+      .map((entry) =>
+        typeof entry === "string"
+          ? { studentId: trimText(entry), shiftId: "", enrolledAt: null }
+          : {
+              studentId: trimText(entry?.studentId || entry?.id || entry?.uid),
+              shiftId: trimText(entry?.shiftId),
+              enrolledAt: entry?.enrolledAt || null,
+            }
+      )
+      .find((entry) => entry.studentId === uid);
+    const shift = shifts.find(
+      (row) => trimText(row?.id) === trimText(studentEntry?.shiftId)
+    );
+
+    const classCourses = resolvedCourseIds.map((courseId) => {
+      const cleanCourseId = trimText(courseId);
+      const course = courseMap[cleanCourseId] || {};
+      const enrollment = enrollments.find((row) => {
+        const rowClassId = trimText(row.classId);
+        const rowCourseId = trimText(row.courseId);
+        return rowCourseId === cleanCourseId && (!rowClassId || rowClassId === classId);
+      });
+      const subjects = Array.isArray(course.subjects) ? course.subjects : [];
+      const teacherName =
+        trimText(course.teacherName) ||
+        trimText(subjects[0]?.teacherName) ||
+        trimText(shift?.teacherName) ||
+        "Teacher";
+      const progress = normalizeProgressPercent(
+        progressRows,
+        cleanCourseId,
+        enrollment?.progress
+      );
+      const latestActivity = progressRows
+        .filter(
+          (row) =>
+            trimText(row.courseId) === cleanCourseId || !trimText(row.courseId)
+        )
+        .map(
+          (row) =>
+            parseDate(row.updatedAt || row.completedAt || row.createdAt)?.getTime() || 0
+        )
+        .sort((a, b) => b - a)[0] || 0;
+
+      const payload = {
+        id: `${classId}_${cleanCourseId}`,
+        classId,
+        className: trimText(classData.name) || "Class",
+        batchCode: trimText(classData.batchCode),
+        courseId: cleanCourseId,
+        title: trimText(course.title) || "Course",
+        description: trimText(course.description || course.shortDescription),
+        thumbnail: course.thumbnail || null,
+        category: trimText(course.category),
+        level: trimText(course.level || "beginner"),
+        teacherName,
+        subjects: subjects.map((subject) => ({
+          id: trimText(subject?.id || subject?.subjectId),
+          name: trimText(subject?.name || subject?.subjectName) || "Subject",
+          teacherId: trimText(subject?.teacherId),
+          teacherName: trimText(subject?.teacherName) || "Teacher",
+        })),
+        progress,
+        isCompleted: clampPercent(progress) >= 100,
+        enrolledAt:
+          enrollment?.createdAt ||
+          enrollment?.enrolledAt ||
+          studentEntry?.enrolledAt ||
+          null,
+        latestActivity,
+      };
+
+      courseRows.push(payload);
+      return payload;
+    });
+
+    const overallProgress =
+      classCourses.length > 0
+        ? Number(
+            (
+              classCourses.reduce((sum, row) => sum + clampPercent(row.progress), 0) /
+              classCourses.length
+            ).toFixed(2)
+          )
+        : 0;
+
+    classes.push({
+      classId,
+      id: classId,
+      name: trimText(classData.name) || "Class",
+      batchCode: trimText(classData.batchCode),
+      description: trimText(classData.description),
+      status: getClassStatus(classData),
+      teacherName:
+        trimText(classData.teacherName) ||
+        trimText(classData.teachers?.[0]?.teacherName) ||
+        trimText(shift?.teacherName) ||
+        "Teacher",
+      capacity: Math.max(1, toNumber(classData.capacity, 30)),
+      enrolledCount: Array.isArray(classData.students) ? classData.students.length : 0,
+      startDate: toIso(classData.startDate),
+      endDate: toIso(classData.endDate),
+      shiftId: trimText(shift?.id),
+      shiftName: trimText(shift?.name),
+      shiftDays: Array.isArray(shift?.days) ? shift.days : [],
+      shiftStartTime: trimText(shift?.startTime),
+      shiftEndTime: trimText(shift?.endTime),
+      courses: classCourses,
+      overallProgress,
+    });
+  });
+
+  return { classes, courseRows };
 };
 
 const getCourseDocsByIds = async (courseIds = []) => {
@@ -507,47 +665,82 @@ export const getStudentDashboard = async (req, res) => {
     const uid = trimText(req.user?.uid);
     if (!uid) return errorResponse(res, "Missing student uid", 400);
 
-    const [profile, enrollments, announcementsSnap, sessionsSnap, installmentsSnap] =
+    const [
+      profile,
+      enrollments,
+      announcementsSnap,
+      sessionsSnap,
+      installmentsSnap,
+      classMembershipRows,
+      progressRows,
+    ] =
       await Promise.all([
         getStudentAndUser(uid),
         getEnrolledRows(uid),
         db.collection(COLLECTIONS.ANNOUNCEMENTS).orderBy("createdAt", "desc").get(),
         db.collection(COLLECTIONS.SESSIONS).get(),
         db.collection(COLLECTIONS.INSTALLMENTS).where("studentId", "==", uid).get(),
+        getStudentClassMembershipRows(uid),
+        getProgressRowsForStudent(uid),
       ]);
 
     const studentData = profile.studentData;
     const userData = profile.userData;
-    const [enrolledCourseIds, progressRows, classIds] = await Promise.all([
-      getStudentEnrolledCourseIds(uid),
-      getProgressRowsForStudent(uid),
-      getStudentClassIds(uid, enrollments),
-    ]);
-    const courseMap = await getCourseDocsByIds(enrolledCourseIds);
-    const attendancePayload = await buildStudentAttendancePayload(uid);
+    const enrollmentClassIds = enrollments
+      .map((row) => trimText(row.classId))
+      .filter(Boolean);
+    const classMap = classMembershipRows.reduce((acc, row) => {
+      acc[trimText(row.id)] = row;
+      return acc;
+    }, {});
+    const missingClassIds = [...new Set(enrollmentClassIds)].filter(
+      (classId) => !classMap[classId]
+    );
+    const missingClassRows = await Promise.all(
+      missingClassIds.map(async (classId) => {
+        const snap = await db.collection(COLLECTIONS.CLASSES).doc(classId).get();
+        return snap.exists ? { id: snap.id, ...(snap.data() || {}) } : null;
+      })
+    );
+    const allClassRows = [
+      ...classMembershipRows,
+      ...missingClassRows.filter(Boolean),
+    ].map((row) => ({
+      ...(row || {}),
+      id: trimText(row?.id),
+    }));
 
-    const courseRows = enrolledCourseIds.map((courseId) => {
-      const course = courseMap[courseId] || {};
-      const progress = normalizeProgressPercent(progressRows, courseId, 0);
-      const latestActivity = progressRows
-        .filter((row) => trimText(row.courseId) === courseId || !trimText(row.courseId))
-        .map((row) => parseDate(row.updatedAt || row.completedAt || row.createdAt)?.getTime() || 0)
-        .sort((a, b) => b - a)[0] || 0;
-      return {
-        courseId,
-        title: trimText(course.title) || "Course",
-        thumbnail: course.thumbnail || null,
-        teacherName: trimText(course.teacherName) || "Teacher",
-        progress,
-        latestActivity,
-      };
+    const enrolledCourseIds = [
+      ...new Set(
+        allClassRows
+          .flatMap((row) => getStudentCourseIdsFromClassRow(row, uid))
+          .concat(enrollments.map((row) => trimText(row.courseId)))
+          .filter(Boolean)
+      ),
+    ];
+    const courseMap = await getCourseDocsByIds(enrolledCourseIds);
+    const learningData = buildStudentClassAndCourseData({
+      uid,
+      classRows: allClassRows,
+      enrollments,
+      courseMap,
+      progressRows,
     });
+    const classRows = learningData.classes;
+    const courseRows = [...learningData.courseRows].sort(
+      (a, b) => toNumber(b.latestActivity, 0) - toNumber(a.latestActivity, 0)
+    );
+    const attendancePayload = await buildStudentAttendancePayload(uid);
 
     const completedCount = courseRows.filter((row) => clampPercent(row.progress) >= 100).length;
     const lastAccessed = courseRows.sort((a, b) => b.latestActivity - a.latestActivity)[0] || null;
 
-    const courseIdSet = new Set(enrolledCourseIds);
-    const classIdSet = new Set(classIds);
+    const courseIdSet = new Set(courseRows.map((row) => trimText(row.courseId)).filter(Boolean));
+    const classIdSet = new Set(classRows.map((row) => trimText(row.classId)).filter(Boolean));
+    const classNameById = classRows.reduce((acc, row) => {
+      acc[trimText(row.classId)] = trimText(row.name);
+      return acc;
+    }, {});
     const latestAnnouncements = announcementsSnap.docs
       .map((doc) => ({ id: doc.id, ...(doc.data() || {}) }))
       .filter((row) => {
@@ -589,6 +782,7 @@ export const getStudentDashboard = async (req, res) => {
       .map((row) => ({
         id: row.id,
         classId: trimText(row.classId),
+        className: classNameById[trimText(row.classId)] || "Class",
         topic: trimText(row.topic) || "Session",
         date: toIso(row.date),
         startTime: trimText(row.startTime),
@@ -644,13 +838,20 @@ export const getStudentDashboard = async (req, res) => {
           lastLoginAt: toIso(userData.lastLoginAt),
         },
         stats: {
-          enrolledCount: enrolledCourseIds.length,
+          enrolledCount: classRows.length,
+          enrolledClassesCount: classRows.length,
+          enrolledCoursesCount: courseRows.length,
           completedCount,
           certificatesCount: Array.isArray(studentData.certificates)
             ? studentData.certificates.length
             : 0,
         },
+        classes: classRows,
         courses: courseRows.map((row) => ({
+          id: row.id,
+          classId: row.classId,
+          className: row.className,
+          batchCode: row.batchCode,
           courseId: row.courseId,
           title: row.title,
           thumbnail: row.thumbnail,
@@ -659,8 +860,14 @@ export const getStudentDashboard = async (req, res) => {
         })),
         lastAccessedCourse: lastAccessed
           ? {
+              id: lastAccessed.id,
+              classId: lastAccessed.classId,
+              className: lastAccessed.className,
+              batchCode: lastAccessed.batchCode,
               courseId: lastAccessed.courseId,
               title: lastAccessed.title,
+              thumbnail: lastAccessed.thumbnail,
+              teacherName: lastAccessed.teacherName,
               progress: lastAccessed.progress,
             }
           : null,
@@ -693,27 +900,54 @@ export const getStudentCourses = async (req, res) => {
     const uid = trimText(req.user?.uid);
     if (!uid) return errorResponse(res, "Missing student uid", 400);
 
-    const [courseIds, progressRows] = await Promise.all([
-      getStudentEnrolledCourseIds(uid),
+    const [enrollments, classMembershipRows, progressRows] = await Promise.all([
+      getEnrolledRows(uid),
+      getStudentClassMembershipRows(uid),
       getProgressRowsForStudent(uid),
     ]);
-    const courseMap = await getCourseDocsByIds(courseIds);
+    const enrollmentClassIds = enrollments
+      .map((row) => trimText(row.classId))
+      .filter(Boolean);
+    const classMap = classMembershipRows.reduce((acc, row) => {
+      acc[trimText(row.id)] = row;
+      return acc;
+    }, {});
+    const missingClassIds = [...new Set(enrollmentClassIds)].filter(
+      (classId) => !classMap[classId]
+    );
+    const missingClassRows = await Promise.all(
+      missingClassIds.map(async (classId) => {
+        const snap = await db.collection(COLLECTIONS.CLASSES).doc(classId).get();
+        return snap.exists ? { id: snap.id, ...(snap.data() || {}) } : null;
+      })
+    );
+    const classRows = [
+      ...classMembershipRows,
+      ...missingClassRows.filter(Boolean),
+    ].map((row) => ({
+      ...(row || {}),
+      id: trimText(row?.id),
+    }));
 
-    const data = courseIds.map((courseId) => {
-      const course = courseMap[courseId] || {};
-      const progress = normalizeProgressPercent(progressRows, courseId, 0);
-      return {
-        id: courseId,
-        title: trimText(course.title) || "Course",
-        description: trimText(course.description || course.shortDescription),
-        thumbnail: course.thumbnail || null,
-        category: trimText(course.category),
-        level: trimText(course.level || "beginner"),
-        teacherName: trimText(course.teacherName) || "Teacher",
-        subjects: Array.isArray(course.subjects) ? course.subjects : [],
-        progress,
-        isCompleted: clampPercent(progress) >= 100,
-      };
+    const courseIds = [
+      ...new Set(
+        classRows
+          .flatMap((row) => getStudentCourseIdsFromClassRow(row, uid))
+          .concat(enrollments.map((row) => trimText(row.courseId)))
+          .filter(Boolean)
+      ),
+    ];
+    const courseMap = await getCourseDocsByIds(courseIds);
+    const data = buildStudentClassAndCourseData({
+      uid,
+      classRows,
+      enrollments,
+      courseMap,
+      progressRows,
+    }).courseRows.sort((a, b) => {
+      const classCompare = trimText(a.className).localeCompare(trimText(b.className));
+      if (classCompare !== 0) return classCompare;
+      return trimText(a.title).localeCompare(trimText(b.title));
     });
 
     return successResponse(res, data, "Student courses fetched");

@@ -166,10 +166,13 @@ export const removeStudentFromClass = (classId, studentId) =>
     .delete(`/admin/classes/${classId}/students/${studentId}`)
     .then((r) => r.data);
 
-export const getAvailableClasses = (courseId) =>
-  api
-    .get("/classes/available", { params: { courseId } })
-    .then((r) => r.data.data);
+export const getAvailableClasses = (courseIdOrParams) => {
+  const params =
+    courseIdOrParams && typeof courseIdOrParams === "object"
+      ? courseIdOrParams
+      : { courseId: courseIdOrParams };
+  return api.get("/classes/available", { params }).then((r) => r.data.data);
+};
 
 export const getCourseCatalog = () =>
   api.get("/classes/catalog").then((r) => r.data.data || []);

@@ -15,6 +15,9 @@ export const markLectureComplete = (courseId, lectureId) =>
 export const exploreCourses = (params) =>
   api.get("/courses/explore", { params }).then((r) => r.data.data);
 
+export const getAvailableClassesForStudents = (params) =>
+  api.get("/classes/available", { params }).then((r) => r.data.data);
+
 export const getStudentCertificates = () =>
   api.get("/student/certificates").then((r) => r.data.data);
 
