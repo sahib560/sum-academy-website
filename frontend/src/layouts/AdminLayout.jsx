@@ -15,6 +15,7 @@ import {
   FiGrid,
   FiLogOut,
   FiMenu,
+  FiMessageSquare,
   FiSearch,
   FiSettings,
   FiTag,
@@ -51,7 +52,6 @@ const navSections = [
   {
     title: "Payments",
     items: [
-      { label: "Transactions", to: "/admin/transactions", icon: "card" },
       { label: "Installments", to: "/admin/installments", icon: "clock" },
       { label: "Promo Codes", to: "/admin/promo-codes", icon: "tag" },
     ],
@@ -62,6 +62,7 @@ const navSections = [
       { label: "Quizzes", to: "/admin/quizzes", icon: "clipboard" },
       { label: "Certificates", to: "/admin/certificates", icon: "award" },
       { label: "Announcements", to: "/admin/announcements", icon: "bell" },
+      { label: "Support Inbox", to: "/admin/support", icon: "support" },
       { label: "Site Settings", to: "/admin/settings", icon: "settings" },
     ],
   },
@@ -81,6 +82,7 @@ const iconMap = {
   clipboard: <FiClipboard className="h-4 w-4" />,
   award: <FiAward className="h-4 w-4" />,
   bell: <FiBell className="h-4 w-4" />,
+  support: <FiMessageSquare className="h-4 w-4" />,
   settings: <FiSettings className="h-4 w-4" />,
 };
 

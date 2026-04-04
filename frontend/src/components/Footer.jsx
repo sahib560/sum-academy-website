@@ -9,6 +9,7 @@ import {
 } from "react-icons/fa";
 import logo from "../assets/logo.jpeg";
 import { useSettings } from "../hooks/useSettings.js";
+import { normalizePakistanPhone, toPakistanWhatsAppNumber } from "../utils/phone.js";
 
 const renderFooterLink = (item) => {
   const url = item?.url || "/";
@@ -50,7 +51,12 @@ const socialItems = (socialLinks) => [
   },
   {
     label: "WhatsApp",
-    url: socialLinks.whatsapp || "#",
+    url: (() => {
+      const raw = socialLinks.whatsapp || "";
+      const phone = toPakistanWhatsAppNumber(raw);
+      if (phone) return `https://wa.me/${phone}`;
+      return raw || "#";
+    })(),
     icon: <FaWhatsapp className="h-4 w-4" />,
   },
   {
@@ -67,6 +73,10 @@ function Footer() {
   const footer = settings.footer || {};
   const links = footer.links || {};
   const socialLinks = settings.general?.socialLinks || {};
+  const contactPhone =
+    normalizePakistanPhone(settings.general?.contactPhone || "") ||
+    settings.general?.contactPhone ||
+    "+92 300 0000000";
 
   const handleAppDownloadClick = () => {
     toast.success("something is coming soon");
@@ -108,7 +118,7 @@ function Footer() {
               ))}
             </div>
             <p className="text-sm text-slate-500 dark:text-slate-300">
-              Call: {settings.general?.contactPhone || "+92 300 0000000"}
+              Call: {contactPhone}
             </p>
             <button
               type="button"

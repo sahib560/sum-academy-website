@@ -17,6 +17,11 @@ import {
   revokeTeacherSession,
   revokeTeacherOtherSessions,
 } from "../../services/teacher.service.js";
+import {
+  isPakistanPhone,
+  normalizePakistanPhone,
+  sanitizePhoneInput,
+} from "../../utils/phone.js";
 
 const fadeUp = {
   initial: { opacity: 0, y: 14 },
@@ -25,12 +30,14 @@ const fadeUp = {
   transition: { duration: 0.4 },
 };
 
-const tabs = ["Profile", "Security"];
+const tabs = ["Profile"];
 
 const buildProfileForm = (data = {}) => ({
   fullName: String(data?.fullName || "").trim(),
   email: String(data?.email || "").trim(),
-  phoneNumber: String(data?.phoneNumber || "").trim(),
+  phoneNumber:
+    normalizePakistanPhone(String(data?.phoneNumber || "").trim()) ||
+    String(data?.phoneNumber || "").trim(),
   subject: String(data?.subject || "").trim(),
   bio: String(data?.bio || "").trim(),
 });
@@ -95,7 +102,7 @@ function TeacherSettings() {
   const securityQuery = useQuery({
     queryKey: ["teacher-settings-security", userProfile?.uid],
     queryFn: getTeacherSettingsSecurity,
-    enabled: Boolean(userProfile?.uid),
+    enabled: Boolean(userProfile?.uid) && activeTab === "Security",
     staleTime: 30 * 1000,
     refetchInterval: 60 * 1000,
   });
@@ -127,6 +134,8 @@ function TeacherSettings() {
     }
     if (!profile.phoneNumber.trim()) {
       nextErrors.phoneNumber = "Phone number is required.";
+    } else if (!isPakistanPhone(profile.phoneNumber)) {
+      nextErrors.phoneNumber = "Use 03001234567 or +923001234567 format.";
     }
     if (!profile.subject.trim()) {
       nextErrors.subject = "Subject is required.";
@@ -201,7 +210,7 @@ function TeacherSettings() {
     if (!validateProfile()) return;
     profileMutation.mutate({
       fullName: profile.fullName.trim(),
-      phoneNumber: profile.phoneNumber.trim(),
+      phoneNumber: normalizePakistanPhone(profile.phoneNumber),
       subject: profile.subject.trim(),
       bio: profile.bio.trim(),
     });
@@ -393,9 +402,10 @@ function TeacherSettings() {
                     onChange={(event) =>
                       setProfile((prev) => ({
                         ...prev,
-                        phoneNumber: event.target.value,
+                        phoneNumber: sanitizePhoneInput(event.target.value),
                       }))
                     }
+                    placeholder="03001234567 or +923001234567"
                     className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
                   />
                   {profileErrors.phoneNumber ? (
@@ -459,6 +469,91 @@ function TeacherSettings() {
                   disabled={!profileDirty || profileMutation.isPending}
                 >
                   {profileMutation.isPending ? "Saving..." : "Save Profile"}
+                </button>
+              </div>
+            </Motion.section>
+
+            <Motion.section
+              {...fadeUp}
+              className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"
+            >
+              <h3 className="font-heading text-xl text-slate-900">Change Password</h3>
+              <div className="mt-4 space-y-4">
+                {[
+                  { key: "current", label: "Current Password" },
+                  { key: "next", label: "New Password" },
+                  { key: "confirm", label: "Confirm New Password" },
+                ].map((field) => (
+                  <div key={field.key}>
+                    <label className="text-xs font-semibold uppercase text-slate-400">
+                      {field.label}
+                    </label>
+                    <div className="mt-2 flex items-center rounded-xl border border-slate-200 px-3 py-2 text-sm">
+                      <input
+                        type={showPasswords[field.key] ? "text" : "password"}
+                        value={passwords[field.key]}
+                        onChange={(event) =>
+                          setPasswords((prev) => ({
+                            ...prev,
+                            [field.key]: event.target.value,
+                          }))
+                        }
+                        className="w-full bg-transparent focus:outline-none"
+                      />
+                      <button
+                        type="button"
+                        className="text-xs text-slate-500"
+                        onClick={() =>
+                          setShowPasswords((prev) => ({
+                            ...prev,
+                            [field.key]: !prev[field.key],
+                          }))
+                        }
+                      >
+                        {showPasswords[field.key] ? "Hide" : "Show"}
+                      </button>
+                    </div>
+                    {securityErrors[field.key] ? (
+                      <p className="mt-1 text-xs text-rose-500">
+                        {securityErrors[field.key]}
+                      </p>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-4">
+                <div className="h-2 w-full rounded-full bg-slate-100">
+                  <div
+                    className={`h-2 rounded-full transition-all ${strength.color}`}
+                    style={{ width: strength.width }}
+                  />
+                </div>
+                <p className="mt-2 text-xs text-slate-500">Strength: {strength.label}</p>
+                <div className="mt-3 grid gap-2 text-xs text-slate-500 sm:grid-cols-2">
+                  <span className={passwordChecks.length ? "text-emerald-600" : ""}>
+                    At least 8 characters
+                  </span>
+                  <span className={passwordChecks.upper ? "text-emerald-600" : ""}>
+                    One uppercase letter
+                  </span>
+                  <span className={passwordChecks.number ? "text-emerald-600" : ""}>
+                    One number
+                  </span>
+                  <span className={passwordChecks.special ? "text-emerald-600" : ""}>
+                    One special character
+                  </span>
+                </div>
+              </div>
+
+              <div className="mt-4 flex justify-end">
+                <button
+                  type="button"
+                  className="btn-primary w-full sm:w-auto"
+                  onClick={handleSavePassword}
+                  disabled={changingPassword}
+                >
+                  {changingPassword ? "Saving..." : "Save Password"}
                 </button>
               </div>
             </Motion.section>

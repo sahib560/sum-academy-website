@@ -7,6 +7,12 @@ import {
 import * as adminController from "../controllers/admin.controller.js";
 import * as paymentController from "../controllers/payment.controller.js";
 import {
+  getSupportMessages,
+  markSupportMessageRead,
+  deleteSupportMessage,
+  replySupportMessage,
+} from "../controllers/support.controller.js";
+import {
   getTeacherQuizzes,
   getTeacherQuizById,
   assignQuizToStudents,
@@ -224,6 +230,11 @@ router.patch(
   adminOnly,
   paymentController.markInstallmentPaid
 );
+
+router.get("/support/messages", adminOnly, getSupportMessages);
+router.patch("/support/messages/:messageId/read", adminOnly, markSupportMessageRead);
+router.post("/support/messages/:messageId/reply", adminOnly, replySupportMessage);
+router.delete("/support/messages/:messageId", adminOnly, deleteSupportMessage);
 
 router.get("/promo-codes", adminOnly, adminController.getPromoCodes);
 router.post(

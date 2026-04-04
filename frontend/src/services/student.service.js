@@ -50,3 +50,6 @@ export const updateStudentSettings = (data) =>
 
 export const submitStudentHelpSupport = (data) =>
   api.post("/student/help-support", data).then((r) => r.data);
+
+export const submitPublicContactMessage = (data) =>
+  api.post("/contact/messages", data).then((r) => r.data);

@@ -73,39 +73,12 @@ const verifyToken = async (req, res, next) => {
     const userSnap = await userRef.get();
 
     if (!userSnap.exists) {
-      const [studentSnap, teacherSnap, adminSnap] = await Promise.all([
-        db.collection("students").doc(decoded.uid).get(),
-        db.collection("teachers").doc(decoded.uid).get(),
-        db.collection("admins").doc(decoded.uid).get(),
-      ]);
-
-      let role = null;
-      if (studentSnap.exists) role = "student";
-      if (teacherSnap.exists) role = "teacher";
-      if (adminSnap.exists) role = "admin";
-
-      if (!role) {
-        return res
-          .status(401)
-          .json({ success: false, message: "User profile not found" });
-      }
-
-      await userRef.set({
-        uid: decoded.uid,
-        email: decoded.email || "",
-        role,
-        isActive: true,
-        assignedWebDevice: "",
-        assignedWebIp: "",
-        assignedUniqueDeviceId: "",
-        lastKnownWebIp: "",
-        lastLoginAt: null,
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
+      return res
+        .status(401)
+        .json({ success: false, message: "User profile not found" });
     }
 
-    const resolvedSnap = await userRef.get();
-    const user = resolvedSnap.data();
+    const user = userSnap.data() || {};
     const userRole = normalizeRole(user?.role);
     const tokenRole = normalizeRole(decoded?.role);
     const resolvedRole = userRole || tokenRole || null;
@@ -131,11 +104,42 @@ const verifyToken = async (req, res, next) => {
         .json({ success: false, message: "Account deactivated" });
     }
 
+    if (
+      resolvedRole === "student" &&
+      String(user.status || "").toLowerCase() === "pending_approval"
+    ) {
+      return res.status(403).json({
+        success: false,
+        message:
+          "Your account is pending admin approval. Please wait for activation.",
+        code: "PENDING_APPROVAL",
+      });
+    }
+
+    if (resolvedRole === "student") {
+      const studentSnap = await db.collection("students").doc(decoded.uid).get();
+      if (studentSnap.exists) {
+        const studentData = studentSnap.data() || {};
+        const approvalStatus = String(studentData.approvalStatus || "")
+          .trim()
+          .toLowerCase();
+        if (approvalStatus && approvalStatus !== "approved") {
+          return res.status(403).json({
+            success: false,
+            message:
+              "Your account is pending admin approval. Please wait for activation.",
+            code: "PENDING_APPROVAL",
+          });
+        }
+      }
+    }
+
     req.user = {
-      uid: user.uid,
-      email: user.email || null,
+      uid: user.uid || decoded.uid,
+      email: user.email || decoded.email || null,
       role: resolvedRole,
       isActive: user.isActive,
+      status: user.status || null,
     };
 
     return next();

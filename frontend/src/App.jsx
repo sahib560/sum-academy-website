@@ -22,11 +22,11 @@ import Dashboard from "./pages/admin/Dashboard.jsx";
 import Users from "./pages/admin/Users.jsx";
 import AdminCourses from "./pages/admin/Courses.jsx";
 import Payments from "./pages/admin/Payments.jsx";
-import Transactions from "./pages/admin/Transactions.jsx";
 import Installments from "./pages/admin/Installments.jsx";
 import PromoCodes from "./pages/admin/PromoCodes.jsx";
 import Certificates from "./pages/admin/Certificates.jsx";
 import Announcements from "./pages/admin/Announcements.jsx";
+import SupportInbox from "./pages/admin/SupportInbox.jsx";
 import SiteSettings from "./pages/admin/SiteSettings.jsx";
 import TeacherDashboard from "./pages/teacher/Dashboard.jsx";
 import TeacherLayout from "./layouts/TeacherLayout.jsx";
@@ -333,11 +333,11 @@ function AppLayout({ showComingSoon }) {
             element={<TeacherQuizDetailAssignmentGrading />}
           />
           <Route path="payments" element={<Payments />} />
-          <Route path="transactions" element={<Transactions />} />
           <Route path="installments" element={<Installments />} />
           <Route path="promo-codes" element={<PromoCodes />} />
           <Route path="certificates" element={<Certificates />} />
           <Route path="announcements" element={<Announcements />} />
+          <Route path="support" element={<SupportInbox />} />
           <Route path="notifications" element={<NotificationsPage />} />
           <Route path="settings" element={<SiteSettings />} />
           <Route path="analytics" element={<Analytics />} />

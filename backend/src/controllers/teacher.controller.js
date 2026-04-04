@@ -2,6 +2,10 @@ import { db, admin } from "../config/firebase.js";
 import { COLLECTIONS } from "../config/collections.js";
 import { successResponse, errorResponse } from "../utils/response.utils.js";
 import {
+  isPakistanPhone,
+  normalizePakistanPhone,
+} from "../utils/phone.utils.js";
+import {
   sendSessionScheduledEmail,
   sendSessionCancelledEmail,
 } from "../services/email.service.js";
@@ -4033,9 +4037,11 @@ const sanitizeTeacherProfilePayload = (uid, userData = {}, teacherData = {}) => 
     uid,
     email,
     fullName,
-    phoneNumber: trimText(
-      teacherData.phoneNumber || teacherData.phone || userData.phoneNumber
-    ),
+    phoneNumber:
+      normalizePakistanPhone(
+        trimText(teacherData.phoneNumber || teacherData.phone || userData.phoneNumber)
+      ) ||
+      trimText(teacherData.phoneNumber || teacherData.phone || userData.phoneNumber),
     subject: trimText(teacherData.subject),
     bio: trimText(teacherData.bio),
     profilePicture: trimText(teacherData.profilePicture),
@@ -4149,7 +4155,8 @@ export const updateTeacherSettingsProfile = async (req, res) => {
     if (!uid) return errorResponse(res, "Missing teacher uid", 400);
 
     const fullName = trimText(req.body?.fullName);
-    const phoneNumber = trimText(req.body?.phoneNumber);
+    const phoneNumberRaw = trimText(req.body?.phoneNumber);
+    const phoneNumber = phoneNumberRaw ? normalizePakistanPhone(phoneNumberRaw) : "";
     const subject = trimText(req.body?.subject);
     const bio = trimText(req.body?.bio);
     const profilePicture = trimText(req.body?.profilePicture);
@@ -4162,6 +4169,13 @@ export const updateTeacherSettingsProfile = async (req, res) => {
     }
     if (bio.length > 500) {
       return errorResponse(res, "bio cannot exceed 500 characters", 400);
+    }
+    if (phoneNumberRaw && !isPakistanPhone(phoneNumber)) {
+      return errorResponse(
+        res,
+        "phoneNumber must be 03001234567 or +923001234567 format",
+        400
+      );
     }
 
     const userRef = db.collection(COLLECTIONS.USERS).doc(uid);

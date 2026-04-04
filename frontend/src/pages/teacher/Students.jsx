@@ -12,6 +12,7 @@ import {
   getTeacherStudents,
   updateStudentVideoAccess,
 } from "../../services/teacher.service.js";
+import { normalizePakistanPhone } from "../../utils/phone.js";
 
 const QUERY_STALE_TIME = 30000;
 const NOW_TS = Date.now();
@@ -633,7 +634,7 @@ function Students() {
               ) : (
                 <div className="space-y-5">
                   <div className="flex justify-end"><button className="rounded-full border border-slate-300 px-3 py-1 text-sm font-semibold text-slate-600" onClick={() => setSelectedStudentId("")} disabled={profileVideoAccessMutation.isPending}>Close</button></div>
-                  <div className="text-center"><span className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-emerald-100 text-xl font-bold text-emerald-700">{getInitials(profileData.fullName)}</span><h2 className="mt-3 font-heading text-3xl text-slate-900">{profileData.fullName}</h2><p className="text-sm text-slate-500">{profileData.email || "-"}</p><p className="text-sm text-slate-500">{profileData.phoneNumber || "-"}</p><div className="mt-2 flex justify-center gap-2"><span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">Student</span><span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${getStatusBadgeClass(profileData.isActive !== false)}`}>{profileData.isActive === false ? "Inactive" : "Active"}</span></div><p className="mt-1 text-xs text-slate-400">Joined {formatReadableDate(profileData.joinedAt)}</p></div>
+                  <div className="text-center"><span className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-emerald-100 text-xl font-bold text-emerald-700">{getInitials(profileData.fullName)}</span><h2 className="mt-3 font-heading text-3xl text-slate-900">{profileData.fullName}</h2><p className="text-sm text-slate-500">{profileData.email || "-"}</p><p className="text-sm text-slate-500">{normalizePakistanPhone(profileData.phoneNumber) || profileData.phoneNumber || "-"}</p><div className="mt-2 flex justify-center gap-2"><span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">Student</span><span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${getStatusBadgeClass(profileData.isActive !== false)}`}>{profileData.isActive === false ? "Inactive" : "Active"}</span></div><p className="mt-1 text-xs text-slate-400">Joined {formatReadableDate(profileData.joinedAt)}</p></div>
                   <div className="grid grid-cols-4 gap-2">{PROFILE_TABS.map((tab) => <button key={tab.id} className={`rounded-xl px-2 py-2 text-xs font-semibold ${activeProfileTab === tab.id ? "bg-primary text-white" : "border border-slate-200 text-slate-600"}`} onClick={() => setActiveProfileTab(tab.id)} disabled={false}>{tab.label}</button>)}</div>
 
                   {activeProfileTab === "overview" ? (

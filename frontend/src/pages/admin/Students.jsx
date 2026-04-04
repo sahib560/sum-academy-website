@@ -31,10 +31,14 @@ import {
   resetUserDevice,
   updateUser,
 } from "../../services/admin.service.js";
+import {
+  isPakistanPhone,
+  normalizePakistanPhone,
+  sanitizePhoneInput,
+} from "../../utils/phone.js";
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PASSWORD_REGEX = /^(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/;
-const PHONE_REGEX = /^\+92\d{10}$/;
 const FOCUSABLE_SELECTOR =
   'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
 
@@ -162,7 +166,11 @@ const normalizeStudents = (students = []) =>
       uid: student.uid || student.id,
       fullName,
       email: student.email || "",
-      phoneNumber: student.phoneNumber || "",
+      phoneNumber:
+        normalizePakistanPhone(student.phoneNumber || student.phone || "") ||
+        student.phoneNumber ||
+        student.phone ||
+        "",
       enrolledCourses: normalizeEnrolledCourses(student.enrolledCourses),
       certificates: normalizeCertificates(student.certificates),
       joinedDate: formatDate(student.createdAt),
@@ -207,8 +215,8 @@ const validateAddForm = (values) => {
   }
   if (!values.phone.trim()) {
     errors.phone = "Phone number is required.";
-  } else if (!PHONE_REGEX.test(values.phone.trim())) {
-    errors.phone = "Use +923001234567 format.";
+  } else if (!isPakistanPhone(values.phone)) {
+    errors.phone = "Use 03001234567 or +923001234567 format.";
   }
   return errors;
 };
@@ -222,8 +230,8 @@ const validateEditForm = (values) => {
   }
   if (!values.phone.trim()) {
     errors.phone = "Phone number is required.";
-  } else if (!PHONE_REGEX.test(values.phone.trim())) {
-    errors.phone = "Use +923001234567 format.";
+  } else if (!isPakistanPhone(values.phone)) {
+    errors.phone = "Use 03001234567 or +923001234567 format.";
   }
   return errors;
 };
@@ -609,10 +617,7 @@ function Students() {
     setShowRejectModal(true);
   };
 
-  const sanitizePhone = (value) =>
-    value
-      .replace(/(?!^\+)[^\d]/g, "")
-      .replace(/^(\+)?(.*)$/, (_m, plus, rest) => `${plus || ""}${rest.replace(/\+/g, "")}`);
+  const sanitizePhone = (value) => sanitizePhoneInput(value);
 
   const exportStudentsPdf = () => {
     const doc = new jsPDF();
@@ -981,7 +986,7 @@ function Students() {
               name: addForm.fullName.trim(),
               email: addForm.email.trim(),
               password: addForm.password,
-              phone: addForm.phone.trim(),
+              phone: normalizePakistanPhone(addForm.phone),
               role: "student",
             });
           }}
@@ -1011,7 +1016,7 @@ function Students() {
 
           <div>
             <label className="text-sm font-semibold text-slate-700">Phone Number</label>
-            <input type="text" value={addForm.phone} onChange={(event) => { setAddForm((prev) => ({ ...prev, phone: sanitizePhone(event.target.value) })); setAddTouched((prev) => ({ ...prev, phone: true })); }} className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/10" placeholder="+923001234567" />
+            <input type="text" value={addForm.phone} onChange={(event) => { setAddForm((prev) => ({ ...prev, phone: sanitizePhone(event.target.value) })); setAddTouched((prev) => ({ ...prev, phone: true })); }} className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/10" placeholder="03001234567 or +923001234567" />
             <FieldError message={addTouched.phone ? addErrors.phone : ""} />
           </div>
 
@@ -1159,7 +1164,7 @@ function Students() {
               uid: editForm.uid,
               data: {
                 name: editForm.fullName.trim(),
-                phone: editForm.phone.trim(),
+                phone: normalizePakistanPhone(editForm.phone),
               },
             });
           }}
@@ -1171,7 +1176,7 @@ function Students() {
           </div>
           <div>
             <label className="text-sm font-semibold text-slate-700">Phone Number</label>
-            <input type="text" value={editForm.phone} onChange={(event) => { setEditForm((prev) => ({ ...prev, phone: sanitizePhone(event.target.value) })); setEditTouched((prev) => ({ ...prev, phone: true })); }} className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/10" placeholder="+923001234567" />
+            <input type="text" value={editForm.phone} onChange={(event) => { setEditForm((prev) => ({ ...prev, phone: sanitizePhone(event.target.value) })); setEditTouched((prev) => ({ ...prev, phone: true })); }} className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/10" placeholder="03001234567 or +923001234567" />
             <FieldError message={editTouched.phone ? editErrors.phone : ""} />
           </div>
           <div className="flex justify-end gap-3 pt-2">

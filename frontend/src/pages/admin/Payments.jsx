@@ -80,7 +80,6 @@ function Payments() {
       );
       queryClient.invalidateQueries({ queryKey: ["admin-payments"] });
       queryClient.invalidateQueries({ queryKey: ["admin-installments-for-stats"] });
-      queryClient.invalidateQueries({ queryKey: ["admin-transactions"] });
       queryClient.invalidateQueries({ queryKey: ["admin-installments"] });
       setSelectedPayment(null);
     },
@@ -416,8 +415,10 @@ function Payments() {
               <div className="mt-4 grid gap-3 rounded-2xl border border-slate-200 p-4 text-sm md:grid-cols-2">
                 <p><span className="text-slate-500">Method:</span> {formatMethod(selectedPayment.method)}</p>
                 <p><span className="text-slate-500">Original:</span> {formatPKR(selectedPayment.originalAmount)}</p>
-                <p><span className="text-slate-500">Discount:</span> {formatPKR(selectedPayment.discount)}</p>
-                <p><span className="text-slate-500">Final:</span> {formatPKR(selectedPayment.amount)}</p>
+                <p><span className="text-slate-500">Course Discount:</span> {formatPKR(selectedPayment.courseDiscountAmount)}</p>
+                <p><span className="text-slate-500">Promo Discount:</span> {formatPKR(selectedPayment.promoDiscountAmount)}</p>
+                <p><span className="text-slate-500">Total Discount:</span> {formatPKR(selectedPayment.discount)}</p>
+                <p><span className="text-slate-500">Final:</span> {formatPKR(selectedPayment.totalAmount || selectedPayment.amount)}</p>
                 <p><span className="text-slate-500">Promo:</span> {selectedPayment.promoCode || "-"}</p>
                 <p><span className="text-slate-500">Status:</span> {selectedPayment.status?.replace(/_/g, " ")}</p>
               </div>

@@ -5,6 +5,10 @@ import {
   sendStudentHelpSupportEmail,
 } from "../services/email.service.js";
 import { errorResponse, successResponse } from "../utils/response.utils.js";
+import {
+  isPakistanPhone,
+  normalizePakistanPhone,
+} from "../utils/phone.utils.js";
 
 const serverTimestamp = () => admin.firestore.FieldValue.serverTimestamp();
 const SETTINGS_DOC_ID = "siteSettings";
@@ -17,6 +21,12 @@ const toNumber = (value, fallback = 0) => {
 };
 const isValidEmail = (value = "") =>
   /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimText(value));
+const normalizeEmailAddress = (value = "") => {
+  const raw = trimText(value);
+  if (!raw) return "";
+  const match = raw.match(/<([^>]+)>/);
+  return trimText(match?.[1] || raw).toLowerCase();
+};
 
 const parseDate = (value) => {
   if (!value) return null;
@@ -1215,6 +1225,15 @@ export const exploreCourses = async (req, res) => {
     }
 
     const payload = courses.map((course) => ({
+      originalPrice: toNumber(course.price, 0),
+      discountPercent: toNumber(course.discountPercent, 0),
+      discountAmount: Number(
+        (
+          (toNumber(course.price, 0) *
+            Math.max(0, Math.min(100, toNumber(course.discountPercent, 0)))) /
+          100
+        ).toFixed(2)
+      ),
       id: course.id,
       title: trimText(course.title),
       description: trimText(course.description || course.shortDescription),
@@ -1222,7 +1241,17 @@ export const exploreCourses = async (req, res) => {
       category: trimText(course.category),
       level: trimText(course.level),
       price: toNumber(course.price, 0),
-      discountPercent: toNumber(course.discountPercent, 0),
+      discountedPrice: Number(
+        Math.max(
+          toNumber(course.price, 0) -
+            (
+              (toNumber(course.price, 0) *
+                Math.max(0, Math.min(100, toNumber(course.discountPercent, 0)))) /
+              100
+            ),
+          0
+        ).toFixed(2)
+      ),
       teacherName: trimText(course.teacherName) || "Teacher",
       enrollmentCount: toNumber(course.enrollmentCount, 0),
       rating: toNumber(course.rating, 0),
@@ -2170,14 +2199,37 @@ export const submitHelpSupportMessage = async (req, res) => {
 
     const settings = settingsSnap.exists ? settingsSnap.data() || {} : {};
     const adminEmail =
-      trimText(settings.contact?.email) ||
-      trimText(settings.general?.contactEmail) ||
-      trimText(process.env.EMAIL_FROM);
+      normalizeEmailAddress(settings.contact?.email) ||
+      normalizeEmailAddress(settings.general?.contactEmail) ||
+      normalizeEmailAddress(process.env.SMTP_EMAIL) ||
+      normalizeEmailAddress(process.env.EMAIL_FROM);
     if (!isValidEmail(adminEmail)) {
       return errorResponse(res, "Support email is not configured", 500);
     }
 
+    const messageRef = db.collection(COLLECTIONS.SUPPORT_MESSAGES).doc();
+    await messageRef.set({
+      source: "student",
+      userRole: "student",
+      userId: uid,
+      name: studentName || "Student",
+      email: studentEmail,
+      category,
+      subject,
+      message,
+      isRead: false,
+      status: "unread",
+      replyMessage: "",
+      repliedAt: null,
+      repliedBy: null,
+      readAt: null,
+      readBy: null,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+
     await sendStudentHelpSupportEmail(adminEmail, {
+      requestSource: "student",
       studentName: studentName || "Student",
       studentEmail,
       category,
@@ -2187,7 +2239,7 @@ export const submitHelpSupportMessage = async (req, res) => {
 
     return successResponse(
       res,
-      { submitted: true },
+      { submitted: true, ticketId: messageRef.id },
       "Help support message sent"
     );
   } catch (error) {
@@ -2220,9 +2272,15 @@ export const getStudentSettings = async (req, res) => {
         trimText(studentData.name) ||
         trimText(userData.fullName) ||
         getNameFromEmail(userData.email || ""),
-      phoneNumber: trimText(studentData.phoneNumber || userData.phoneNumber || studentData.phone),
+      phoneNumber:
+        normalizePakistanPhone(
+          trimText(studentData.phoneNumber || userData.phoneNumber || studentData.phone)
+        ) ||
+        trimText(studentData.phoneNumber || userData.phoneNumber || studentData.phone),
       fatherName: trimText(studentData.fatherName),
-      fatherPhone: trimText(studentData.fatherPhone),
+      fatherPhone:
+        normalizePakistanPhone(trimText(studentData.fatherPhone)) ||
+        trimText(studentData.fatherPhone),
       fatherOccupation: trimText(studentData.fatherOccupation),
       address: trimText(studentData.address),
       district: trimText(studentData.district),
@@ -2248,9 +2306,15 @@ export const updateStudentSettings = async (req, res) => {
   try {
     const uid = trimText(req.user?.uid);
     const fullName = trimText(req.body?.fullName);
-    const phoneNumber = trimText(req.body?.phoneNumber);
+    const phoneNumberRaw = trimText(req.body?.phoneNumber);
+    const phoneNumber = phoneNumberRaw
+      ? normalizePakistanPhone(phoneNumberRaw)
+      : "";
     const fatherName = trimText(req.body?.fatherName);
-    const fatherPhone = trimText(req.body?.fatherPhone);
+    const fatherPhoneRaw = trimText(req.body?.fatherPhone);
+    const fatherPhone = fatherPhoneRaw
+      ? normalizePakistanPhone(fatherPhoneRaw)
+      : "";
     const fatherOccupation = trimText(req.body?.fatherOccupation);
     const address = trimText(req.body?.address);
     const district = trimText(req.body?.district);
@@ -2263,14 +2327,22 @@ export const updateStudentSettings = async (req, res) => {
     if (fullName.length > 120) {
       return errorResponse(res, "fullName cannot exceed 120 characters", 400);
     }
-    if (phoneNumber.length > 30) {
-      return errorResponse(res, "phoneNumber cannot exceed 30 characters", 400);
+    if (phoneNumberRaw && !isPakistanPhone(phoneNumber)) {
+      return errorResponse(
+        res,
+        "phoneNumber must be 03001234567 or +923001234567 format",
+        400
+      );
     }
     if (fatherName.length > 120) {
       return errorResponse(res, "fatherName cannot exceed 120 characters", 400);
     }
-    if (fatherPhone.length > 30) {
-      return errorResponse(res, "fatherPhone cannot exceed 30 characters", 400);
+    if (fatherPhoneRaw && !isPakistanPhone(fatherPhone)) {
+      return errorResponse(
+        res,
+        "fatherPhone must be 03001234567 or +923001234567 format",
+        400
+      );
     }
     if (fatherOccupation.length > 120) {
       return errorResponse(res, "fatherOccupation cannot exceed 120 characters", 400);
@@ -2344,10 +2416,15 @@ export const updateStudentSettings = async (req, res) => {
           trimText(studentData.fullName) ||
           trimText(userData.fullName) ||
           fullName,
-        phoneNumber: trimText(studentData.phoneNumber || userData.phoneNumber || ""),
+        phoneNumber:
+          normalizePakistanPhone(
+            trimText(studentData.phoneNumber || userData.phoneNumber || "")
+          ) || trimText(studentData.phoneNumber || userData.phoneNumber || ""),
         email: trimText(userData.email || studentData.email),
         fatherName: trimText(studentData.fatherName),
-        fatherPhone: trimText(studentData.fatherPhone),
+        fatherPhone:
+          normalizePakistanPhone(trimText(studentData.fatherPhone)) ||
+          trimText(studentData.fatherPhone),
         fatherOccupation: trimText(studentData.fatherOccupation),
         address: trimText(studentData.address),
         district: trimText(studentData.district),

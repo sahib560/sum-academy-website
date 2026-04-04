@@ -748,15 +748,23 @@ export const sendStudentHelpSupportEmail = async (
   payload = {}
 ) => {
   try {
+    const requestSource = String(payload.requestSource || "student")
+      .trim()
+      .toLowerCase();
+    const sourceLabel =
+      requestSource === "public" ? "Public Contact Form" : "Student Portal";
+    const sourceHeading =
+      requestSource === "public" ? "New Contact Form Message" : "New Student Help Request";
+
     await sendMail({
       from: MAIL_FROM,
       to: adminEmail,
       replyTo: payload.studentEmail || undefined,
-      subject: `Student Help Request - ${payload.subject || "No Subject"}`,
+      subject: `${sourceHeading} - ${payload.subject || "No Subject"}`,
       html: `
         <div style="font-family: DM Sans, sans-serif; max-width: 560px; margin: 0 auto; padding: 28px; background: #f8f9fe; border-radius: 16px;">
-          <h2 style="color: #4a63f5; margin: 0 0 10px;">New Student Help Request</h2>
-          <p style="color: #334155; margin: 0 0 14px;">A student submitted a support request from the student portal.</p>
+          <h2 style="color: #4a63f5; margin: 0 0 10px;">${sourceHeading}</h2>
+          <p style="color: #334155; margin: 0 0 14px;">A support request was submitted from ${sourceLabel}.</p>
           <div style="background: #ffffff; border-radius: 12px; padding: 16px;">
             <p style="margin: 0; color: #64748b;">Student Name</p>
             <p style="margin: 4px 0 10px; color: #0f172a; font-weight: 700;">${payload.studentName || "Student"}</p>
@@ -775,6 +783,38 @@ export const sendStudentHelpSupportEmail = async (
     });
   } catch (error) {
     console.error("Student help support email failed:", error.message);
+    throw error;
+  }
+};
+
+export const sendSupportReplyEmail = async (
+  recipientEmail,
+  payload = {}
+) => {
+  try {
+    await sendMail({
+      from: MAIL_FROM,
+      to: recipientEmail,
+      subject: `SUM Academy Support Reply - ${payload.subject || "Support Update"}`,
+      html: `
+        <div style="font-family: DM Sans, sans-serif; max-width: 560px; margin: 0 auto; padding: 28px; background: #f8f9fe; border-radius: 16px;">
+          <h2 style="color: #4a63f5; margin: 0 0 10px;">SUM Academy Support Reply</h2>
+          <p style="color: #334155; margin: 0 0 14px;">Hi ${payload.name || "there"},</p>
+          <p style="color: #334155; margin: 0 0 14px;">${payload.replyMessage || "Our team has replied to your support request."}</p>
+          ${
+            payload.originalMessage
+              ? `<div style="background: #ffffff; border-radius: 12px; padding: 16px; margin-top: 12px;">
+                  <p style="margin: 0; color: #64748b;">Your message</p>
+                  <p style="margin: 4px 0 0; color: #0f172a; white-space: pre-line;">${payload.originalMessage}</p>
+                 </div>`
+              : ""
+          }
+          <p style="margin-top: 14px; color: #64748b; font-size: 12px;">This is an automated message from SUM Academy support.</p>
+        </div>
+      `,
+    });
+  } catch (error) {
+    console.error("Support reply email failed:", error.message);
     throw error;
   }
 };

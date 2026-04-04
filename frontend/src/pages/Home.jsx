@@ -87,7 +87,18 @@ function CourseCard({ course }) {
       </div>
       <div className="flex items-center justify-between text-sm text-slate-600 dark:text-slate-200">
         <span>{course.lessons}</span>
-        <span className="text-primary">{course.priceLabel}</span>
+        <span className="text-primary">
+          {course.hasDiscount ? (
+            <span className="inline-flex items-center gap-2">
+              <span className="text-xs text-slate-400 line-through">
+                {course.originalPriceLabel}
+              </span>
+              {course.priceLabel}
+            </span>
+          ) : (
+            course.priceLabel
+          )}
+        </span>
       </div>
     </div>
   );
@@ -191,7 +202,16 @@ function Home() {
             )
             .filter(Boolean)
         : [];
-      const price = Number(course.price);
+      const originalPrice = Number(
+        Number.isFinite(Number(course.originalPrice))
+          ? course.originalPrice
+          : course.price
+      );
+      const discountedPrice = Number(
+        Number.isFinite(Number(course.discountedPrice))
+          ? course.discountedPrice
+          : course.price
+      );
       return {
         id: course.id || `course-${index}`,
         title: textOrNotAdded(course.title),
@@ -201,9 +221,14 @@ function Home() {
         duration: textOrNotAdded(course.duration),
         teacher: textOrNotAdded(course.teacherName),
         description: textOrNotAdded(course.description),
+        hasDiscount: discountedPrice < originalPrice,
+        originalPriceLabel:
+          Number.isFinite(originalPrice) && originalPrice >= 0
+            ? `PKR ${originalPrice.toLocaleString()}`
+            : NOT_ADDED,
         priceLabel:
-          Number.isFinite(price) && price >= 0
-            ? `PKR ${price.toLocaleString()}`
+          Number.isFinite(discountedPrice) && discountedPrice >= 0
+            ? `PKR ${discountedPrice.toLocaleString()}`
             : NOT_ADDED,
       };
     });

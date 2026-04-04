@@ -145,12 +145,25 @@ router.get("/available", async (req, res) => {
             const teacherNameFromSubject = courseSubjects.find(
               (subject) => trimText(subject.teacherName)
             )?.teacherName;
+            const originalPrice = toNumber(course.price, 0);
+            const discountPercent = Math.max(
+              0,
+              Math.min(100, toNumber(course.discountPercent, 0))
+            );
+            const discountedPrice = Number(
+              Math.max(
+                originalPrice - (originalPrice * discountPercent) / 100,
+                0
+              ).toFixed(2)
+            );
             return {
               courseId: id,
               title: trimText(course.title) || "Course",
               thumbnail: course.thumbnail || null,
-              price: toNumber(course.price, 0),
-              discountPercent: toNumber(course.discountPercent, 0),
+              price: originalPrice,
+              originalPrice,
+              discountPercent,
+              discountedPrice,
               subjects: subjectNames,
               teacherName: teacherNameFromSubject || trimText(course.teacherName) || "Teacher",
               courseName: trimText(course.title) || "Course",

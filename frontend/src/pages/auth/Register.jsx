@@ -9,6 +9,11 @@ import {
   sendRegistrationOtp,
   verifyRegistrationOtp,
 } from "../../services/auth.service.js";
+import {
+  isPakistanPhone,
+  normalizePakistanPhone,
+  sanitizePhoneInput,
+} from "../../utils/phone.js";
 import SplashScreen from "../../components/SplashScreen.jsx";
 
 const fadeUp = {
@@ -41,7 +46,6 @@ const initialForm = {
   terms: false,
 };
 
-const phoneRegex = /^\+92\d{10}$/;
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MIN_SPLASH_MS = 1200;
 
@@ -68,7 +72,7 @@ function Register() {
   const fullName = form.fullName.trim();
   const email = form.email.trim();
   const password = form.password;
-  const phoneNumber = form.phoneNumber.trim();
+  const phoneNumber = normalizePakistanPhone(form.phoneNumber);
 
   useEffect(() => {
     if (!toastState) return;
@@ -108,8 +112,11 @@ function Register() {
     if (!form.fullName.trim()) nextErrors.fullName = "Name is required.";
     if (!form.phoneNumber.trim()) {
       nextErrors.phoneNumber = "Phone number is required.";
-    } else if (!phoneRegex.test(form.phoneNumber.trim())) {
-      nextErrors.phoneNumber = "Use +92XXXXXXXXXX format.";
+    } else if (!isPakistanPhone(form.phoneNumber)) {
+      nextErrors.phoneNumber = "Use 03001234567 or +923001234567 format.";
+    }
+    if (form.fatherPhone.trim() && !isPakistanPhone(form.fatherPhone)) {
+      nextErrors.fatherPhone = "Use 03001234567 or +923001234567 format.";
     }
     if (!form.email.trim()) {
       nextErrors.email = "Email is required.";
@@ -172,7 +179,9 @@ function Register() {
         otpVerificationToken,
         {
           fatherName: form.fatherName,
-          fatherPhone: form.fatherPhone,
+          fatherPhone: form.fatherPhone.trim()
+            ? normalizePakistanPhone(form.fatherPhone)
+            : "",
           fatherOccupation: form.fatherOccupation,
           address: form.address,
           district: form.district,
@@ -425,11 +434,11 @@ function Register() {
                   inputMode="numeric"
                   pattern="[0-9+]*"
                   onChange={(event) => {
-                    const nextValue = event.target.value.replace(/[^0-9+]/g, "");
+                    const nextValue = sanitizePhoneInput(event.target.value);
                     setForm({ ...form, phoneNumber: nextValue });
                   }}
                   className="mt-2 w-full rounded-full border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
-                  placeholder="+92XXXXXXXXXX"
+                  placeholder="03001234567 or +923001234567"
                 />
                 {errors.phoneNumber && (
                   <p className="mt-2 text-xs text-accent">{errors.phoneNumber}</p>
@@ -461,12 +470,15 @@ function Register() {
                   inputMode="numeric"
                   pattern="[0-9+]*"
                   onChange={(event) => {
-                    const nextValue = event.target.value.replace(/[^0-9+]/g, "");
+                    const nextValue = sanitizePhoneInput(event.target.value);
                     setForm({ ...form, fatherPhone: nextValue });
                   }}
                   className="mt-2 w-full rounded-full border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
-                  placeholder="+92XXXXXXXXXX"
+                  placeholder="03001234567 or +923001234567"
                 />
+                {errors.fatherPhone && (
+                  <p className="mt-2 text-xs text-accent">{errors.fatherPhone}</p>
+                )}
               </div>
 
               <div className="grid gap-4 sm:grid-cols-2">

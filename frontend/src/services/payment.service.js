@@ -47,19 +47,6 @@ export const sendInstallmentReminderToStudent = (studentId) =>
 export const overrideInstallmentPlan = (planId, installments) =>
   api.put(`/admin/installments/${planId}/override`, { installments }).then((r) => r.data);
 
-export const getAdminTransactions = (params = {}) =>
-  api.get("/admin/transactions", { params }).then((r) => r.data.data || []);
-
-export const getTransactionById = (id) =>
-  api.get(`/admin/transactions/${id}`).then((r) => r.data.data);
-
-export const exportTransactionsCSV = async () => {
-  const response = await api.get("/admin/transactions/export", {
-    responseType: "blob",
-  });
-  return response.data;
-};
-
 export const validatePromoCode = (code, courseId) =>
   api
     .post("/payments/validate-promo", {

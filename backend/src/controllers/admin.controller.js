@@ -3,6 +3,10 @@ import { db, admin } from "../config/firebase.js";
 import { COLLECTIONS } from "../config/collections.js";
 import { successResponse, errorResponse } from "../utils/response.utils.js";
 import {
+  isPakistanPhone,
+  normalizePakistanPhone,
+} from "../utils/phone.utils.js";
+import {
   sendRegistrationOTP,
   sendApprovalEmail,
   sendRejectionEmail,
@@ -89,10 +93,7 @@ const csvEscapeCell = (value = "") => {
 const buildCsv = (rows = []) =>
   rows.map((row) => row.map((cell) => csvEscapeCell(cell)).join(",")).join("\n");
 
-const normalizeBulkPhone = (value = "") =>
-  String(value || "")
-    .trim()
-    .replace(/[^\d+]/g, "");
+const normalizeBulkPhone = (value = "") => normalizePakistanPhone(value);
 
 const buildCourseSubjects = async (subjects = []) => {
   if (!Array.isArray(subjects)) return [];
@@ -1126,6 +1127,12 @@ export const bulkUploadStudents = async (req, res) => {
           message: "Password must be at least 6 characters",
         });
       }
+      if (!phone || !isPakistanPhone(phone)) {
+        validationErrors.push({
+          row: lineNo,
+          message: "Phone must be 03001234567 or +923001234567 format",
+        });
+      }
       if (email && emailSeen.has(email)) {
         validationErrors.push({
           row: lineNo,
@@ -1273,6 +1280,14 @@ export const createUser = async (req, res) => {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
       return errorResponse(res, "Enter a valid email address", 400);
     }
+    const normalizedPhone = normalizePakistanPhone(phone);
+    if (!normalizedPhone || !isPakistanPhone(normalizedPhone)) {
+      return errorResponse(
+        res,
+        "Phone must be 03001234567 or +923001234567 format",
+        400
+      );
+    }
 
     const roleCollectionByRole = {
       student: COLLECTIONS.STUDENTS,
@@ -1295,7 +1310,7 @@ export const createUser = async (req, res) => {
         email: normalizedEmail,
         fullName: name,
         name,
-        phoneNumber: phone || "",
+        phoneNumber: normalizedPhone,
         role,
         isActive: true,
         status: role === "student" ? "approved" : "active",
@@ -1319,7 +1334,7 @@ export const createUser = async (req, res) => {
           {
             uid,
             fullName: name,
-            phoneNumber: phone || "",
+            phoneNumber: normalizedPhone,
             enrolledCourses: [],
             certificates: [],
             approvalStatus: "approved",
@@ -1333,7 +1348,7 @@ export const createUser = async (req, res) => {
           {
             uid,
             fullName: name,
-            phoneNumber: phone || "",
+            phoneNumber: normalizedPhone,
             subject: subject || "",
             bio: bio || "",
             assignedSubjects: subject ? [subject] : [],
@@ -1432,6 +1447,14 @@ export const createUser = async (req, res) => {
           admin: COLLECTIONS.ADMINS,
         };
         const authUser = await admin.auth().getUserByEmail(normalizedEmail);
+        const normalizedPhone = normalizePakistanPhone(phone);
+        if (!normalizedPhone || !isPakistanPhone(normalizedPhone)) {
+          return errorResponse(
+            res,
+            "Phone must be 03001234567 or +923001234567 format",
+            400
+          );
+        }
         const existingUserDoc = await db.collection(COLLECTIONS.USERS).doc(authUser.uid).get();
 
         let canRecover = true;
@@ -1467,7 +1490,7 @@ export const createUser = async (req, res) => {
             email: normalizedEmail,
             fullName: name,
             name,
-            phoneNumber: phone || "",
+            phoneNumber: normalizedPhone,
             role,
             isActive: true,
             status: role === "student" ? "approved" : "active",
@@ -1487,7 +1510,7 @@ export const createUser = async (req, res) => {
             {
               uid: authUser.uid,
               fullName: name,
-              phoneNumber: phone || "",
+              phoneNumber: normalizedPhone,
               enrolledCourses: [],
               certificates: [],
               approvalStatus: "approved",
@@ -1501,7 +1524,7 @@ export const createUser = async (req, res) => {
             {
               uid: authUser.uid,
               fullName: name,
-              phoneNumber: phone || "",
+              phoneNumber: normalizedPhone,
               subject: subject || "",
               bio: bio || "",
               assignedSubjects: subject ? [subject] : [],
@@ -1577,7 +1600,12 @@ export const updateUser = async (req, res) => {
 
     const nextName = trim(name || fullName);
     const nextEmail = trim(email).toLowerCase();
-    const nextPhone = trim(phone !== undefined ? phone : phoneNumber);
+    const nextPhoneRaw = trim(phone !== undefined ? phone : phoneNumber);
+    const nextPhone = nextPhoneRaw ? normalizePakistanPhone(nextPhoneRaw) : "";
+    const nextFatherPhoneRaw = trim(fatherPhone);
+    const nextFatherPhone = nextFatherPhoneRaw
+      ? normalizePakistanPhone(nextFatherPhoneRaw)
+      : "";
 
     const userSnap = await db.collection(COLLECTIONS.USERS).doc(uid).get();
     if (!userSnap.exists) {
@@ -1591,6 +1619,33 @@ export const updateUser = async (req, res) => {
 
     if (nextEmail && !isValidEmail(nextEmail)) {
       return errorResponse(res, "Enter a valid email address", 400);
+    }
+    if ((phone !== undefined || phoneNumber !== undefined) && nextPhoneRaw && !isPakistanPhone(nextPhone)) {
+      return errorResponse(
+        res,
+        "Phone must be 03001234567 or +923001234567 format",
+        400
+      );
+    }
+    if (fatherPhone !== undefined && nextFatherPhoneRaw && !isPakistanPhone(nextFatherPhone)) {
+      return errorResponse(
+        res,
+        "Father phone must be 03001234567 or +923001234567 format",
+        400
+      );
+    }
+
+    if (
+      isActive === false &&
+      req.user?.uid === uid &&
+      String(userData.role || "").toLowerCase() === "admin"
+    ) {
+      return errorResponse(
+        res,
+        "Admin cannot deactivate their own account",
+        400,
+        { code: "SELF_DEACTIVATE_NOT_ALLOWED" }
+      );
     }
 
     if (isActive !== undefined) {
@@ -1667,7 +1722,7 @@ export const updateUser = async (req, res) => {
 
     if (userData.role === "student") {
       if (fatherName !== undefined) roleUpdates.fatherName = trim(fatherName);
-      if (fatherPhone !== undefined) roleUpdates.fatherPhone = trim(fatherPhone);
+      if (fatherPhone !== undefined) roleUpdates.fatherPhone = nextFatherPhone;
       if (fatherOccupation !== undefined) {
         roleUpdates.fatherOccupation = trim(fatherOccupation);
       }
@@ -1700,14 +1755,55 @@ export const updateUser = async (req, res) => {
 export const deleteUser = async (req, res) => {
   try {
     const { uid } = req.params;
+    const [userDocSnap, studentSnap, teacherSnap, adminSnap] = await Promise.all([
+      db.collection(COLLECTIONS.USERS).doc(uid).get(),
+      db.collection(COLLECTIONS.STUDENTS).doc(uid).get(),
+      db.collection(COLLECTIONS.TEACHERS).doc(uid).get(),
+      db.collection(COLLECTIONS.ADMINS).doc(uid).get(),
+    ]);
 
-    const userSnap = await db.collection(COLLECTIONS.USERS).doc(uid).get();
-    if (!userSnap.exists) {
+    const userData = userDocSnap.exists ? userDocSnap.data() || {} : {};
+    const studentData = studentSnap.exists ? studentSnap.data() || {} : {};
+    const teacherData = teacherSnap.exists ? teacherSnap.data() || {} : {};
+    const adminData = adminSnap.exists ? adminSnap.data() || {} : {};
+
+    const resolvedRole =
+      String(userData.role || "").toLowerCase() ||
+      (studentSnap.exists
+        ? "student"
+        : teacherSnap.exists
+          ? "teacher"
+          : adminSnap.exists
+            ? "admin"
+            : "");
+
+    if (!resolvedRole && !userDocSnap.exists) {
       return errorResponse(res, "User not found", 404);
     }
 
-    const userData = userSnap.data();
-    if (userData.role === "teacher") {
+    const normalizedEmail = String(
+      userData.email ||
+        studentData.email ||
+        teacherData.email ||
+        adminData.email ||
+        ""
+    )
+      .trim()
+      .toLowerCase();
+
+    if (
+      req.user?.uid === uid &&
+      resolvedRole === "admin"
+    ) {
+      return errorResponse(
+        res,
+        "Admin cannot delete their own account",
+        400,
+        { code: "SELF_DELETE_NOT_ALLOWED" }
+      );
+    }
+
+    if (resolvedRole === "teacher") {
       const linked = await hasTeacherLinks(uid);
       if (linked) {
         return errorResponse(
@@ -1717,6 +1813,33 @@ export const deleteUser = async (req, res) => {
         );
       }
     }
+
+    const usersRefByUidSnap = await db
+      .collection(COLLECTIONS.USERS)
+      .where("uid", "==", uid)
+      .get();
+    let usersRefByEmailSnap = { docs: [] };
+    if (normalizedEmail) {
+      usersRefByEmailSnap = await db
+        .collection(COLLECTIONS.USERS)
+        .where("email", "==", normalizedEmail)
+        .get();
+    }
+
+    const userRefs = new Map();
+    userRefs.set(db.collection(COLLECTIONS.USERS).doc(uid).path, db.collection(COLLECTIONS.USERS).doc(uid));
+    usersRefByUidSnap.docs.forEach((doc) => {
+      userRefs.set(doc.ref.path, doc.ref);
+    });
+    usersRefByEmailSnap.docs.forEach((doc) => {
+      const row = doc.data() || {};
+      const rowUid = String(row.uid || "").trim();
+      const rowEmail = String(row.email || "").trim().toLowerCase();
+      if (!rowUid || rowUid === uid || (normalizedEmail && rowEmail === normalizedEmail)) {
+        userRefs.set(doc.ref.path, doc.ref);
+      }
+    });
+
     try {
       await admin.auth().deleteUser(uid);
     } catch (authError) {
@@ -1732,7 +1855,7 @@ export const deleteUser = async (req, res) => {
     }
 
     const batch = db.batch();
-    batch.delete(db.collection(COLLECTIONS.USERS).doc(uid));
+    Array.from(userRefs.values()).forEach((ref) => batch.delete(ref));
     batch.delete(db.collection(COLLECTIONS.STUDENTS).doc(uid));
     batch.delete(db.collection(COLLECTIONS.TEACHERS).doc(uid));
     batch.delete(db.collection(COLLECTIONS.ADMINS).doc(uid));
@@ -3778,23 +3901,37 @@ export const validatePromoCode = async (req, res) => {
     }
 
     let originalAmount = 0;
+    let courseDiscountPercent = 0;
     if (courseId) {
       const courseSnap = await db.collection(COLLECTIONS.COURSES).doc(courseId).get();
       if (courseSnap.exists) {
-        originalAmount = Number(courseSnap.data()?.price || 0);
+        const courseData = courseSnap.data() || {};
+        originalAmount = Number(courseData.price || 0);
+        courseDiscountPercent = Math.max(
+          0,
+          Math.min(100, Number(courseData.discountPercent || 0))
+        );
       }
     }
 
+    const courseDiscountAmount = Number(
+      ((originalAmount * courseDiscountPercent) / 100).toFixed(2)
+    );
+    const amountAfterCourseDiscount = Math.max(
+      Number((originalAmount - courseDiscountAmount).toFixed(2)),
+      0
+    );
+
     const discountAmount =
       promoData.discountType === "fixed"
-        ? Math.min(originalAmount, Number(promoData.discountValue || 0))
+        ? Math.min(amountAfterCourseDiscount, Number(promoData.discountValue || 0))
         : Number(
             (
-              (originalAmount * Number(promoData.discountValue || 0)) /
+              (amountAfterCourseDiscount * Number(promoData.discountValue || 0)) /
               100
             ).toFixed(2)
           );
-    const finalAmount = Math.max(originalAmount - discountAmount, 0);
+    const finalAmount = Math.max(amountAfterCourseDiscount - discountAmount, 0);
 
     return successResponse(
       res,
@@ -3802,6 +3939,9 @@ export const validatePromoCode = async (req, res) => {
         code: promoData.code,
         discountType: promoData.discountType,
         discountValue: promoData.discountValue,
+        originalAmount,
+        courseDiscountPercent,
+        courseDiscountAmount,
         discountAmount,
         finalAmount,
       },

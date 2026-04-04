@@ -9,9 +9,6 @@ import {
   getPaymentMethodsConfig,
   getAdminPayments,
   verifyBankTransfer,
-  getTransactions,
-  getTransactionById,
-  exportTransactionsCSV,
   getInstallments,
   getInstallmentById,
   createInstallmentPlan,
@@ -36,10 +33,6 @@ studentPaymentRoutes.get("/my-installments", verifyToken, getMyInstallments);
 
 adminPaymentRoutes.get("/payments", adminOnly, getAdminPayments);
 adminPaymentRoutes.patch("/payments/:id/verify", adminOnly, verifyBankTransfer);
-
-adminPaymentRoutes.get("/transactions", adminOnly, getTransactions);
-adminPaymentRoutes.get("/transactions/export", adminOnly, exportTransactionsCSV);
-adminPaymentRoutes.get("/transactions/:id", adminOnly, getTransactionById);
 
 adminPaymentRoutes.get("/installments", adminOnly, getInstallments);
 adminPaymentRoutes.get("/installments/:planId", adminOnly, getInstallmentById);

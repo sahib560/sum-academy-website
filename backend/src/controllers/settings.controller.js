@@ -2,6 +2,10 @@ import nodemailer from "nodemailer";
 import { admin, db } from "../config/firebase.js";
 import { COLLECTIONS } from "../config/collections.js";
 import { errorResponse, successResponse } from "../utils/response.utils.js";
+import {
+  isPakistanPhone,
+  normalizePakistanPhone,
+} from "../utils/phone.utils.js";
 
 const SETTINGS_DOC_ID = "siteSettings";
 const LAUNCH_DATE = new Date("2026-04-01T00:00:00+05:00");
@@ -322,6 +326,12 @@ const isValidHex = (value) =>
   /^#([A-Fa-f0-9]{6})$/.test(String(value || "").trim());
 
 const normalizeString = (value) => String(value || "").trim();
+const normalizePhoneLikeValue = (value = "") => {
+  const text = normalizeString(value);
+  if (!text) return "";
+  const normalized = normalizePakistanPhone(text);
+  return isPakistanPhone(normalized) ? normalized : text;
+};
 
 const normalizeEmail = (value = "") => String(value || "").trim().toLowerCase();
 
@@ -514,7 +524,7 @@ export const updateGeneralSettings = async (req, res) => {
         input.description ?? current.general.description
       ),
       contactEmail,
-      contactPhone: normalizeString(
+      contactPhone: normalizePhoneLikeValue(
         input.contactPhone ?? current.general.contactPhone
       ),
       address: normalizeString(input.address ?? current.general.address),
@@ -731,8 +741,8 @@ export const updateContactSettings = async (req, res) => {
       subheading: normalizeString(input.subheading ?? current.contact.subheading),
       subjects: normalizeSubjects(input.subjects ?? current.contact.subjects),
       email,
-      phone: normalizeString(input.phone ?? current.contact.phone),
-      whatsapp: normalizeString(input.whatsapp ?? current.contact.whatsapp),
+      phone: normalizePhoneLikeValue(input.phone ?? current.contact.phone),
+      whatsapp: normalizePhoneLikeValue(input.whatsapp ?? current.contact.whatsapp),
       address: normalizeString(input.address ?? current.contact.address),
       officeHours: normalizeString(input.officeHours ?? current.contact.officeHours),
       mapEmbedUrl: normalizeString(input.mapEmbedUrl ?? current.contact.mapEmbedUrl),

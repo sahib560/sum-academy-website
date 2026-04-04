@@ -297,6 +297,9 @@ const fetchMergedPayments = async () => {
       totalAmount: toNumber(item.totalAmount, toNumber(item.amount)),
       originalAmount: toNumber(item.originalAmount, toNumber(item.amount)),
       discount: toNumber(item.discount),
+      courseDiscountPercent: toNumber(item.courseDiscountPercent),
+      courseDiscountAmount: toNumber(item.courseDiscountAmount),
+      promoDiscountAmount: toNumber(item.promoDiscountAmount),
       status: String(item.status || "").toLowerCase() || "pending",
       receiptUrl: item.receiptUrl || null,
       reference: item.reference || "",
@@ -500,6 +503,19 @@ const calculateDiscount = (amount, promoData) => {
   return Number(((original * percent) / 100).toFixed(2));
 };
 
+const calculateCourseDiscount = (amount, discountPercent = 0) => {
+  const original = Math.max(toNumber(amount), 0);
+  const percent = Math.max(0, Math.min(100, toNumber(discountPercent, 0)));
+  return Number(((original * percent) / 100).toFixed(2));
+};
+
+const isInstallmentPlanEligible = (plan = {}) => {
+  const count = toNumber(plan.numberOfInstallments, 0);
+  const rows = Array.isArray(plan.installments) ? plan.installments : [];
+  if (count > 1) return true;
+  return rows.length > 1;
+};
+
 const normalizeClassStudents = (students = []) =>
   students.map((entry) =>
     typeof entry === "string"
@@ -586,6 +602,17 @@ export const initiatePayment = async (req, res) => {
     }
 
     const originalAmount = Math.max(toNumber(course.price), 0);
+    const courseDiscountPercent = Math.max(
+      0,
+      Math.min(100, toNumber(course.discountPercent, 0))
+    );
+    const courseDiscountAmount = calculateCourseDiscount(
+      originalAmount,
+      courseDiscountPercent
+    );
+    const amountAfterCourseDiscount = Number(
+      Math.max(originalAmount - courseDiscountAmount, 0).toFixed(2)
+    );
     let promoDoc = null;
     let promoData = null;
     if (promoCode) {
@@ -594,8 +621,13 @@ export const initiatePayment = async (req, res) => {
       promoData = promoResult.promoData || null;
     }
 
-    const discountAmount = calculateDiscount(originalAmount, promoData);
-    const finalAmount = Number(Math.max(originalAmount - discountAmount, 0).toFixed(2));
+    const promoDiscountAmount = calculateDiscount(amountAfterCourseDiscount, promoData);
+    const discountAmount = Number(
+      (courseDiscountAmount + promoDiscountAmount).toFixed(2)
+    );
+    const finalAmount = Number(
+      Math.max(amountAfterCourseDiscount - promoDiscountAmount, 0).toFixed(2)
+    );
     const installmentSchedule =
       installmentCount > 1
         ? buildInstallmentSchedule(finalAmount, installmentCount)
@@ -635,6 +667,9 @@ export const initiatePayment = async (req, res) => {
       totalAmount: finalAmount,
       originalAmount,
       discount: discountAmount,
+      courseDiscountPercent,
+      courseDiscountAmount,
+      promoDiscountAmount,
       promoCode: promoData?.code || null,
       promoCodeId: promoDoc?.id || null,
       method: paymentMethod,
@@ -698,6 +733,9 @@ export const initiatePayment = async (req, res) => {
         totalAmount: finalAmount,
         originalAmount,
         discount: discountAmount,
+        courseDiscountPercent,
+        courseDiscountAmount,
+        promoDiscountAmount,
         method: paymentMethod,
         promoCode: promoData?.code || null,
         paymentDetails,
@@ -853,6 +891,7 @@ export const getMyInstallments = async (req, res) => {
           updatedAt: serializeTimestamp(plan.updatedAt),
         };
       })
+      .filter((plan) => isInstallmentPlanEligible(plan))
       .sort(
         (a, b) =>
           (parseDate(b.createdAt)?.getTime() || 0) -
@@ -1564,9 +1603,11 @@ export const getInstallments = async (req, res) => {
     const normalizedSearch = String(search || "").trim().toLowerCase();
 
     const snap = await db.collection(COLLECTIONS.INSTALLMENTS).get();
-    let rows = snap.docs.map((doc) =>
-      calculateInstallmentComputedFields({ id: doc.id, ...(doc.data() || {}) })
-    );
+    let rows = snap.docs
+      .map((doc) =>
+        calculateInstallmentComputedFields({ id: doc.id, ...(doc.data() || {}) })
+      )
+      .filter((plan) => isInstallmentPlanEligible(plan));
 
     const studentIds = rows.map((item) => item.studentId).filter(Boolean);
     const courseIds = rows.map((item) => item.courseId).filter(Boolean);
@@ -1635,6 +1676,9 @@ export const getInstallmentById = async (req, res) => {
       id: planSnap.id,
       ...(planSnap.data() || {}),
     });
+    if (!isInstallmentPlanEligible(plan)) {
+      return errorResponse(res, "Installment plan not found", 404);
+    }
 
     const [studentSnap, userSnap, courseSnap, classSnap] = await Promise.all([
       plan.studentId
@@ -1774,6 +1818,7 @@ export const sendInstallmentReminders = async (req, res) => {
     const plansSnap = await db.collection(COLLECTIONS.INSTALLMENTS).get();
     let plans = plansSnap.docs.map((doc) => ({ id: doc.id, ...(doc.data() || {}) }));
     plans = plans.filter((plan) => String(plan.status || "").toLowerCase() !== "completed");
+    plans = plans.filter((plan) => isInstallmentPlanEligible(plan));
     if (studentId) {
       plans = plans.filter((plan) => plan.studentId === studentId);
     }

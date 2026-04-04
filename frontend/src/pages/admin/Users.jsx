@@ -27,6 +27,11 @@ import {
   setUserRole,
   updateUser,
 } from "../../services/admin.service.js";
+import {
+  isPakistanPhone,
+  normalizePakistanPhone,
+  sanitizePhoneInput,
+} from "../../utils/phone.js";
 
 const TAB_OPTIONS = [
   { key: "all", label: "All" },
@@ -42,7 +47,6 @@ const ROLE_OPTIONS = [
 ];
 
 const PASSWORD_REGEX = /^(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/;
-const PHONE_REGEX = /^(?:\+92|0)3\d{9}$/;
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const FOCUSABLE_SELECTOR =
   'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
@@ -162,6 +166,7 @@ const normalizeUsers = (users = [], teachers = [], students = []) => {
       user.phoneNumber ||
       user.phone ||
       "";
+    const normalizedPhone = normalizePakistanPhone(phone);
 
     return {
       ...user,
@@ -169,7 +174,7 @@ const normalizeUsers = (users = [], teachers = [], students = []) => {
       uid,
       role: normalizedRole || normalizeRoleValue(roleProfile?.role),
       fullName,
-      phone,
+      phone: normalizedPhone || phone,
       email: user.email || roleProfile.email || "",
       displayName,
       joinedDate: formatDate(user.createdAt),
@@ -205,7 +210,7 @@ const validateAddForm = (values) => {
 
   if (!values.phone.trim()) {
     errors.phone = "Phone is required.";
-  } else if (!PHONE_REGEX.test(values.phone.trim())) {
+  } else if (!isPakistanPhone(values.phone)) {
     errors.phone = "Use 03003425849 or +923003425849 format.";
   }
 
@@ -231,8 +236,11 @@ const validateEditForm = (values) => {
     errors.email = "Enter a valid email address.";
   }
 
-  if (values.phone.trim() && !PHONE_REGEX.test(values.phone.trim())) {
+  if (values.phone.trim() && !isPakistanPhone(values.phone)) {
     errors.phone = "Use 03003425849 or +923003425849 format.";
+  }
+  if (values.fatherPhone.trim() && !isPakistanPhone(values.fatherPhone)) {
+    errors.fatherPhone = "Use 03003425849 or +923003425849 format.";
   }
 
   if (!values.role) {
@@ -492,11 +500,16 @@ function Users() {
       await updateUser(values.uid, {
         name: values.fullName.trim(),
         email: values.email.trim(),
-        phone: values.phone.trim(),
+        phone: values.phone.trim() ? normalizePakistanPhone(values.phone) : "",
         subject: values.role === "teacher" ? values.subject.trim() : undefined,
         bio: values.role === "teacher" ? values.bio.trim() : undefined,
         fatherName: values.role === "student" ? values.fatherName.trim() : undefined,
-        fatherPhone: values.role === "student" ? values.fatherPhone.trim() : undefined,
+        fatherPhone:
+          values.role === "student"
+            ? values.fatherPhone.trim()
+              ? normalizePakistanPhone(values.fatherPhone)
+              : ""
+            : undefined,
         fatherOccupation:
           values.role === "student" ? values.fatherOccupation.trim() : undefined,
         address: values.role === "student" ? values.address.trim() : undefined,
@@ -663,7 +676,7 @@ function Users() {
   const handlePhoneChange = (value, setter) => {
     setter((prev) => ({
       ...prev,
-      phone: value.replace(/(?!^\+)[^\d]/g, "").replace(/^(\+)?(.*)$/, (_m, plus, rest) => `${plus || ""}${rest.replace(/\+/g, "")}`),
+      phone: sanitizePhoneInput(value),
     }));
   };
 
@@ -1095,7 +1108,7 @@ function Users() {
               name: addForm.fullName.trim(),
               email: addForm.email.trim(),
               password: addForm.password,
-              phone: addForm.phone.trim(),
+              phone: normalizePakistanPhone(addForm.phone),
               role: addForm.role,
             });
           }}
@@ -1214,6 +1227,7 @@ function Users() {
               email: true,
               phone: true,
               role: true,
+              fatherPhone: true,
             });
             if (Object.keys(editErrors).length) return;
             editUserMutation.mutate(editForm);
@@ -1249,7 +1263,7 @@ function Users() {
               handlePhoneChange(event.target.value, setEditForm);
               setEditTouched((prev) => ({ ...prev, phone: true }));
             }}
-            placeholder="03003425849"
+            placeholder="03003425849 or +923003425849"
             error={editTouched.phone ? editErrors.phone : ""}
           />
 
@@ -1303,9 +1317,13 @@ function Users() {
                 label="Father Phone"
                 value={editForm.fatherPhone}
                 onChange={(event) =>
-                  setEditForm((prev) => ({ ...prev, fatherPhone: event.target.value }))
+                  setEditForm((prev) => ({
+                    ...prev,
+                    fatherPhone: sanitizePhoneInput(event.target.value),
+                  }))
                 }
-                placeholder="03003425849"
+                placeholder="03003425849 or +923003425849"
+                error={editTouched.fatherPhone ? editErrors.fatherPhone : ""}
               />
               <TextInput
                 label="Father Occupation"

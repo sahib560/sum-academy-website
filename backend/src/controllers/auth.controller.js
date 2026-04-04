@@ -1,6 +1,10 @@
 import { admin, db } from "../config/firebase.js";
 import { successResponse, errorResponse } from "../utils/response.utils.js";
 import {
+  isPakistanPhone,
+  normalizePakistanPhone,
+} from "../utils/phone.utils.js";
+import {
   sendForgotPasswordOTP,
   sendRegistrationOTP,
 } from "../services/email.service.js";
@@ -689,10 +693,27 @@ const registerUser = async (req, res) => {
     const batch = db.batch();
 
     const displayName = trimText(fullName) || email.split("@")[0];
-    const safePhone = trimText(phoneNumber);
+    const safePhone = normalizePakistanPhone(trimText(phoneNumber));
+    if (!safePhone || !isPakistanPhone(safePhone)) {
+      return errorResponse(
+        res,
+        "phoneNumber must be 03001234567 or +923001234567 format",
+        400
+      );
+    }
+    const safeFatherPhone = trimText(fatherPhone)
+      ? normalizePakistanPhone(trimText(fatherPhone))
+      : "";
+    if (trimText(fatherPhone) && !isPakistanPhone(safeFatherPhone)) {
+      return errorResponse(
+        res,
+        "fatherPhone must be 03001234567 or +923001234567 format",
+        400
+      );
+    }
     const studentProfile = {
       fatherName: trimText(fatherName),
-      fatherPhone: trimText(fatherPhone),
+      fatherPhone: safeFatherPhone,
       fatherOccupation: trimText(fatherOccupation),
       address: trimText(address),
       district: trimText(district),
@@ -773,7 +794,10 @@ const loginUser = async (req, res) => {
     const uid = req.user.uid;
 
     // Fetch user doc
-    const userSnap = await db.collection("users").doc(uid).get();
+    const [userSnap, studentSnap] = await Promise.all([
+      db.collection("users").doc(uid).get(),
+      db.collection("students").doc(uid).get(),
+    ]);
 
     if (!userSnap.exists) {
       return errorResponse(res, "User profile not found", 404);
@@ -788,6 +812,21 @@ const loginUser = async (req, res) => {
         403,
         { code: "PENDING_APPROVAL" }
       );
+    }
+
+    if (userData.role === "student" && studentSnap.exists) {
+      const studentData = studentSnap.data() || {};
+      const approvalStatus = String(studentData.approvalStatus || "")
+        .trim()
+        .toLowerCase();
+      if (approvalStatus && approvalStatus !== "approved") {
+        return errorResponse(
+          res,
+          "Your account is pending admin approval. Please wait for admin to activate your account.",
+          403,
+          { code: "PENDING_APPROVAL" }
+        );
+      }
     }
 
     // Check account is active

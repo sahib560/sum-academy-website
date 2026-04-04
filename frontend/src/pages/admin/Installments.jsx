@@ -140,7 +140,6 @@ function Installments() {
       queryClient.invalidateQueries({ queryKey: ["admin-installment-plan"] });
       queryClient.invalidateQueries({ queryKey: ["admin-payments-installments"] });
       queryClient.invalidateQueries({ queryKey: ["admin-payments"] });
-      queryClient.invalidateQueries({ queryKey: ["admin-transactions"] });
     },
     onError: (error) => {
       toast.error(error?.response?.data?.message || "Failed to update payment");

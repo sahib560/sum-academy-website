@@ -13,10 +13,14 @@ import {
   getStudentSettings,
   updateStudentSettings,
 } from "../../services/student.service.js";
+import {
+  isPakistanPhone,
+  normalizePakistanPhone,
+  sanitizePhoneInput,
+} from "../../utils/phone.js";
 
 const TABS = [
   { id: "profile", label: "Profile" },
-  { id: "security", label: "Security" },
   { id: "notifications", label: "Notifications" },
   { id: "appearance", label: "Appearance" },
 ];
@@ -48,14 +52,14 @@ const profileErrorsFor = (form) => {
     errors.fullName = "Full Name cannot exceed 120 characters";
   }
 
-  if (phoneNumber.length > 30) {
-    errors.phoneNumber = "Phone Number cannot exceed 30 characters";
+  if (phoneNumber && !isPakistanPhone(phoneNumber)) {
+    errors.phoneNumber = "Use 03001234567 or +923001234567 format";
   }
   if (fatherName.length > 120) {
     errors.fatherName = "Father Name cannot exceed 120 characters";
   }
-  if (fatherPhone.length > 30) {
-    errors.fatherPhone = "Father Phone cannot exceed 30 characters";
+  if (fatherPhone && !isPakistanPhone(fatherPhone)) {
+    errors.fatherPhone = "Use 03001234567 or +923001234567 format";
   }
   if (fatherOccupation.length > 120) {
     errors.fatherOccupation = "Father Occupation cannot exceed 120 characters";
@@ -154,9 +158,13 @@ function StudentSettings() {
     const nextForm = {
       fullName: String(settingsQuery.data.fullName || ""),
       email: String(settingsQuery.data.email || ""),
-      phoneNumber: String(settingsQuery.data.phoneNumber || ""),
+      phoneNumber:
+        normalizePakistanPhone(String(settingsQuery.data.phoneNumber || "")) ||
+        String(settingsQuery.data.phoneNumber || ""),
       fatherName: String(settingsQuery.data.fatherName || ""),
-      fatherPhone: String(settingsQuery.data.fatherPhone || ""),
+      fatherPhone:
+        normalizePakistanPhone(String(settingsQuery.data.fatherPhone || "")) ||
+        String(settingsQuery.data.fatherPhone || ""),
       fatherOccupation: String(settingsQuery.data.fatherOccupation || ""),
       address: String(settingsQuery.data.address || ""),
       district: String(settingsQuery.data.district || ""),
@@ -180,9 +188,15 @@ function StudentSettings() {
       const next = {
         fullName: String(data.fullName || profileForm.fullName || ""),
         email: String(data.email || profileForm.email || ""),
-        phoneNumber: String(data.phoneNumber || profileForm.phoneNumber || ""),
+        phoneNumber:
+          normalizePakistanPhone(
+            String(data.phoneNumber || profileForm.phoneNumber || "")
+          ) || String(data.phoneNumber || profileForm.phoneNumber || ""),
         fatherName: String(data.fatherName || profileForm.fatherName || ""),
-        fatherPhone: String(data.fatherPhone || profileForm.fatherPhone || ""),
+        fatherPhone:
+          normalizePakistanPhone(
+            String(data.fatherPhone || profileForm.fatherPhone || "")
+          ) || String(data.fatherPhone || profileForm.fatherPhone || ""),
         fatherOccupation: String(
           data.fatherOccupation || profileForm.fatherOccupation || ""
         ),
@@ -230,9 +244,13 @@ function StudentSettings() {
 
     updateProfileMutation.mutate({
       fullName: String(profileForm.fullName || "").trim(),
-      phoneNumber: String(profileForm.phoneNumber || "").trim(),
+      phoneNumber: profileForm.phoneNumber
+        ? normalizePakistanPhone(profileForm.phoneNumber)
+        : "",
       fatherName: String(profileForm.fatherName || "").trim(),
-      fatherPhone: String(profileForm.fatherPhone || "").trim(),
+      fatherPhone: profileForm.fatherPhone
+        ? normalizePakistanPhone(profileForm.fatherPhone)
+        : "",
       fatherOccupation: String(profileForm.fatherOccupation || "").trim(),
       address: String(profileForm.address || "").trim(),
       district: String(profileForm.district || "").trim(),
@@ -392,8 +410,12 @@ function StudentSettings() {
                         value={profileForm.phoneNumber}
                         onChange={(event) => {
                           setProfileTouched((prev) => ({ ...prev, phoneNumber: true }));
-                          setProfileForm((prev) => ({ ...prev, phoneNumber: event.target.value }));
+                          setProfileForm((prev) => ({
+                            ...prev,
+                            phoneNumber: sanitizePhoneInput(event.target.value),
+                          }));
                         }}
+                        placeholder="03001234567 or +923001234567"
                         className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
                       />
                       {profileTouched.phoneNumber && profileErrors.phoneNumber ? (
@@ -426,8 +448,12 @@ function StudentSettings() {
                         value={profileForm.fatherPhone}
                         onChange={(event) => {
                           setProfileTouched((prev) => ({ ...prev, fatherPhone: true }));
-                          setProfileForm((prev) => ({ ...prev, fatherPhone: event.target.value }));
+                          setProfileForm((prev) => ({
+                            ...prev,
+                            fatherPhone: sanitizePhoneInput(event.target.value),
+                          }));
                         }}
+                        placeholder="03001234567 or +923001234567"
                         className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
                       />
                       {profileTouched.fatherPhone && profileErrors.fatherPhone ? (
@@ -636,13 +662,6 @@ function StudentSettings() {
                   </div>
                 </section>
               </Motion.div>
-            ) : null}
-
-            {activeTab === "security" ? (
-              <Motion.section key="security" {...tabTransition} className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-                <h2 className="font-heading text-2xl text-slate-900">Security</h2>
-                <p className="mt-2 text-sm text-slate-500">Password updates are available in the Profile tab. Keep your account secure by using a strong password and signing out from shared devices.</p>
-              </Motion.section>
             ) : null}
 
             {activeTab === "notifications" ? (

@@ -23,8 +23,12 @@ import {
   getTeachers,
   updateUser,
 } from "../../services/admin.service.js";
+import {
+  isPakistanPhone,
+  normalizePakistanPhone,
+  sanitizePhoneInput,
+} from "../../utils/phone.js";
 
-const PHONE_REGEX = /^\+92\d{10}$/;
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PASSWORD_REGEX = /^(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/;
 const FOCUSABLE_SELECTOR =
@@ -85,7 +89,11 @@ const normalizeTeachers = (teachers = []) =>
     ...teacher,
     uid: teacher.uid || teacher.id,
     fullName: teacher.fullName || "Unknown Teacher",
-    phone: teacher.phoneNumber || "",
+    phone:
+      normalizePakistanPhone(teacher.phoneNumber || teacher.phone || "") ||
+      teacher.phoneNumber ||
+      teacher.phone ||
+      "",
     subject: teacher.subject || "General",
     bio: teacher.bio || "",
     email: teacher.email || "",
@@ -117,8 +125,8 @@ const validateAddForm = (values) => {
 
   if (!values.phone.trim()) {
     errors.phone = "Phone is required.";
-  } else if (!PHONE_REGEX.test(values.phone.trim())) {
-    errors.phone = "Use +923001234567 format.";
+  } else if (!isPakistanPhone(values.phone)) {
+    errors.phone = "Use 03001234567 or +923001234567 format.";
   }
 
   if (!values.subject.trim()) {
@@ -144,8 +152,8 @@ const validateEditForm = (values) => {
 
   if (!values.phone.trim()) {
     errors.phone = "Phone is required.";
-  } else if (!PHONE_REGEX.test(values.phone.trim())) {
-    errors.phone = "Use +923001234567 format.";
+  } else if (!isPakistanPhone(values.phone)) {
+    errors.phone = "Use 03001234567 or +923001234567 format.";
   }
 
   if (!values.subject.trim()) {
@@ -373,10 +381,7 @@ function Teachers() {
     },
   });
 
-  const sanitizePhone = (value) =>
-    value
-      .replace(/(?!^\+)[^\d]/g, "")
-      .replace(/^(\+)?(.*)$/, (_m, plus, rest) => `${plus || ""}${rest.replace(/\+/g, "")}`);
+  const sanitizePhone = (value) => sanitizePhoneInput(value);
 
   const openAdd = () => {
     setAddForm(emptyAddForm);
@@ -443,7 +448,7 @@ function Teachers() {
       name: addForm.fullName.trim(),
       email: addForm.email.trim(),
       password: addForm.password,
-      phone: addForm.phone.trim(),
+      phone: normalizePakistanPhone(addForm.phone),
       role: "teacher",
       subject: addForm.subject.trim(),
       bio: addForm.bio.trim(),
@@ -465,7 +470,7 @@ function Teachers() {
       uid: editForm.uid,
       data: {
         name: editForm.fullName.trim(),
-        phone: editForm.phone.trim(),
+        phone: normalizePakistanPhone(editForm.phone),
         subject: editForm.subject.trim(),
         bio: editForm.bio.trim(),
       },
@@ -779,7 +784,7 @@ function Teachers() {
                 }
                 onBlur={() => markAddTouched("phone")}
                 className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/10"
-                placeholder="+923001234567"
+                placeholder="03001234567 or +923001234567"
               />
               <FieldError message={addTouched.phone ? addErrors.phone : ""} />
             </div>
@@ -877,7 +882,7 @@ function Teachers() {
                 }
                 onBlur={() => markEditTouched("phone")}
                 className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/10"
-                placeholder="+923001234567"
+                placeholder="03001234567 or +923001234567"
               />
               <FieldError message={editTouched.phone ? editErrors.phone : ""} />
             </div>

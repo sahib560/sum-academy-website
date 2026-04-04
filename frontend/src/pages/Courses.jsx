@@ -44,6 +44,7 @@ function TeacherAvatar({ name }) {
 }
 
 function CourseCard({ course, onSelect }) {
+  const hasDiscount = course.discountPercent > 0 && course.discountedPrice < course.originalPrice;
   return (
     <div
       className="glass-card card-hover flex h-full cursor-pointer flex-col gap-4"
@@ -82,9 +83,16 @@ function CourseCard({ course, onSelect }) {
         <span>{course.students > 0 ? `${course.students}+ students` : NOT_ADDED}</span>
       </div>
       <div className="mt-auto flex items-center justify-between">
-        <span className="text-sm font-semibold text-primary">
-          {formatPKR(course.price)}
-        </span>
+        <div className="flex items-center gap-2">
+          {hasDiscount ? (
+            <span className="text-xs font-semibold text-slate-400 line-through">
+              {formatPKR(course.originalPrice)}
+            </span>
+          ) : null}
+          <span className="text-sm font-semibold text-primary">
+            {formatPKR(course.discountedPrice)}
+          </span>
+        </div>
         <button
           type="button"
           className="btn-primary px-4 py-2 text-xs"
@@ -251,7 +259,22 @@ function Courses() {
         level: textOrNotAdded(course.level),
         duration: textOrNotAdded(course.duration),
         teacher: textOrNotAdded(course.teacherName),
-        price: Number.isFinite(Number(course.price)) ? Number(course.price) : 0,
+        originalPrice: Number.isFinite(Number(course.originalPrice))
+          ? Number(course.originalPrice)
+          : Number.isFinite(Number(course.price))
+            ? Number(course.price)
+            : 0,
+        discountPercent: Number(course.discountPercent) || 0,
+        discountedPrice: Number.isFinite(Number(course.discountedPrice))
+          ? Number(course.discountedPrice)
+          : Number.isFinite(Number(course.price))
+            ? Number(course.price)
+            : 0,
+        price: Number.isFinite(Number(course.discountedPrice))
+          ? Number(course.discountedPrice)
+          : Number.isFinite(Number(course.price))
+            ? Number(course.price)
+            : 0,
         rating: Number(course.rating) || 0,
         students: Number(course.enrollmentCount) || 0,
         description: textOrNotAdded(course.description),
@@ -558,9 +581,17 @@ function Courses() {
               </div>
             </div>
             <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
-              <span className="text-sm font-semibold text-primary">
-                {formatPKR(selectedCourse.price)}
-              </span>
+              <div className="flex items-center gap-2">
+                {selectedCourse.discountPercent > 0 &&
+                selectedCourse.discountedPrice < selectedCourse.originalPrice ? (
+                  <span className="text-xs font-semibold text-slate-400 line-through">
+                    {formatPKR(selectedCourse.originalPrice)}
+                  </span>
+                ) : null}
+                <span className="text-sm font-semibold text-primary">
+                  {formatPKR(selectedCourse.discountedPrice)}
+                </span>
+              </div>
               <div className="flex gap-3">
                 <Link to="/enroll" className="btn-primary">
                   Enroll Now

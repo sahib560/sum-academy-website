@@ -4,6 +4,11 @@ import { Skeleton } from "../../components/Skeleton.jsx";
 import { useSettings } from "../../context/SettingsContext.jsx";
 import { useAuth } from "../../hooks/useAuth.js";
 import { submitStudentHelpSupport } from "../../services/student.service.js";
+import {
+  normalizePakistanPhone,
+  toPakistanWhatsAppNumber,
+  toTelHref,
+} from "../../utils/phone.js";
 
 const fadeUp = {
   initial: { opacity: 0, y: 16 },
@@ -166,9 +171,19 @@ function StudentHelpSupport() {
   };
 
   const supportEmail = normalizeText(contact.email) || "support@sumacademy.com";
-  const supportWhatsapp = normalizeText(contact.whatsapp) || "+92 300 0000000";
-  const supportPhone = normalizeText(contact.phone) || "+92 300 0000000";
+  const supportWhatsapp =
+    normalizePakistanPhone(normalizeText(contact.whatsapp)) ||
+    normalizeText(contact.whatsapp) ||
+    "+92 300 0000000";
+  const supportPhone =
+    normalizePakistanPhone(normalizeText(contact.phone)) ||
+    normalizeText(contact.phone) ||
+    "+92 300 0000000";
   const supportHours = normalizeText(contact.officeHours) || "Monday to Saturday 9AM to 6PM PKT";
+  const whatsappHref = toPakistanWhatsAppNumber(supportWhatsapp)
+    ? `https://wa.me/${toPakistanWhatsAppNumber(supportWhatsapp)}`
+    : "";
+  const phoneHref = toTelHref(supportPhone);
 
   return (
     <div className="space-y-6">
@@ -200,8 +215,8 @@ function StudentHelpSupport() {
             ))
           : [
               { title: "Email", value: supportEmail, href: `mailto:${supportEmail}` },
-              { title: "WhatsApp", value: supportWhatsapp, href: `https://wa.me/${supportWhatsapp.replace(/[^\d]/g, "")}` },
-              { title: "Phone", value: supportPhone, href: `tel:${supportPhone}` },
+              { title: "WhatsApp", value: supportWhatsapp, href: whatsappHref },
+              { title: "Phone", value: supportPhone, href: phoneHref },
               { title: "Office Hours", value: supportHours, href: "" },
             ].map((item) => (
               <div key={item.title} className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">

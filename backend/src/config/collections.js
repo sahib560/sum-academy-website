@@ -20,6 +20,7 @@ export const COLLECTIONS = {
   AUDIT_LOGS: "auditLogs",
   PROGRESS: "progress",
   SETTINGS: "settings",
+  SUPPORT_MESSAGES: "supportMessages",
 };
 
 export const COURSE_SCHEMA = {

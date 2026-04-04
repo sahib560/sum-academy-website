@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion as Motion, AnimatePresence } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { FiSearch } from "react-icons/fi";
@@ -110,6 +110,12 @@ function StudentExploreCourses() {
           id: primaryCourse.courseId || "",
           title: primaryCourse.title || primaryCourse.courseName || classItem.name || "Class",
           price: toNumber(primaryCourse.price, 0),
+          originalPrice: toNumber(primaryCourse.originalPrice, toNumber(primaryCourse.price, 0)),
+          discountPercent: toNumber(primaryCourse.discountPercent, 0),
+          discountedPrice: toNumber(
+            primaryCourse.discountedPrice,
+            toNumber(primaryCourse.price, 0)
+          ),
         },
         prefillClassId: classItem.id,
         prefillShiftId: classItem.shifts?.[0]?.id || "",
@@ -119,7 +125,7 @@ function StudentExploreCourses() {
 
   return (
     <div className="space-y-6">
-      <motion.section {...fadeUp} className="text-center">
+      <Motion.section {...fadeUp} className="text-center">
         <h1 className="font-heading text-3xl text-slate-900">Explore Classes</h1>
         <div className="mt-5 flex justify-center">
           <div className="relative w-full max-w-3xl">
@@ -135,18 +141,18 @@ function StudentExploreCourses() {
             </span>
           </div>
         </div>
-      </motion.section>
+      </Motion.section>
 
       {isError && (
-        <motion.section
+        <Motion.section
           {...fadeUp}
           className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700"
         >
           {error?.response?.data?.message || error?.message || "Failed to load classes"}
-        </motion.section>
+        </Motion.section>
       )}
 
-      <motion.section {...fadeUp} className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+      <Motion.section {...fadeUp} className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {isLoading
           ? Array.from({ length: 6 }).map((_, index) => (
               <SkeletonCard key={`class-skel-${index}`} />
@@ -244,15 +250,15 @@ function StudentExploreCourses() {
                 </article>
               );
             })}
-      </motion.section>
+      </Motion.section>
 
       {!isLoading && filteredClasses.length === 0 && (
-        <motion.section
+        <Motion.section
           {...fadeUp}
           className="rounded-3xl border border-dashed border-slate-200 bg-white p-10 text-center text-sm text-slate-500"
         >
           No classes found.
-        </motion.section>
+        </Motion.section>
       )}
 
       <AnimatePresence>
@@ -263,7 +269,7 @@ function StudentExploreCourses() {
               onClick={() => setSelectedClass(null)}
               aria-label="Close class detail modal"
             />
-            <motion.div
+            <Motion.div
               initial={{ opacity: 0, scale: 0.96, y: 10 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.96, y: 10 }}
@@ -376,7 +382,7 @@ function StudentExploreCourses() {
                   );
                 })()}
               </div>
-            </motion.div>
+            </Motion.div>
           </div>
         ) : null}
       </AnimatePresence>

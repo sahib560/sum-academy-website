@@ -237,6 +237,22 @@ export const verifyCertificatePublic = (certId) =>
 export const getAnnouncements = () =>
   api.get("/admin/announcements").then((r) => r.data.data);
 
+export const getSupportMessages = (params = {}) =>
+  api.get("/admin/support/messages", { params }).then((r) => r.data.data || []);
+
+export const markSupportMessageRead = (messageId, isRead = true) =>
+  api
+    .patch(`/admin/support/messages/${messageId}/read`, { isRead })
+    .then((r) => r.data.data || r.data);
+
+export const deleteSupportMessage = (messageId) =>
+  api.delete(`/admin/support/messages/${messageId}`).then((r) => r.data.data || r.data);
+
+export const replySupportMessage = (messageId, replyMessage) =>
+  api
+    .post(`/admin/support/messages/${messageId}/reply`, { replyMessage })
+    .then((r) => r.data.data || r.data);
+
 export const getAdminQuizzes = () =>
   api.get("/admin/quizzes").then((r) => r.data.data);
 

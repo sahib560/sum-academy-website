@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { motion as Motion } from "framer-motion";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -80,24 +80,33 @@ function Checkout() {
     [selectedClass, selectedShiftId]
   );
 
-  useEffect(() => {
-    if (!selectedClassId || !prefillClassId) return;
-    if (selectedClassId !== prefillClassId) return;
-    if (selectedShiftId) return;
-    if (!prefillShiftId) return;
-    setSelectedShiftId(prefillShiftId);
-  }, [prefillClassId, prefillShiftId, selectedClassId, selectedShiftId]);
-
-  const originalAmount = Number(course?.price || 0);
-  const discountAmount = useMemo(() => {
+  const originalAmount = Number(
+    course?.originalPrice ?? course?.price ?? 0
+  );
+  const courseDiscountPercent = Math.max(
+    0,
+    Math.min(100, Number(course?.discountPercent || 0))
+  );
+  const courseDiscountAmount = useMemo(
+    () => Number(((originalAmount * courseDiscountPercent) / 100).toFixed(2)),
+    [originalAmount, courseDiscountPercent]
+  );
+  const amountAfterCourseDiscount = useMemo(
+    () => Number(Math.max(originalAmount - courseDiscountAmount, 0).toFixed(2)),
+    [originalAmount, courseDiscountAmount]
+  );
+  const promoDiscountAmount = useMemo(() => {
     if (!promoInfo) return 0;
     if (promoInfo.discountType === "fixed") {
-      return Math.min(originalAmount, Number(promoInfo.discountValue || 0));
+      return Math.min(amountAfterCourseDiscount, Number(promoInfo.discountValue || 0));
     }
     const pct = Math.min(Number(promoInfo.discountValue || 0), 100);
-    return Number(((originalAmount * pct) / 100).toFixed(2));
-  }, [promoInfo, originalAmount]);
-  const totalAmount = Math.max(Number((originalAmount - discountAmount).toFixed(2)), 0);
+    return Number(((amountAfterCourseDiscount * pct) / 100).toFixed(2));
+  }, [promoInfo, amountAfterCourseDiscount]);
+  const totalAmount = Math.max(
+    Number((amountAfterCourseDiscount - promoDiscountAmount).toFixed(2)),
+    0
+  );
 
   const paymentMethods = useMemo(
     () => {
@@ -303,7 +312,10 @@ function Checkout() {
                 Original Price: {formatPKR(originalAmount)}
               </p>
               <p className="text-sm text-slate-600">
-                Discount: -{formatPKR(discountAmount)}
+                Course Discount ({courseDiscountPercent}%): -{formatPKR(courseDiscountAmount)}
+              </p>
+              <p className="text-sm text-slate-600">
+                Promo Discount: -{formatPKR(promoDiscountAmount)}
               </p>
               <p className="mt-2 text-base font-semibold text-slate-900">
                 Total: {formatPKR(totalAmount)}

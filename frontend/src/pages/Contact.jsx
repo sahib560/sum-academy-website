@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { FiMapPin } from "react-icons/fi";
 import { useSettings } from "../hooks/useSettings.js";
+import { normalizePakistanPhone } from "../utils/phone.js";
+import { submitPublicContactMessage } from "../services/student.service.js";
 
 const NOT_ADDED = "Not added yet";
 const textOrNotAdded = (value) => {
@@ -19,12 +21,23 @@ function Contact() {
   const { settings } = useSettings();
   const contact = settings.contact || {};
   const social = settings.general?.socialLinks || {};
+  const contactPhone =
+    normalizePakistanPhone(contact.phone || settings.general?.contactPhone) ||
+    contact.phone ||
+    settings.general?.contactPhone ||
+    "";
+  const contactWhatsapp =
+    normalizePakistanPhone(contact.whatsapp || settings.general?.contactPhone) ||
+    contact.whatsapp ||
+    settings.general?.contactPhone ||
+    "";
   const faqItems = Array.isArray(contact.faq) ? contact.faq : [];
   const subjectOptions = Array.isArray(contact.subjects) ? contact.subjects : [];
   const [form, setForm] = useState(initialForm);
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
   const [toast, setToast] = useState("");
+  const [toastType, setToastType] = useState("success");
   const [openFaq, setOpenFaq] = useState(null);
 
   useEffect(() => {
@@ -47,15 +60,27 @@ function Contact() {
     return Object.keys(nextErrors).length === 0;
   };
 
-  const handleSubmit = (event) => {
+  const handleSubmit = async (event) => {
     event.preventDefault();
     if (!validate()) return;
     setLoading(true);
-    setTimeout(() => {
+    try {
+      await submitPublicContactMessage({
+        name: form.name.trim(),
+        email: form.email.trim(),
+        category: form.subject || "Contact",
+        subject: form.subject,
+        message: form.message.trim(),
+      });
       setLoading(false);
       setForm(initialForm);
+      setToastType("success");
       setToast("Message sent successfully!");
-    }, 1000);
+    } catch (error) {
+      setLoading(false);
+      setToastType("error");
+      setToast(error?.response?.data?.message || "Failed to send message");
+    }
   };
 
   return (
@@ -191,7 +216,7 @@ function Contact() {
                     Phone
                   </p>
                   <p className="mt-2 font-semibold text-slate-900 dark:text-white">
-                    {textOrNotAdded(contact.phone || settings.general?.contactPhone)}
+                    {textOrNotAdded(contactPhone)}
                   </p>
                 </div>
                 <div className="rounded-2xl border border-slate-200/70 bg-white/70 p-4 dark:border-white/10 dark:bg-white/5">
@@ -199,7 +224,7 @@ function Contact() {
                     WhatsApp
                   </p>
                   <p className="mt-2 font-semibold text-slate-900 dark:text-white">
-                    {textOrNotAdded(contact.whatsapp || settings.general?.contactPhone)}
+                    {textOrNotAdded(contactWhatsapp)}
                   </p>
                 </div>
               </div>
@@ -297,7 +322,11 @@ function Contact() {
       </section>
 
       {toast && (
-        <div className="fixed right-6 top-24 z-[70] rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white shadow-xl">
+        <div
+          className={`fixed right-6 top-24 z-[70] rounded-2xl px-4 py-3 text-sm font-semibold text-white shadow-xl ${
+            toastType === "error" ? "bg-rose-600" : "bg-slate-900"
+          }`}
+        >
           {toast}
         </div>
       )}

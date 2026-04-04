@@ -26,6 +26,7 @@ import {
 import { defaultSettings } from "../../context/SettingsContext.jsx";
 import { storage } from "../../config/firebase.js";
 import { useSettings } from "../../hooks/useSettings.js";
+import { sanitizePhoneInput } from "../../utils/phone.js";
 
 const tabs = [
   "General",
@@ -477,10 +478,12 @@ function SiteSettings() {
               <p className={fieldLabelClass}>Contact Phone</p>
               <input
                 className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                placeholder="Contact Phone"
+                placeholder="03001234567 or +923001234567"
                 value={draft.general.contactPhone}
                 onChange={(e) =>
-                  updateSection("general", { contactPhone: e.target.value })
+                  updateSection("general", {
+                    contactPhone: sanitizePhoneInput(e.target.value),
+                  })
                 }
               />
             </div>
@@ -1084,11 +1087,11 @@ function SiteSettings() {
             </div>
             <div className="space-y-1">
               <p className={fieldLabelClass}>Support Phone</p>
-              <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Phone" value={draft.contact.phone} onChange={(e) => updateSection("contact", { phone: e.target.value })} />
+              <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="03001234567 or +923001234567" value={draft.contact.phone} onChange={(e) => updateSection("contact", { phone: sanitizePhoneInput(e.target.value) })} />
             </div>
             <div className="space-y-1">
               <p className={fieldLabelClass}>WhatsApp Number</p>
-              <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="WhatsApp" value={draft.contact.whatsapp} onChange={(e) => updateSection("contact", { whatsapp: e.target.value })} />
+              <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="03001234567 or +923001234567" value={draft.contact.whatsapp} onChange={(e) => updateSection("contact", { whatsapp: sanitizePhoneInput(e.target.value) })} />
             </div>
             <div className="space-y-1">
               <p className={fieldLabelClass}>Office Hours</p>
