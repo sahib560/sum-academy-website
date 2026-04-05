@@ -3439,50 +3439,74 @@ export const getPayments = async (req, res) => {
 export const verifyBankTransfer = async (req, res) => {
   try {
     const { paymentId } = req.params;
-    const { action } = req.body;
+    const { action } = req.body || {};
 
+    if (!paymentId) {
+      return errorResponse(res, "paymentId is required", 400);
+    }
     if (!["approve", "reject"].includes(action)) {
-      return errorResponse(res, "Action must be approve or reject", 400);
+      return errorResponse(res, "action must be approve or reject", 400);
     }
 
+    const paymentRef = db.collection(COLLECTIONS.PAYMENTS).doc(paymentId);
+    const paySnap = await paymentRef.get();
+    if (!paySnap.exists) {
+      return errorResponse(res, "Payment not found", 404);
+    }
+
+    const payData = paySnap.data() || {};
     const newStatus = action === "approve" ? "paid" : "rejected";
 
-    await db.collection(COLLECTIONS.PAYMENTS).doc(paymentId).update({
+    await paymentRef.update({
       status: newStatus,
       verifiedBy: req.user.uid,
       verifiedAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
-    if (action === "approve") {
-      const paySnap = await db
-        .collection(COLLECTIONS.PAYMENTS)
-        .doc(paymentId)
+    if (action === "approve" && payData.studentId && payData.courseId) {
+      const existingEnroll = await db
+        .collection(COLLECTIONS.ENROLLMENTS)
+        .where("studentId", "==", payData.studentId)
+        .where("courseId", "==", payData.courseId)
+        .where("classId", "==", payData.classId || null)
+        .limit(1)
         .get();
-      const payData = paySnap.data();
 
-      await db.collection(COLLECTIONS.ENROLLMENTS).add({
-        studentId: payData.studentId,
-        courseId: payData.courseId,
-        paymentId,
-        status: "active",
-        progress: 0,
-        completedAt: null,
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
-
-      await db.collection(COLLECTIONS.COURSES)
-        .doc(payData.courseId)
-        .update({
-          enrollmentCount: admin.firestore.FieldValue.increment(1),
+      if (existingEnroll.empty) {
+        await db.collection(COLLECTIONS.ENROLLMENTS).add({
+          studentId: payData.studentId,
+          courseId: payData.courseId,
+          classId: payData.classId || null,
+          paymentId,
+          status: "active",
+          progress: 0,
+          completedAt: null,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
         });
+
+        await db
+          .collection(COLLECTIONS.COURSES)
+          .doc(payData.courseId)
+          .set(
+            {
+              enrollmentCount: admin.firestore.FieldValue.increment(1),
+              updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            },
+            { merge: true }
+          );
+      }
     }
 
     return successResponse(
       res,
       { paymentId, status: newStatus },
-      "Payment updated"
+      action === "approve"
+        ? "Payment approved. Student enrolled."
+        : "Payment rejected."
     );
   } catch (e) {
+    console.error("Verify payment error:", e);
     return errorResponse(res, "Failed to verify payment", 500);
   }
 };

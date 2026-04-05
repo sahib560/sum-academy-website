@@ -7,10 +7,12 @@ import { getAvailableClasses } from "../../services/admin.service.js";
 import {
   getPaymentConfig,
   initiatePayment,
-  uploadPaymentReceipt,
+  uploadPaymentReceipt as saveReceiptUrl,
   validatePromoCode,
 } from "../../services/payment.service.js";
-import { uploadReceipt } from "../../utils/upload.firebase.js";
+import { uploadPaymentReceipt as uploadReceiptToStorage } from "../../utils/firebaseUpload.js";
+import FileUploader from "../../components/FileUploader.jsx";
+import { useAuth } from "../../hooks/useAuth.js";
 
 const STEPS = ["Order Summary", "Installment Option", "Payment Method", "Confirm"];
 
@@ -39,6 +41,7 @@ const shortDay = (day = "") => day.slice(0, 3);
 function Checkout() {
   const location = useLocation();
   const navigate = useNavigate();
+  const { userProfile } = useAuth();
   const course = location.state?.course || null;
   const courseId = course?.id || "";
   const prefillClassId = location.state?.prefillClassId || "";
@@ -53,8 +56,6 @@ function Checkout() {
   const [installments, setInstallments] = useState(2);
   const [paymentMethod, setPaymentMethod] = useState("bank_transfer");
   const [initiatedPayment, setInitiatedPayment] = useState(null);
-  const [receiptFile, setReceiptFile] = useState(null);
-  const [uploadProgress, setUploadProgress] = useState(0);
 
   const { data: paymentConfig } = useQuery({
     queryKey: ["payment-method-config"],
@@ -234,29 +235,6 @@ function Checkout() {
     },
     onError: (error) => {
       toast.error(error?.response?.data?.message || "Failed to initiate payment");
-    },
-  });
-
-  const uploadReceiptMutation = useMutation({
-    mutationFn: async () => {
-      if (!receiptFile || !initiatedPayment?.paymentId) {
-        throw new Error("Please choose a receipt image first.");
-      }
-
-      const uploaded = await uploadReceipt(
-        receiptFile,
-        initiatedPayment.paymentId,
-        setUploadProgress
-      );
-      return uploadPaymentReceipt(initiatedPayment.paymentId, uploaded.url);
-    },
-    onSuccess: () => {
-      setReceiptFile(null);
-      setUploadProgress(100);
-      toast.success("Payment submitted for verification");
-    },
-    onError: (error) => {
-      toast.error(error?.message || "Failed to upload receipt");
     },
   });
 
@@ -607,32 +585,27 @@ function Checkout() {
                   </p>
                 ) : null}
                 <p className="text-xs text-slate-600">
-                  Upload receipt image (JPG/PNG, max 5MB) for admin verification.
+                  Upload receipt image or PDF for admin verification.
                 </p>
-                <input
-                  type="file"
-                  accept="image/png,image/jpeg,image/jpg"
-                  onChange={(event) => {
-                    setUploadProgress(0);
-                    setReceiptFile(event.target.files?.[0] || null);
+                <FileUploader
+                  accept="image/*,.pdf"
+                  maxSize={10}
+                  label="Upload Payment Receipt"
+                  hint="JPG, PNG, WEBP or PDF — max 10MB"
+                  onUpload={async (file, { onProgress }) => {
+                    if (!initiatedPayment?.paymentId) {
+                      throw new Error("Payment session not found");
+                    }
+                    const uploaded = await uploadReceiptToStorage(
+                      file,
+                      userProfile?.uid || initiatedPayment.paymentId,
+                      onProgress
+                    );
+                    await saveReceiptUrl(initiatedPayment.paymentId, uploaded.url);
+                    toast.success("Payment submitted for verification");
+                    return uploaded;
                   }}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs"
                 />
-                {uploadProgress > 0 ? (
-                  <div className="h-2 w-full rounded-full bg-slate-100">
-                    <div
-                      className="h-2 rounded-full bg-primary"
-                      style={{ width: `${uploadProgress}%` }}
-                    />
-                  </div>
-                ) : null}
-                <button
-                  className="btn-primary w-full"
-                  disabled={!receiptFile || uploadReceiptMutation.isPending}
-                  onClick={() => uploadReceiptMutation.mutate()}
-                >
-                  {uploadReceiptMutation.isPending ? "Uploading..." : "Upload Receipt"}
-                </button>
                 <p className="text-xs text-amber-700">
                   Status: Pending Admin Verification
                 </p>

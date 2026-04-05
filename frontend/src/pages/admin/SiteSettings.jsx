@@ -3,6 +3,7 @@ import { AnimatePresence, motion as Motion } from "framer-motion";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import { getDownloadURL, ref, uploadBytesResumable } from "firebase/storage";
+import FileUploader from "../../components/FileUploader.jsx";
 import {
   getEmailTemplates,
   getSiteSettings,
@@ -27,6 +28,7 @@ import { defaultSettings } from "../../context/SettingsContext.jsx";
 import { storage } from "../../config/firebase.js";
 import { useSettings } from "../../hooks/useSettings.js";
 import { sanitizePhoneInput } from "../../utils/phone.js";
+import { uploadLogo as uploadLogoToStorage } from "../../utils/firebaseUpload.js";
 
 const tabs = [
   "General",
@@ -426,6 +428,26 @@ function SiteSettings() {
     }
   };
 
+  const handleLogoUpload = async (file, { onProgress }) => {
+    const uploaded = await uploadLogoToStorage(file, onProgress);
+    await updateGeneralSettings({
+      ...draft.general,
+      logoUrl: uploaded.url,
+    });
+    updateSection("general", { logoUrl: uploaded.url });
+    setBaseline((prev) => ({
+      ...prev,
+      general: {
+        ...prev.general,
+        logoUrl: uploaded.url,
+      },
+    }));
+    queryClient.invalidateQueries({ queryKey: ["site-settings-admin-all"] });
+    refetchSettings();
+    toast.success("Logo uploaded and saved.");
+    return uploaded;
+  };
+
   const renderTab = () => {
     if (activeTab === "General") {
       return (
@@ -523,18 +545,14 @@ function SiteSettings() {
             </div>
           </div>
           <div className="grid gap-3 rounded-2xl border border-slate-200 p-3 md:grid-cols-2">
-            <label className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700">
-              Upload Logo
-              <input
-                type="file"
-                accept=".jpg,.jpeg,.png,.webp,.svg"
-                className="mt-2 block w-full text-xs"
-                onChange={(e) => handleAssetUpload(e, "logoUrl")}
-              />
-              {uploadingAsset === "logoUrl" ? (
-                <span className="text-xs text-slate-500">Uploading...</span>
-              ) : null}
-            </label>
+            <FileUploader
+              accept="image/jpeg,image/png,image/webp,image/svg+xml"
+              maxSize={2}
+              label="Upload Logo"
+              hint="JPG, PNG, WEBP, SVG — max 2MB"
+              disabled={uploadingAsset === "logoUrl"}
+              onUpload={handleLogoUpload}
+            />
             <label className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700">
               Upload Favicon
               <input

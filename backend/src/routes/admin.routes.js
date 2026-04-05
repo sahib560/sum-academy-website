@@ -211,7 +211,7 @@ router.get("/payments", adminOnly, paymentController.getAdminPayments);
 router.patch(
   "/payments/:paymentId/verify",
   adminOnly,
-  paymentController.verifyBankTransfer
+  adminController.verifyBankTransfer
 );
 
 router.get("/installments", adminOnly, paymentController.getInstallments);

@@ -8,7 +8,7 @@ export const getPaymentConfig = () =>
 
 export const uploadPaymentReceipt = (paymentId, receiptUrl) =>
   api
-    .post(`/payments/${paymentId}/receipt`, { receiptUrl })
+    .patch(`/payments/${paymentId}/receipt`, { receiptUrl })
     .then((r) => r.data.data);
 
 export const getPaymentStatus = (paymentId) =>

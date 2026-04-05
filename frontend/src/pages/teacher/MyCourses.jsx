@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Toaster, toast } from "react-hot-toast";
-import { getDownloadURL, ref, uploadBytesResumable } from "firebase/storage";
+import FileUploader from "../../components/FileUploader.jsx";
 import { SkeletonCard } from "../../components/Skeleton.jsx";
 import {
   addChapter,
@@ -17,15 +17,16 @@ import {
   updateLecture,
   updateVideoAccess,
 } from "../../services/teacher.service.js";
-import { storage } from "../../config/firebase.js";
+import {
+  uploadCourseVideo,
+  uploadCoursePDF,
+} from "../../utils/firebaseUpload.js";
 
 const Motion = motion;
 const QUERY_STALE_TIME = 30000;
 const STATUS_TABS = ["all", "published", "draft"];
 const VIDEO_TYPES = ["video/mp4", "video/x-msvideo", "video/quicktime"];
-const PDF_TYPES = ["application/pdf"];
 const MAX_VIDEO_SIZE = 2 * 1024 * 1024 * 1024;
-const MAX_PDF_SIZE = 50 * 1024 * 1024;
 
 const formatNumber = (value) => Number(value || 0).toLocaleString("en-US");
 const normalizeStatus = (value) => String(value || "draft").toLowerCase();
@@ -46,25 +47,6 @@ const STATUS_STYLES = {
   draft: "bg-amber-50 text-amber-700",
   archived: "bg-slate-100 text-slate-600",
 };
-
-const uploadToStorage = (file, path, onProgress, onTask) =>
-  new Promise((resolve, reject) => {
-    const task = uploadBytesResumable(ref(storage, path), file);
-    if (typeof onTask === "function") onTask(task);
-
-    task.on(
-      "state_changed",
-      (snapshot) => {
-        const progress = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100);
-        if (typeof onProgress === "function") onProgress(progress);
-      },
-      reject,
-      async () => {
-        const url = await getDownloadURL(task.snapshot.ref);
-        resolve({ url, size: file.size, name: file.name });
-      }
-    );
-  });
 
 function StatusBadge({ status }) {
   const normalized = normalizeStatus(status);
@@ -92,11 +74,9 @@ function MyCourses() {
   const [isContentInputSaving, setIsContentInputSaving] = useState(false);
   const [chapterDeleteModal, setChapterDeleteModal] = useState({ open: false, chapterId: "" });
 
-  const [videoUpload, setVideoUpload] = useState({ file: null, progress: 0, uploading: false, stage: "", task: null });
+  const [videoUpload, setVideoUpload] = useState({ file: null, progress: 0, uploading: false, stage: "" });
   const [resourceModal, setResourceModal] = useState({ open: false, type: "pdf", lectureId: "" });
   const [resourceTitle, setResourceTitle] = useState("");
-  const [resourceFile, setResourceFile] = useState(null);
-  const [resourceProgress, setResourceProgress] = useState(0);
 
   const [studentsCourseId, setStudentsCourseId] = useState("");
   const [videoAccessPanel, setVideoAccessPanel] = useState({ open: false, student: null, map: {} });
@@ -244,38 +224,19 @@ function MyCourses() {
 
     try {
       setVideoUpload((prev) => ({ ...prev, uploading: true, stage: "Uploading..." }));
-      const path = `courses/${contentCourseId}/lectures/${selectedLecture.lectureId}/videos/${Date.now()}-${videoUpload.file.name}`;
-      const uploaded = await uploadToStorage(videoUpload.file, path, (progress) => setVideoUpload((prev) => ({ ...prev, progress })), (task) => setVideoUpload((prev) => ({ ...prev, task })));
+      const uploaded = await uploadCourseVideo(
+        videoUpload.file,
+        contentCourseId,
+        selectedSubjectId,
+        (progress) => setVideoUpload((prev) => ({ ...prev, progress }))
+      );
       await saveLectureContentMutation.mutateAsync({ lectureId: selectedLecture.lectureId, data: { type: "video", title: videoUpload.file.name, url: uploaded.url, size: uploaded.size, duration: "" } });
       await invalidateCourse(contentCourseId);
-      setVideoUpload({ file: null, progress: 0, uploading: false, stage: "", task: null });
+      setVideoUpload({ file: null, progress: 0, uploading: false, stage: "" });
       toast.success("Video uploaded successfully");
     } catch (error) {
-      setVideoUpload((prev) => ({ ...prev, uploading: false, stage: "", task: null }));
+      setVideoUpload((prev) => ({ ...prev, uploading: false, stage: "" }));
       toast.error(error?.response?.data?.message || "Failed to upload video");
-    }
-  };
-
-  const saveResource = async () => {
-    if (!resourceModal.lectureId) return;
-    if (resourceTitle.trim().length < 3) return toast.error("Content title must be at least 3 characters");
-    if (!resourceFile) return toast.error("Select a file");
-    if (!PDF_TYPES.includes(resourceFile.type)) return toast.error("Only PDF files are allowed");
-    if (resourceFile.size > MAX_PDF_SIZE) return toast.error("File too large. Max 50MB");
-
-    try {
-      const folder = resourceModal.type === "pdf" ? "pdfs" : "books";
-      const path = `courses/${contentCourseId}/lectures/${resourceModal.lectureId}/${folder}/${Date.now()}-${resourceFile.name}`;
-      const uploaded = await uploadToStorage(resourceFile, path, setResourceProgress);
-      await saveLectureContentMutation.mutateAsync({ lectureId: resourceModal.lectureId, data: { type: resourceModal.type, title: resourceTitle.trim(), url: uploaded.url, size: uploaded.size } });
-      await invalidateCourse(contentCourseId);
-      setResourceModal({ open: false, type: "pdf", lectureId: "" });
-      setResourceTitle("");
-      setResourceFile(null);
-      setResourceProgress(0);
-      toast.success(resourceModal.type === "pdf" ? "PDF notes added" : "Book added");
-    } catch (error) {
-      toast.error(error?.response?.data?.message || "Failed to save content");
     }
   };
 
@@ -314,7 +275,7 @@ function MyCourses() {
               <div className="border-b border-slate-200 p-4"><div className="flex items-center justify-between"><div><h2 className="font-heading text-2xl text-slate-900">{contentQuery.data?.courseTitle || "Course"}</h2><div className="mt-2"><StatusBadge status={contentQuery.data?.courseStatus} /></div></div><button className="rounded-full border border-slate-300 px-3 py-1 text-sm font-semibold text-slate-600" onClick={() => setContentCourseId("")} disabled={isContentBusy}>Close</button></div><p className="mt-3 rounded-2xl border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-800">You can only add content to your assigned subjects.</p><div className="mt-3 flex flex-wrap gap-2">{contentSubjects.map((subject) => <button key={subject.subjectId} className={`rounded-full px-3 py-1.5 text-xs font-semibold ${selectedSubjectId === subject.subjectId ? "bg-primary text-white" : "border border-slate-200 text-slate-600"}`} onClick={() => { setSelectedSubjectId(subject.subjectId); setSelectedLectureId(""); }} disabled={isContentBusy}>{subject.subjectName || "Subject"}</button>)}</div></div>
               <div className="grid h-[calc(100%-190px)] min-h-0 lg:grid-cols-[280px_1fr]">
                 <aside className="border-r border-slate-200 p-4"><div className="space-y-3 overflow-y-auto" style={{ maxHeight: "calc(100vh - 280px)" }}>{contentChapters.map((chapter) => <div key={chapter.chapterId} className="rounded-2xl border border-slate-200 p-3"><div className="flex items-center gap-2"><button className="text-slate-500" onClick={() => setExpandedChapters((prev) => ({ ...prev, [chapter.chapterId]: !prev[chapter.chapterId] }))} disabled={isContentBusy}>{expandedChapters[chapter.chapterId] ? "?" : "?"}</button><span className="text-xs font-semibold text-slate-700">{chapter.title}</span><button className="ml-auto text-xs text-rose-600" onClick={() => setChapterDeleteModal({ open: true, chapterId: chapter.chapterId })} disabled={isContentBusy}>Delete</button></div>{expandedChapters[chapter.chapterId] ? <div className="mt-2 space-y-2 pl-4">{(chapter.lectures || []).map((lecture) => <div key={lecture.lectureId} className="flex items-center gap-2"><button className={`flex-1 rounded-xl border px-2 py-1 text-left text-xs ${selectedLectureId === lecture.lectureId ? "border-primary bg-primary/5" : "border-slate-200"}`} onClick={() => setSelectedLectureId(lecture.lectureId)} disabled={isContentBusy}>{lecture.title}</button><button className="text-xs text-rose-600" onClick={() => deleteLectureMutation.mutateAsync(lecture.lectureId).then(() => invalidateCourse(contentCourseId)).then(() => toast.success("Lecture deleted")).catch((error) => toast.error(error?.response?.data?.message || "Failed to delete lecture"))} disabled={isContentBusy}>X</button></div>)}<button className="rounded-full border border-slate-200 px-3 py-1 text-[11px] font-semibold text-slate-700" onClick={() => setContentInputModal({ open: true, type: "lecture", chapterId: chapter.chapterId, title: "" })} disabled={isContentBusy}>Add Lecture</button></div> : null}</div>)}</div><button className="mt-3 w-full rounded-full bg-primary px-4 py-2 text-sm font-semibold text-white" onClick={() => setContentInputModal({ open: true, type: "chapter", chapterId: "", title: "" })} disabled={isContentBusy || !selectedSubjectId}>Add Chapter</button></aside>
-                <section className="overflow-y-auto p-5">{!selectedLecture ? <div className="rounded-3xl border border-dashed border-slate-300 p-10 text-center text-slate-500">Select a lecture from the left to add content</div> : <div className="space-y-5"><div className="rounded-2xl border border-slate-200 p-4"><div className="flex flex-wrap gap-2"><input value={lectureTitleDraft} onChange={(e) => setLectureTitleDraft(e.target.value)} className="flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm" /><button className="rounded-full border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700" onClick={saveLectureTitle} disabled={isContentBusy}>Save title</button></div></div><div className="rounded-2xl border border-slate-200 p-4"><h3 className="font-heading text-xl text-slate-900">Lecture Video</h3>{!selectedLecture.videoUrl ? <div className="mt-3 space-y-3"><label className="block rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 p-6 text-center"><input type="file" className="hidden" accept="video/mp4,video/x-msvideo,video/quicktime" onChange={(e) => setVideoUpload((prev) => ({ ...prev, file: e.target.files?.[0] || null, progress: 0 }))} /><p className="text-sm font-semibold text-slate-700">{videoUpload.file ? videoUpload.file.name : "Select MP4, AVI, or MOV"}</p><p className="text-xs text-slate-500">{videoUpload.file ? formatFileSize(videoUpload.file.size) : "Maximum 2GB"}</p></label><div className="flex gap-2"><button className="btn-primary" onClick={startVideoUpload} disabled={isContentBusy}>Upload Video</button>{videoUpload.uploading ? <button className="btn-outline" onClick={() => { if (videoUpload.task) videoUpload.task.cancel(); setVideoUpload({ file: null, progress: 0, uploading: false, stage: "", task: null }); }} disabled={!videoUpload.uploading}>Cancel</button> : null}</div></div> : <div className="mt-3 rounded-2xl border border-slate-200 p-3"><p className="font-semibold text-slate-800">{selectedLecture.videoTitle || "Lecture video"}</p><p className="text-xs text-slate-500">Duration: {selectedLecture.videoDuration || "-"}</p><div className="mt-3 flex gap-2"><button className="btn-outline" onClick={() => setVideoUpload((prev) => ({ ...prev, file: null }))} disabled={isContentBusy}>Replace Video</button><button className="rounded-full border border-rose-300 px-3 py-2 text-xs font-semibold text-rose-600" onClick={() => deleteLectureContentMutation.mutateAsync({ lectureId: selectedLecture.lectureId, contentId: "video", type: "video" }).then(() => invalidateCourse(contentCourseId)).then(() => toast.success("Content removed")).catch((error) => toast.error(error?.response?.data?.message || "Failed to delete"))} disabled={isContentBusy}>Delete Video</button></div></div>}</div><div className="rounded-2xl border border-slate-200 p-4"><div className="flex items-center justify-between"><h3 className="font-heading text-xl text-slate-900">Lecture Notes (PDF)</h3><button className="rounded-full border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700" onClick={() => { setResourceModal({ open: true, type: "pdf", lectureId: selectedLecture.lectureId }); setResourceTitle(""); setResourceFile(null); setResourceProgress(0); }} disabled={isContentBusy}>Add PDF Notes</button></div><div className="mt-3 space-y-2">{(selectedLecture.pdfNotes || []).map((item) => <div key={item.id} className="flex items-center justify-between rounded-xl border border-slate-200 p-2 text-sm"><div><p className="font-semibold text-slate-800">{item.title}</p><p className="text-xs text-slate-500">{formatFileSize(item.size)}</p></div><button className="rounded-full border border-rose-300 px-3 py-1 text-xs font-semibold text-rose-600" onClick={() => deleteLectureContentMutation.mutateAsync({ lectureId: selectedLecture.lectureId, contentId: item.id, type: "pdf" }).then(() => invalidateCourse(contentCourseId)).then(() => toast.success("Content removed")).catch((error) => toast.error(error?.response?.data?.message || "Failed to delete"))} disabled={isContentBusy}>Delete</button></div>)}</div></div><div className="rounded-2xl border border-slate-200 p-4"><div className="flex items-center justify-between"><h3 className="font-heading text-xl text-slate-900">Books</h3><button className="rounded-full border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700" onClick={() => { setResourceModal({ open: true, type: "book", lectureId: selectedLecture.lectureId }); setResourceTitle(""); setResourceFile(null); setResourceProgress(0); }} disabled={isContentBusy}>Add Book</button></div><div className="mt-3 space-y-2">{(selectedLecture.books || []).map((item) => <div key={item.id} className="flex items-center justify-between rounded-xl border border-slate-200 p-2 text-sm"><div><p className="font-semibold text-slate-800">{item.title}</p><p className="text-xs text-slate-500">{formatFileSize(item.size)}</p></div><button className="rounded-full border border-rose-300 px-3 py-1 text-xs font-semibold text-rose-600" onClick={() => deleteLectureContentMutation.mutateAsync({ lectureId: selectedLecture.lectureId, contentId: item.id, type: "book" }).then(() => invalidateCourse(contentCourseId)).then(() => toast.success("Content removed")).catch((error) => toast.error(error?.response?.data?.message || "Failed to delete"))} disabled={isContentBusy}>Delete</button></div>)}</div></div></div>}</section>
+                <section className="overflow-y-auto p-5">{!selectedLecture ? <div className="rounded-3xl border border-dashed border-slate-300 p-10 text-center text-slate-500">Select a lecture from the left to add content</div> : <div className="space-y-5"><div className="rounded-2xl border border-slate-200 p-4"><div className="flex flex-wrap gap-2"><input value={lectureTitleDraft} onChange={(e) => setLectureTitleDraft(e.target.value)} className="flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm" /><button className="rounded-full border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700" onClick={saveLectureTitle} disabled={isContentBusy}>Save title</button></div></div><div className="rounded-2xl border border-slate-200 p-4"><h3 className="font-heading text-xl text-slate-900">Lecture Video</h3>{!selectedLecture.videoUrl ? <><div className="mt-3 space-y-3"><label className="block rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 p-6 text-center"><input type="file" className="hidden" accept="video/mp4,video/x-msvideo,video/quicktime" onChange={(e) => setVideoUpload((prev) => ({ ...prev, file: e.target.files?.[0] || null, progress: 0 }))} /><p className="text-sm font-semibold text-slate-700">{videoUpload.file ? videoUpload.file.name : "Select MP4, AVI, or MOV"}</p><p className="text-xs text-slate-500">{videoUpload.file ? formatFileSize(videoUpload.file.size) : "Maximum 2GB"}</p></label><div className="flex gap-2"><button className="btn-primary" onClick={startVideoUpload} disabled={isContentBusy}>Upload Video</button>{videoUpload.uploading ? <button className="btn-outline" onClick={() => { setVideoUpload({ file: null, progress: 0, uploading: false, stage: "" }); }} disabled={!videoUpload.uploading}>Cancel</button> : null}</div></div><div className="mt-3"><FileUploader accept="video/mp4,video/avi,video/x-msvideo,video/quicktime,.mov" maxSize={2048} label="Upload Lecture Video" hint="MP4, AVI, MOV — max 2GB" disabled={isContentBusy || !selectedSubjectId} onUpload={async (file, { onProgress }) => { if (!selectedLecture) throw new Error("Select lecture first"); const uploaded = await uploadCourseVideo(file, contentCourseId, selectedSubjectId, onProgress); await saveLectureContentMutation.mutateAsync({ lectureId: selectedLecture.lectureId, data: { type: "video", title: file.name, url: uploaded.url, size: uploaded.size, duration: "" } }); await invalidateCourse(contentCourseId); setVideoUpload({ file: null, progress: 0, uploading: false, stage: "" }); toast.success("Video uploaded successfully"); return uploaded; }} /></div></> : <div className="mt-3 rounded-2xl border border-slate-200 p-3"><p className="font-semibold text-slate-800">{selectedLecture.videoTitle || "Lecture video"}</p><p className="text-xs text-slate-500">Duration: {selectedLecture.videoDuration || "-"}</p><div className="mt-3 flex gap-2"><button className="btn-outline" onClick={() => setVideoUpload((prev) => ({ ...prev, file: null }))} disabled={isContentBusy}>Replace Video</button><button className="rounded-full border border-rose-300 px-3 py-2 text-xs font-semibold text-rose-600" onClick={() => deleteLectureContentMutation.mutateAsync({ lectureId: selectedLecture.lectureId, contentId: "video", type: "video" }).then(() => invalidateCourse(contentCourseId)).then(() => toast.success("Content removed")).catch((error) => toast.error(error?.response?.data?.message || "Failed to delete"))} disabled={isContentBusy}>Delete Video</button></div></div>}</div><div className="rounded-2xl border border-slate-200 p-4"><div className="flex items-center justify-between"><h3 className="font-heading text-xl text-slate-900">Lecture Notes (PDF)</h3><button className="rounded-full border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700" onClick={() => { setResourceModal({ open: true, type: "pdf", lectureId: selectedLecture.lectureId }); setResourceTitle(""); }} disabled={isContentBusy}>Add PDF Notes</button></div><div className="mt-3 space-y-2">{(selectedLecture.pdfNotes || []).map((item) => <div key={item.id} className="flex items-center justify-between rounded-xl border border-slate-200 p-2 text-sm"><div><p className="font-semibold text-slate-800">{item.title}</p><p className="text-xs text-slate-500">{formatFileSize(item.size)}</p></div><button className="rounded-full border border-rose-300 px-3 py-1 text-xs font-semibold text-rose-600" onClick={() => deleteLectureContentMutation.mutateAsync({ lectureId: selectedLecture.lectureId, contentId: item.id, type: "pdf" }).then(() => invalidateCourse(contentCourseId)).then(() => toast.success("Content removed")).catch((error) => toast.error(error?.response?.data?.message || "Failed to delete"))} disabled={isContentBusy}>Delete</button></div>)}</div></div><div className="rounded-2xl border border-slate-200 p-4"><div className="flex items-center justify-between"><h3 className="font-heading text-xl text-slate-900">Books</h3><button className="rounded-full border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700" onClick={() => { setResourceModal({ open: true, type: "book", lectureId: selectedLecture.lectureId }); setResourceTitle(""); }} disabled={isContentBusy}>Add Book</button></div><div className="mt-3 space-y-2">{(selectedLecture.books || []).map((item) => <div key={item.id} className="flex items-center justify-between rounded-xl border border-slate-200 p-2 text-sm"><div><p className="font-semibold text-slate-800">{item.title}</p><p className="text-xs text-slate-500">{formatFileSize(item.size)}</p></div><button className="rounded-full border border-rose-300 px-3 py-1 text-xs font-semibold text-rose-600" onClick={() => deleteLectureContentMutation.mutateAsync({ lectureId: selectedLecture.lectureId, contentId: item.id, type: "book" }).then(() => invalidateCourse(contentCourseId)).then(() => toast.success("Content removed")).catch((error) => toast.error(error?.response?.data?.message || "Failed to delete"))} disabled={isContentBusy}>Delete</button></div>)}</div></div></div>}</section>
               </div>
             </Motion.div>
           </div>
@@ -340,9 +301,91 @@ function MyCourses() {
 
       <AnimatePresence>{contentInputModal.open ? <div className="fixed inset-0 z-[89] flex items-center justify-center px-4"><Motion.button type="button" className="absolute inset-0 bg-slate-900/50" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setContentInputModal({ open: false, type: "chapter", chapterId: "", title: "" })} disabled={isContentBusy} /><Motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }} className="relative z-[1] w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl"><h3 className="font-heading text-2xl text-slate-900">{contentInputModal.type === "chapter" ? "Add Chapter" : "Add Lecture"}</h3><input value={contentInputModal.title} onChange={(e) => setContentInputModal((prev) => ({ ...prev, title: e.target.value }))} className="mt-4 w-full rounded-2xl border border-slate-200 px-4 py-2 text-sm" /><div className="mt-6 flex justify-end gap-2"><button className="rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600" onClick={() => setContentInputModal({ open: false, type: "chapter", chapterId: "", title: "" })} disabled={isContentBusy}>Cancel</button><button className="rounded-full bg-primary px-4 py-2 text-sm font-semibold text-white" onClick={submitContentInputModal} disabled={isContentBusy}>{isContentBusy ? "Saving..." : "Save"}</button></div></Motion.div></div> : null}</AnimatePresence>
       <AnimatePresence>{chapterDeleteModal.open ? <div className="fixed inset-0 z-[89] flex items-center justify-center px-4"><Motion.button type="button" className="absolute inset-0 bg-slate-900/50" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setChapterDeleteModal({ open: false, chapterId: "" })} disabled={deleteChapterMutation.isPending} /><Motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }} className="relative z-[1] w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl"><h3 className="font-heading text-2xl text-slate-900">Delete Chapter</h3><p className="mt-2 text-sm text-slate-600">Delete this chapter and its lectures? This action cannot be undone.</p><div className="mt-6 flex justify-end gap-2"><button className="rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600" onClick={() => setChapterDeleteModal({ open: false, chapterId: "" })} disabled={deleteChapterMutation.isPending}>Cancel</button><button className="rounded-full bg-rose-600 px-4 py-2 text-sm font-semibold text-white" onClick={() => deleteChapterMutation.mutateAsync(chapterDeleteModal.chapterId).then(() => invalidateCourse(contentCourseId)).then(() => toast.success("Chapter deleted")).finally(() => setChapterDeleteModal({ open: false, chapterId: "" }))} disabled={deleteChapterMutation.isPending}>{deleteChapterMutation.isPending ? "Deleting..." : "Delete"}</button></div></Motion.div></div> : null}</AnimatePresence>
-      <AnimatePresence>{resourceModal.open ? <div className="fixed inset-0 z-[90] flex items-center justify-center px-4"><Motion.button type="button" className="absolute inset-0 bg-slate-900/50" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setResourceModal({ open: false, type: "pdf", lectureId: "" })} disabled={saveLectureContentMutation.isPending} /><Motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }} className="relative z-[1] w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl"><h3 className="font-heading text-2xl text-slate-900">{resourceModal.type === "pdf" ? "Add PDF Notes" : "Add Book"}</h3><input value={resourceTitle} onChange={(e) => setResourceTitle(e.target.value)} className="mt-4 w-full rounded-2xl border border-slate-200 px-4 py-2 text-sm" placeholder="Title" /><label className="mt-4 block rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 p-6 text-center"><input type="file" className="hidden" accept="application/pdf" onChange={(e) => setResourceFile(e.target.files?.[0] || null)} /><p className="text-sm font-semibold text-slate-700">{resourceFile ? resourceFile.name : "Select PDF file"}</p></label><div className="mt-4 h-2 rounded-full bg-slate-200"><div className="h-2 rounded-full bg-primary" style={{ width: `${resourceProgress}%` }} /></div><div className="mt-6 flex justify-end gap-2"><button className="rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600" onClick={() => setResourceModal({ open: false, type: "pdf", lectureId: "" })} disabled={saveLectureContentMutation.isPending}>Cancel</button><button className="rounded-full bg-primary px-4 py-2 text-sm font-semibold text-white" onClick={saveResource} disabled={saveLectureContentMutation.isPending}>{saveLectureContentMutation.isPending ? "Saving..." : "Save"}</button></div></Motion.div></div> : null}</AnimatePresence>
+      <AnimatePresence>
+        {resourceModal.open ? (
+          <div className="fixed inset-0 z-[90] flex items-center justify-center px-4">
+            <Motion.button
+              type="button"
+              className="absolute inset-0 bg-slate-900/50"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setResourceModal({ open: false, type: "pdf", lectureId: "" })}
+              disabled={saveLectureContentMutation.isPending}
+            />
+            <Motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 20 }}
+              className="relative z-[1] w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl"
+            >
+              <h3 className="font-heading text-2xl text-slate-900">
+                {resourceModal.type === "pdf" ? "Add PDF Notes" : "Add Book"}
+              </h3>
+              <input
+                value={resourceTitle}
+                onChange={(e) => setResourceTitle(e.target.value)}
+                className="mt-4 w-full rounded-2xl border border-slate-200 px-4 py-2 text-sm"
+                placeholder="Title"
+              />
+              <div className="mt-4">
+                <FileUploader
+                  accept="application/pdf,.pdf"
+                  maxSize={50}
+                  label={resourceModal.type === "pdf" ? "Upload PDF Notes" : "Upload Book PDF"}
+                  hint="PDF only â€” max 50MB"
+                  onUpload={async (file, { onProgress }) => {
+                    if (!resourceModal.lectureId) {
+                      throw new Error("Lecture not selected");
+                    }
+                    if (resourceTitle.trim().length < 3) {
+                      throw new Error("Content title must be at least 3 characters");
+                    }
+                    const uploaded = await uploadCoursePDF(
+                      file,
+                      contentCourseId,
+                      selectedSubjectId,
+                      onProgress
+                    );
+                    await saveLectureContentMutation.mutateAsync({
+                      lectureId: resourceModal.lectureId,
+                      data: {
+                        type: resourceModal.type,
+                        title: resourceTitle.trim(),
+                        url: uploaded.url,
+                        size: uploaded.size,
+                      },
+                    });
+                    await invalidateCourse(contentCourseId);
+                    setResourceModal({ open: false, type: "pdf", lectureId: "" });
+                    setResourceTitle("");
+                    toast.success(
+                      resourceModal.type === "pdf" ? "PDF notes added" : "Book added"
+                    );
+                    return uploaded;
+                  }}
+                />
+              </div>
+              <div className="mt-6 flex justify-end gap-2">
+                <button
+                  className="rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600"
+                  onClick={() => setResourceModal({ open: false, type: "pdf", lectureId: "" })}
+                  disabled={saveLectureContentMutation.isPending}
+                >
+                  Close
+                </button>
+              </div>
+            </Motion.div>
+          </div>
+        ) : null}
+      </AnimatePresence>
     </div>
   );
 }
 
 export default MyCourses;
+
+
+
+
+

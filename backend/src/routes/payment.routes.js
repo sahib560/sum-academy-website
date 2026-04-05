@@ -2,7 +2,6 @@ import { Router } from "express";
 import { verifyToken, requireRole } from "../middlewares/auth.middleware.js";
 import {
   initiatePayment,
-  uploadPaymentReceipt,
   getPaymentStatus,
   getMyPayments,
   getMyInstallments,
@@ -26,7 +25,6 @@ const adminOnly = [verifyToken, requireRole("admin")];
 studentPaymentRoutes.post("/initiate", verifyToken, initiatePayment);
 studentPaymentRoutes.post("/validate-promo", verifyToken, validatePromoCode);
 studentPaymentRoutes.get("/config", verifyToken, getPaymentMethodsConfig);
-studentPaymentRoutes.post("/:id/receipt", verifyToken, uploadPaymentReceipt);
 studentPaymentRoutes.get("/:id/status", verifyToken, getPaymentStatus);
 studentPaymentRoutes.get("/my-payments", verifyToken, getMyPayments);
 studentPaymentRoutes.get("/my-installments", verifyToken, getMyInstallments);
