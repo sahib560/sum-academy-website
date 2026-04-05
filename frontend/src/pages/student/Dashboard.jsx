@@ -38,6 +38,7 @@ const toNumber = (value, fallback = 0) => {
 const normalizeDashboard = (raw = {}, fallbackName = "Student") => {
   const profile = raw.profile || {};
   const stats = raw.stats || {};
+  const access = raw.access || {};
   const classes = Array.isArray(raw.classes) ? raw.classes : [];
   const courses = Array.isArray(raw.courses) ? raw.courses : [];
   const announcements = Array.isArray(raw.announcements) ? raw.announcements : [];
@@ -52,6 +53,12 @@ const normalizeDashboard = (raw = {}, fallbackName = "Student") => {
     announcements,
     upcomingSessions,
     lastAccessed,
+    access: {
+      hasPendingApproval: Boolean(access.hasPendingApproval),
+      pendingApprovalCount: toNumber(access.pendingApprovalCount, 0),
+      canAccessCourses: Boolean(access.canAccessCourses),
+      latestPendingPayment: access.latestPendingPayment || null,
+    },
     stats: {
       enrolledClassesCount: toNumber(stats.enrolledClassesCount, classes.length),
       enrolledCoursesCount: toNumber(stats.enrolledCoursesCount, courses.length),
@@ -84,6 +91,8 @@ function StudentDashboard() {
   const classCards = dashboard.classes.slice(0, 6);
   const topSessions = dashboard.upcomingSessions.slice(0, 3);
   const topAnnouncements = dashboard.announcements.slice(0, 3);
+  const showPendingApproval =
+    dashboard.access.hasPendingApproval && dashboard.stats.enrolledCoursesCount < 1;
 
   const cards = [
     {
@@ -142,6 +151,24 @@ function StudentDashboard() {
           >
             Retry
           </button>
+        </Motion.section>
+      )}
+
+      {showPendingApproval && (
+        <Motion.section
+          {...fadeUp}
+          className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800"
+        >
+          <p className="font-semibold">Enrollment Under Review</p>
+          <p className="mt-1">
+            Your payment receipt was submitted and is waiting for admin approval.
+            Course videos, PDFs, and notes will unlock after approval.
+          </p>
+          {dashboard.access.latestPendingPayment?.reference ? (
+            <p className="mt-2 text-xs text-amber-700">
+              Reference: {dashboard.access.latestPendingPayment.reference}
+            </p>
+          ) : null}
         </Motion.section>
       )}
 

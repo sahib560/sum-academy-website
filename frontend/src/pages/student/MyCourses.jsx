@@ -3,7 +3,10 @@ import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { Link } from "react-router-dom";
 import { SkeletonCard } from "../../components/Skeleton.jsx";
-import { getStudentCourses } from "../../services/student.service.js";
+import {
+  getStudentCourses,
+  getStudentDashboard,
+} from "../../services/student.service.js";
 
 const fadeUp = {
   initial: { opacity: 0, y: 16 },
@@ -25,8 +28,23 @@ function StudentMyCourses() {
     queryFn: () => getStudentCourses(),
     staleTime: 30000,
   });
+  const { data: dashboardData } = useQuery({
+    queryKey: ["student-dashboard-access"],
+    queryFn: () => getStudentDashboard(),
+    staleTime: 30000,
+  });
 
   const courses = useMemo(() => (Array.isArray(data) ? data : []), [data]);
+  const pendingAccess = useMemo(() => {
+    const access = dashboardData?.access || {};
+    const hasPending = Boolean(access.hasPendingApproval);
+    const pendingCount = Number(access.pendingApprovalCount || 0);
+    return {
+      hasPendingApproval: hasPending,
+      pendingApprovalCount: Number.isFinite(pendingCount) ? pendingCount : 0,
+      latestPendingPayment: access.latestPendingPayment || null,
+    };
+  }, [dashboardData]);
 
   const groupedByClass = useMemo(() => {
     const map = new Map();
@@ -89,6 +107,25 @@ function StudentMyCourses() {
           className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 shadow-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
         />
       </motion.section>
+
+      {!isLoading &&
+      pendingAccess.hasPendingApproval &&
+      filteredGroups.length < 1 ? (
+        <motion.section
+          {...fadeUp}
+          className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800"
+        >
+          <p className="font-semibold">Waiting For Admin Approval</p>
+          <p className="mt-1">
+            We received your payment receipt. Courses and learning content will appear here after admin approval.
+          </p>
+          {pendingAccess.latestPendingPayment?.reference ? (
+            <p className="mt-2 text-xs text-amber-700">
+              Reference: {pendingAccess.latestPendingPayment.reference}
+            </p>
+          ) : null}
+        </motion.section>
+      ) : null}
 
       <div className="space-y-6">
         {isLoading

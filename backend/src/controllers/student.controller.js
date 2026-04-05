@@ -211,18 +211,44 @@ const getStudentCourseIdsFromClassRow = (classData = {}, uid = "") => {
   return [...courseIds];
 };
 
-const getStudentEnrolledCourseIds = async (uid) => {
+const ACTIVE_ENROLLMENT_STATUSES = new Set([
+  "active",
+  "upcoming",
+  "completed",
+  "pending_review",
+  "",
+]);
+const PENDING_PAYMENT_STATUSES = new Set(["pending", "pending_verification"]);
+
+const getStudentPendingPayments = async (uid, courseId = "") => {
+  const snap = await db
+    .collection(COLLECTIONS.PAYMENTS)
+    .where("studentId", "==", uid)
+    .get();
+
+  const cleanCourseId = trimText(courseId);
+  return snap.docs
+    .map((doc) => ({ id: doc.id, ...(doc.data() || {}) }))
+    .filter((row) => PENDING_PAYMENT_STATUSES.has(lowerText(row.status || "pending")))
+    .filter((row) => (cleanCourseId ? trimText(row.courseId) === cleanCourseId : true))
+    .sort(
+      (a, b) =>
+        (parseDate(b.createdAt)?.getTime() || 0) -
+        (parseDate(a.createdAt)?.getTime() || 0)
+    );
+};
+
+const getStudentEnrolledCourseIds = async (uid, includeClassFallback = true) => {
   const enrollments = await getEnrolledRows(uid);
 
   const enrollmentIds = enrollments
-    .filter((row) =>
-      ["active", "upcoming", "completed", "pending_review", ""].includes(
-        lowerText(row.status || "active")
-      )
-    )
-    .filter((row) => trimText(row.classId))
+    .filter((row) => ACTIVE_ENROLLMENT_STATUSES.has(lowerText(row.status || "active")))
     .map((row) => trimText(row.courseId))
     .filter(Boolean);
+
+  if (enrollmentIds.length > 0 || !includeClassFallback) {
+    return [...new Set(enrollmentIds)];
+  }
 
   const classMembershipRows = await getStudentClassMembershipRows(uid);
   const classCourseIds = classMembershipRows.flatMap((row) =>
@@ -681,6 +707,7 @@ export const getStudentDashboard = async (req, res) => {
       announcementsSnap,
       sessionsSnap,
       installmentsSnap,
+      paymentsSnap,
       classMembershipRows,
       progressRows,
     ] =
@@ -690,6 +717,7 @@ export const getStudentDashboard = async (req, res) => {
         db.collection(COLLECTIONS.ANNOUNCEMENTS).orderBy("createdAt", "desc").get(),
         db.collection(COLLECTIONS.SESSIONS).get(),
         db.collection(COLLECTIONS.INSTALLMENTS).where("studentId", "==", uid).get(),
+        db.collection(COLLECTIONS.PAYMENTS).where("studentId", "==", uid).get(),
         getStudentClassMembershipRows(uid),
         getProgressRowsForStudent(uid),
       ]);
@@ -740,6 +768,17 @@ export const getStudentDashboard = async (req, res) => {
     const courseRows = [...learningData.courseRows].sort(
       (a, b) => toNumber(b.latestActivity, 0) - toNumber(a.latestActivity, 0)
     );
+    const pendingPayments = paymentsSnap.docs
+      .map((doc) => ({ id: doc.id, ...(doc.data() || {}) }))
+      .filter((row) =>
+        PENDING_PAYMENT_STATUSES.has(lowerText(row.status || "pending"))
+      )
+      .sort(
+        (a, b) =>
+          (parseDate(b.createdAt)?.getTime() || 0) -
+          (parseDate(a.createdAt)?.getTime() || 0)
+      );
+    const latestPendingPayment = pendingPayments[0] || null;
     const attendancePayload = await buildStudentAttendancePayload(uid);
 
     const completedCount = courseRows.filter((row) => clampPercent(row.progress) >= 100).length;
@@ -896,6 +935,26 @@ export const getStudentDashboard = async (req, res) => {
         announcements: latestAnnouncements,
         upcomingSessions,
         nextInstallment,
+        access: {
+          hasPendingApproval: pendingPayments.length > 0,
+          pendingApprovalCount: pendingPayments.length,
+          canAccessCourses: courseRows.length > 0,
+          latestPendingPayment: latestPendingPayment
+            ? {
+                id: latestPendingPayment.id,
+                reference: trimText(latestPendingPayment.reference),
+                method: lowerText(latestPendingPayment.method),
+                status: lowerText(latestPendingPayment.status || "pending"),
+                classId: trimText(latestPendingPayment.classId),
+                className: trimText(latestPendingPayment.className),
+                courseId: trimText(latestPendingPayment.courseId),
+                courseName: trimText(latestPendingPayment.courseName),
+                amount: toNumber(latestPendingPayment.amount, 0),
+                createdAt: toIso(latestPendingPayment.createdAt),
+                receiptUploadedAt: toIso(latestPendingPayment.receiptUploadedAt),
+              }
+            : null,
+        },
       },
       "Student dashboard fetched"
     );
@@ -974,8 +1033,23 @@ export const getStudentCourseProgress = async (req, res) => {
     if (!uid) return errorResponse(res, "Missing student uid", 400);
     if (!courseId) return errorResponse(res, "courseId is required", 400);
 
-    const enrolledIds = await getStudentEnrolledCourseIds(uid);
+    const enrolledIds = await getStudentEnrolledCourseIds(uid, false);
     if (!enrolledIds.includes(courseId)) {
+      const pendingPayments = await getStudentPendingPayments(uid, courseId);
+      if (pendingPayments.length > 0) {
+        const latestPending = pendingPayments[0];
+        return errorResponse(
+          res,
+          "Payment receipt submitted. Waiting for admin approval before course access.",
+          403,
+          {
+            code: "PENDING_APPROVAL",
+            paymentId: latestPending.id,
+            status: lowerText(latestPending.status || "pending"),
+            reference: trimText(latestPending.reference),
+          }
+        );
+      }
       return errorResponse(res, "You are not enrolled in this course", 403);
     }
 
@@ -1022,6 +1096,22 @@ export const getStudentCourseProgress = async (req, res) => {
               isCompleted: Boolean(progress.isCompleted),
               completedAt: progress.completedAt || null,
               hasAccess,
+              videoUrl: trimText(lecture.videoUrl),
+              videoTitle: trimText(lecture.videoTitle),
+              videoDuration:
+                lecture.videoDuration === null || lecture.videoDuration === undefined
+                  ? null
+                  : lecture.videoDuration,
+              pdfNotes: Array.isArray(lecture.pdfNotes) ? lecture.pdfNotes : [],
+              books: Array.isArray(lecture.books) ? lecture.books : [],
+              notes: trimText(lecture.notes || lecture.description),
+              signedUrl: trimText(
+                lecture.signedUrl ||
+                  lecture.signedVideoUrl ||
+                  lecture.videoSignedUrl ||
+                  lecture.streamUrl ||
+                  lecture.playbackUrl
+              ),
             };
           });
 
@@ -1078,8 +1168,17 @@ export const markLectureComplete = async (req, res) => {
       return errorResponse(res, "courseId and lectureId are required", 400);
     }
 
-    const enrolledIds = await getStudentEnrolledCourseIds(uid);
+    const enrolledIds = await getStudentEnrolledCourseIds(uid, false);
     if (!enrolledIds.includes(courseId)) {
+      const pendingPayments = await getStudentPendingPayments(uid, courseId);
+      if (pendingPayments.length > 0) {
+        return errorResponse(
+          res,
+          "Payment is pending admin approval. Lecture progress is locked for now.",
+          403,
+          { code: "PENDING_APPROVAL" }
+        );
+      }
       return errorResponse(res, "You are not enrolled in this course", 403);
     }
 

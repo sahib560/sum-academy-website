@@ -42,6 +42,7 @@ const getLectureSource = (lecture = {}) =>
   lecture.signedVideoUrl ||
   lecture.videoSignedUrl ||
   lecture.streamUrl ||
+  lecture.videoUrl ||
   lecture.playbackUrl ||
   "";
 
@@ -63,6 +64,10 @@ const normalizeProgressPayload = (payload = {}) => {
       streamUrl: lecture.streamUrl || "",
       playbackUrl: lecture.playbackUrl || "",
       videoUrl: lecture.videoUrl || "",
+      videoTitle: lecture.videoTitle || "",
+      pdfNotes: Array.isArray(lecture.pdfNotes) ? lecture.pdfNotes : [],
+      books: Array.isArray(lecture.books) ? lecture.books : [],
+      notes: lecture.notes || "",
     }));
 
     return {
@@ -405,9 +410,19 @@ function StudentCoursePlayer() {
     watchedPercent >= 80 &&
     !currentLecture.isCompleted &&
     !markCompleteMutation.isPending;
+  const lectureHasVideo = Boolean(getLectureSource(currentLecture || {}));
+  const lectureResources = useMemo(() => {
+    if (!currentLecture) return [];
+    const pdfs = Array.isArray(currentLecture.pdfNotes) ? currentLecture.pdfNotes : [];
+    const books = Array.isArray(currentLecture.books) ? currentLecture.books : [];
+    return [...pdfs, ...books].filter((row) => row?.url);
+  }, [currentLecture]);
 
   const showLockedOverlay =
-    securityLocked || !currentLecture || currentLecture.hasAccess === false || !videoSrc;
+    securityLocked ||
+    !currentLecture ||
+    currentLecture.hasAccess === false ||
+    (lectureHasVideo && !videoSrc);
 
   return (
     <div className="protected-zone lecture-content relative space-y-6 protected-content">
@@ -421,7 +436,9 @@ function StudentCoursePlayer() {
         <Skeleton className="h-96 w-full rounded-3xl" />
       ) : isError ? (
         <div className="rounded-2xl border border-rose-200 bg-rose-50 p-5 text-sm text-rose-700">
-          {error?.response?.data?.message || error?.message || "Failed to load course"}
+          {error?.response?.data?.errors?.code === "PENDING_APPROVAL"
+            ? "Your payment is pending admin approval. Course content will unlock after approval."
+            : error?.response?.data?.message || error?.message || "Failed to load course"}
         </div>
       ) : (
         <div className="grid gap-6 lg:grid-cols-[7fr_3fr]">
@@ -481,6 +498,12 @@ function StudentCoursePlayer() {
                 </div>
               )}
 
+              {!showLockedOverlay && !isLoadingVideo && !lectureHasVideo && (
+                <div className="absolute inset-0 flex items-center justify-center bg-slate-900/75 text-center text-xs font-semibold text-white">
+                  No video attached for this lecture. Use notes below.
+                </div>
+              )}
+
               {isLoadingVideo && (
                 <div className="absolute inset-0 flex items-center justify-center bg-slate-900/60 text-sm font-semibold text-white">
                   Loading secure video...
@@ -519,7 +542,7 @@ function StudentCoursePlayer() {
                   <button
                     className="rounded-full bg-primary px-4 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
                     onClick={handlePlayPause}
-                    disabled={showLockedOverlay}
+                    disabled={showLockedOverlay || !lectureHasVideo}
                   >
                     {isPlaying ? "Pause" : "Play"}
                   </button>
@@ -536,7 +559,7 @@ function StudentCoursePlayer() {
                   value={currentTime}
                   onChange={handleSeek}
                   className="w-full"
-                  disabled={showLockedOverlay}
+                  disabled={showLockedOverlay || !lectureHasVideo}
                 />
 
                 <div className="grid gap-3 md:grid-cols-3">
@@ -572,13 +595,40 @@ function StudentCoursePlayer() {
                     <button
                       className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700"
                       onClick={handleFullscreen}
-                      disabled={showLockedOverlay}
+                      disabled={showLockedOverlay || !lectureHasVideo}
                     >
                       Fullscreen
                     </button>
                   </div>
                 </div>
               </div>
+
+              {(currentLecture?.notes || lectureResources.length > 0) && (
+                <div className="mt-4 space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                    Lecture Resources
+                  </p>
+                  {currentLecture?.notes ? (
+                    <p className="text-sm text-slate-700">{currentLecture.notes}</p>
+                  ) : null}
+                  {lectureResources.length > 0 ? (
+                    <div className="space-y-2">
+                      {lectureResources.map((item, index) => (
+                        <a
+                          key={`${item.id || "resource"}-${index}`}
+                          href={item.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700"
+                        >
+                          <span>{item.title || "Resource"}</span>
+                          <span className="text-slate-500">Open</span>
+                        </a>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              )}
 
               <button
                 className={`mt-4 w-full rounded-full px-4 py-3 text-sm font-semibold ${
