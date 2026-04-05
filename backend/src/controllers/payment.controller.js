@@ -519,9 +519,6 @@ const getCurrentPaymentSettings = async () => {
         ? true
         : resolveEnabled(configuredJazz?.enabled, PAYMENT_CONFIG.jazzcash.enabled ?? true),
       merchantId: configuredJazz?.merchantId || PAYMENT_CONFIG.jazzcash.merchantId || "",
-      password: configuredJazz?.password || PAYMENT_CONFIG.jazzcash.password || "",
-      integritySalt:
-        configuredJazz?.integritySalt || PAYMENT_CONFIG.jazzcash.integritySalt || "",
       accountTitle:
         configuredJazz?.accountTitle ||
         PAYMENT_CONFIG.jazzcash.accountTitle ||
@@ -530,8 +527,6 @@ const getCurrentPaymentSettings = async () => {
         configuredJazz?.instructions ||
         PAYMENT_CONFIG.jazzcash.instructions ||
         "Send payment to JazzCash merchant and upload the transaction receipt.",
-      sandboxUrl: PAYMENT_CONFIG.jazzcash.sandboxUrl,
-      productionUrl: PAYMENT_CONFIG.jazzcash.productionUrl,
       returnUrl: PAYMENT_CONFIG.jazzcash.returnUrl,
     },
     easypaisa: {
@@ -543,7 +538,6 @@ const getCurrentPaymentSettings = async () => {
           ),
       accountNumber:
         configuredEasypaisa?.accountNumber || PAYMENT_CONFIG.easypaisa.accountNumber || "",
-      password: configuredEasypaisa?.password || PAYMENT_CONFIG.easypaisa.password || "",
       accountTitle:
         configuredEasypaisa?.accountTitle ||
         PAYMENT_CONFIG.easypaisa.accountTitle ||
@@ -553,8 +547,6 @@ const getCurrentPaymentSettings = async () => {
         configuredEasypaisa?.instructions ||
         PAYMENT_CONFIG.easypaisa.instructions ||
         "Send payment to EasyPaisa account and upload the transaction receipt.",
-      sandboxUrl: PAYMENT_CONFIG.easypaisa.sandboxUrl,
-      productionUrl: PAYMENT_CONFIG.easypaisa.productionUrl,
       returnUrl: PAYMENT_CONFIG.easypaisa.returnUrl,
     },
     bankTransfer: {
