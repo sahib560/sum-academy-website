@@ -1099,6 +1099,50 @@ export const rejectStudent = async (req, res) => {
   }
 };
 
+export const resetStudentPaymentRejectLock = async (req, res) => {
+  try {
+    const uid = resolveUidParam(req);
+    if (!uid) return errorResponse(res, "uid is required", 400);
+
+    const userRef = db.collection(COLLECTIONS.USERS).doc(uid);
+    const userSnap = await userRef.get();
+    if (!userSnap.exists) return errorResponse(res, "Student not found", 404);
+
+    const userData = userSnap.data() || {};
+    if (String(userData.role || "").toLowerCase() !== "student") {
+      return errorResponse(res, "Student not found", 404);
+    }
+
+    await userRef.set(
+      {
+        paymentRejectCount: 0,
+        paymentRejectLimit: Math.max(1, Number(userData.paymentRejectLimit || 3)),
+        paymentApprovalBlocked: false,
+        paymentApprovalBlockedAt: null,
+        paymentApprovalBlockedBy: null,
+        paymentApprovalBlockReason: null,
+        paymentRejectResetBy: req.user?.uid || null,
+        paymentRejectResetAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+
+    return successResponse(
+      res,
+      {
+        uid,
+        paymentRejectCount: 0,
+        paymentApprovalBlocked: false,
+      },
+      "Student payment reject lock has been reset"
+    );
+  } catch (e) {
+    console.error("resetStudentPaymentRejectLock error:", e);
+    return errorResponse(res, "Failed to reset student payment lock", 500);
+  }
+};
+
 export const downloadStudentsBulkTemplate = async (_req, res) => {
   try {
     const commentRow =

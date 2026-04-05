@@ -51,6 +51,11 @@ export const approveStudent = (uid) =>
 export const rejectStudent = (uid, reason = "") =>
   api.patch(`/admin/students/${uid}/reject`, { reason }).then((r) => r.data);
 
+export const resetStudentPaymentRejections = (uid) =>
+  api
+    .patch(`/admin/students/${uid}/payment-rejections/reset`)
+    .then((r) => r.data);
+
 export const downloadStudentsBulkTemplate = async () => {
   const response = await api.get("/admin/students/template", {
     responseType: "blob",

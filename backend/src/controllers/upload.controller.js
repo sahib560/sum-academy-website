@@ -117,6 +117,25 @@ export const uploadPaymentReceipt = async (req, res) => {
         403
       );
     }
+    if (!isAdmin) {
+      const studentUid = String(payData.studentId || req.user?.uid || "").trim();
+      if (studentUid) {
+        const userSnap = await db.collection(COLLECTIONS.USERS).doc(studentUid).get();
+        const userData = userSnap.exists ? userSnap.data() || {} : {};
+        if (userData.paymentApprovalBlocked) {
+          return errorResponse(
+            res,
+            "Payment approvals are blocked after 3 rejected receipts. Contact admin to reset.",
+            403,
+            {
+              code: "PAYMENT_APPROVAL_BLOCKED",
+              rejectCount: Number(userData.paymentRejectCount || 0),
+              rejectLimit: Number(userData.paymentRejectLimit || 3),
+            }
+          );
+        }
+      }
+    }
     const paymentMethod = String(payData.method || "").toLowerCase();
     const supportedReceiptMethods = new Set([
       "bank_transfer",

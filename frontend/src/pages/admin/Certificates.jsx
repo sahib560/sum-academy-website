@@ -1,7 +1,6 @@
 import { useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import jsPDF from "jspdf";
 import toast, { Toaster } from "react-hot-toast";
 import { useSettings } from "../../hooks/useSettings.js";
 import { defaultSettings } from "../../context/SettingsContext.jsx";
@@ -13,6 +12,7 @@ import {
   revokeCertificate,
   unrevokeCertificate,
 } from "../../services/admin.service.js";
+import { generateCertificatePDF } from "../../utils/pdfDesigns.js";
 const EMPTY = [];
 const MotionDiv = motion.div;
 
@@ -67,126 +67,18 @@ const normalizeStudentEnrollments = (student) =>
         .filter(Boolean)
     : [];
 
-const hexToRgb = (value = "") => {
-  const hex = String(value || "").replace("#", "");
-  if (hex.length !== 6) return [0, 0, 0];
-  const r = parseInt(hex.slice(0, 2), 16);
-  const g = parseInt(hex.slice(2, 4), 16);
-  const b = parseInt(hex.slice(4, 6), 16);
-  return [r, g, b];
-};
-
-const loadImageAsDataUrl = (url) =>
-  new Promise((resolve) => {
-    if (!url) return resolve(null);
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.onload = () => {
-      try {
-        const canvas = document.createElement("canvas");
-        canvas.width = img.width;
-        canvas.height = img.height;
-        const ctx = canvas.getContext("2d");
-        ctx.drawImage(img, 0, 0);
-        resolve(canvas.toDataURL("image/png"));
-      } catch {
-        resolve(null);
-      }
-    };
-    img.onerror = () => resolve(null);
-    img.src = url;
+async function downloadCertPdf(cert, logoUrl) {
+  await generateCertificatePDF({
+    certId: cert.certId || cert.id,
+    studentName: cert.studentName || "Student",
+    courseName: cert.courseName || "Course",
+    issuedDate: cert.issuedAt || cert.createdAt,
+    instructorName: "SUM Academy",
+    logoUrl,
   });
-
-async function downloadCertPdf(cert, certSettings) {
-  const doc = new jsPDF("landscape", "mm", "a4");
-  const pageW = 297;
-  const pageH = 210;
-
-  const borderColor = hexToRgb(certSettings.borderColor);
-  const headingColor = hexToRgb(certSettings.headingColor);
-  const nameColor = hexToRgb(certSettings.nameColor);
-  const bodyColor = hexToRgb(certSettings.bodyColor);
-  const bgColor = hexToRgb(certSettings.backgroundColor);
-
-  doc.setFillColor(...bgColor);
-  doc.rect(0, 0, pageW, pageH, "F");
-
-  doc.setDrawColor(...borderColor);
-  doc.setLineWidth(1);
-  doc.rect(10, 10, pageW - 20, pageH - 20);
-  doc.setLineWidth(0.5);
-  doc.rect(14, 14, pageW - 28, pageH - 28);
-
-  doc.setFont("helvetica", "bold");
-  doc.setTextColor(...headingColor);
-  doc.setFontSize(30);
-  doc.text("SUM ACADEMY", pageW / 2, 34, { align: "center" });
-
-  doc.setTextColor(...headingColor);
-  doc.setFontSize(20);
-  doc.text("Certificate of Completion", pageW / 2, 48, { align: "center" });
-
-  doc.setFont("times", "italic");
-  doc.setFontSize(12);
-  doc.setTextColor(...bodyColor);
-  doc.text("This is to certify that", pageW / 2, 66, { align: "center" });
-
-  doc.setFont("times", "bold");
-  doc.setFontSize(28);
-  doc.setTextColor(...nameColor);
-  doc.text(cert.studentName || "Student", pageW / 2, 84, { align: "center" });
-
-  doc.setFont("times", "italic");
-  doc.setFontSize(12);
-  doc.setTextColor(...bodyColor);
-  doc.text("has successfully completed", pageW / 2, 98, { align: "center" });
-
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(22);
-  doc.setTextColor(...headingColor);
-  doc.text(cert.courseName || "Course", pageW / 2, 113, { align: "center" });
-
-  doc.setFont("times", "italic");
-  doc.setFontSize(11);
-  doc.setTextColor(...bodyColor);
-  doc.text("with distinction", pageW / 2, 124, { align: "center" });
-
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(10);
-  doc.setTextColor(...bodyColor);
-  doc.text(`Issue Date: ${dateLabel(cert.issuedAt || cert.createdAt)}`, 24, 160);
-  doc.text(`Cert ID: ${cert.certId || cert.id}`, pageW / 2, 160, { align: "center" });
-  if (certSettings.showSignature) {
-    doc.text(
-      certSettings.signatureLabel || "Authorized Signature",
-      pageW - 65,
-      160
-    );
-    doc.line(pageW - 92, 156, pageW - 25, 156);
-    if (certSettings.signatureUrl) {
-      const sigData = await loadImageAsDataUrl(certSettings.signatureUrl);
-      if (sigData) {
-        doc.addImage(sigData, "PNG", pageW - 92, 140, 60, 14);
-      }
-    }
-  }
-
-  if (certSettings.showQr) {
-    doc.setDrawColor(148, 163, 184);
-    doc.rect(pageW - 50, 120, 22, 22);
-    doc.setFontSize(8);
-    doc.text("QR", pageW - 39, 132, { align: "center" });
-    doc.text("Scan to verify", pageW - 39, 146, { align: "center" });
-  }
-
-  doc.setFontSize(7);
-  doc.setTextColor(...bodyColor);
-  doc.text(verifyLinkFor(cert), pageW / 2, 178, { align: "center" });
-
-  doc.save(`SUM_Certificate_${cert.certId || cert.id}.pdf`);
 }
 
-function PreviewModal({ cert, onClose, certSettings }) {
+function PreviewModal({ cert, onClose, certSettings, logoUrl }) {
   if (!cert) return null;
   return (
     <AnimatePresence>
@@ -299,9 +191,13 @@ function PreviewModal({ cert, onClose, certSettings }) {
           <div className="mt-5 flex flex-wrap gap-2">
             <button
               className="btn-primary"
-              onClick={() => {
-                downloadCertPdf(cert, certSettings);
-                toast.success("Certificate PDF downloaded");
+              onClick={async () => {
+                try {
+                  await downloadCertPdf(cert, logoUrl);
+                  toast.success("Certificate PDF downloaded");
+                } catch (error) {
+                  toast.error(error?.message || "Failed to download certificate");
+                }
               }}
             >
               Download PDF
@@ -447,6 +343,7 @@ export default function Certificates() {
   const qc = useQueryClient();
   const { settings } = useSettings();
   const certSettings = settings?.certificate || defaultSettings.certificate;
+  const logoUrl = settings?.general?.logoUrl || null;
   const [search, setSearch] = useState("");
   const [courseFilter, setCourseFilter] = useState("all");
   const [startDate, setStartDate] = useState("");
@@ -686,9 +583,13 @@ export default function Certificates() {
                           <button className="rounded-full border border-slate-200 px-3 py-1 text-xs" onClick={() => setPreview(cert)}>Preview</button>
                           <button
                             className="rounded-full border border-slate-200 px-3 py-1 text-xs"
-                            onClick={() => {
-                              downloadCertPdf(cert, certSettings);
-                              toast.success("Certificate PDF downloaded");
+                            onClick={async () => {
+                              try {
+                                await downloadCertPdf(cert, logoUrl);
+                                toast.success("Certificate PDF downloaded");
+                              } catch (error) {
+                                toast.error(error?.message || "Failed to download certificate");
+                              }
                             }}
                           >
                             Download
@@ -722,6 +623,7 @@ export default function Certificates() {
         cert={preview}
         onClose={() => setPreview(null)}
         certSettings={certSettings}
+        logoUrl={logoUrl}
       />
 
       <GenerateModal

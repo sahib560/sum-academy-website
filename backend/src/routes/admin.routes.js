@@ -101,6 +101,11 @@ router.post(
 );
 router.get("/students/:uid/progress", adminOnly, adminController.getStudentProgressById);
 router.get("/students/:uid", adminOnly, adminController.getStudentById);
+router.patch(
+  "/students/:uid/payment-rejections/reset",
+  adminOnly,
+  adminController.resetStudentPaymentRejectLock
+);
 
 router.get("/quizzes/template", adminOnly, downloadQuizBulkTemplate);
 router.get("/quizzes", adminOnly, getTeacherQuizzes);

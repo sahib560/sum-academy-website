@@ -8,6 +8,11 @@ import {
   verifyPayment,
   getInstallmentsAdmin,
 } from "../../services/payment.service.js";
+import {
+  generateInvoicePDF,
+  generateReceiptPDF,
+} from "../../utils/pdfDesigns.js";
+import { useSettings } from "../../hooks/useSettings.js";
 
 const tabOptions = ["All", "JazzCash", "EasyPaisa", "Bank Transfer", "Pending"];
 const MotionDiv = motion.div;
@@ -37,8 +42,9 @@ const formatMethod = (value = "") => {
 const canReviewPayment = (payment = {}) =>
   typeof payment.canApprove === "boolean"
     ? payment.canApprove
-    : String(payment.status || "").toLowerCase() === "pending_verification" &&
-      Boolean(String(payment.receiptUrl || "").trim());
+    : ["pending", "pending_verification"].includes(
+        String(payment.status || "").toLowerCase()
+      ) && Boolean(String(payment.receiptUrl || "").trim());
 
 const formatDate = (value) => {
   const date = value?.toDate ? value.toDate() : value ? new Date(value) : null;
@@ -58,6 +64,8 @@ const monthKey = (value) => {
 
 function Payments() {
   const queryClient = useQueryClient();
+  const { settings } = useSettings();
+  const logoUrl = settings?.general?.logoUrl || null;
   const [activeTab, setActiveTab] = useState("All");
   const [selectedPayment, setSelectedPayment] = useState(null);
 
@@ -137,6 +145,54 @@ function Payments() {
       ),
     };
   }, [payments, installments, activeTab]);
+
+  const downloadInvoice = async (payment) => {
+    try {
+      await generateInvoicePDF({
+        invoiceId: payment.id,
+        studentName: payment.studentName || "Student",
+        studentEmail: payment.studentEmail || "",
+        studentPhone: payment.studentPhone || "",
+        courseName: payment.courseName || "",
+        className: payment.className || "",
+        shiftName: payment.shiftName || payment.shiftId || "",
+        method: payment.method,
+        originalAmount: payment.originalAmount || payment.amount,
+        discountAmount: payment.discount || 0,
+        promoCode: payment.promoCode || null,
+        finalAmount: payment.totalAmount || payment.amount,
+        status: payment.status,
+        paymentDate: payment.createdAt,
+        referenceNumber: payment.reference,
+        logoUrl,
+      });
+      toast.success("Invoice PDF downloaded");
+    } catch (error) {
+      toast.error(error?.message || "Failed to download invoice");
+    }
+  };
+
+  const downloadReceipt = async (payment) => {
+    try {
+      await generateReceiptPDF({
+        receiptId: payment.id,
+        studentName: payment.studentName || "Student",
+        studentEmail: payment.studentEmail || "",
+        courseName: payment.courseName || "",
+        className: payment.className || "",
+        amount: payment.totalAmount || payment.amount,
+        method: payment.method,
+        referenceNumber: payment.reference,
+        paymentDate: payment.createdAt,
+        verifiedBy: payment.verifiedBy || "SUM Academy",
+        verifiedAt: payment.verifiedAt || payment.updatedAt || payment.createdAt,
+        logoUrl,
+      });
+      toast.success("Receipt PDF downloaded");
+    } catch (error) {
+      toast.error(error?.message || "Failed to download receipt");
+    }
+  };
 
   const exportPdf = () => {
     const pdf = new jsPDF();
@@ -306,6 +362,22 @@ function Payments() {
                             </button>
                           </>
                         ) : null}
+                        <button
+                          onClick={() => downloadInvoice(row)}
+                          className="rounded-full border border-slate-200 px-3 py-1 text-xs"
+                        >
+                          Invoice
+                        </button>
+                        {["paid", "approved"].includes(
+                          String(row.status || "").toLowerCase()
+                        ) ? (
+                          <button
+                            onClick={() => downloadReceipt(row)}
+                            className="rounded-full border border-emerald-200 px-3 py-1 text-xs text-emerald-700"
+                          >
+                            Receipt
+                          </button>
+                        ) : null}
                       </div>
                     </td>
                   </tr>
@@ -409,7 +481,7 @@ function Payments() {
                   <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Course & Class</p>
                   <p className="mt-1 font-semibold text-slate-900">{selectedPayment.courseName || "-"}</p>
                   <p className="text-sm text-slate-500">
-                    Class: {selectedPayment.className || "-"} · Shift: {selectedPayment.shiftId || "-"}
+                    Class: {selectedPayment.className || "-"} | Shift: {selectedPayment.shiftId || "-"}
                   </p>
                 </div>
               </div>
@@ -466,6 +538,24 @@ function Payments() {
                   </button>
                 </div>
               ) : null}
+              <div className="mt-3 flex gap-2">
+                <button
+                  className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700"
+                  onClick={() => downloadInvoice(selectedPayment)}
+                >
+                  Download Invoice
+                </button>
+                {["paid", "approved"].includes(
+                  String(selectedPayment.status || "").toLowerCase()
+                ) ? (
+                  <button
+                    className="rounded-full border border-emerald-200 px-4 py-2 text-sm font-semibold text-emerald-700"
+                    onClick={() => downloadReceipt(selectedPayment)}
+                  >
+                    Download Receipt
+                  </button>
+                ) : null}
+              </div>
             </MotionDiv>
           </div>
         ) : null}

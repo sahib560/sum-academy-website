@@ -17,6 +17,7 @@ import {
   FiSearch,
   FiTrash2,
   FiUser,
+  FiRotateCcw,
   FiX,
 } from "react-icons/fi";
 import { useSearchParams } from "react-router-dom";
@@ -28,6 +29,7 @@ import {
   getStudents,
   approveStudent,
   rejectStudent,
+  resetStudentPaymentRejections,
   resetUserDevice,
   updateUser,
 } from "../../services/admin.service.js";
@@ -186,6 +188,12 @@ const normalizeStudents = (students = []) =>
       completedCourses: Number(student.completedCourses || 0),
       securityViolationCount: Number(student.securityViolationCount || 0),
       securityViolationLimit: Number(student.securityViolationLimit || 3),
+      paymentRejectCount: Number(student.paymentRejectCount || 0),
+      paymentRejectLimit: Number(student.paymentRejectLimit || 3),
+      paymentApprovalBlocked: Boolean(student.paymentApprovalBlocked),
+      paymentApprovalBlockedAt: student.paymentApprovalBlockedAt || null,
+      paymentApprovalBlockReason: student.paymentApprovalBlockReason || "",
+      paymentRejectResetAt: student.paymentRejectResetAt || null,
       lastSecurityViolationReason: student.lastSecurityViolationReason || "",
       lastSecurityViolationAt: student.lastSecurityViolationAt || null,
       securityDeactivatedAt: student.securityDeactivatedAt || null,
@@ -366,6 +374,7 @@ function Students() {
   const [showStatusModal, setShowStatusModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showResetModal, setShowResetModal] = useState(false);
+  const [showPaymentResetModal, setShowPaymentResetModal] = useState(false);
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [profileStudent, setProfileStudent] = useState(null);
   const [selectedStudent, setSelectedStudent] = useState(null);
@@ -421,6 +430,7 @@ function Students() {
           Number(s.securityViolationCount || 0) >= Number(s.securityViolationLimit || 3) ||
           Boolean(s.securityDeactivatedAt)
       ).length,
+      paymentBlocked: students.filter((s) => Boolean(s.paymentApprovalBlocked)).length,
     }),
     [students]
   );
@@ -556,6 +566,19 @@ function Students() {
     },
   });
 
+  const resetPaymentRejectionsMutation = useMutation({
+    mutationFn: (uid) => resetStudentPaymentRejections(uid),
+    onSuccess: async () => {
+      await invalidateStudents();
+      setShowPaymentResetModal(false);
+      setSelectedStudent(null);
+      toast.success("Payment rejection lock reset for student.");
+    },
+    onError: (error) => {
+      toast.error(error?.response?.data?.error || "Failed to reset payment lock.");
+    },
+  });
+
   const approveStudentMutation = useMutation({
     mutationFn: (uid) => approveStudent(uid),
     onSuccess: async () => {
@@ -623,6 +646,11 @@ function Students() {
   const openReset = (student) => {
     setSelectedStudent(student);
     setShowResetModal(true);
+  };
+
+  const openPaymentReset = (student) => {
+    setSelectedStudent(student);
+    setShowPaymentResetModal(true);
   };
 
   const openReject = (student) => {
@@ -722,7 +750,7 @@ function Students() {
         </div>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-7">
         {[
           { label: "Total Students", value: stats.total },
           { label: "Active Students", value: stats.active },
@@ -730,6 +758,7 @@ function Students() {
           { label: "Inactive Students", value: stats.inactive },
           { label: "Enrolled Students", value: stats.enrolledStudents },
           { label: "Security Flagged", value: stats.flagged },
+          { label: "Payment Blocked", value: stats.paymentBlocked },
         ].map((item) => (
           <div key={item.label} className="glass-card">
             <p className="text-sm text-slate-500">{item.label}</p>
@@ -860,20 +889,31 @@ function Students() {
                       </span>
                     </td>
                     <td className="px-6 py-4">
-                      <span
-                        className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
-                          Number(student.securityViolationCount || 0) >=
-                            Number(student.securityViolationLimit || 3) ||
-                          Boolean(student.securityDeactivatedAt)
-                            ? "bg-rose-50 text-rose-700"
-                            : Number(student.securityViolationCount || 0) > 0
-                              ? "bg-amber-50 text-amber-700"
+                      <div className="flex flex-wrap gap-2">
+                        <span
+                          className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
+                            Number(student.securityViolationCount || 0) >=
+                              Number(student.securityViolationLimit || 3) ||
+                            Boolean(student.securityDeactivatedAt)
+                              ? "bg-rose-50 text-rose-700"
+                              : Number(student.securityViolationCount || 0) > 0
+                                ? "bg-amber-50 text-amber-700"
+                                : "bg-emerald-50 text-emerald-700"
+                          }`}
+                        >
+                          {Number(student.securityViolationCount || 0)}/
+                          {Number(student.securityViolationLimit || 3)}
+                        </span>
+                        <span
+                          className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
+                            student.paymentApprovalBlocked
+                              ? "bg-rose-50 text-rose-700"
                               : "bg-emerald-50 text-emerald-700"
-                        }`}
-                      >
-                        {Number(student.securityViolationCount || 0)}/
-                        {Number(student.securityViolationLimit || 3)}
-                      </span>
+                          }`}
+                        >
+                          Pay: {student.paymentRejectCount}/{student.paymentRejectLimit}
+                        </span>
+                      </div>
                     </td>
                     <td className="px-6 py-4 text-slate-600">{student.lastLoginText}</td>
                     <td className="px-6 py-4">
@@ -922,6 +962,18 @@ function Students() {
                         ) : (
                           <button type="button" onClick={() => openStatus(student)} className={`rounded-full px-3 py-1 text-xs font-semibold ${student.isActive ? "bg-rose-50 text-rose-600" : "bg-emerald-50 text-emerald-600"}`}>
                             {student.isActive ? "Deactivate" : "Activate"}
+                          </button>
+                        )}
+                        {(student.paymentApprovalBlocked ||
+                          Number(student.paymentRejectCount || 0) >=
+                            Number(student.paymentRejectLimit || 3)) && (
+                          <button
+                            type="button"
+                            onClick={() => openPaymentReset(student)}
+                            className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700"
+                            title="Reset payment rejection lock"
+                          >
+                            Reset Pay Lock
                           </button>
                         )}
                         <button type="button" onClick={() => openDelete(student)} className="rounded-full border border-slate-200 p-2 text-rose-500 transition hover:text-rose-600" aria-label="Delete">
@@ -984,6 +1036,17 @@ function Students() {
                     </>
                   ) : (
                     <button type="button" onClick={() => openStatus(student)} className="rounded-full border border-slate-200 px-3 py-1 text-xs">{student.isActive ? "Deactivate" : "Activate"}</button>
+                  )}
+                  {(student.paymentApprovalBlocked ||
+                    Number(student.paymentRejectCount || 0) >=
+                      Number(student.paymentRejectLimit || 3)) && (
+                    <button
+                      type="button"
+                      onClick={() => openPaymentReset(student)}
+                      className="rounded-full border border-blue-200 px-3 py-1 text-xs text-blue-700"
+                    >
+                      Reset Pay Lock
+                    </button>
                   )}
                   <button type="button" onClick={() => openDelete(student)} className="rounded-full border border-rose-200 px-3 py-1 text-xs text-rose-600">Delete</button>
                 </div>
@@ -1302,6 +1365,62 @@ function Students() {
       </ModalShell>
 
       <ModalShell
+        open={showPaymentResetModal && Boolean(selectedStudent)}
+        title="Reset Payment Rejection Lock"
+        onClose={() => {
+          if (resetPaymentRejectionsMutation.isPending) return;
+          setShowPaymentResetModal(false);
+          setSelectedStudent(null);
+        }}
+      >
+        <div className="mt-6 space-y-4">
+          <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
+            <p className="font-semibold">
+              Reset payment lock for {selectedStudent?.fullName}?
+            </p>
+            <p className="mt-2">
+              This will set payment reject count to 0 and unblock receipt approval requests.
+            </p>
+            <p className="mt-2">
+              Current: {Number(selectedStudent?.paymentRejectCount || 0)}/
+              {Number(selectedStudent?.paymentRejectLimit || 3)}{" "}
+              {selectedStudent?.paymentApprovalBlocked ? "(Blocked)" : "(Active)"}
+            </p>
+          </div>
+          <div className="flex justify-end gap-3 pt-2">
+            <button
+              type="button"
+              onClick={() => {
+                setShowPaymentResetModal(false);
+                setSelectedStudent(null);
+              }}
+              className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                selectedStudent &&
+                resetPaymentRejectionsMutation.mutate(selectedStudent.uid)
+              }
+              disabled={resetPaymentRejectionsMutation.isPending}
+              className="inline-flex min-w-[180px] items-center justify-center rounded-full bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+            >
+              {resetPaymentRejectionsMutation.isPending ? (
+                <span className="flex items-center justify-center gap-2">
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                  Resetting...
+                </span>
+              ) : (
+                "Confirm Reset"
+              )}
+            </button>
+          </div>
+        </div>
+      </ModalShell>
+
+      <ModalShell
         open={showRejectModal && Boolean(selectedStudent)}
         title="Reject Student"
         onClose={() => {
@@ -1425,6 +1544,10 @@ function Students() {
                   <div className="flex items-center justify-between"><span className="text-slate-500">Assigned Web Device</span><span className="font-semibold text-slate-900">{profileStudent.assignedWebDevice || "N/A"}</span></div>
                   <div className="flex items-center justify-between"><span className="text-slate-500">Assigned Web IP</span><span className="font-semibold text-slate-900">{maskIp(profileStudent.assignedWebIp)}</span></div>
                   <div className="flex items-center justify-between"><span className="text-slate-500">Violation Count</span><span className="font-semibold text-slate-900">{Number(profileStudent.securityViolationCount || 0)}/{Number(profileStudent.securityViolationLimit || 3)}</span></div>
+                  <div className="flex items-center justify-between"><span className="text-slate-500">Payment Reject Count</span><span className="font-semibold text-slate-900">{Number(profileStudent.paymentRejectCount || 0)}/{Number(profileStudent.paymentRejectLimit || 3)}</span></div>
+                  <div className="flex items-center justify-between"><span className="text-slate-500">Payment Approval Block</span><span className={`font-semibold ${profileStudent.paymentApprovalBlocked ? "text-rose-700" : "text-emerald-700"}`}>{profileStudent.paymentApprovalBlocked ? "Blocked" : "Active"}</span></div>
+                  <div className="flex items-center justify-between"><span className="text-slate-500">Payment Blocked At</span><span className="font-semibold text-slate-900">{profileStudent.paymentApprovalBlockedAt ? formatDate(profileStudent.paymentApprovalBlockedAt) : "N/A"}</span></div>
+                  <div className="flex items-center justify-between"><span className="text-slate-500">Payment Lock Reason</span><span className="font-semibold text-slate-900">{profileStudent.paymentApprovalBlockReason || "N/A"}</span></div>
                   <div className="flex items-center justify-between"><span className="text-slate-500">Last Violation</span><span className="font-semibold text-slate-900">{profileStudent.lastSecurityViolationReason || "N/A"}</span></div>
                   <div className="flex items-center justify-between"><span className="text-slate-500">Last Violation At</span><span className="font-semibold text-slate-900">{profileStudent.lastSecurityViolationAt ? formatDate(profileStudent.lastSecurityViolationAt) : "N/A"}</span></div>
                   <div className="flex items-center justify-between"><span className="text-slate-500">Deactivated At</span><span className="font-semibold text-slate-900">{profileStudent.securityDeactivatedAt ? formatDate(profileStudent.securityDeactivatedAt) : "N/A"}</span></div>
@@ -1440,7 +1563,21 @@ function Students() {
                     ))}
                   </div>
                 ) : null}
-                <button type="button" onClick={() => openReset(profileStudent)} className="mt-4 rounded-full bg-primary px-4 py-2 text-sm font-semibold text-white">Reset Device</button>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <button type="button" onClick={() => openReset(profileStudent)} className="rounded-full bg-primary px-4 py-2 text-sm font-semibold text-white">Reset Device</button>
+                  {(profileStudent.paymentApprovalBlocked ||
+                    Number(profileStudent.paymentRejectCount || 0) >=
+                      Number(profileStudent.paymentRejectLimit || 3)) && (
+                    <button
+                      type="button"
+                      onClick={() => openPaymentReset(profileStudent)}
+                      className="inline-flex items-center gap-2 rounded-full bg-blue-600 px-4 py-2 text-sm font-semibold text-white"
+                    >
+                      <FiRotateCcw className="h-4 w-4" />
+                      Reset Payment Lock
+                    </button>
+                  )}
+                </div>
               </div>
             </motion.aside>
           </div>

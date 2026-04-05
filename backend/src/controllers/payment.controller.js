@@ -190,6 +190,9 @@ const getStudentIdentity = async (uid) => {
     fullName:
       studentData.fullName ||
       (userData.email ? userData.email.split("@")[0] : "Student"),
+    paymentRejectCount: toNumber(userData.paymentRejectCount, 0),
+    paymentRejectLimit: Math.max(1, toNumber(userData.paymentRejectLimit, 3)),
+    paymentApprovalBlocked: Boolean(userData.paymentApprovalBlocked),
   };
 };
 
@@ -405,8 +408,9 @@ const fetchMergedPayments = async () => {
       status: String(item.status || "").toLowerCase() || "pending",
       receiptUrl: item.receiptUrl || null,
       canApprove:
-        normalizePaymentStatus(item.status) === "pending_verification" &&
-        Boolean(String(item.receiptUrl || "").trim()),
+        ["pending", "pending_verification"].includes(
+          normalizePaymentStatus(item.status)
+        ) && Boolean(String(item.receiptUrl || "").trim()),
       isAwaitingReceipt:
         normalizePaymentStatus(item.status) === "pending" &&
         !String(item.receiptUrl || "").trim(),
@@ -689,6 +693,18 @@ export const initiatePayment = async (req, res) => {
     ]);
 
     if (!student) return errorResponse(res, "Student profile not found", 404);
+    if (student.paymentApprovalBlocked) {
+      return errorResponse(
+        res,
+        "Payment requests are blocked after 3 rejected receipts. Contact admin to reset.",
+        403,
+        {
+          code: "PAYMENT_APPROVAL_BLOCKED",
+          rejectCount: student.paymentRejectCount,
+          rejectLimit: student.paymentRejectLimit,
+        }
+      );
+    }
     if (!course) return errorResponse(res, "Course not found", 404);
     if (!classData) return errorResponse(res, "Class not found", 404);
 
@@ -949,6 +965,20 @@ export const uploadPaymentReceipt = async (req, res) => {
     const payment = paymentSnap.data() || {};
     if (payment.studentId !== req.user.uid) {
       return errorResponse(res, "You can upload receipt for your own payment only", 403);
+    }
+    const userSnap = await db.collection(COLLECTIONS.USERS).doc(req.user.uid).get();
+    const userData = userSnap.exists ? userSnap.data() || {} : {};
+    if (userData.paymentApprovalBlocked) {
+      return errorResponse(
+        res,
+        "Payment approvals are blocked after 3 rejected receipts. Contact admin to reset.",
+        403,
+        {
+          code: "PAYMENT_APPROVAL_BLOCKED",
+          rejectCount: Number(userData.paymentRejectCount || 0),
+          rejectLimit: Number(userData.paymentRejectLimit || 3),
+        }
+      );
     }
     const paymentMethod = String(payment.method || "").toLowerCase();
     const supportedReceiptMethods = new Set([
@@ -1301,6 +1331,9 @@ export const verifyBankTransfer = async (req, res) => {
     const paymentId = req.params.id || req.params.paymentId;
     const action = String(req.body?.action || "").trim().toLowerCase();
 
+    if (!paymentId) {
+      return errorResponse(res, "paymentId is required", 400);
+    }
     if (!["approve", "reject"].includes(action)) {
       return errorResponse(res, "Action must be approve or reject", 400);
     }
@@ -1310,9 +1343,14 @@ export const verifyBankTransfer = async (req, res) => {
     if (!paymentSnap.exists) return errorResponse(res, "Payment not found", 404);
 
     const payment = paymentSnap.data() || {};
+    const paymentStudentId = String(
+      payment.studentId || payment.uid || payment.userId || ""
+    ).trim();
+    const paymentCourseId = String(payment.courseId || "").trim();
+    const paymentClassId = String(payment.classId || "").trim();
     const currentStatus = normalizePaymentStatus(payment.status);
     const canRejectStatuses = new Set(["pending", "pending_verification"]);
-    const canApproveStatuses = new Set(["pending_verification"]);
+    const canApproveStatuses = new Set(["pending", "pending_verification"]);
     const hasReceipt = Boolean(String(payment.receiptUrl || "").trim());
 
     if (action === "approve" && !hasReceipt) {
@@ -1321,6 +1359,22 @@ export const verifyBankTransfer = async (req, res) => {
         "Receipt is required before approval. Ask student to upload receipt first.",
         400,
         { code: "RECEIPT_REQUIRED" }
+      );
+    }
+    if (action === "approve" && !paymentStudentId) {
+      return errorResponse(
+        res,
+        "Payment record is missing studentId. Please recreate payment request.",
+        400,
+        { code: "STUDENT_REQUIRED" }
+      );
+    }
+    if (action === "approve" && !paymentCourseId && !paymentClassId) {
+      return errorResponse(
+        res,
+        "Payment is missing class/course reference. Please recreate payment request.",
+        400,
+        { code: "COURSE_OR_CLASS_REQUIRED" }
       );
     }
 
@@ -1361,17 +1415,47 @@ export const verifyBankTransfer = async (req, res) => {
       );
     }
 
-    const studentUserSnap = await db.collection(COLLECTIONS.USERS).doc(payment.studentId).get();
-    const studentUser = studentUserSnap.exists ? studentUserSnap.data() || {} : {};
+    const studentUserSnap = paymentStudentId
+      ? await db.collection(COLLECTIONS.USERS).doc(paymentStudentId).get()
+      : null;
+    const studentUser = studentUserSnap?.exists ? studentUserSnap.data() || {} : {};
     const studentEmail = studentUser.email || "";
 
     if (action === "reject") {
+      const currentRejectCount = toNumber(studentUser?.paymentRejectCount, 0);
+      const rejectLimit = Math.max(1, toNumber(studentUser?.paymentRejectLimit, 3));
+      const nextRejectCount = currentRejectCount + 1;
+      const shouldBlockApprovals = nextRejectCount >= rejectLimit;
+
       await paymentRef.update({
         status: "rejected",
-        verifiedBy: req.user.uid,
+        verifiedBy: req.user?.uid || null,
         verifiedAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
       });
+      if (paymentStudentId) {
+        await db
+          .collection(COLLECTIONS.USERS)
+          .doc(paymentStudentId)
+          .set(
+            {
+              paymentRejectCount: nextRejectCount,
+              paymentRejectLimit: rejectLimit,
+              paymentApprovalBlocked: shouldBlockApprovals,
+              paymentApprovalBlockedAt: shouldBlockApprovals
+                ? FieldValue.serverTimestamp()
+                : null,
+              paymentApprovalBlockedBy: shouldBlockApprovals
+                ? req.user?.uid || null
+                : null,
+              paymentApprovalBlockReason: shouldBlockApprovals
+                ? "3 rejected payment receipts"
+                : null,
+              updatedAt: FieldValue.serverTimestamp(),
+            },
+            { merge: true }
+          );
+      }
 
       try {
         await sendPaymentRejected(
@@ -1385,31 +1469,60 @@ export const verifyBankTransfer = async (req, res) => {
         console.error("sendPaymentRejected error:", emailError.message);
       }
 
-      return successResponse(res, { paymentId, status: "rejected" }, "Payment rejected");
+      return successResponse(
+        res,
+        {
+          paymentId,
+          status: "rejected",
+          paymentRejectCount: nextRejectCount,
+          paymentRejectLimit: rejectLimit,
+          paymentApprovalBlocked: shouldBlockApprovals,
+        },
+        shouldBlockApprovals
+          ? "Payment rejected. Student reached reject limit and payment approvals are now blocked."
+          : "Payment rejected"
+      );
     }
 
+    let paidByConcurrentRequest = false;
     await db.runTransaction(async (transaction) => {
       const freshSnap = await transaction.get(paymentRef);
       if (!freshSnap.exists) throw new Error("PAYMENT_NOT_FOUND");
       const freshPayment = freshSnap.data() || {};
       const freshStatus = normalizePaymentStatus(freshPayment.status);
-      if (freshStatus !== "pending_verification") {
-        throw new Error("RECEIPT_NOT_UPLOADED");
+      const freshStudentId = String(
+        freshPayment.studentId || freshPayment.uid || freshPayment.userId || ""
+      ).trim();
+      const freshCourseId = String(freshPayment.courseId || "").trim();
+      const freshClassId = String(freshPayment.classId || "").trim();
+      let effectiveShiftId = String(freshPayment.shiftId || "").trim();
+
+      if (freshStatus === "paid") {
+        paidByConcurrentRequest = true;
+        return;
+      }
+      if (!["pending", "pending_verification"].includes(freshStatus)) {
+        throw new Error("INVALID_PAYMENT_STATE");
+      }
+      if (!freshStudentId) {
+        throw new Error("STUDENT_REQUIRED");
+      }
+      if (!freshClassId && !freshCourseId) {
+        throw new Error("COURSE_OR_CLASS_REQUIRED");
       }
       if (!String(freshPayment.receiptUrl || "").trim()) {
         throw new Error("RECEIPT_REQUIRED");
       }
-      if (!freshPayment.classId) {
-        throw new Error("CLASS_REQUIRED");
-      }
+
       let classData = null;
       let classRef = null;
       let normalizedClassStudents = [];
       let studentAlreadyInClass = false;
       let enrollmentStatus = "active";
       let selectedShift = null;
-      if (freshPayment.classId) {
-        classRef = db.collection(COLLECTIONS.CLASSES).doc(freshPayment.classId);
+
+      if (freshClassId) {
+        classRef = db.collection(COLLECTIONS.CLASSES).doc(freshClassId);
         const classSnap = await transaction.get(classRef);
         if (!classSnap.exists) throw new Error("CLASS_NOT_FOUND");
         classData = classSnap.data() || {};
@@ -1418,16 +1531,20 @@ export const verifyBankTransfer = async (req, res) => {
       if (enrollmentStatus === "completed") {
         throw new Error("CLASS_ENDED");
       }
-      if (classData && freshPayment.shiftId) {
+
+      if (classData && effectiveShiftId) {
         const classShiftValidation = validateClassShiftSelection({
           classData,
-          shiftId: freshPayment.shiftId,
-          courseId: freshPayment.courseId,
+          shiftId: effectiveShiftId,
+          courseId: freshCourseId,
         });
-        if (classShiftValidation.error) {
-          throw new Error("CLASS_SHIFT_COURSE_MISMATCH");
+        if (!classShiftValidation.error) {
+          selectedShift = classShiftValidation.shift || null;
+        } else {
+          // Keep manual approval working for legacy records if shift changed later.
+          effectiveShiftId = "";
+          selectedShift = null;
         }
-        selectedShift = classShiftValidation.shift || null;
       }
 
       if (classData) {
@@ -1435,7 +1552,7 @@ export const verifyBankTransfer = async (req, res) => {
           Array.isArray(classData.students) ? classData.students : []
         );
         studentAlreadyInClass = normalizedClassStudents.some(
-          (entry) => entry.studentId === freshPayment.studentId
+          (entry) => entry.studentId === freshStudentId
         );
         const classCapacity = Math.max(toNumber(classData.capacity), 0);
         if (
@@ -1447,14 +1564,9 @@ export const verifyBankTransfer = async (req, res) => {
         }
       }
 
-      const classCourseIds = classData
-        ? getClassAssignedCourseIds(classData)
-        : [];
-      if (freshPayment.courseId && !classCourseIds.includes(freshPayment.courseId)) {
-        throw new Error("CLASS_SHIFT_COURSE_MISMATCH");
-      }
+      const classCourseIds = classData ? getClassAssignedCourseIds(classData) : [];
       const enrollmentCourseIds = [
-        ...new Set([...classCourseIds, String(freshPayment.courseId || "").trim()].filter(Boolean)),
+        ...new Set([...classCourseIds, freshCourseId].filter(Boolean)),
       ];
       if (!enrollmentCourseIds.length) {
         throw new Error("CLASS_HAS_NO_COURSES");
@@ -1462,16 +1574,18 @@ export const verifyBankTransfer = async (req, res) => {
 
       transaction.update(paymentRef, {
         status: "paid",
-        verifiedBy: req.user.uid,
+        verifiedBy: req.user?.uid || null,
         verifiedAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
+        classId: freshClassId || null,
+        shiftId: effectiveShiftId || null,
       });
 
       const enrollmentQuery = db
         .collection(COLLECTIONS.ENROLLMENTS)
-        .where("studentId", "==", freshPayment.studentId);
+        .where("studentId", "==", freshStudentId);
       const enrollmentSnap = await transaction.get(enrollmentQuery);
-      const studentRef = db.collection(COLLECTIONS.STUDENTS).doc(freshPayment.studentId);
+      const studentRef = db.collection(COLLECTIONS.STUDENTS).doc(freshStudentId);
       const existingEnrollmentRows = enrollmentSnap.docs.map((doc) => ({
         ref: doc.ref,
         data: doc.data() || {},
@@ -1483,18 +1597,18 @@ export const verifyBankTransfer = async (req, res) => {
           const existingClassId = String(row.data?.classId || "").trim();
           return (
             existingCourseId === courseId &&
-            existingClassId === String(freshPayment.classId || "").trim()
+            existingClassId === freshClassId
           );
         });
 
         if (!existingEnrollment) {
           const enrollmentRef = db.collection(COLLECTIONS.ENROLLMENTS).doc();
           transaction.set(enrollmentRef, {
-            studentId: freshPayment.studentId,
+            studentId: freshStudentId,
             courseId,
             paymentId,
-            classId: freshPayment.classId || null,
-            shiftId: freshPayment.shiftId || null,
+            classId: freshClassId || null,
+            shiftId: effectiveShiftId || null,
             status: enrollmentStatus,
             progress: 0,
             completedAt: null,
@@ -1524,8 +1638,8 @@ export const verifyBankTransfer = async (req, res) => {
         transaction.set(
           existingEnrollment.ref,
           {
-            classId: freshPayment.classId || null,
-            shiftId: freshPayment.shiftId || null,
+            classId: freshClassId || null,
+            shiftId: effectiveShiftId || null,
             status: mergedStatus,
             classStartDate: classData?.startDate || null,
             classEndDate: classData?.endDate || null,
@@ -1542,14 +1656,10 @@ export const verifyBankTransfer = async (req, res) => {
       if (enrollmentCourseIds.length) {
         studentUpdates.enrolledCourses = FieldValue.arrayUnion(...enrollmentCourseIds);
       }
-      if (freshPayment.classId) {
-        studentUpdates.enrolledClasses = FieldValue.arrayUnion(freshPayment.classId);
+      if (freshClassId) {
+        studentUpdates.enrolledClasses = FieldValue.arrayUnion(freshClassId);
       }
-      transaction.set(
-        studentRef,
-        studentUpdates,
-        { merge: true }
-      );
+      transaction.set(studentRef, studentUpdates, { merge: true });
 
       if (freshPayment.promoCodeId) {
         const promoRef = db.collection(COLLECTIONS.PROMO_CODES).doc(freshPayment.promoCodeId);
@@ -1570,11 +1680,12 @@ export const verifyBankTransfer = async (req, res) => {
 
       if (classRef && classData && !studentAlreadyInClass) {
         normalizedClassStudents.push({
-          studentId: freshPayment.studentId,
-          shiftId: freshPayment.shiftId || "",
+          studentId: freshStudentId,
+          shiftId: effectiveShiftId || "",
           courseId:
             String(selectedShift?.courseId || "").trim() ||
-            freshPayment.courseId ||
+            freshCourseId ||
+            classCourseIds[0] ||
             "",
           enrolledAt: new Date().toISOString(),
         });
@@ -1585,6 +1696,10 @@ export const verifyBankTransfer = async (req, res) => {
         });
       }
     });
+
+    if (paidByConcurrentRequest) {
+      return successResponse(res, { paymentId, status: "paid" }, "Payment already approved");
+    }
 
     let installmentPlanId = null;
     if (payment.isInstallment && Array.isArray(payment.installments) && payment.installments.length > 0) {
@@ -1669,10 +1784,24 @@ export const verifyBankTransfer = async (req, res) => {
         400
       );
     }
-    if (error?.message === "CLASS_REQUIRED") {
+    if (error?.message === "COURSE_OR_CLASS_REQUIRED") {
       return errorResponse(
         res,
-        "Class-based enrollment is required. Payment must be linked to a class.",
+        "Payment must include at least one of classId or courseId.",
+        400
+      );
+    }
+    if (error?.message === "STUDENT_REQUIRED") {
+      return errorResponse(
+        res,
+        "Payment record is missing studentId. Please recreate payment request.",
+        400
+      );
+    }
+    if (error?.message === "INVALID_PAYMENT_STATE") {
+      return errorResponse(
+        res,
+        "Only pending or receipt-submitted payments can be approved.",
         400
       );
     }
@@ -1695,7 +1824,7 @@ export const verifyBankTransfer = async (req, res) => {
     if (error?.message === "CLASS_HAS_NO_COURSES") {
       return errorResponse(
         res,
-        "Cannot approve payment because this class has no assigned courses.",
+        "Cannot approve payment because no course is linked to this payment/class.",
         400
       );
     }
