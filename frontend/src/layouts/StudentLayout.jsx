@@ -6,7 +6,6 @@ import {
   FiAward,
   FiBell,
   FiBookOpen,
-  FiCalendar,
   FiClipboard,
   FiCompass,
   FiCreditCard,
@@ -32,7 +31,6 @@ const navItems = [
   { label: "Quizzes", to: "/student/quizzes", icon: "clipboard" },
   { label: "Payments", to: "/student/payments", icon: "credit" },
   { label: "Announcements", to: "/student/announcements", icon: "bell" },
-  { label: "Attendance", to: "/student/attendance", icon: "calendar" },
   { label: "Help & Support", to: "/student/help", icon: "help" },
   { label: "Settings", to: "/student/settings", icon: "settings" },
 ];
@@ -53,7 +51,6 @@ const iconMap = {
   clipboard: <FiClipboard className="h-4 w-4" />,
   credit: <FiCreditCard className="h-4 w-4" />,
   bell: <FiBell className="h-4 w-4" />,
-  calendar: <FiCalendar className="h-4 w-4" />,
   help: <FiHelpCircle className="h-4 w-4" />,
   settings: <FiSettings className="h-4 w-4" />,
   user: <FiUser className="h-4 w-4" />,

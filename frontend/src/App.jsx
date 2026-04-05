@@ -28,6 +28,7 @@ import Certificates from "./pages/admin/Certificates.jsx";
 import Announcements from "./pages/admin/Announcements.jsx";
 import SupportInbox from "./pages/admin/SupportInbox.jsx";
 import SiteSettings from "./pages/admin/SiteSettings.jsx";
+import AdminVideos from "./pages/admin/Videos.jsx";
 import TeacherDashboard from "./pages/teacher/Dashboard.jsx";
 import TeacherLayout from "./layouts/TeacherLayout.jsx";
 import TeacherMyCourses from "./pages/teacher/MyCourses.jsx";
@@ -49,7 +50,6 @@ import StudentQuizzes from "./pages/student/Quizzes.jsx";
 import StudentQuizAttempt from "./pages/student/QuizAttempt.jsx";
 import StudentPayments from "./pages/student/Payments.jsx";
 import StudentAnnouncements from "./pages/student/Announcements.jsx";
-import StudentAttendance from "./pages/student/Attendance.jsx";
 import StudentHelpSupport from "./pages/student/HelpSupport.jsx";
 import StudentSettings from "./pages/student/Settings.jsx";
 import StudentCheckout from "./pages/student/Checkout.jsx";
@@ -322,6 +322,7 @@ function AppLayout({ showComingSoon }) {
           <Route path="teachers" element={<AdminTeachers />} />
           <Route path="students" element={<Students />} />
           <Route path="classes" element={<Classes />} />
+          <Route path="videos" element={<AdminVideos />} />
           <Route path="quizzes" element={<TeacherQuizzes />} />
           <Route path="quizzes/my" element={<TeacherMyQuizzes />} />
           <Route
@@ -393,7 +394,6 @@ function AppLayout({ showComingSoon }) {
           <Route path="payments" element={<StudentPayments />} />
           <Route path="announcements" element={<StudentAnnouncements />} />
           <Route path="notifications" element={<NotificationsPage />} />
-          <Route path="attendance" element={<StudentAttendance />} />
           <Route path="help" element={<StudentHelpSupport />} />
           <Route path="settings" element={<StudentSettings />} />
         </Route>

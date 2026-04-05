@@ -6,6 +6,9 @@ export const getTeacherDashboard = () =>
 export const getTeacherCourses = () =>
   api.get("/teacher/courses").then((r) => r.data.data);
 
+export const getTeacherVideos = () =>
+  api.get("/teacher/videos").then((r) => r.data.data || []);
+
 export const getTeacherCourseById = (courseId) =>
   api.get(`/teacher/courses/${courseId}`).then((r) => r.data.data);
 

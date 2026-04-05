@@ -409,6 +409,7 @@ export const getTeacherDashboard = async (req, res) => {
 };
 
 const VIDEO_ACCESS_COLLECTION = "videoAccess";
+const VIDEO_LIBRARY_COLLECTION = COLLECTIONS.VIDEOS || "videos";
 const COURSE_STATUSES = new Set(["draft", "published", "archived"]);
 const COURSE_MUTABLE_FIELDS = new Set([
   "title",
@@ -427,6 +428,9 @@ const LECTURE_MUTABLE_FIELDS = new Set([
   "order",
   "videoUrl",
   "videoTitle",
+  "videoId",
+  "videoMode",
+  "isLiveSession",
   "videoDuration",
   "pdfNotes",
   "books",
@@ -713,6 +717,9 @@ const serializeLecture = (id, data = {}) => ({
   order: toPositiveNumber(data.order, 1),
   videoUrl: data.videoUrl || null,
   videoTitle: data.videoTitle || null,
+  videoId: data.videoId || null,
+  videoMode: trimText(data.videoMode) || "recorded",
+  isLiveSession: Boolean(data.isLiveSession),
   videoDuration:
     data.videoDuration === null || data.videoDuration === undefined
       ? null
@@ -998,6 +1005,91 @@ const getLectureWithAssignedSubject = async (lectureId, uid) => {
   };
 };
 
+const normalizeVideoLibraryRow = (id, data = {}) => ({
+  id,
+  title: trimText(data.title) || "Untitled Video",
+  url: trimText(data.url),
+  courseId: trimText(data.courseId),
+  courseName: trimText(data.courseName),
+  teacherId: trimText(data.teacherId),
+  teacherName: trimText(data.teacherName) || "Teacher",
+  isActive: data.isActive !== false,
+  createdAt: toIso(data.createdAt),
+  updatedAt: toIso(data.updatedAt),
+});
+
+const getVideoLibraryEntry = async (videoId) => {
+  const cleanVideoId = trimText(videoId);
+  if (!cleanVideoId) return null;
+  const snap = await db.collection(VIDEO_LIBRARY_COLLECTION).doc(cleanVideoId).get();
+  if (!snap.exists) return null;
+  return { id: snap.id, ...(snap.data() || {}) };
+};
+
+const getCourseVideoCount = async (courseId, ignoreLectureId = "") => {
+  const cleanCourseId = trimText(courseId);
+  if (!cleanCourseId) return 0;
+  const snap = await db.collection(COLLECTIONS.LECTURES).where("courseId", "==", cleanCourseId).get();
+  const ignored = trimText(ignoreLectureId);
+  return snap.docs.filter((doc) => {
+    if (ignored && doc.id === ignored) return false;
+    const data = doc.data() || {};
+    return Boolean(trimText(data.videoUrl));
+  }).length;
+};
+
+const resolveLectureVideoMeta = async ({
+  courseId,
+  lectureId,
+  currentLectureData = {},
+  requestedVideoId = "",
+  requestedTitle = "",
+  requestedUrl = "",
+}) => {
+  const cleanVideoId = trimText(requestedVideoId);
+  let sourceTitle = trimText(requestedTitle);
+  let sourceUrl = trimText(requestedUrl);
+
+  if (cleanVideoId) {
+    const videoRow = await getVideoLibraryEntry(cleanVideoId);
+    if (!videoRow || videoRow.isActive === false) {
+      return { error: "Video library item not found", status: 404 };
+    }
+    sourceUrl = trimText(videoRow.url);
+    if (!sourceUrl) {
+      return { error: "Selected video has no URL", status: 400 };
+    }
+    sourceTitle = trimText(videoRow.title) || sourceTitle;
+  }
+
+  if (!sourceUrl) {
+    return { error: "Video url is required", status: 400 };
+  }
+
+  const existingVideoUrl = trimText(currentLectureData.videoUrl);
+  const hasExistingVideo = Boolean(existingVideoUrl);
+  const existingMode = trimText(currentLectureData.videoMode).toLowerCase();
+  const existingLive = Boolean(currentLectureData.isLiveSession);
+  let videoMode = existingMode || "recorded";
+  let isLiveSession = existingLive;
+
+  if (!hasExistingVideo) {
+    const existingCourseVideoCount = await getCourseVideoCount(courseId, lectureId);
+    const isFirstCourseVideo = existingCourseVideoCount < 1;
+    videoMode = isFirstCourseVideo ? "live_session" : "recorded";
+    isLiveSession = isFirstCourseVideo;
+  }
+
+  return {
+    videoId: cleanVideoId || null,
+    videoTitle: sourceTitle || null,
+    videoUrl: sourceUrl,
+    videoMode,
+    isLiveSession,
+    isFirstLiveSession: Boolean(!hasExistingVideo && isLiveSession),
+  };
+};
+
 export const getTeacherCourses = async (req, res) => {
   try {
     const uid = req.user?.uid;
@@ -1131,6 +1223,49 @@ export const getTeacherCourses = async (req, res) => {
   } catch (error) {
     console.error("getTeacherCourses error:", error);
     return errorResponse(res, "Failed to fetch teacher courses", 500);
+  }
+};
+
+export const getTeacherVideoLibrary = async (req, res) => {
+  try {
+    const uid = trimText(req.user?.uid);
+    const role = lowerText(req.user?.role);
+    if (!uid) return errorResponse(res, "Missing user uid", 400);
+
+    let videos = [];
+    try {
+      const snap = await db
+        .collection(VIDEO_LIBRARY_COLLECTION)
+        .orderBy("createdAt", "desc")
+        .get();
+      videos = snap.docs.map((doc) => ({ id: doc.id, ...(doc.data() || {}) }));
+    } catch {
+      const fallback = await db.collection(VIDEO_LIBRARY_COLLECTION).get();
+      videos = fallback.docs.map((doc) => ({ id: doc.id, ...(doc.data() || {}) }));
+      videos.sort(
+        (a, b) =>
+          (toDate(b.createdAt)?.getTime() || 0) - (toDate(a.createdAt)?.getTime() || 0)
+      );
+    }
+
+    let allowedCourseIds = new Set();
+    if (role === "teacher") {
+      const assignedCourses = await getTeacherAssignedCourses(uid);
+      allowedCourseIds = new Set(assignedCourses.map((row) => trimText(row.id)).filter(Boolean));
+    }
+
+    const payload = videos
+      .map((row) => normalizeVideoLibraryRow(row.id, row))
+      .filter((row) => row.isActive)
+      .filter((row) => {
+        if (role === "admin") return true;
+        return row.teacherId === uid || allowedCourseIds.has(row.courseId);
+      });
+
+    return successResponse(res, payload, "Video library fetched");
+  } catch (error) {
+    console.error("getTeacherVideoLibrary error:", error);
+    return errorResponse(res, "Failed to fetch video library", 500);
   }
 };
 
@@ -1543,7 +1678,7 @@ export const saveLectureContent = async (req, res) => {
   try {
     const uid = req.user?.uid;
     const lectureId = trimText(req.params?.lectureId);
-    const { type, title, url, size = 0, duration } = req.body || {};
+    const { type, title, url, size = 0, duration, videoId } = req.body || {};
     if (!uid) return errorResponse(res, "Missing teacher uid", 400);
     if (!lectureId) return errorResponse(res, "lectureId is required", 400);
 
@@ -1557,14 +1692,27 @@ export const saveLectureContent = async (req, res) => {
 
     const currentData = linked.lectureSnap.data() || {};
     const updates = {};
+    let firstLiveSession = false;
 
     if (normalizedType === "video") {
-      if (!trimText(url)) {
-        return errorResponse(res, "Video url is required", 400);
+      const resolvedVideo = await resolveLectureVideoMeta({
+        courseId: trimText(linked.lectureData.courseId),
+        lectureId,
+        currentLectureData: currentData,
+        requestedVideoId: videoId,
+        requestedTitle: title,
+        requestedUrl: url,
+      });
+      if (resolvedVideo.error) {
+        return errorResponse(res, resolvedVideo.error, resolvedVideo.status || 400);
       }
-      updates.videoUrl = trimText(url);
-      updates.videoTitle = trimText(title) || null;
+      updates.videoId = resolvedVideo.videoId || null;
+      updates.videoUrl = resolvedVideo.videoUrl;
+      updates.videoTitle = resolvedVideo.videoTitle;
+      updates.videoMode = resolvedVideo.videoMode;
+      updates.isLiveSession = resolvedVideo.isLiveSession;
       updates.videoDuration = duration ?? "";
+      firstLiveSession = Boolean(resolvedVideo.isFirstLiveSession);
     }
 
     if (normalizedType === "pdf" || normalizedType === "book") {
@@ -1597,8 +1745,13 @@ export const saveLectureContent = async (req, res) => {
     const updatedSnap = await linked.lectureRef.get();
     return successResponse(
       res,
-      serializeLecture(lectureId, updatedSnap.data() || {}),
-      "Lecture content saved"
+      {
+        ...serializeLecture(lectureId, updatedSnap.data() || {}),
+        isFirstLiveSession: firstLiveSession,
+      },
+      firstLiveSession
+        ? "Lecture content saved. First course video marked as live session."
+        : "Lecture content saved"
     );
   } catch (error) {
     console.error("saveLectureContent error:", error);
@@ -1628,6 +1781,9 @@ export const deleteLectureContent = async (req, res) => {
     if (normalizedType === "video") {
       updates.videoUrl = null;
       updates.videoTitle = null;
+      updates.videoId = null;
+      updates.videoMode = "recorded";
+      updates.isLiveSession = false;
       updates.videoDuration = null;
     }
 

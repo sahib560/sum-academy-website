@@ -174,6 +174,124 @@ const getEnrolledCourseIds = async (studentId, studentData = {}) => {
   return [...new Set([...profileCourseIds, ...enrollmentCourseIds, ...classCourseIds])];
 };
 
+const getClassStatus = (classData = {}) => {
+  const explicit = String(classData.status || "").trim().toLowerCase();
+  if (explicit) return explicit;
+  const start = parseDate(classData.startDate);
+  const end = parseDate(classData.endDate);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  if (start) {
+    const startDay = new Date(start);
+    startDay.setHours(0, 0, 0, 0);
+    if (today.getTime() < startDay.getTime()) return "upcoming";
+  }
+  if (end) {
+    const endDay = new Date(end);
+    endDay.setHours(0, 0, 0, 0);
+    if (today.getTime() > endDay.getTime()) return "completed";
+  }
+  return "active";
+};
+
+const getClassCompletionStateForStudent = ({
+  studentId = "",
+  classData = {},
+  enrollmentRows = [],
+  progressRows = [],
+}) => {
+  const cleanStudentId = String(studentId || "").trim();
+  const classId = String(classData.id || "").trim();
+  const classCourseIds = getClassDerivedCourseIdsForStudent(classData, cleanStudentId);
+  const enrollmentCourseIds = enrollmentRows
+    .filter((row) => String(row.classId || "").trim() === classId)
+    .map((row) => String(row.courseId || "").trim())
+    .filter(Boolean);
+  const courseIds = [...new Set([...classCourseIds, ...enrollmentCourseIds])];
+
+  const courseStates = courseIds.map((courseId) => {
+    const enrollment = enrollmentRows.find(
+      (row) =>
+        String(row.courseId || "").trim() === courseId &&
+        (!String(row.classId || "").trim() || String(row.classId || "").trim() === classId)
+    );
+    const progressRow = progressRows.find(
+      (row) => String(row.courseId || "").trim() === courseId
+    );
+    const progressValue = Number(
+      progressRow?.progress ??
+        progressRow?.progressPercent ??
+        progressRow?.completionPercent ??
+        enrollment?.progress ??
+        0
+    );
+    const completed =
+      progressValue >= 100 ||
+      Boolean(progressRow?.completedAt) ||
+      Boolean(enrollment?.completedAt) ||
+      String(enrollment?.status || "").trim().toLowerCase() === "completed";
+    return { courseId, completed };
+  });
+
+  const allCoursesCompleted =
+    courseStates.length > 0 && courseStates.every((row) => row.completed);
+  const status = getClassStatus(classData);
+  const manualCompleted =
+    String(classData.completionStatus || "").trim().toLowerCase() === "completed" ||
+    String(classData.status || "").trim().toLowerCase() === "completed" ||
+    Boolean(classData.completedByTeacher) ||
+    Boolean(classData.isCompleted);
+  const endedByDate = status === "completed";
+  const completed = manualCompleted || endedByDate || allCoursesCompleted;
+
+  return {
+    classId,
+    courseIds,
+    completed,
+  };
+};
+
+const checkCertificateWindowOpen = async ({ studentId, courseId }) => {
+  const cleanStudentId = String(studentId || "").trim();
+  const cleanCourseId = String(courseId || "").trim();
+  if (!cleanStudentId || !cleanCourseId) return { eligible: true, hasClassContext: false };
+
+  const [classesSnap, enrollmentSnap, progressSnap] = await Promise.all([
+    db.collection(COLLECTIONS.CLASSES).get(),
+    db.collection(COLLECTIONS.ENROLLMENTS).where("studentId", "==", cleanStudentId).get(),
+    db.collection(COLLECTIONS.PROGRESS).where("studentId", "==", cleanStudentId).get(),
+  ]);
+
+  const enrollmentRows = enrollmentSnap.docs.map((doc) => doc.data() || {});
+  const progressRows = progressSnap.docs.map((doc) => doc.data() || {});
+  const matchingClasses = classesSnap.docs
+    .map((doc) => ({ id: doc.id, ...(doc.data() || {}) }))
+    .filter((row) =>
+      getClassDerivedCourseIdsForStudent(row, cleanStudentId).includes(cleanCourseId)
+    );
+
+  if (!matchingClasses.length) {
+    return { eligible: true, hasClassContext: false };
+  }
+
+  const contexts = matchingClasses.map((row) =>
+    getClassCompletionStateForStudent({
+      studentId: cleanStudentId,
+      classData: row,
+      enrollmentRows,
+      progressRows,
+    })
+  );
+  const eligible = contexts.some((row) => row.completed);
+
+  return {
+    eligible,
+    hasClassContext: true,
+    classCount: contexts.length,
+  };
+};
+
 const syncCertificateRefToStudent = async ({
   studentId,
   certId,
@@ -311,6 +429,22 @@ export const generateCertificate = async (req, res) => {
           requiresConfirmation: true,
           canOverride: true,
           progressPercent: Number(progress?.progressValue || 0),
+        }
+      );
+    }
+
+    const classWindow = await checkCertificateWindowOpen({ studentId, courseId });
+    if (!classWindow.eligible && !allowIncompleteOverride) {
+      return errorResponse(
+        res,
+        "Certificate will be available after class completion, class end date, or teacher completion mark.",
+        409,
+        {
+          code: "CLASS_NOT_COMPLETED",
+          requiresConfirmation: true,
+          canOverride: true,
+          hasClassContext: classWindow.hasClassContext,
+          classCount: Number(classWindow.classCount || 0),
         }
       );
     }

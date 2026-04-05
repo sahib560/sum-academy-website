@@ -11,7 +11,6 @@ import {
   submitQuizAttempt,
   getStudentAnnouncements,
   markAnnouncementRead,
-  getStudentAttendance,
   reportSecurityViolation,
   submitHelpSupportMessage,
   getStudentSettings,
@@ -35,7 +34,6 @@ router.post("/quizzes/:quizId/submit", submitQuizAttempt);
 router.get("/announcements", getStudentAnnouncements);
 router.patch("/announcements/:id/read", markAnnouncementRead);
 
-router.get("/attendance", getStudentAttendance);
 router.post("/security/violations", reportSecurityViolation);
 router.post("/help-support", submitHelpSupportMessage);
 

@@ -21,6 +21,7 @@ import {
 import {
   getTeacherDashboard,
   getTeacherCourses,
+  getTeacherVideoLibrary,
   getTeacherCourseById,
   getChapters,
   addChapterToCourse,
@@ -63,6 +64,7 @@ router.use(verifyToken, requireRole("teacher", "admin"));
 router.get("/dashboard", getTeacherDashboard);
 
 router.get("/courses", getTeacherCourses);
+router.get("/videos", getTeacherVideoLibrary);
 router.get("/courses/:courseId", getTeacherCourseById);
 
 router.get("/courses/:courseId/subjects/:subjectId/chapters", getChapters);

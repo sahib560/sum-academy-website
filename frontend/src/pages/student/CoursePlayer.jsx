@@ -50,6 +50,7 @@ const getLectureSource = (lecture = {}) =>
 const normalizeProgressPayload = (payload = {}) => {
   const course = payload.course || {};
   const progress = payload.progress || {};
+  const access = payload.access || {};
   const chapters = Array.isArray(payload.chapters) ? payload.chapters : [];
 
   const normalizedChapters = chapters.map((chapter, chapterIndex) => {
@@ -65,6 +66,9 @@ const normalizeProgressPayload = (payload = {}) => {
       streamUrl: lecture.streamUrl || "",
       playbackUrl: lecture.playbackUrl || "",
       videoUrl: lecture.videoUrl || "",
+      videoId: lecture.videoId || "",
+      videoMode: lecture.videoMode || "recorded",
+      isLiveSession: Boolean(lecture.isLiveSession),
       videoTitle: lecture.videoTitle || "",
       pdfNotes: Array.isArray(lecture.pdfNotes) ? lecture.pdfNotes : [],
       books: Array.isArray(lecture.books) ? lecture.books : [],
@@ -98,6 +102,13 @@ const normalizeProgressPayload = (payload = {}) => {
       ),
       totalLectures: toNumber(progress.totalLectures, allLectures.length),
       completionPercent: clamp(toNumber(progress.completionPercent, 0), 0, 100),
+    },
+    access: {
+      hasClassContext: Boolean(access.hasClassContext),
+      isLockedAfterCompletion: Boolean(access.isLockedAfterCompletion),
+      isCompletedWindow: Boolean(access.isCompletedWindow),
+      certificateEligible: access.certificateEligible !== false,
+      classStates: Array.isArray(access.classStates) ? access.classStates : [],
     },
     chapters: normalizedChapters,
     lectures: allLectures,
@@ -160,6 +171,7 @@ function StudentCoursePlayer() {
       ) || null,
     [normalized.lectures, currentLectureId]
   );
+  const classCompletionLocked = Boolean(normalized.access?.isLockedAfterCompletion);
 
   const watchedPercent = useMemo(() => {
     if (duration <= 0) return 0;
@@ -171,12 +183,15 @@ function StudentCoursePlayer() {
     mutationFn: ({ courseId: targetCourseId, lectureId: targetLectureId }) =>
       markLectureComplete(targetCourseId, targetLectureId),
     onSuccess: (result) => {
-      toast.success("Lecture marked as complete");
+      const data = result?.data || result?.data?.data || result || {};
+      if (data?.certificatePending) {
+        toast.success("Lecture completed. Certificate will unlock after class completion.");
+      } else {
+        toast.success("Lecture marked as complete");
+      }
       queryClient.invalidateQueries({ queryKey: ["student-course-progress", courseId] });
       queryClient.invalidateQueries({ queryKey: ["student-courses"] });
       queryClient.invalidateQueries({ queryKey: ["student-dashboard"] });
-
-      const data = result?.data || result?.data?.data || result || {};
       if (data.courseCompleted) {
         setShowCelebration(true);
       }
@@ -341,7 +356,7 @@ function StudentCoursePlayer() {
       setMaxWatchedSeconds(0);
       setIsPlaying(false);
 
-      if (!currentLecture || currentLecture.hasAccess === false) return;
+      if (!currentLecture || currentLecture.hasAccess === false || classCompletionLocked) return;
 
       const secureUrl = getLectureSource(currentLecture);
       if (!secureUrl) return;
@@ -377,7 +392,7 @@ function StudentCoursePlayer() {
       cancelled = true;
       cleanupObjectUrl();
     };
-  }, [currentLecture]);
+  }, [currentLecture, classCompletionLocked]);
 
   const handlePlayPause = async () => {
     const video = videoRef.current;
@@ -438,6 +453,10 @@ function StudentCoursePlayer() {
       toast.error("Video is locked due to security violations.");
       return;
     }
+    if (classCompletionLocked) {
+      toast.error("Class is locked after completion. Contact teacher/admin for rewatch access.");
+      return;
+    }
     if (lecture.hasAccess === false) {
       toast.error("This video is locked");
       return;
@@ -458,6 +477,7 @@ function StudentCoursePlayer() {
   const canMarkComplete =
     Boolean(currentLecture) &&
     !securityLocked &&
+    !classCompletionLocked &&
     currentLecture.hasAccess !== false &&
     watchedPercent >= 80 &&
     !currentLecture.isCompleted &&
@@ -473,7 +493,8 @@ function StudentCoursePlayer() {
   const showLockedOverlay =
     securityLocked ||
     !currentLecture ||
-    currentLecture.hasAccess === false;
+    currentLecture.hasAccess === false ||
+    classCompletionLocked;
   const showVideoErrorOverlay =
     !showLockedOverlay && !isLoadingVideo && lectureHasVideo && !videoSrc;
 
@@ -504,7 +525,7 @@ function StudentCoursePlayer() {
       ) : null}
 
       <Motion.section {...fadeUp}>
-        <h1 className="font-heading text-3xl text-slate-900">Course Player</h1>
+        <h1 className="font-heading text-3xl text-slate-900">Learning Studio</h1>
       </Motion.section>
 
       {isLoading ? (
@@ -516,11 +537,17 @@ function StudentCoursePlayer() {
             : error?.response?.data?.message || error?.message || "Failed to load course"}
         </div>
       ) : (
-        <div className="grid gap-6 lg:grid-cols-[7fr_3fr]">
+        <div className="space-y-4">
+          {classCompletionLocked ? (
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+              This class is completed. Videos are locked for rewatch until teacher/admin unlocks access.
+            </div>
+          ) : null}
+          <div className="grid gap-6 lg:grid-cols-[7fr_3fr]">
           <Motion.section {...fadeUp} className="space-y-4">
             <div
               ref={playerRef}
-              className="protected-zone video-wrapper relative overflow-hidden rounded-3xl border border-slate-200 bg-black"
+              className="protected-zone video-wrapper relative overflow-hidden rounded-3xl border border-slate-700 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 shadow-2xl"
               style={{ position: "relative" }}
             >
               <div className="aspect-video">
@@ -528,7 +555,7 @@ function StudentCoursePlayer() {
                   ref={videoRef}
                   src={videoSrc || undefined}
                   className="h-full w-full object-cover"
-                  style={{ pointerEvents: "none", filter: "none" }}
+                  style={{ pointerEvents: "none", filter: "contrast(1.03) saturate(1.08)" }}
                   controls={false}
                   controlsList="nodownload nofullscreen"
                   disablePictureInPicture
@@ -573,7 +600,9 @@ function StudentCoursePlayer() {
                   <p className="text-xs text-slate-200">
                     {securityLocked
                       ? "Locked due to security violations in this session."
-                      : "Contact your teacher to unlock"}
+                      : classCompletionLocked
+                        ? "Class completed. Rewatch is locked until teacher/admin unlocks."
+                        : "Contact your teacher to unlock"}
                   </p>
                 </div>
               )}
@@ -611,6 +640,12 @@ function StudentCoursePlayer() {
                   <h2 className="font-heading text-2xl text-slate-900">
                     {currentLecture?.title || "Select a lecture"}
                   </h2>
+                  {currentLecture?.isLiveSession ||
+                  String(currentLecture?.videoMode || "").toLowerCase() === "live_session" ? (
+                    <span className="mt-2 inline-flex rounded-full bg-rose-100 px-3 py-1 text-[11px] font-semibold text-rose-700">
+                      Live Session Replay
+                    </span>
+                  ) : null}
                   <p className="mt-1 text-sm text-slate-500">
                     {normalized.course.teacherName}
                   </p>
@@ -796,9 +831,9 @@ function StudentCoursePlayer() {
                               >
                                 <div className="flex items-center gap-2">
                                   {lecture.isCompleted ? (
-                                    <span className="text-emerald-500">✓</span>
+                                    <span className="text-emerald-500">OK</span>
                                   ) : lecture.hasAccess === false ? (
-                                    <span className="text-slate-400">🔒</span>
+                                    <span className="text-slate-400">LOCK</span>
                                   ) : isCurrent ? (
                                     <span className="h-2 w-2 animate-pulse rounded-full bg-primary" />
                                   ) : (
@@ -818,6 +853,7 @@ function StudentCoursePlayer() {
               </div>
             </div>
           </Motion.aside>
+        </div>
         </div>
       )}
 

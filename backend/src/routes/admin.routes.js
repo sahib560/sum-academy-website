@@ -107,6 +107,8 @@ router.patch("/quizzes/:quizId/assign", adminOnly, assignQuizToStudents);
 router.get("/quizzes/:quizId/submissions", adminOnly, getQuizSubmissions);
 
 router.get("/courses", adminOnly, adminController.getCourses);
+router.get("/videos", adminOnly, adminController.getVideoLibrary);
+router.post("/videos", adminOnly, adminController.createVideoLibraryItem);
 router.post("/courses", adminOnly, adminController.createCourse);
 router.put(
   "/courses/:courseId",

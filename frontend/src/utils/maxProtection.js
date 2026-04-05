@@ -1,6 +1,7 @@
 const violationCount = { current: 0 };
 let onViolationCallback = null;
 let blurTimeout = null;
+let blackoutTimeout = null;
 let activeCleanup = null;
 let maxViolationLimit = Number.POSITIVE_INFINITY;
 let onMaxViolationCallback = null;
@@ -120,6 +121,24 @@ export const showWarningOverlay = (reason, count) => {
   }, 10000);
 };
 
+export const showBlackoutOverlay = (seconds = 4) => {
+  const existing = document.getElementById("sum-blackout");
+  if (existing) existing.remove();
+
+  const overlay = document.createElement("div");
+  overlay.id = "sum-blackout";
+  overlay.setAttribute(
+    "style",
+    "position:fixed;inset:0;background:#000;z-index:2147483646;pointer-events:none;"
+  );
+  document.body.appendChild(overlay);
+
+  clearTimeout(blackoutTimeout);
+  blackoutTimeout = setTimeout(() => {
+    overlay.remove();
+  }, Math.max(1, Number(seconds || 4)) * 1000);
+};
+
 const recordViolation = (reason) => {
   const now = Date.now();
   const normalizedReason = String(reason || "default");
@@ -147,6 +166,13 @@ const recordViolation = (reason) => {
   console.warn(
     `[Protection] Violation #${violationCount.current}: ${normalizedReason}`
   );
+  if (
+    ["screenshot", "printscreen", "screen_record", "devtools"].includes(
+      normalizedReason
+    )
+  ) {
+    showBlackoutOverlay(5);
+  }
   blurContent();
   showWarningOverlay(normalizedReason, violationCount.current);
   if (typeof onViolationCallback === "function") {
@@ -448,7 +474,10 @@ export const setupMaxProtection = ({
     if (style) style.remove();
     const warning = document.getElementById("sum-warning");
     if (warning) warning.remove();
+    const blackout = document.getElementById("sum-blackout");
+    if (blackout) blackout.remove();
     clearTimeout(blurTimeout);
+    clearTimeout(blackoutTimeout);
     unblurContent();
     setViolationCallback(null);
     onMaxViolationCallback = null;

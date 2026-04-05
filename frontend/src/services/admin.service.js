@@ -81,6 +81,12 @@ export const bulkUploadStudents = (file) => {
 export const getCourses = () =>
   api.get("/admin/courses").then((r) => r.data.data);
 
+export const getAdminVideos = () =>
+  api.get("/admin/videos").then((r) => r.data.data || []);
+
+export const createAdminVideo = (data) =>
+  api.post("/admin/videos", data).then((r) => r.data);
+
 export const createCourse = (data) =>
   api.post("/admin/courses", data).then((r) => r.data);
 

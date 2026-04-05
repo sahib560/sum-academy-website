@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { motion } from "framer-motion";
+import { motion as Motion } from "framer-motion";
 import { Link } from "react-router-dom";
 import { SkeletonCard } from "../../components/Skeleton.jsx";
 import {
@@ -68,6 +68,7 @@ function StudentMyCourses() {
         thumbnail: course.thumbnail || null,
         subjects: Array.isArray(course.subjects) ? course.subjects : [],
         progress: Math.max(0, Math.min(100, toNumber(course.progress, 0))),
+        classLocked: Boolean(course.classLocked),
       });
       map.set(key, current);
     });
@@ -91,14 +92,14 @@ function StudentMyCourses() {
 
   return (
     <div className="space-y-6">
-      <motion.section {...fadeUp}>
+      <Motion.section {...fadeUp}>
         <h1 className="font-heading text-3xl text-slate-900">My Courses</h1>
         <p className="mt-1 text-sm text-slate-500">
           Courses are grouped by your enrolled classes.
         </p>
-      </motion.section>
+      </Motion.section>
 
-      <motion.section {...fadeUp}>
+      <Motion.section {...fadeUp}>
         <input
           type="text"
           placeholder="Search courses..."
@@ -106,12 +107,12 @@ function StudentMyCourses() {
           onChange={(event) => setSearch(event.target.value)}
           className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 shadow-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
         />
-      </motion.section>
+      </Motion.section>
 
       {!isLoading &&
       pendingAccess.hasPendingApproval &&
       filteredGroups.length < 1 ? (
-        <motion.section
+        <Motion.section
           {...fadeUp}
           className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800"
         >
@@ -124,29 +125,30 @@ function StudentMyCourses() {
               Reference: {pendingAccess.latestPendingPayment.reference}
             </p>
           ) : null}
-        </motion.section>
+        </Motion.section>
       ) : null}
 
       <div className="space-y-6">
         {isLoading
           ? Array.from({ length: 2 }).map((_, groupIndex) => (
-              <motion.section key={`group-skel-${groupIndex}`} {...fadeUp} className="space-y-4">
+              <Motion.section key={`group-skel-${groupIndex}`} {...fadeUp} className="space-y-4">
                 <div className="h-8 w-60 rounded-xl bg-slate-100" />
                 <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                   {Array.from({ length: 3 }).map((__, cardIndex) => (
                     <SkeletonCard key={`card-skel-${groupIndex}-${cardIndex}`} />
                   ))}
                 </div>
-              </motion.section>
+              </Motion.section>
             ))
           : filteredGroups.map((group) => (
-              <motion.section key={group.key} {...fadeUp} className="space-y-4">
+              <Motion.section key={group.key} {...fadeUp} className="space-y-4">
                 <h2 className="font-heading text-2xl text-slate-900">
                   {group.batchCode} - {group.className}
                 </h2>
                 <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                   {group.courses.map((course) => {
                     const isCompleted = course.progress >= 100;
+                    const isLocked = Boolean(course.classLocked);
                     return (
                       <div
                         key={course.id}
@@ -199,25 +201,42 @@ function StudentMyCourses() {
                           </div>
                           {Math.round(course.progress)}%
                         </div>
+                        {isLocked ? (
+                          <p className="mt-2 text-xs font-semibold text-amber-700">
+                            Class completed. Rewatch locked until teacher/admin unlocks.
+                          </p>
+                        ) : null}
 
                         <div className="mt-4">
                           <Link
-                            className="btn-primary w-full text-center"
-                            to={`/student/courses/${course.courseId || course.id}/player`}
+                            className={`w-full rounded-full px-4 py-2 text-center text-sm font-semibold ${
+                              isLocked
+                                ? "cursor-not-allowed bg-slate-200 text-slate-500"
+                                : "btn-primary"
+                            }`}
+                            to={
+                              isLocked
+                                ? "#"
+                                : `/student/courses/${course.courseId || course.id}/player`
+                            }
+                            onClick={(event) => {
+                              if (!isLocked) return;
+                              event.preventDefault();
+                            }}
                           >
-                            {isCompleted ? "Review" : "Continue"}
+                            {isLocked ? "Locked" : isCompleted ? "Review" : "Continue"}
                           </Link>
                         </div>
                       </div>
                     );
                   })}
                 </div>
-              </motion.section>
+              </Motion.section>
             ))}
       </div>
 
       {!isLoading && filteredGroups.length === 0 && (
-        <motion.section
+        <Motion.section
           {...fadeUp}
           className="rounded-3xl border border-dashed border-slate-200 bg-white p-10 text-center"
         >
@@ -228,7 +247,7 @@ function StudentMyCourses() {
           >
             Explore Classes
           </Link>
-        </motion.section>
+        </Motion.section>
       )}
     </div>
   );

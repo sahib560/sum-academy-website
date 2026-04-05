@@ -340,6 +340,136 @@ const getClassStatus = (classData = {}) => {
   return "active";
 };
 
+const isClassUnlockedForStudent = (classData = {}, uid = "") => {
+  const cleanUid = trimText(uid);
+  if (!cleanUid) return false;
+
+  const directIds = Array.isArray(classData.unlockedStudentIds)
+    ? classData.unlockedStudentIds
+    : [];
+  if (directIds.some((entry) => trimText(entry) === cleanUid)) return true;
+
+  const altIds = Array.isArray(classData.rewatchUnlockedStudentIds)
+    ? classData.rewatchUnlockedStudentIds
+    : [];
+  if (altIds.some((entry) => trimText(entry) === cleanUid)) return true;
+
+  const rows = Array.isArray(classData.unlockedStudents) ? classData.unlockedStudents : [];
+  return rows.some((entry) => {
+    const studentId =
+      typeof entry === "string"
+        ? trimText(entry)
+        : trimText(entry?.studentId || entry?.id || entry?.uid);
+    if (studentId !== cleanUid) return false;
+    if (typeof entry === "object" && entry?.active === false) return false;
+    return true;
+  });
+};
+
+const buildClassCompletionStateForStudent = ({
+  uid = "",
+  classData = {},
+  enrollments = [],
+  progressRows = [],
+}) => {
+  const classId = trimText(classData.id);
+  const classCourseIds = getStudentCourseIdsFromClassRow(classData, uid);
+  const enrollmentCourseIds = enrollments
+    .filter(
+      (row) => trimText(row.studentId) === uid && trimText(row.classId) === classId
+    )
+    .map((row) => trimText(row.courseId))
+    .filter(Boolean);
+  const resolvedCourseIds = [
+    ...new Set(
+      (classCourseIds.length > 0 ? classCourseIds : enrollmentCourseIds).filter(Boolean)
+    ),
+  ];
+
+  const courseCompletionRows = resolvedCourseIds.map((courseId) => {
+    const enrollment = enrollments.find(
+      (row) =>
+        trimText(row.studentId) === uid &&
+        trimText(row.courseId) === courseId &&
+        (!trimText(row.classId) || trimText(row.classId) === classId)
+    );
+    const progress = normalizeProgressPercent(progressRows, courseId, enrollment?.progress);
+    const status = lowerText(enrollment?.status || "active");
+    const completed =
+      progress >= 100 || status === "completed" || Boolean(enrollment?.completedAt);
+    return { courseId, progress, completed };
+  });
+
+  const allCoursesCompleted =
+    courseCompletionRows.length > 0 && courseCompletionRows.every((row) => row.completed);
+  const status = getClassStatus(classData);
+  const manualCompleted =
+    lowerText(classData.completionStatus) === "completed" ||
+    lowerText(classData.status) === "completed" ||
+    Boolean(classData.completedByTeacher) ||
+    Boolean(classData.isCompleted);
+  const endedByDate = status === "completed";
+  const completed = manualCompleted || endedByDate || allCoursesCompleted;
+  const lockAfterCompletion = classData.lockAfterCompletion !== false;
+  const studentUnlocked = isClassUnlockedForStudent(classData, uid);
+  const isLocked = completed && lockAfterCompletion && !studentUnlocked;
+
+  return {
+    classId,
+    status,
+    completed,
+    endedByDate,
+    manualCompleted,
+    allCoursesCompleted,
+    lockAfterCompletion,
+    studentUnlocked,
+    isLocked,
+    courseCompletionRows,
+    courseIds: resolvedCourseIds,
+  };
+};
+
+const resolveCourseAccessStateFromClasses = ({
+  uid = "",
+  courseId = "",
+  classRows = [],
+  enrollments = [],
+  progressRows = [],
+}) => {
+  const cleanCourseId = trimText(courseId);
+  const contexts = classRows
+    .map((classData) =>
+      buildClassCompletionStateForStudent({
+        uid,
+        classData,
+        enrollments,
+        progressRows,
+      })
+    )
+    .filter((row) => row.courseIds.includes(cleanCourseId));
+
+  if (!contexts.length) {
+    return {
+      hasClassContext: false,
+      isLocked: false,
+      isCompletedWindow: false,
+      eligibleForCertificate: true,
+      classStates: [],
+    };
+  }
+
+  const isLocked = contexts.every((row) => row.isLocked);
+  const isCompletedWindow = contexts.some((row) => row.completed);
+
+  return {
+    hasClassContext: true,
+    isLocked,
+    isCompletedWindow,
+    eligibleForCertificate: isCompletedWindow,
+    classStates: contexts,
+  };
+};
+
 const buildStudentClassAndCourseData = ({
   uid = "",
   classRows = [],
@@ -383,6 +513,12 @@ const buildStudentClassAndCourseData = ({
     const shift = shifts.find(
       (row) => trimText(row?.id) === trimText(studentEntry?.shiftId)
     );
+    const classCompletionState = buildClassCompletionStateForStudent({
+      uid,
+      classData: { ...classData, id: classId },
+      enrollments,
+      progressRows,
+    });
 
     const classCourses = resolvedCourseIds.map((courseId) => {
       const cleanCourseId = trimText(courseId);
@@ -402,6 +538,9 @@ const buildStudentClassAndCourseData = ({
         progressRows,
         cleanCourseId,
         enrollment?.progress
+      );
+      const courseState = classCompletionState.courseCompletionRows.find(
+        (row) => row.courseId === cleanCourseId
       );
       const latestActivity = progressRows
         .filter(
@@ -434,6 +573,11 @@ const buildStudentClassAndCourseData = ({
         })),
         progress,
         isCompleted: clampPercent(progress) >= 100,
+        classCompleted: classCompletionState.completed,
+        classLocked: classCompletionState.isLocked,
+        canRewatch: !classCompletionState.isLocked,
+        certificateEligible: classCompletionState.completed,
+        courseCompletedInClass: Boolean(courseState?.completed),
         enrolledAt:
           enrollment?.createdAt ||
           enrollment?.enrolledAt ||
@@ -463,6 +607,11 @@ const buildStudentClassAndCourseData = ({
       batchCode: trimText(classData.batchCode),
       description: trimText(classData.description),
       status: getClassStatus(classData),
+      isCompletedWindow: classCompletionState.completed,
+      isLockedAfterCompletion: classCompletionState.isLocked,
+      canRewatch: !classCompletionState.isLocked,
+      lockAfterCompletion: classCompletionState.lockAfterCompletion,
+      unlockedForStudent: classCompletionState.studentUnlocked,
       teacherName:
         trimText(classData.teacherName) ||
         trimText(classData.teachers?.[0]?.teacherName) ||
@@ -1107,12 +1256,53 @@ export const getStudentCourseProgress = async (req, res) => {
     if (!courseSnap.exists) return errorResponse(res, "Course not found", 404);
     const courseData = courseSnap.data() || {};
 
-    const [chaptersSnap, lectures, progressRows, videoAccessSnap] = await Promise.all([
+    const [
+      chaptersSnap,
+      lectures,
+      progressRows,
+      allProgressRows,
+      videoAccessSnap,
+      enrollmentRows,
+      classMembershipRows,
+    ] = await Promise.all([
       db.collection(COLLECTIONS.CHAPTERS).where("courseId", "==", courseId).get(),
       getCourseLectures(courseId),
       getProgressRowsForStudent(uid, courseId),
+      getProgressRowsForStudent(uid),
       db.collection("videoAccess").where("studentId", "==", uid).get(),
+      getEnrolledRows(uid),
+      getStudentClassMembershipRows(uid),
     ]);
+
+    const enrollmentClassIds = enrollmentRows
+      .map((row) => trimText(row.classId))
+      .filter(Boolean);
+    const classMap = classMembershipRows.reduce((acc, row) => {
+      acc[trimText(row.id)] = row;
+      return acc;
+    }, {});
+    const missingClassIds = [...new Set(enrollmentClassIds)].filter(
+      (classId) => !classMap[classId]
+    );
+    const missingClassRows = await Promise.all(
+      missingClassIds.map(async (classId) => {
+        const snap = await db.collection(COLLECTIONS.CLASSES).doc(classId).get();
+        return snap.exists ? { id: snap.id, ...(snap.data() || {}) } : null;
+      })
+    );
+    const classRows = [...classMembershipRows, ...missingClassRows.filter(Boolean)].map(
+      (row) => ({
+        ...(row || {}),
+        id: trimText(row?.id),
+      })
+    );
+    const courseAccessState = resolveCourseAccessStateFromClasses({
+      uid,
+      courseId,
+      classRows,
+      enrollments: enrollmentRows,
+      progressRows: allProgressRows,
+    });
 
     const lectureByChapter = {};
     lectures.forEach((lecture) => {
@@ -1145,7 +1335,9 @@ export const getStudentCourseProgress = async (req, res) => {
           .map((lecture) => {
             const progress = lectureProgressMap[lecture.id] || {};
             const hasAccess =
-              accessMap[lecture.id] !== undefined ? accessMap[lecture.id] : true;
+              accessMap[lecture.id] !== undefined
+                ? accessMap[lecture.id]
+                : !courseAccessState.isLocked;
             return {
               lectureId: lecture.id,
               title: trimText(lecture.title) || "Lecture",
@@ -1153,6 +1345,9 @@ export const getStudentCourseProgress = async (req, res) => {
               completedAt: progress.completedAt || null,
               hasAccess,
               videoUrl: trimText(lecture.videoUrl),
+              videoId: trimText(lecture.videoId),
+              videoMode: trimText(lecture.videoMode) || "recorded",
+              isLiveSession: Boolean(lecture.isLiveSession),
               videoTitle: trimText(lecture.videoTitle),
               videoDuration:
                 lecture.videoDuration === null || lecture.videoDuration === undefined
@@ -1203,6 +1398,19 @@ export const getStudentCourseProgress = async (req, res) => {
           completedLectures,
           totalLectures,
           completionPercent: clampPercent(overallPercent),
+        },
+        access: {
+          hasClassContext: courseAccessState.hasClassContext,
+          isLockedAfterCompletion: courseAccessState.isLocked,
+          isCompletedWindow: courseAccessState.isCompletedWindow,
+          certificateEligible: courseAccessState.eligibleForCertificate,
+          classStates: courseAccessState.classStates.map((row) => ({
+            classId: row.classId,
+            status: row.status,
+            completed: row.completed,
+            isLocked: row.isLocked,
+            unlockedForStudent: row.studentUnlocked,
+          })),
         },
         chapters,
       },
@@ -1279,7 +1487,15 @@ export const markLectureComplete = async (req, res) => {
       );
     }
 
-    const [courseLectures, allProgressRows, enrollmentSnap, profile] = await Promise.all([
+    const [
+      courseLectures,
+      courseProgressRows,
+      enrollmentSnap,
+      profile,
+      allProgressRows,
+      allEnrollments,
+      classMembershipRows,
+    ] = await Promise.all([
       getCourseLectures(courseId),
       getProgressRowsForStudent(uid, courseId),
       db
@@ -1288,10 +1504,13 @@ export const markLectureComplete = async (req, res) => {
         .where("courseId", "==", courseId)
         .get(),
       getStudentAndUser(uid),
+      getProgressRowsForStudent(uid),
+      getEnrolledRows(uid),
+      getStudentClassMembershipRows(uid),
     ]);
 
     const totalLectures = courseLectures.length;
-    const progressMap = buildLectureProgressMap(allProgressRows, courseId);
+    const progressMap = buildLectureProgressMap(courseProgressRows, courseId);
     const completedCount = courseLectures.filter(
       (lecture) => progressMap[lecture.id]?.isCompleted
     ).length;
@@ -1312,15 +1531,50 @@ export const markLectureComplete = async (req, res) => {
       await batch.commit();
     }
 
+    const enrollmentClassIds = allEnrollments
+      .map((row) => trimText(row.classId))
+      .filter(Boolean);
+    const classMap = classMembershipRows.reduce((acc, row) => {
+      acc[trimText(row.id)] = row;
+      return acc;
+    }, {});
+    const missingClassIds = [...new Set(enrollmentClassIds)].filter(
+      (classId) => !classMap[classId]
+    );
+    const missingClassRows = await Promise.all(
+      missingClassIds.map(async (classId) => {
+        const snap = await db.collection(COLLECTIONS.CLASSES).doc(classId).get();
+        return snap.exists ? { id: snap.id, ...(snap.data() || {}) } : null;
+      })
+    );
+    const classRows = [...classMembershipRows, ...missingClassRows.filter(Boolean)].map(
+      (row) => ({
+        ...(row || {}),
+        id: trimText(row?.id),
+      })
+    );
+    const certificateAccess = resolveCourseAccessStateFromClasses({
+      uid,
+      courseId,
+      classRows,
+      enrollments: allEnrollments,
+      progressRows: allProgressRows,
+    });
+
     let certificate = null;
+    let certificatePending = false;
     if (isCompleted) {
-      certificate = await ensureCertificateForCompletion({
-        studentId: uid,
-        studentData: profile.studentData,
-        userData: profile.userData,
-        courseId,
-        courseData: courseSnap.data() || {},
-      });
+      if (certificateAccess.eligibleForCertificate) {
+        certificate = await ensureCertificateForCompletion({
+          studentId: uid,
+          studentData: profile.studentData,
+          userData: profile.userData,
+          courseId,
+          courseData: courseSnap.data() || {},
+        });
+      } else {
+        certificatePending = true;
+      }
     }
 
     return successResponse(
@@ -1333,6 +1587,13 @@ export const markLectureComplete = async (req, res) => {
         completionPercent: clampPercent(completionPercent),
         courseCompleted: isCompleted,
         certificateIssued: Boolean(certificate?.created),
+        certificatePending,
+        certificateEligible: certificateAccess.eligibleForCertificate,
+        classLockState: {
+          hasClassContext: certificateAccess.hasClassContext,
+          isLockedAfterCompletion: certificateAccess.isLocked,
+          classCount: certificateAccess.classStates.length,
+        },
       },
       "Lecture marked as complete"
     );

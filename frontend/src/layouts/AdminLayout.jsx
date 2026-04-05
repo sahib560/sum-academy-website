@@ -59,6 +59,7 @@ const navSections = [
   {
     title: "Content",
     items: [
+      { label: "Videos", to: "/admin/videos", icon: "film" },
       { label: "Quizzes", to: "/admin/quizzes", icon: "clipboard" },
       { label: "Certificates", to: "/admin/certificates", icon: "award" },
       { label: "Announcements", to: "/admin/announcements", icon: "bell" },
@@ -79,6 +80,7 @@ const iconMap = {
   card: <FiCreditCard className="h-4 w-4" />,
   clock: <FiClock className="h-4 w-4" />,
   tag: <FiTag className="h-4 w-4" />,
+  film: <FiBookOpen className="h-4 w-4" />,
   clipboard: <FiClipboard className="h-4 w-4" />,
   award: <FiAward className="h-4 w-4" />,
   bell: <FiBell className="h-4 w-4" />,

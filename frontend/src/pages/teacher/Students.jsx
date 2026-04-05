@@ -42,7 +42,6 @@ const PROFILE_TABS = [
   { id: "overview", label: "Overview" },
   { id: "progress", label: "Course Progress" },
   { id: "quiz", label: "Quiz Results" },
-  { id: "attendance", label: "Attendance" },
 ];
 
 const clampPercent = (value) => {

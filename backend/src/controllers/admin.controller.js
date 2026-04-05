@@ -298,6 +298,7 @@ const hasTeacherLinks = async (teacherId) => {
 };
 
 const CLASS_STATUSES = new Set(["upcoming", "active", "completed"]);
+const VIDEO_LIBRARY_COLLECTION = COLLECTIONS.VIDEOS || "videos";
 const SHIFT_NAME_OPTIONS = new Set([
   "Morning",
   "Evening",
@@ -674,6 +675,19 @@ const toIsoOrNull = (value) => {
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
 };
+
+const normalizeVideoLibraryRow = (id, row = {}) => ({
+  id,
+  title: String(row.title || "").trim() || "Untitled Video",
+  url: String(row.url || "").trim(),
+  courseId: String(row.courseId || "").trim(),
+  courseName: String(row.courseName || "").trim(),
+  teacherId: String(row.teacherId || "").trim(),
+  teacherName: String(row.teacherName || "").trim() || "Teacher",
+  isActive: row.isActive !== false,
+  createdAt: toIsoOrNull(row.createdAt),
+  updatedAt: toIsoOrNull(row.updatedAt),
+});
 
 const normalizeProgressPercent = (row = {}) => {
   const direct = [
@@ -2258,6 +2272,110 @@ export const removeCourseSubject = async (req, res) => {
   }
 };
 
+export const getVideoLibrary = async (req, res) => {
+  try {
+    let rows = [];
+    try {
+      const snap = await db
+        .collection(VIDEO_LIBRARY_COLLECTION)
+        .orderBy("createdAt", "desc")
+        .get();
+      rows = snap.docs.map((doc) => ({ id: doc.id, ...(doc.data() || {}) }));
+    } catch {
+      const fallback = await db.collection(VIDEO_LIBRARY_COLLECTION).get();
+      rows = fallback.docs.map((doc) => ({ id: doc.id, ...(doc.data() || {}) }));
+      rows.sort(
+        (a, b) =>
+          (new Date(toIsoOrNull(b.createdAt) || 0).getTime() || 0) -
+          (new Date(toIsoOrNull(a.createdAt) || 0).getTime() || 0)
+      );
+    }
+
+    const payload = rows
+      .map((row) => normalizeVideoLibraryRow(row.id, row))
+      .filter((row) => row.isActive);
+
+    return successResponse(res, payload, "Video library fetched");
+  } catch (e) {
+    console.error("getVideoLibrary error:", e);
+    return errorResponse(res, "Failed to fetch video library", 500);
+  }
+};
+
+export const createVideoLibraryItem = async (req, res) => {
+  try {
+    const {
+      title = "",
+      url = "",
+      courseId = "",
+      courseName = "",
+      teacherId = "",
+      teacherName = "",
+      isActive = true,
+    } = req.body || {};
+
+    if (String(title).trim().length < 3) {
+      return errorResponse(res, "title must be at least 3 characters", 400);
+    }
+    if (!String(url).trim()) {
+      return errorResponse(res, "url is required", 400);
+    }
+    if (!String(courseId).trim()) {
+      return errorResponse(res, "courseId is required", 400);
+    }
+
+    const [courseSnap, teacherSnap] = await Promise.all([
+      db.collection(COLLECTIONS.COURSES).doc(String(courseId).trim()).get(),
+      String(teacherId).trim()
+        ? db.collection(COLLECTIONS.TEACHERS).doc(String(teacherId).trim()).get()
+        : Promise.resolve(null),
+    ]);
+
+    if (!courseSnap.exists) {
+      return errorResponse(res, "Course not found", 404);
+    }
+
+    const courseData = courseSnap.data() || {};
+    const resolvedCourseName =
+      String(courseName).trim() || String(courseData.title || "").trim() || "Course";
+    const resolvedTeacherName =
+      String(teacherName).trim() ||
+      String(teacherSnap?.data?.()?.fullName || "").trim() ||
+      String(courseData.teacherName || "").trim() ||
+      "Teacher";
+
+    const ref = db.collection(VIDEO_LIBRARY_COLLECTION).doc();
+    const payload = {
+      title: String(title).trim(),
+      url: String(url).trim(),
+      courseId: String(courseId).trim(),
+      courseName: resolvedCourseName,
+      teacherId: String(teacherId).trim(),
+      teacherName: resolvedTeacherName,
+      isActive: isActive !== false,
+      createdBy: req.user?.uid || "",
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+
+    await ref.set(payload);
+
+    return successResponse(
+      res,
+      normalizeVideoLibraryRow(ref.id, {
+        ...payload,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }),
+      "Video added to library",
+      201
+    );
+  } catch (e) {
+    console.error("createVideoLibraryItem error:", e);
+    return errorResponse(res, "Failed to add video to library", 500);
+  }
+};
+
 export const addCourseContent = async (req, res) => {
   try {
     const { courseId, subjectId } = req.params;
@@ -2265,13 +2383,14 @@ export const addCourseContent = async (req, res) => {
       type,
       title,
       url,
+      videoId,
       size = 0,
       contentType = "",
       noteType = "",
     } = req.body;
 
-    if (!type || !title || !url) {
-      return errorResponse(res, "type, title and url are required", 400);
+    if (!type) {
+      return errorResponse(res, "type is required", 400);
     }
 
     const allowed = ["video", "pdf", "notes"];
@@ -2295,12 +2414,57 @@ export const addCourseContent = async (req, res) => {
       return errorResponse(res, "Subject not found", 404);
     }
 
+    let resolvedTitle = String(title || "").trim();
+    let resolvedUrl = String(url || "").trim();
+    const resolvedVideoId = String(videoId || "").trim();
+    if (type === "video" && resolvedVideoId) {
+      const videoSnap = await db
+        .collection(VIDEO_LIBRARY_COLLECTION)
+        .doc(resolvedVideoId)
+        .get();
+      if (!videoSnap.exists) {
+        return errorResponse(res, "Video not found in library", 404);
+      }
+      const videoData = videoSnap.data() || {};
+      resolvedTitle = String(videoData.title || resolvedTitle).trim();
+      resolvedUrl = String(videoData.url || "").trim();
+      if (!resolvedUrl) {
+        return errorResponse(res, "Selected video has no URL", 400);
+      }
+    }
+
+    if (!resolvedTitle || !resolvedUrl) {
+      return errorResponse(
+        res,
+        "title and url are required (or pass valid videoId)",
+        400
+      );
+    }
+
+    let videoMode = "recorded";
+    let isLiveSession = false;
+    if (type === "video") {
+      const existingContentSnap = await db
+        .collection(COLLECTIONS.COURSES)
+        .doc(courseId)
+        .collection("content")
+        .where("type", "==", "video")
+        .limit(1)
+        .get();
+      const isFirstCourseVideo = existingContentSnap.empty;
+      videoMode = isFirstCourseVideo ? "live_session" : "recorded";
+      isLiveSession = isFirstCourseVideo;
+    }
+
     const contentData = {
       id: uuidv4(),
       subjectId,
       type,
-      title: String(title).trim(),
-      url,
+      title: resolvedTitle,
+      url: resolvedUrl,
+      videoId: resolvedVideoId || null,
+      videoMode,
+      isLiveSession,
       size: toSafeNumber(size, 0),
       contentType: contentType || "",
       noteType: noteType || "",

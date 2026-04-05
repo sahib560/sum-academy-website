@@ -9,6 +9,7 @@ import {
   createCourse,
   deleteCourse,
   deleteCourseContent,
+  getAdminVideos,
   getCourseContent,
   getCourses,
   getTeachers,
@@ -283,6 +284,7 @@ function Courses() {
   const [videoState, setVideoState] = useState({
     title: "",
     file: null,
+    libraryVideoId: "",
     progress: 0,
     status: "idle",
     error: "",
@@ -307,6 +309,11 @@ function Courses() {
   const teachersQuery = useQuery({
     queryKey: ["admin", "teachers"],
     queryFn: getTeachers,
+    staleTime: 30000,
+  });
+  const videosQuery = useQuery({
+    queryKey: ["admin", "videos"],
+    queryFn: getAdminVideos,
     staleTime: 30000,
   });
   const contentQuery = useQuery({
@@ -337,6 +344,10 @@ function Courses() {
   const courses = useMemo(
     () => (coursesQuery.data || []).map(normalizeCourse),
     [coursesQuery.data]
+  );
+  const videoLibrary = useMemo(
+    () => (Array.isArray(videosQuery.data) ? videosQuery.data : []),
+    [videosQuery.data]
   );
 
   const filtered = useMemo(() => {
@@ -385,6 +396,13 @@ function Courses() {
   );
   const books = activeContent.filter(
     (i) => i.type === "notes" || i.noteType === "book"
+  );
+  const courseVideoLibrary = useMemo(
+    () =>
+      videoLibrary.filter(
+        (row) => !drawerCourseId || String(row.courseId || "") === String(drawerCourseId)
+      ),
+    [videoLibrary, drawerCourseId]
   );
 
   const basicErrors = useMemo(() => {
@@ -743,10 +761,56 @@ function Courses() {
 
   const uploadVideoNow = async () => {
     if (!drawerCourse || !activeSubject) return;
-    if (!videoState.title.trim()) {
+    const selectedLibraryVideo = courseVideoLibrary.find(
+      (row) => String(row.id) === String(videoState.libraryVideoId || "")
+    );
+    const resolvedTitle =
+      videoState.title.trim() || String(selectedLibraryVideo?.title || "").trim();
+
+    if (!resolvedTitle) {
       setVideoState((prev) => ({ ...prev, error: "Title is required." }));
       return;
     }
+
+    if (selectedLibraryVideo) {
+      setVideoState((prev) => ({
+        ...prev,
+        status: "processing",
+        progress: 100,
+        error: "",
+      }));
+      try {
+        await addContentMutation.mutateAsync({
+          courseId: drawerCourse.id,
+          subjectId: activeSubject.id,
+          data: {
+            type: "video",
+            title: resolvedTitle,
+            url: selectedLibraryVideo.url,
+            videoId: selectedLibraryVideo.id,
+            size: Number(selectedLibraryVideo.size || 0),
+            subjectId: activeSubject.id,
+          },
+        });
+        setVideoState({
+          title: "",
+          file: null,
+          libraryVideoId: "",
+          progress: 100,
+          status: "done",
+          error: "",
+        });
+        setShowVideoModal(false);
+      } catch (error) {
+        setVideoState((prev) => ({
+          ...prev,
+          status: "idle",
+          error: error.message || "Video save failed.",
+        }));
+      }
+      return;
+    }
+
     if (!videoState.file) {
       setVideoState((prev) => ({ ...prev, error: "Select a video file." }));
       return;
@@ -774,7 +838,7 @@ function Courses() {
         subjectId: activeSubject.id,
         data: {
           type: "video",
-          title: videoState.title.trim(),
+          title: resolvedTitle,
           url: uploaded.url,
           size: uploaded.size,
           subjectId: activeSubject.id,
@@ -784,6 +848,7 @@ function Courses() {
       setVideoState({
         title: "",
         file: null,
+        libraryVideoId: "",
         progress: 100,
         status: "done",
         error: "",
@@ -1626,7 +1691,7 @@ function Courses() {
                       <div className="space-y-3 rounded-2xl border border-slate-200 p-4">
                         <div className="flex items-center justify-between">
                           <h4 className="font-heading text-lg text-slate-900">Videos</h4>
-                          <button type="button" onClick={() => { setVideoState({ title: "", file: null, progress: 0, status: "idle", error: "" }); setShowVideoModal(true); }} className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-700">Add Video</button>
+                          <button type="button" onClick={() => { setVideoState({ title: "", file: null, libraryVideoId: "", progress: 0, status: "idle", error: "" }); setShowVideoModal(true); }} className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-700">Add Video</button>
                         </div>
                         {videos.length === 0 ? (
                           <p className="text-sm text-slate-500">No videos yet.</p>
@@ -1766,12 +1831,38 @@ function Courses() {
               className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
             />
           </div>
+          <div>
+            <label className="text-sm font-semibold text-slate-700">
+              Use Existing Library Video (Optional)
+            </label>
+            <select
+              value={videoState.libraryVideoId}
+              onChange={(e) =>
+                setVideoState((p) => ({
+                  ...p,
+                  libraryVideoId: e.target.value,
+                  error: "",
+                }))
+              }
+              className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm"
+            >
+              <option value="">Upload new video file</option>
+              {courseVideoLibrary.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.title || "Video"}
+                </option>
+              ))}
+            </select>
+            <p className="mt-1 text-xs text-slate-500">
+              First video in a course is marked as live session automatically.
+            </p>
+          </div>
           <UploadZone
             labelText="Upload Video"
             helper="MP4, AVI, MOV - max 2GB"
             accept="video/mp4,video/x-msvideo,video/quicktime"
             onFile={(file) => setVideoState((p) => ({ ...p, file, error: "" }))}
-            error={videoState.error}
+            error={videoState.libraryVideoId ? "" : videoState.error}
           />
           {videoState.file ? (
             <p className="text-xs text-slate-500">
