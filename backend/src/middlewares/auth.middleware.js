@@ -101,7 +101,16 @@ const verifyToken = async (req, res, next) => {
     if (user.isActive === false) {
       return res
         .status(403)
-        .json({ success: false, message: "Account deactivated" });
+        .json({
+          success: false,
+          message:
+            user.securityDeactivationReason ||
+            "Your account has been deactivated. Contact admin or teacher.",
+          code: "ACCOUNT_DEACTIVATED",
+          contactAdmin: true,
+          deactivatedAt: user.securityDeactivatedAt || null,
+          reason: user.lastSecurityViolationReason || "",
+        });
     }
 
     if (

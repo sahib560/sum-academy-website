@@ -2,6 +2,7 @@ import { admin, auth, db } from "../config/firebase.js";
 import { COLLECTIONS } from "../config/collections.js";
 import {
   sendCertificateIssued,
+  sendSecurityDeactivationEmail,
   sendStudentHelpSupportEmail,
 } from "../services/email.service.js";
 import { errorResponse, successResponse } from "../utils/response.utils.js";
@@ -12,6 +13,17 @@ import {
 
 const serverTimestamp = () => admin.firestore.FieldValue.serverTimestamp();
 const SETTINGS_DOC_ID = "siteSettings";
+const SECURITY_VIOLATION_LIMIT = 3;
+const SECURITY_REASONS = new Set([
+  "screenshot",
+  "printscreen",
+  "tab_switch",
+  "window_blur",
+  "devtools",
+  "screen_record",
+  "default",
+]);
+const SECURITY_PAGES = new Set(["video", "quiz", "learning", "unknown"]);
 const trimText = (value = "") => String(value || "").trim();
 const lowerText = (value = "") => trimText(value).toLowerCase();
 const clampPercent = (value) => Math.max(0, Math.min(100, Number(value || 0)));
@@ -110,6 +122,44 @@ const getCurrentAndLongestStreak = (sessions = []) => {
 };
 
 const getNameFromEmail = (email = "") => trimText(email).split("@")[0] || "Student";
+
+const resolveClientContext = (req) => {
+  const forwarded = req.headers?.["x-forwarded-for"];
+  const realIP = forwarded
+    ? String(forwarded).split(",")[0].trim()
+    : req.connection?.remoteAddress ||
+      req.socket?.remoteAddress ||
+      req.ip ||
+      "unknown";
+
+  const clientIP =
+    realIP === "::1"
+      ? "127.0.0.1"
+      : String(realIP).startsWith("::ffff:")
+        ? String(realIP).replace("::ffff:", "")
+        : String(realIP);
+
+  const userAgent = String(req.headers?.["user-agent"] || "unknown");
+  let browser = "Unknown Browser";
+  if (/chrome/i.test(userAgent) && !/edg/i.test(userAgent)) browser = "Chrome";
+  else if (/firefox/i.test(userAgent)) browser = "Firefox";
+  else if (/safari/i.test(userAgent) && !/chrome/i.test(userAgent)) browser = "Safari";
+  else if (/edg/i.test(userAgent)) browser = "Edge";
+  else if (/opera|opr/i.test(userAgent)) browser = "Opera";
+
+  let os = "Unknown OS";
+  if (/windows/i.test(userAgent)) os = "Windows";
+  else if (/macintosh|mac os/i.test(userAgent)) os = "MacOS";
+  else if (/linux/i.test(userAgent)) os = "Linux";
+  else if (/android/i.test(userAgent)) os = "Android";
+  else if (/iphone|ipad/i.test(userAgent)) os = "iOS";
+
+  return {
+    clientIP,
+    clientDevice: `${browser} on ${os}`,
+    userAgent,
+  };
+};
 
 const chunkArray = (items = [], size = 10) => {
   const rows = [];
@@ -1076,7 +1126,13 @@ export const getStudentCourseProgress = async (req, res) => {
       const data = doc.data() || {};
       const lectureId = trimText(data.lectureId);
       if (!lectureId) return acc;
-      acc[lectureId] = Boolean(data.hasAccess);
+      const granted = data.hasAccess !== false;
+      if (acc[lectureId] === undefined) {
+        acc[lectureId] = granted;
+      } else {
+        // If there are multiple access rows for same lecture, a granted row wins.
+        acc[lectureId] = Boolean(acc[lectureId]) || granted;
+      }
       return acc;
     }, {});
 
@@ -2259,6 +2315,179 @@ export const getStudentAttendance = async (req, res) => {
   } catch (error) {
     console.error("getStudentAttendance error:", error);
     return errorResponse(res, "Failed to fetch attendance", 500);
+  }
+};
+
+export const reportSecurityViolation = async (req, res) => {
+  try {
+    const uid = trimText(req.user?.uid);
+    if (!uid) return errorResponse(res, "Missing student uid", 400);
+
+    const rawReason = lowerText(req.body?.reason || "default");
+    const rawPage = lowerText(req.body?.page || "unknown");
+    const reason = SECURITY_REASONS.has(rawReason) ? rawReason : "default";
+    const page = SECURITY_PAGES.has(rawPage) ? rawPage : "unknown";
+    const details = trimText(req.body?.details || "");
+    const { clientIP, clientDevice, userAgent } = resolveClientContext(req);
+
+    const userRef = db.collection(COLLECTIONS.USERS).doc(uid);
+    const studentRef = db.collection(COLLECTIONS.STUDENTS).doc(uid);
+    const violationRef = db.collection(COLLECTIONS.SECURITY_VIOLATIONS).doc();
+
+    let responseData = {
+      violationId: violationRef.id,
+      count: 0,
+      limit: SECURITY_VIOLATION_LIMIT,
+      reason,
+      page,
+      deactivated: false,
+      contactAdmin: false,
+    };
+
+    await db.runTransaction(async (transaction) => {
+      const [userSnap, studentSnap] = await Promise.all([
+        transaction.get(userRef),
+        transaction.get(studentRef),
+      ]);
+
+      if (!userSnap.exists) {
+        throw new Error("USER_NOT_FOUND");
+      }
+      const userData = userSnap.data() || {};
+      if (lowerText(userData.role) !== "student") {
+        throw new Error("NOT_STUDENT");
+      }
+
+      const currentCount = Math.max(0, toNumber(userData.securityViolationCount, 0));
+      const alreadyDeactivated = userData.isActive === false;
+      const nextCount = alreadyDeactivated ? currentCount : currentCount + 1;
+      const deactivatedNow =
+        !alreadyDeactivated && nextCount >= SECURITY_VIOLATION_LIMIT;
+
+      const violationPayload = {
+        uid,
+        studentId: uid,
+        reason,
+        page,
+        details: details || "",
+        attemptNumber: nextCount,
+        limit: SECURITY_VIOLATION_LIMIT,
+        action: alreadyDeactivated
+          ? "already_deactivated"
+          : deactivatedNow
+            ? "account_deactivated"
+            : "warning",
+        isResolved: false,
+        resolvedAt: null,
+        resolvedBy: null,
+        ip: clientIP || "",
+        device: clientDevice || "",
+        userAgent: userAgent || "",
+        createdAt: serverTimestamp(),
+      };
+
+      const userUpdates = {
+        securityViolationCount: nextCount,
+        securityViolationLimit: SECURITY_VIOLATION_LIMIT,
+        lastSecurityViolationReason: reason,
+        lastSecurityViolationAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      };
+
+      const studentUpdates = {
+        securityViolationCount: nextCount,
+        lastSecurityViolationReason: reason,
+        lastSecurityViolationAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      };
+
+      if (deactivatedNow || alreadyDeactivated) {
+        userUpdates.isActive = false;
+        userUpdates.status = "deactivated";
+        userUpdates.securityDeactivatedAt =
+          userData.securityDeactivatedAt || serverTimestamp();
+        userUpdates.securityDeactivationReason = `Security violation limit reached (${SECURITY_VIOLATION_LIMIT}/${SECURITY_VIOLATION_LIMIT})`;
+
+        studentUpdates.approvalStatus = "deactivated";
+        studentUpdates.securityDeactivatedAt =
+          studentSnap.exists && studentSnap.data()?.securityDeactivatedAt
+            ? studentSnap.data().securityDeactivatedAt
+            : serverTimestamp();
+      }
+
+      transaction.set(violationRef, violationPayload, { merge: true });
+      transaction.set(userRef, userUpdates, { merge: true });
+      if (studentSnap.exists) {
+        transaction.set(studentRef, studentUpdates, { merge: true });
+      }
+
+      responseData = {
+        violationId: violationRef.id,
+        count: nextCount,
+        limit: SECURITY_VIOLATION_LIMIT,
+        reason,
+        page,
+        deactivated: Boolean(deactivatedNow || alreadyDeactivated),
+        contactAdmin: Boolean(deactivatedNow || alreadyDeactivated),
+      };
+    });
+
+    await db.collection(COLLECTIONS.AUDIT_LOGS).add({
+      uid,
+      action: responseData.deactivated
+        ? "security_violation_deactivated"
+        : "security_violation_warning",
+      reason,
+      page,
+      attempt: responseData.count,
+      limit: responseData.limit,
+      ip: clientIP || "",
+      device: clientDevice || "",
+      timestamp: serverTimestamp(),
+    });
+
+    if (responseData.deactivated) {
+      try {
+        const [userSnap, studentSnap] = await Promise.all([
+          userRef.get(),
+          studentRef.get(),
+        ]);
+        const userData = userSnap.exists ? userSnap.data() || {} : {};
+        const studentData = studentSnap.exists ? studentSnap.data() || {} : {};
+        const email = trimText(userData.email);
+        const fullName =
+          trimText(studentData.fullName) ||
+          trimText(userData.fullName) ||
+          getNameFromEmail(email);
+        if (email) {
+          await sendSecurityDeactivationEmail(email, fullName, {
+            reason,
+            page,
+            count: responseData.count,
+            limit: responseData.limit,
+          });
+        }
+      } catch (mailError) {
+        console.error("reportSecurityViolation email error:", mailError);
+      }
+    }
+
+    return successResponse(
+      res,
+      responseData,
+      responseData.deactivated
+        ? "Account deactivated due to repeated security violations"
+        : "Security violation recorded"
+    );
+  } catch (error) {
+    if (String(error?.message || "") === "USER_NOT_FOUND") {
+      return errorResponse(res, "User profile not found", 404);
+    }
+    if (String(error?.message || "") === "NOT_STUDENT") {
+      return errorResponse(res, "Only students can report violations", 403);
+    }
+    console.error("reportSecurityViolation error:", error);
+    return errorResponse(res, "Failed to record security violation", 500);
   }
 };
 

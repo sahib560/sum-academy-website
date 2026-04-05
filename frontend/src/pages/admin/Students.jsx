@@ -184,6 +184,15 @@ const normalizeStudents = (students = []) =>
       createdAt: student.createdAt || null,
       avgProgress: Number(student.avgProgress || 0),
       completedCourses: Number(student.completedCourses || 0),
+      securityViolationCount: Number(student.securityViolationCount || 0),
+      securityViolationLimit: Number(student.securityViolationLimit || 3),
+      lastSecurityViolationReason: student.lastSecurityViolationReason || "",
+      lastSecurityViolationAt: student.lastSecurityViolationAt || null,
+      securityDeactivatedAt: student.securityDeactivatedAt || null,
+      securityDeactivationReason: student.securityDeactivationReason || "",
+      recentSecurityViolations: Array.isArray(student.recentSecurityViolations)
+        ? student.recentSecurityViolations
+        : [],
     };
   });
 
@@ -407,6 +416,11 @@ function Students() {
       pending: students.filter((s) => s.status === "pending_approval").length,
       inactive: students.filter((s) => !s.isActive).length,
       enrolledStudents: students.filter((s) => s.enrolledCourses.length > 0).length,
+      flagged: students.filter(
+        (s) =>
+          Number(s.securityViolationCount || 0) >= Number(s.securityViolationLimit || 3) ||
+          Boolean(s.securityDeactivatedAt)
+      ).length,
     }),
     [students]
   );
@@ -708,13 +722,14 @@ function Students() {
         </div>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
         {[
           { label: "Total Students", value: stats.total },
           { label: "Active Students", value: stats.active },
           { label: "Pending Approval", value: stats.pending },
           { label: "Inactive Students", value: stats.inactive },
           { label: "Enrolled Students", value: stats.enrolledStudents },
+          { label: "Security Flagged", value: stats.flagged },
         ].map((item) => (
           <div key={item.label} className="glass-card">
             <p className="text-sm text-slate-500">{item.label}</p>
@@ -789,6 +804,7 @@ function Students() {
                 <th className="px-6 py-4">Phone Number</th>
                 <th className="px-6 py-4">Enrolled</th>
                 <th className="px-6 py-4">Certificates</th>
+                <th className="px-6 py-4">Security</th>
                 <th className="px-6 py-4">Last Login</th>
                 <th className="px-6 py-4">Status</th>
                 <th className="px-6 py-4 text-right">Actions</th>
@@ -804,6 +820,7 @@ function Students() {
                     <td className="px-6 py-4"><div className="skeleton h-5 w-32" /></td>
                     <td className="px-6 py-4"><div className="skeleton h-6 w-16 rounded-full" /></td>
                     <td className="px-6 py-4"><div className="skeleton h-6 w-16 rounded-full" /></td>
+                    <td className="px-6 py-4"><div className="skeleton h-6 w-20 rounded-full" /></td>
                     <td className="px-6 py-4"><div className="skeleton h-5 w-24" /></td>
                     <td className="px-6 py-4"><div className="skeleton h-6 w-20 rounded-full" /></td>
                     <td className="px-6 py-4"><div className="ml-auto flex w-36 gap-2"><div className="skeleton h-9 w-9 rounded-full" /><div className="skeleton h-9 w-9 rounded-full" /><div className="skeleton h-9 w-9 rounded-full" /><div className="skeleton h-9 w-9 rounded-full" /></div></td>
@@ -811,7 +828,7 @@ function Students() {
                 ))
               ) : paginated.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-6 py-14">
+                  <td colSpan={10} className="px-6 py-14">
                     <div className="flex flex-col items-center justify-center text-center">
                       <div className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
                         <FiUser className="h-8 w-8" />
@@ -840,6 +857,22 @@ function Students() {
                     <td className="px-6 py-4">
                       <span className="inline-flex rounded-full bg-violet-50 px-3 py-1 text-xs font-semibold text-violet-700">
                         {student.certificates.length}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4">
+                      <span
+                        className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
+                          Number(student.securityViolationCount || 0) >=
+                            Number(student.securityViolationLimit || 3) ||
+                          Boolean(student.securityDeactivatedAt)
+                            ? "bg-rose-50 text-rose-700"
+                            : Number(student.securityViolationCount || 0) > 0
+                              ? "bg-amber-50 text-amber-700"
+                              : "bg-emerald-50 text-emerald-700"
+                        }`}
+                      >
+                        {Number(student.securityViolationCount || 0)}/
+                        {Number(student.securityViolationLimit || 3)}
                       </span>
                     </td>
                     <td className="px-6 py-4 text-slate-600">{student.lastLoginText}</td>
@@ -934,6 +967,7 @@ function Students() {
                 <div className="mt-3 flex flex-wrap gap-2">
                   <span className="inline-flex rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">Enrolled: {student.enrolledCourses.length}</span>
                   <span className="inline-flex rounded-full bg-violet-50 px-3 py-1 text-xs font-semibold text-violet-700">Certs: {student.certificates.length}</span>
+                  <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${Number(student.securityViolationCount || 0) >= Number(student.securityViolationLimit || 3) || Boolean(student.securityDeactivatedAt) ? "bg-rose-50 text-rose-700" : Number(student.securityViolationCount || 0) > 0 ? "bg-amber-50 text-amber-700" : "bg-emerald-50 text-emerald-700"}`}>Security: {Number(student.securityViolationCount || 0)}/{Number(student.securityViolationLimit || 3)}</span>
                   {student.status === "pending_approval" ? (
                     <span className="inline-flex rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700">Pending</span>
                   ) : (
@@ -1390,7 +1424,22 @@ function Students() {
                 <div className="mt-3 space-y-2 text-sm">
                   <div className="flex items-center justify-between"><span className="text-slate-500">Assigned Web Device</span><span className="font-semibold text-slate-900">{profileStudent.assignedWebDevice || "N/A"}</span></div>
                   <div className="flex items-center justify-between"><span className="text-slate-500">Assigned Web IP</span><span className="font-semibold text-slate-900">{maskIp(profileStudent.assignedWebIp)}</span></div>
+                  <div className="flex items-center justify-between"><span className="text-slate-500">Violation Count</span><span className="font-semibold text-slate-900">{Number(profileStudent.securityViolationCount || 0)}/{Number(profileStudent.securityViolationLimit || 3)}</span></div>
+                  <div className="flex items-center justify-between"><span className="text-slate-500">Last Violation</span><span className="font-semibold text-slate-900">{profileStudent.lastSecurityViolationReason || "N/A"}</span></div>
+                  <div className="flex items-center justify-between"><span className="text-slate-500">Last Violation At</span><span className="font-semibold text-slate-900">{profileStudent.lastSecurityViolationAt ? formatDate(profileStudent.lastSecurityViolationAt) : "N/A"}</span></div>
+                  <div className="flex items-center justify-between"><span className="text-slate-500">Deactivated At</span><span className="font-semibold text-slate-900">{profileStudent.securityDeactivatedAt ? formatDate(profileStudent.securityDeactivatedAt) : "N/A"}</span></div>
                 </div>
+                {profileStudent.recentSecurityViolations?.length ? (
+                  <div className="mt-4 space-y-2 rounded-2xl border border-slate-200 bg-slate-50 p-3 text-xs">
+                    <p className="font-semibold text-slate-700">Recent Violations</p>
+                    {profileStudent.recentSecurityViolations.slice(0, 5).map((item) => (
+                      <div key={item.id} className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2">
+                        <span className="font-semibold text-slate-700">{item.reason || "default"} ({item.page || "unknown"})</span>
+                        <span className="text-slate-500">{item.createdAt ? formatDate(item.createdAt) : "N/A"}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
                 <button type="button" onClick={() => openReset(profileStudent)} className="mt-4 rounded-full bg-primary px-4 py-2 text-sm font-semibold text-white">Reset Device</button>
               </div>
             </motion.aside>

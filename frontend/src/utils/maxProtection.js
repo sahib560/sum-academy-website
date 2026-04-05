@@ -33,8 +33,9 @@ export const blurContent = () => {
     ".protected-zone, .quiz-content, .video-wrapper, .lecture-content"
   );
   targets.forEach((element) => {
-    element.style.filter = "blur(30px)";
-    element.style.transition = "filter 0.1s";
+    element.style.filter = "brightness(0) blur(24px)";
+    element.style.backgroundColor = "#000";
+    element.style.transition = "filter 0.1s, background-color 0.1s";
   });
 
   clearTimeout(blurTimeout);
@@ -49,6 +50,7 @@ export const unblurContent = () => {
   );
   targets.forEach((element) => {
     element.style.filter = "none";
+    element.style.backgroundColor = "";
   });
 };
 
@@ -93,7 +95,7 @@ export const showWarningOverlay = (reason, count) => {
       </p>
       <p style="color:#ef4444;font-size:13px;
                 margin-bottom:28px;font-weight:600;">
-        Violation ${count} of 3 - Auto-submit at 3
+        Violation ${count} of 3 - Account deactivation at 3
       </p>
       <button id="sum-warn-close" style="
         background:#4a63f5;color:white;border:none;

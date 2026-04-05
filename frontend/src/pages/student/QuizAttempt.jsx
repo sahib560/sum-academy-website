@@ -4,7 +4,11 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import toast, { Toaster } from "react-hot-toast";
 import { Skeleton } from "../../components/Skeleton.jsx";
-import { getQuizById, submitQuizAttempt } from "../../services/student.service.js";
+import {
+  getQuizById,
+  reportStudentSecurityViolation,
+  submitQuizAttempt,
+} from "../../services/student.service.js";
 import { useAuth } from "../../hooks/useAuth.js";
 import { WatermarkOverlay } from "../../utils/security.js";
 import {
@@ -96,6 +100,12 @@ function StudentQuizAttempt() {
   const [submittedResult, setSubmittedResult] = useState(null);
   const [showReview, setShowReview] = useState(false);
   const [animatedPercent, setAnimatedPercent] = useState(0);
+  const [securityDeactivatedInfo, setSecurityDeactivatedInfo] = useState(null);
+  const lastReportedViolationRef = useRef({
+    reason: "",
+    count: 0,
+    at: 0,
+  });
 
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ["student-quiz-by-id", quizId],
@@ -184,6 +194,51 @@ function StudentQuizAttempt() {
     return messages[reason] || "Security violation detected";
   };
 
+  const reportViolationToBackend = useCallback(
+    async (count, reason) => {
+      const now = Date.now();
+      if (securityDeactivatedInfo?.deactivated) return;
+      if (
+        lastReportedViolationRef.current.reason === reason &&
+        lastReportedViolationRef.current.count === count &&
+        now - lastReportedViolationRef.current.at < 1200
+      ) {
+        return;
+      }
+      lastReportedViolationRef.current = { reason, count, at: now };
+
+      try {
+        const result = await reportStudentSecurityViolation({
+          reason,
+          page: "quiz",
+          details: `Quiz violation ${count}/${TAB_SWITCH_LIMIT}`,
+        });
+        if (result?.deactivated) {
+          setSecurityDeactivatedInfo({
+            deactivated: true,
+            count: Number(result.count || TAB_SWITCH_LIMIT),
+            limit: Number(result.limit || TAB_SWITCH_LIMIT),
+            reason: result.reason || reason,
+          });
+          toast.error("Account deactivated due to repeated violations.");
+        }
+      } catch (violationError) {
+        const errCode =
+          violationError?.response?.data?.errors?.code ||
+          violationError?.response?.data?.code;
+        if (errCode === "ACCOUNT_DEACTIVATED") {
+          setSecurityDeactivatedInfo({
+            deactivated: true,
+            count: TAB_SWITCH_LIMIT,
+            limit: TAB_SWITCH_LIMIT,
+            reason: reason || "security_violation",
+          });
+        }
+      }
+    },
+    [securityDeactivatedInfo?.deactivated]
+  );
+
   useEffect(() => {
     if (!started || submittedResult || submitMutation.isPending) return undefined;
     const intervalId = window.setInterval(() => {
@@ -210,6 +265,7 @@ function StudentQuizAttempt() {
       onViolation: (count, reason) => {
         violationsRef.current = count;
         setTabSwitchCount(count);
+        void reportViolationToBackend(count, reason);
         blurContent();
         setTimeout(() => {
           unblurContent();
@@ -221,10 +277,11 @@ function StudentQuizAttempt() {
           });
         }
       },
-      onMaxViolation: () => {
+      onMaxViolation: (count, reason) => {
         if (autoSubmitQueuedRef.current || submitMutation.isPending || submittedResult) return;
         autoSubmitQueuedRef.current = true;
-        toast.error("3 violations detected. Quiz auto-submitted.");
+        void reportViolationToBackend(count || TAB_SWITCH_LIMIT, reason || "default");
+        toast.error("3 violations detected. Account is being deactivated.");
         setTimeout(() => {
           finalizeSubmit("tab_limit");
         }, 500);
@@ -238,7 +295,13 @@ function StudentQuizAttempt() {
       if (cleanupRef.current) cleanupRef.current();
       cleanupRef.current = null;
     };
-  }, [finalizeSubmit, started, submittedResult, submitMutation.isPending]);
+  }, [
+    finalizeSubmit,
+    reportViolationToBackend,
+    started,
+    submittedResult,
+    submitMutation.isPending,
+  ]);
 
   useEffect(() => {
     const onFullscreenChange = () => {
@@ -496,6 +559,28 @@ function StudentQuizAttempt() {
       style={{ position: "relative" }}
     >
       <Toaster position="top-right" />
+
+      {securityDeactivatedInfo?.deactivated ? (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/95 px-4 text-center text-white">
+          <div className="w-full max-w-lg rounded-3xl border border-rose-400/40 bg-slate-900/90 p-6">
+            <p className="text-xs uppercase tracking-[0.2em] text-rose-300">Account Deactivated</p>
+            <h2 className="mt-2 font-heading text-2xl">
+              Access blocked after {securityDeactivatedInfo.count}/{securityDeactivatedInfo.limit} violations
+            </h2>
+            <p className="mt-3 text-sm text-slate-200">
+              Reason: {securityDeactivatedInfo.reason || "Security policy violation"}.
+              Please contact admin or teacher to review and reactivate your account.
+            </p>
+            <button
+              type="button"
+              className="mt-5 rounded-full bg-white px-5 py-2 text-sm font-semibold text-slate-900"
+              onClick={() => navigate("/login")}
+            >
+              Go To Login
+            </button>
+          </div>
+        </div>
+      ) : null}
       <WatermarkOverlay
         studentName={
           userProfile?.fullName ||

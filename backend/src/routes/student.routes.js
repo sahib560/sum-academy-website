@@ -12,6 +12,7 @@ import {
   getStudentAnnouncements,
   markAnnouncementRead,
   getStudentAttendance,
+  reportSecurityViolation,
   submitHelpSupportMessage,
   getStudentSettings,
   updateStudentSettings,
@@ -35,6 +36,7 @@ router.get("/announcements", getStudentAnnouncements);
 router.patch("/announcements/:id/read", markAnnouncementRead);
 
 router.get("/attendance", getStudentAttendance);
+router.post("/security/violations", reportSecurityViolation);
 router.post("/help-support", submitHelpSupportMessage);
 
 router.get("/settings", getStudentSettings);

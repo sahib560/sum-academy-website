@@ -21,6 +21,7 @@ export const COLLECTIONS = {
   PROGRESS: "progress",
   SETTINGS: "settings",
   SUPPORT_MESSAGES: "supportMessages",
+  SECURITY_VIOLATIONS: "securityViolations",
 };
 
 export const COURSE_SCHEMA = {

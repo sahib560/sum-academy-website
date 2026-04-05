@@ -152,6 +152,44 @@ api.interceptors.response.use(
       if (typeof window !== "undefined") {
         window.location.href = "/login";
       }
+    } else if (status === 403 && errorCode === "ACCOUNT_DEACTIVATED") {
+      const message =
+        error?.response?.data?.message ||
+        "Your account has been deactivated by admin. Please contact admin to restore access.";
+
+      if (typeof window !== "undefined") {
+        window.sessionStorage.setItem(
+          LOGIN_ALERT_STORAGE_KEY,
+          JSON.stringify({
+            type: "account_deactivated",
+            message,
+            contactAdmin: true,
+          })
+        );
+        window.dispatchEvent(
+          new CustomEvent(LOGIN_ALERT_EVENT, {
+            detail: {
+              type: "account_deactivated",
+              message,
+              contactAdmin: true,
+            },
+          })
+        );
+      }
+
+      try {
+        await signOut(firebaseAuth);
+      } catch {
+        // ignore sign out errors
+      }
+
+      if (
+        typeof window !== "undefined" &&
+        window.location.pathname !== "/login" &&
+        window.location.pathname !== "/lms-login"
+      ) {
+        window.location.assign("/login");
+      }
     }
     return Promise.reject(error);
   }

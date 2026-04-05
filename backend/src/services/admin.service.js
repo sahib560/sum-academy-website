@@ -458,14 +458,22 @@ export const getAllTeachers = async () => {
 };
 
 export const getAllStudents = async () => {
-  const [studentsSnap, usersSnap, enrollmentsSnap, classesSnap, coursesSnap, progressSnap] =
-    await Promise.all([
+  const [
+    studentsSnap,
+    usersSnap,
+    enrollmentsSnap,
+    classesSnap,
+    coursesSnap,
+    progressSnap,
+    securityViolationsSnap,
+  ] = await Promise.all([
     db.collection(COLLECTIONS.STUDENTS).get(),
     db.collection(COLLECTIONS.USERS).where("role", "==", "student").get(),
     db.collection(COLLECTIONS.ENROLLMENTS).get(),
     db.collection(COLLECTIONS.CLASSES).get(),
     db.collection(COLLECTIONS.COURSES).get(),
     db.collection(COLLECTIONS.PROGRESS).get(),
+    db.collection(COLLECTIONS.SECURITY_VIOLATIONS).get(),
   ]);
 
   const studentsMap = {};
@@ -525,6 +533,18 @@ export const getAllStudents = async () => {
     return acc;
   }, {});
 
+  const violationsByStudentId = securityViolationsSnap.docs.reduce((acc, doc) => {
+    const row = doc.data() || {};
+    const studentId = trimText(row.studentId || row.uid);
+    if (!studentId) return acc;
+    if (!acc[studentId]) acc[studentId] = [];
+    acc[studentId].push({
+      id: doc.id,
+      ...row,
+    });
+    return acc;
+  }, {});
+
   return usersSnap.docs.map((doc) => {
     const userData = doc.data();
     const studentData = studentsMap[doc.id] || {};
@@ -535,6 +555,9 @@ export const getAllStudents = async () => {
       : [];
     const studentProgressRows = Array.isArray(progressByStudentId[studentId])
       ? progressByStudentId[studentId]
+      : [];
+    const studentViolationRows = Array.isArray(violationsByStudentId[studentId])
+      ? [...violationsByStudentId[studentId]]
       : [];
 
     const emailPrefix = (userData.email || "").split("@")[0];
@@ -604,6 +627,24 @@ export const getAllStudents = async () => {
           )
         : 0;
 
+    const recentSecurityViolations = studentViolationRows
+      .sort(
+        (a, b) =>
+          (parseDate(b.createdAt)?.getTime() || 0) -
+          (parseDate(a.createdAt)?.getTime() || 0)
+      )
+      .slice(0, 5)
+      .map((row) => ({
+        id: row.id,
+        reason: trimText(row.reason || "default"),
+        page: trimText(row.page || "unknown"),
+        attemptNumber: toNumber(row.attemptNumber, 0),
+        action: trimText(row.action || "warning"),
+        createdAt: row.createdAt || null,
+        isResolved: Boolean(row.isResolved),
+        resolvedAt: row.resolvedAt || null,
+      }));
+
     return {
       id: studentId,
       uid: studentId,
@@ -625,6 +666,16 @@ export const getAllStudents = async () => {
       completedCourses: enrolledCourses.filter(
         (course) => clampPercent(course.progress) >= 100 || Boolean(course.completedAt)
       ).length,
+      securityViolationCount: toNumber(
+        userData.securityViolationCount,
+        recentSecurityViolations.filter((row) => !row.isResolved).length
+      ),
+      securityViolationLimit: toNumber(userData.securityViolationLimit, 3),
+      lastSecurityViolationReason: trimText(userData.lastSecurityViolationReason),
+      lastSecurityViolationAt: userData.lastSecurityViolationAt || null,
+      securityDeactivatedAt: userData.securityDeactivatedAt || null,
+      securityDeactivationReason: trimText(userData.securityDeactivationReason),
+      recentSecurityViolations,
     };
   });
 };

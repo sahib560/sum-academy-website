@@ -622,6 +622,42 @@ export const sendRejectionEmail = async (email, name, reason) => {
   }
 };
 
+export const sendSecurityDeactivationEmail = async (
+  email,
+  name,
+  payload = {}
+) => {
+  try {
+    await sendMail({
+      from: MAIL_FROM,
+      to: email,
+      subject: "Account Deactivated Due To Security Violations - SUM Academy",
+      html: `
+        <div style="font-family: DM Sans, sans-serif; max-width: 560px; margin: 0 auto; padding: 28px; background: #fff7f7; border-radius: 16px;">
+          <h2 style="color: #dc2626; margin: 0 0 10px;">Account Deactivated</h2>
+          <p style="color: #334155; margin: 0 0 14px;">
+            Hi ${name || "Student"}, your account has been deactivated after repeated security policy violations.
+          </p>
+          <div style="background: #ffffff; border-radius: 12px; padding: 16px;">
+            <p style="margin: 0; color: #64748b;">Violation Reason</p>
+            <p style="margin: 4px 0 10px; color: #0f172a; font-weight: 700;">${payload.reason || "Security violation detected"}</p>
+            <p style="margin: 0; color: #64748b;">Violations</p>
+            <p style="margin: 4px 0 10px; color: #0f172a;">${Number(payload.count || 0)} / ${Number(payload.limit || 3)}</p>
+            <p style="margin: 0; color: #64748b;">Page</p>
+            <p style="margin: 4px 0 0; color: #0f172a;">${payload.page || "Protected content"}</p>
+          </div>
+          <p style="margin-top: 14px; color: #64748b; font-size: 13px;">
+            Please contact admin or teacher to review your case and reactivate your account.
+          </p>
+        </div>
+      `,
+    });
+  } catch (error) {
+    console.error("Security deactivation email failed:", error.message);
+    throw error;
+  }
+};
+
 export const sendAnnouncementEmail = async (
   email,
   studentName,

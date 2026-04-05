@@ -42,6 +42,9 @@ export const markAllStudentAnnouncementsRead = () =>
 export const getStudentAttendance = () =>
   api.get("/student/attendance").then((r) => r.data.data);
 
+export const reportStudentSecurityViolation = (data) =>
+  api.post("/student/security/violations", data).then((r) => r.data.data);
+
 export const getStudentSettings = () =>
   api.get("/student/settings").then((r) => r.data.data);
 

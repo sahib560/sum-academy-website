@@ -9,6 +9,7 @@ import { useAuth } from "../../hooks/useAuth.js";
 import {
   getCourseProgress,
   markLectureComplete,
+  reportStudentSecurityViolation,
 } from "../../services/student.service.js";
 import api from "../../api/axios.js";
 import { WatermarkOverlay } from "../../utils/security.js";
@@ -121,11 +122,18 @@ function StudentCoursePlayer() {
   const [volume, setVolume] = useState(1);
   const [playbackRate, setPlaybackRate] = useState(1);
   const [videoSrc, setVideoSrc] = useState("");
+  const [videoLoadError, setVideoLoadError] = useState("");
   const [isLoadingVideo, setIsLoadingVideo] = useState(false);
   const [maxWatchedSeconds, setMaxWatchedSeconds] = useState(0);
   const [showCelebration, setShowCelebration] = useState(false);
   const [securityWarningCount, setSecurityWarningCount] = useState(0);
   const [securityLocked, setSecurityLocked] = useState(false);
+  const [securityDeactivatedInfo, setSecurityDeactivatedInfo] = useState(null);
+  const lastReportedViolationRef = useRef({
+    reason: "",
+    count: 0,
+    at: 0,
+  });
 
   const {
     data: progressPayload,
@@ -228,12 +236,57 @@ function StudentCoursePlayer() {
       return messages[reason] || "Security violation detected";
     };
 
+    const reportViolationToBackend = async (count, reason) => {
+      const now = Date.now();
+      if (securityDeactivatedInfo?.deactivated) return;
+      if (
+        lastReportedViolationRef.current.reason === reason &&
+        lastReportedViolationRef.current.count === count &&
+        now - lastReportedViolationRef.current.at < 1200
+      ) {
+        return;
+      }
+      lastReportedViolationRef.current = { reason, count, at: now };
+
+      try {
+        const result = await reportStudentSecurityViolation({
+          reason,
+          page: "video",
+          details: `Video player violation ${count}/${VIDEO_VIOLATION_LIMIT}`,
+        });
+        if (result?.deactivated) {
+          setSecurityLocked(true);
+          setSecurityDeactivatedInfo({
+            deactivated: true,
+            count: Number(result.count || VIDEO_VIOLATION_LIMIT),
+            limit: Number(result.limit || VIDEO_VIOLATION_LIMIT),
+            reason: result.reason || reason,
+          });
+          toast.error("Account deactivated due to repeated violations.");
+        }
+      } catch (violationError) {
+        const errCode =
+          violationError?.response?.data?.errors?.code ||
+          violationError?.response?.data?.code;
+        if (errCode === "ACCOUNT_DEACTIVATED") {
+          setSecurityLocked(true);
+          setSecurityDeactivatedInfo({
+            deactivated: true,
+            count: VIDEO_VIOLATION_LIMIT,
+            limit: VIDEO_VIOLATION_LIMIT,
+            reason: reason || "security_violation",
+          });
+        }
+      }
+    };
+
     const cleanup = setupMaxProtection({
       enforceFullscreenMode: false,
       quizMode: true,
       maxViolations: VIDEO_VIOLATION_LIMIT,
       onViolation: (count, reason) => {
         setSecurityWarningCount(count);
+        void reportViolationToBackend(count, reason);
         if (
           (reason === "tab_switch" || reason === "window_blur") &&
           videoRef.current
@@ -245,19 +298,20 @@ function StudentCoursePlayer() {
           toast.error(`Warning ${count}/${VIDEO_VIOLATION_LIMIT}: ${getViolationMessage(reason)}`);
         }
       },
-      onMaxViolation: () => {
+      onMaxViolation: (count, reason) => {
         setSecurityWarningCount(VIDEO_VIOLATION_LIMIT);
         setSecurityLocked(true);
+        void reportViolationToBackend(count || VIDEO_VIOLATION_LIMIT, reason || "default");
         if (videoRef.current) {
           videoRef.current.pause();
         }
         setIsPlaying(false);
-        toast.error("3 violations detected. Video locked for this session.");
+        toast.error("3 violations detected. Account is being deactivated.");
       },
     });
     setSecurityWarningCount(getViolationCount());
     return cleanup;
-  }, []);
+  }, [securityDeactivatedInfo?.deactivated]);
 
   useEffect(() => {
     const onVisibilityChange = () => {
@@ -281,6 +335,7 @@ function StudentCoursePlayer() {
     const loadSecureVideo = async () => {
       cleanupObjectUrl();
       setVideoSrc("");
+      setVideoLoadError("");
       setCurrentTime(0);
       setDuration(0);
       setMaxWatchedSeconds(0);
@@ -293,26 +348,23 @@ function StudentCoursePlayer() {
 
       setIsLoadingVideo(true);
       try {
-        let blob;
         const isAbsolute = /^https?:\/\//i.test(secureUrl);
 
         if (isAbsolute) {
-          const response = await fetch(secureUrl, { credentials: "include" });
-          if (!response.ok) throw new Error("Failed to fetch secure stream");
-          blob = await response.blob();
+          if (cancelled) return;
+          setVideoSrc(secureUrl);
+          return;
         } else {
           const response = await api.get(secureUrl, { responseType: "blob" });
-          blob = response.data;
+          if (cancelled) return;
+          const objectUrl = URL.createObjectURL(response.data);
+          objectUrlRef.current = objectUrl;
+          setVideoSrc(objectUrl);
         }
-
-        if (cancelled) return;
-        const objectUrl = URL.createObjectURL(blob);
-        objectUrlRef.current = objectUrl;
-        setVideoSrc(objectUrl);
       } catch {
         if (!cancelled) {
           setVideoSrc("");
-          toast.error("Unable to load secure video stream");
+          setVideoLoadError("Unable to load this video right now.");
         }
       } finally {
         if (!cancelled) setIsLoadingVideo(false);
@@ -421,12 +473,35 @@ function StudentCoursePlayer() {
   const showLockedOverlay =
     securityLocked ||
     !currentLecture ||
-    currentLecture.hasAccess === false ||
-    (lectureHasVideo && !videoSrc);
+    currentLecture.hasAccess === false;
+  const showVideoErrorOverlay =
+    !showLockedOverlay && !isLoadingVideo && lectureHasVideo && !videoSrc;
 
   return (
     <div className="protected-zone lecture-content relative space-y-6 protected-content">
       <Toaster position="top-right" />
+
+      {securityDeactivatedInfo?.deactivated ? (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/95 px-4 text-center text-white">
+          <div className="w-full max-w-lg rounded-3xl border border-rose-400/40 bg-slate-900/90 p-6">
+            <p className="text-xs uppercase tracking-[0.2em] text-rose-300">Account Deactivated</p>
+            <h2 className="mt-2 font-heading text-2xl">
+              Access blocked after {securityDeactivatedInfo.count}/{securityDeactivatedInfo.limit} violations
+            </h2>
+            <p className="mt-3 text-sm text-slate-200">
+              Reason: {securityDeactivatedInfo.reason || "Security policy violation"}.
+              Please contact admin or teacher to review and reactivate your account.
+            </p>
+            <button
+              type="button"
+              className="mt-5 rounded-full bg-white px-5 py-2 text-sm font-semibold text-slate-900"
+              onClick={() => navigate("/login")}
+            >
+              Go To Login
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       <Motion.section {...fadeUp}>
         <h1 className="font-heading text-3xl text-slate-900">Course Player</h1>
@@ -473,6 +548,11 @@ function StudentCoursePlayer() {
                   }}
                   onPlay={() => setIsPlaying(true)}
                   onPause={() => setIsPlaying(false)}
+                  onError={() => {
+                    setVideoLoadError("Unable to play this video right now.");
+                    setVideoSrc("");
+                    setIsPlaying(false);
+                  }}
                 />
               </div>
 
@@ -503,6 +583,17 @@ function StudentCoursePlayer() {
                   No video attached for this lecture. Use notes below.
                 </div>
               )}
+
+              {showVideoErrorOverlay ? (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-slate-900/75 text-center text-white">
+                  <p className="text-sm font-semibold">
+                    {videoLoadError || "Unable to load video"}
+                  </p>
+                  <p className="text-xs text-slate-200">
+                    Access is allowed. Please refresh this page or try again.
+                  </p>
+                </div>
+              ) : null}
 
               {isLoadingVideo && (
                 <div className="absolute inset-0 flex items-center justify-center bg-slate-900/60 text-sm font-semibold text-white">
@@ -542,7 +633,7 @@ function StudentCoursePlayer() {
                   <button
                     className="rounded-full bg-primary px-4 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
                     onClick={handlePlayPause}
-                    disabled={showLockedOverlay || !lectureHasVideo}
+                    disabled={showLockedOverlay || !lectureHasVideo || !videoSrc}
                   >
                     {isPlaying ? "Pause" : "Play"}
                   </button>
@@ -559,7 +650,7 @@ function StudentCoursePlayer() {
                   value={currentTime}
                   onChange={handleSeek}
                   className="w-full"
-                  disabled={showLockedOverlay || !lectureHasVideo}
+                  disabled={showLockedOverlay || !lectureHasVideo || !videoSrc}
                 />
 
                 <div className="grid gap-3 md:grid-cols-3">
@@ -595,7 +686,7 @@ function StudentCoursePlayer() {
                     <button
                       className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700"
                       onClick={handleFullscreen}
-                      disabled={showLockedOverlay || !lectureHasVideo}
+                      disabled={showLockedOverlay || !lectureHasVideo || !videoSrc}
                     >
                       Fullscreen
                     </button>

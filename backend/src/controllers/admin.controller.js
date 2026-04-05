@@ -1652,6 +1652,18 @@ export const updateUser = async (req, res) => {
       updates.isActive = isActive;
       if (!isActive) {
         await admin.auth().revokeRefreshTokens(uid);
+      } else {
+        updates.securityViolationCount = 0;
+        updates.lastSecurityViolationReason = "";
+        updates.lastSecurityViolationAt = null;
+        updates.securityDeactivatedAt = null;
+        updates.securityDeactivationReason = "";
+        updates.status =
+          String(userData.role || "").toLowerCase() === "student"
+            ? "approved"
+            : String(userData.status || "").toLowerCase() === "deactivated"
+              ? "active"
+              : userData.status || "active";
       }
     }
 
@@ -1721,6 +1733,13 @@ export const updateUser = async (req, res) => {
     }
 
     if (userData.role === "student") {
+      if (isActive === true) {
+        roleUpdates.approvalStatus = "approved";
+        roleUpdates.securityViolationCount = 0;
+        roleUpdates.lastSecurityViolationReason = "";
+        roleUpdates.lastSecurityViolationAt = null;
+        roleUpdates.securityDeactivatedAt = null;
+      }
       if (fatherName !== undefined) roleUpdates.fatherName = trim(fatherName);
       if (fatherPhone !== undefined) roleUpdates.fatherPhone = nextFatherPhone;
       if (fatherOccupation !== undefined) {

@@ -833,9 +833,15 @@ const loginUser = async (req, res) => {
     if (!userData.isActive) {
       return errorResponse(
         res,
-        "Your account has been deactivated. Contact admin.",
+        userData.securityDeactivationReason ||
+          "Your account has been deactivated. Contact admin or teacher.",
         403,
-        { code: "ACCOUNT_DEACTIVATED" }
+        {
+          code: "ACCOUNT_DEACTIVATED",
+          contactAdmin: true,
+          reason: userData.lastSecurityViolationReason || "",
+          deactivatedAt: userData.securityDeactivatedAt || null,
+        }
       );
     }
 
@@ -1016,9 +1022,15 @@ const getMe = async (req, res) => {
     if (userData.isActive === false) {
       return errorResponse(
         res,
-        "Your account has been deactivated. Contact admin.",
+        userData.securityDeactivationReason ||
+          "Your account has been deactivated. Contact admin or teacher.",
         403,
-        { code: "ACCOUNT_DEACTIVATED" }
+        {
+          code: "ACCOUNT_DEACTIVATED",
+          contactAdmin: true,
+          reason: userData.lastSecurityViolationReason || "",
+          deactivatedAt: userData.securityDeactivatedAt || null,
+        }
       );
     }
 
