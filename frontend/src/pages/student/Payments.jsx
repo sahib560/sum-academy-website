@@ -48,20 +48,242 @@ function StudentPayments() {
     [payments]
   );
 
-  const downloadInvoice = (payment) => {
-    const pdf = new jsPDF();
+  const downloadInvoice = async (payment) => {
+    const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+
+    // Modern header with gradient background
+    pdf.setFillColor(59, 130, 246); // Blue header
+    pdf.rect(0, 0, pageWidth, 40, "F");
+
+    // White content area
+    pdf.setFillColor(255, 255, 255);
+    pdf.rect(0, 40, pageWidth, pageHeight - 40, "F");
+
+    // Academy Logo placeholder (you can add actual logo loading here)
+    pdf.setTextColor(255, 255, 255);
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(24);
+    pdf.text("SUM ACADEMY", 20, 25);
+
+    // Invoice title
+    pdf.setFontSize(18);
+    pdf.text("INVOICE", pageWidth - 20, 25, { align: "right" });
+
+    // Invoice details box
+    pdf.setDrawColor(229, 231, 235);
+    pdf.setLineWidth(0.5);
+    pdf.roundedRect(20, 50, pageWidth - 40, 60, 3, 3);
+
+    // Invoice info
+    pdf.setTextColor(31, 41, 55);
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(12);
+    pdf.text("Invoice Details", 25, 65);
+
+    pdf.setFont("helvetica", "normal");
+    pdf.setFontSize(10);
+    pdf.text(`Invoice Number: ${payment.reference || payment.id}`, 25, 75);
+    pdf.text(`Issue Date: ${formatDate(payment.createdAt)}`, 25, 82);
+    pdf.text(`Payment Status: ${payment.status || "Completed"}`, 25, 89);
+    pdf.text(`Payment Method: ${payment.method || "Bank Transfer"}`, 25, 96);
+
+    // Billing information
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(12);
+    pdf.text("Bill To:", pageWidth - 80, 65);
+
+    pdf.setFont("helvetica", "normal");
+    pdf.setFontSize(10);
+    pdf.text(payment.studentName || "Student", pageWidth - 80, 75);
+    pdf.text("SUM Academy Student", pageWidth - 80, 82);
+    pdf.text("Pakistan", pageWidth - 80, 89);
+
+    // Course details section
+    pdf.setFillColor(249, 250, 251);
+    pdf.roundedRect(20, 120, pageWidth - 40, 40, 3, 3, "F");
+    pdf.setDrawColor(229, 231, 235);
+    pdf.setLineWidth(0.5);
+    pdf.roundedRect(20, 120, pageWidth - 40, 40, 3, 3);
+
+    pdf.setTextColor(31, 41, 55);
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(12);
+    pdf.text("Course Details", 25, 135);
+
+    pdf.setFont("helvetica", "normal");
+    pdf.setFontSize(10);
+    pdf.text(`Course: ${payment.courseName || "N/A"}`, 25, 145);
+    pdf.text(`Class: ${payment.className || "N/A"}`, 25, 152);
+
+    // Amount breakdown
+    pdf.setFillColor(249, 250, 251);
+    pdf.roundedRect(20, 170, pageWidth - 40, 50, 3, 3, "F");
+    pdf.setDrawColor(229, 231, 235);
+    pdf.setLineWidth(0.5);
+    pdf.roundedRect(20, 170, pageWidth - 40, 50, 3, 3);
+
+    // Table headers
+    pdf.setTextColor(31, 41, 55);
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(10);
+    pdf.text("Description", 25, 185);
+    pdf.text("Qty", 120, 185);
+    pdf.text("Unit Price", 140, 185);
+    pdf.text("Amount", pageWidth - 25, 185, { align: "right" });
+
+    // Table line
+    pdf.setDrawColor(209, 213, 219);
+    pdf.setLineWidth(0.3);
+    pdf.line(25, 188, pageWidth - 25, 188);
+
+    // Item details
+    pdf.setFont("helvetica", "normal");
+    pdf.setFontSize(9);
+    pdf.text(payment.courseName || "Course Fee", 25, 198);
+    pdf.text("1", 120, 198);
+    pdf.text(formatPKR(payment.amount), 140, 198);
+    pdf.text(formatPKR(payment.amount), pageWidth - 25, 198, { align: "right" });
+
+    // Total section
+    pdf.setDrawColor(59, 130, 246);
+    pdf.setLineWidth(0.8);
+    pdf.line(120, 210, pageWidth - 25, 210);
+
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(12);
+    pdf.setTextColor(59, 130, 246);
+    pdf.text("TOTAL:", 140, 220);
+    pdf.text(formatPKR(payment.amount), pageWidth - 25, 220, { align: "right" });
+
+    // Footer
+    pdf.setTextColor(107, 114, 128);
+    pdf.setFont("helvetica", "normal");
+    pdf.setFontSize(8);
+    pdf.text("Thank you for choosing SUM Academy!", pageWidth / 2, pageHeight - 30, { align: "center" });
+    pdf.text("For any queries, contact us at help@sumacademy.net", pageWidth / 2, pageHeight - 25, { align: "center" });
+    pdf.text("© 2026 SUM Academy. All rights reserved.", pageWidth / 2, pageHeight - 15, { align: "center" });
+
+    // Decorative elements
+    pdf.setDrawColor(59, 130, 246);
+    pdf.setLineWidth(0.3);
+    pdf.line(20, pageHeight - 35, pageWidth - 20, pageHeight - 35);
+
+    pdf.save(`SUM_Invoice_${payment.reference || payment.id}.pdf`);
+    toast.success("Invoice downloaded successfully!");
+  };
+
+  const downloadReceipt = async (payment) => {
+    const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+
+    // Modern header with green accent for receipts
+    pdf.setFillColor(16, 185, 129); // Green header
+    pdf.rect(0, 0, pageWidth, 35, "F");
+
+    // White content area
+    pdf.setFillColor(255, 255, 255);
+    pdf.rect(0, 35, pageWidth, pageHeight - 35, "F");
+
+    // Academy Logo placeholder
+    pdf.setTextColor(255, 255, 255);
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(20);
+    pdf.text("SUM ACADEMY", 20, 22);
+
+    // Receipt title
     pdf.setFontSize(16);
-    pdf.text("SUM Academy - Invoice", 14, 16);
-    pdf.setFontSize(11);
-    pdf.text(`Reference: ${payment.reference || "-"}`, 14, 24);
-    pdf.text(`Student: ${payment.studentName || "-"}`, 14, 31);
-    pdf.text(`Course: ${payment.courseName || "-"}`, 14, 38);
-    pdf.text(`Class: ${payment.className || "-"}`, 14, 45);
-    pdf.text(`Amount: ${formatPKR(payment.amount)}`, 14, 52);
-    pdf.text(`Method: ${payment.method || "-"}`, 14, 59);
-    pdf.text(`Date: ${formatDate(payment.createdAt)}`, 14, 66);
-    pdf.save(`invoice-${payment.reference || payment.id}.pdf`);
-    toast.success("Invoice downloaded");
+    pdf.text("PAYMENT RECEIPT", pageWidth - 20, 22, { align: "right" });
+
+    // Receipt details box
+    pdf.setDrawColor(229, 231, 235);
+    pdf.setLineWidth(0.5);
+    pdf.roundedRect(20, 45, pageWidth - 40, 50, 3, 3);
+
+    // Receipt info
+    pdf.setTextColor(31, 41, 55);
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(12);
+    pdf.text("Receipt Details", 25, 60);
+
+    pdf.setFont("helvetica", "normal");
+    pdf.setFontSize(10);
+    pdf.text(`Receipt Number: ${payment.reference || payment.id}`, 25, 70);
+    pdf.text(`Payment Date: ${formatDate(payment.createdAt)}`, 25, 77);
+    pdf.text(`Status: Payment Approved`, 25, 84);
+    pdf.text(`Transaction ID: ${payment.transactionId || "N/A"}`, 25, 91);
+
+    // Student information
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(12);
+    pdf.text("Received From:", pageWidth - 80, 60);
+
+    pdf.setFont("helvetica", "normal");
+    pdf.setFontSize(10);
+    pdf.text(payment.studentName || "Student", pageWidth - 80, 70);
+    pdf.text("SUM Academy Student", pageWidth - 80, 77);
+    pdf.text("Pakistan", pageWidth - 80, 84);
+
+    // Payment details section
+    pdf.setFillColor(249, 250, 251);
+    pdf.roundedRect(20, 105, pageWidth - 40, 40, 3, 3, "F");
+    pdf.setDrawColor(229, 231, 235);
+    pdf.setLineWidth(0.5);
+    pdf.roundedRect(20, 105, pageWidth - 40, 40, 3, 3);
+
+    pdf.setTextColor(31, 41, 55);
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(12);
+    pdf.text("Payment Details", 25, 120);
+
+    pdf.setFont("helvetica", "normal");
+    pdf.setFontSize(10);
+    pdf.text(`Course: ${payment.courseName || "N/A"}`, 25, 130);
+    pdf.text(`Class: ${payment.className || "N/A"}`, 25, 137);
+    pdf.text(`Payment Method: ${payment.method || "Bank Transfer"}`, 25, 144);
+
+    // Amount section
+    pdf.setFillColor(16, 185, 129);
+    pdf.roundedRect(20, 155, pageWidth - 40, 30, 3, 3, "F");
+
+    pdf.setTextColor(255, 255, 255);
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(14);
+    pdf.text("AMOUNT RECEIVED", pageWidth / 2, 170, { align: "center" });
+    pdf.setFontSize(18);
+    pdf.text(formatPKR(payment.amount), pageWidth / 2, 180, { align: "center" });
+
+    // Approval stamp
+    pdf.setFillColor(255, 255, 255);
+    pdf.roundedRect(pageWidth - 60, 190, 40, 20, 2, 2, "F");
+    pdf.setDrawColor(16, 185, 129);
+    pdf.setLineWidth(1);
+    pdf.roundedRect(pageWidth - 60, 190, 40, 20, 2, 2);
+
+    pdf.setTextColor(16, 185, 129);
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(8);
+    pdf.text("APPROVED", pageWidth - 40, 198, { align: "center" });
+    pdf.setFontSize(6);
+    pdf.text(formatDate(new Date()), pageWidth - 40, 203, { align: "center" });
+
+    // Footer
+    pdf.setTextColor(107, 114, 128);
+    pdf.setFont("helvetica", "normal");
+    pdf.setFontSize(8);
+    pdf.text("This receipt confirms successful payment processing.", pageWidth / 2, pageHeight - 30, { align: "center" });
+    pdf.text("Keep this receipt for your records.", pageWidth / 2, pageHeight - 25, { align: "center" });
+    pdf.text("© 2026 SUM Academy. All rights reserved.", pageWidth / 2, pageHeight - 15, { align: "center" });
+
+    // Decorative elements
+    pdf.setDrawColor(16, 185, 129);
+    pdf.setLineWidth(0.3);
+    pdf.line(20, pageHeight - 35, pageWidth - 20, pageHeight - 35);
+
+    pdf.save(`SUM_Receipt_${payment.reference || payment.id}.pdf`);
+    toast.success("Receipt downloaded successfully!");
   };
 
   return (
@@ -139,6 +361,14 @@ function StudentPayments() {
                   >
                     Download Invoice
                   </button>
+                  {payment.status === "approved" && (
+                    <button
+                      className="rounded-full border border-green-200 bg-green-50 px-3 py-1 text-xs text-green-700 hover:bg-green-100"
+                      onClick={() => downloadReceipt(payment)}
+                    >
+                      Download Receipt
+                    </button>
+                  )}
                 </div>
               </div>
             ))

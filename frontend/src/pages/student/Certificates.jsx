@@ -96,92 +96,146 @@ const loadImageAsDataUrl = (url) =>
   });
 
 const downloadCertificatePdf = async (certificate, certSettings) => {
-  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
-  const borderColor = hexToRgb(certSettings.borderColor);
-  const headingColor = hexToRgb(certSettings.headingColor);
-  const nameColor = hexToRgb(certSettings.nameColor);
-  const bodyColor = hexToRgb(certSettings.bodyColor);
-  const bgColor = hexToRgb(certSettings.backgroundColor);
 
-  doc.setFillColor(...bgColor);
+  // Modern gradient background
+  const gradient = doc.setFillColor(248, 250, 252);
   doc.rect(0, 0, pageWidth, pageHeight, "F");
 
-  doc.setDrawColor(...borderColor);
-  doc.setLineWidth(1.4);
-  doc.rect(10, 10, pageWidth - 20, pageHeight - 20);
-  doc.setLineWidth(0.5);
-  doc.rect(14, 14, pageWidth - 28, pageHeight - 28);
+  // Decorative border with modern styling
+  doc.setDrawColor(59, 130, 246); // Blue border
+  doc.setLineWidth(0.8);
+  doc.roundedRect(15, 15, pageWidth - 30, pageHeight - 30, 5, 5);
 
+  // Inner decorative elements
+  doc.setDrawColor(16, 185, 129); // Green accent
+  doc.setLineWidth(0.3);
+  doc.roundedRect(18, 18, pageWidth - 36, pageHeight - 36, 3, 3);
+
+  // Academy Logo and Header
   if (certSettings.showLogo && certSettings.logoUrl) {
     const logoData = await loadImageAsDataUrl(certSettings.logoUrl);
     if (logoData) {
-      doc.addImage(logoData, "PNG", pageWidth / 2 - 12, 18, 24, 24);
+      doc.addImage(logoData, "PNG", 25, 25, 30, 30);
     }
   }
 
-  doc.setTextColor(...headingColor);
+  // Academy Name and Title
+  doc.setTextColor(30, 58, 138); // Dark blue
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(28);
+  doc.text("SUM ACADEMY", pageWidth / 2, 35, { align: "center" });
+
+  doc.setFontSize(18);
+  doc.setTextColor(59, 130, 246); // Blue
+  doc.text("CERTIFICATE OF COMPLETION", pageWidth / 2, 50, { align: "center" });
+
+  // Decorative line
+  doc.setDrawColor(59, 130, 246);
+  doc.setLineWidth(1);
+  doc.line(60, 55, pageWidth - 60, 55);
+
+  // Certificate Body
+  doc.setFont("times", "normal");
+  doc.setFontSize(14);
+  doc.setTextColor(75, 85, 99); // Gray
+  doc.text("This is to certify that", pageWidth / 2, 75, { align: "center" });
+
+  // Student Name - Highlighted
+  doc.setFillColor(59, 130, 246);
+  doc.roundedRect(50, 80, pageWidth - 100, 20, 2, 2, "F");
+  doc.setTextColor(255, 255, 255);
   doc.setFont("times", "bold");
-  doc.setFontSize(34);
-  doc.text("Certificate of Completion", pageWidth / 2, 58, { align: "center" });
+  doc.setFontSize(24);
+  doc.text(certificate.studentName, pageWidth / 2, 92, { align: "center" });
 
-  doc.setFont("times", "italic");
-  doc.setFontSize(16);
-  doc.setTextColor(...bodyColor);
-  doc.text("This certifies that", pageWidth / 2, 74, { align: "center" });
+  // Course completion text
+  doc.setTextColor(75, 85, 99);
+  doc.setFont("times", "normal");
+  doc.setFontSize(14);
+  doc.text("has successfully completed the course", pageWidth / 2, 110, { align: "center" });
 
-  doc.setTextColor(...nameColor);
-  doc.setFont("times", "bold");
-  doc.setFontSize(29);
-  doc.text(certificate.studentName, pageWidth / 2, 91, { align: "center" });
-
-  doc.setTextColor(...bodyColor);
-  doc.setFont("times", "italic");
-  doc.setFontSize(15);
-  doc.text("has successfully completed", pageWidth / 2, 105, { align: "center" });
-
+  // Course Name - Highlighted
+  doc.setFillColor(16, 185, 129);
+  doc.roundedRect(50, 115, pageWidth - 100, 18, 2, 2, "F");
+  doc.setTextColor(255, 255, 255);
   doc.setFont("times", "bold");
   doc.setFontSize(20);
-  doc.text(certificate.courseName, pageWidth / 2, 118, { align: "center" });
+  doc.text(certificate.courseName, pageWidth / 2, 127, { align: "center" });
 
+  // Issue Date
+  doc.setTextColor(107, 114, 128);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(12);
-  doc.setTextColor(...bodyColor);
-  doc.text(`Date Issued: ${formatDate(certificate.issuedAt)}`, pageWidth / 2, 134, {
-    align: "center",
-  });
+  doc.text(`Issued on: ${formatDate(certificate.issuedAt)}`, pageWidth / 2, 145, { align: "center" });
 
+  // Certificate Details Box
+  doc.setFillColor(249, 250, 251);
+  doc.roundedRect(30, 155, pageWidth - 60, 35, 3, 3, "F");
+  doc.setDrawColor(229, 231, 235);
+  doc.setLineWidth(0.5);
+  doc.roundedRect(30, 155, pageWidth - 60, 35, 3, 3);
+
+  // Certificate ID
+  doc.setTextColor(31, 41, 55);
+  doc.setFont("courier", "bold");
+  doc.setFontSize(11);
+  doc.text(`Certificate ID: ${certificate.certId}`, 35, 168);
+
+  // Verification URL
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  doc.setTextColor(59, 130, 246);
+  const verifyUrl = certificate.verificationUrl || `${window.location.origin}/verify/${certificate.certId}`;
+  doc.textWithLink("Verify Online", 35, 178, { url: verifyUrl });
+
+  // Signatures Section
   if (certSettings.showSignature) {
-    doc.setDrawColor(180, 186, 201);
+    // Director Signature
+    doc.setDrawColor(156, 163, 175);
     doc.setLineWidth(0.5);
-    doc.line(22, 160, 92, 160);
+    doc.line(40, pageHeight - 50, 90, pageHeight - 50);
     doc.setFontSize(10);
-    doc.setTextColor(...bodyColor);
-    doc.text(certSettings.signatureLabel || "Authorized Signature", 57, 166, {
-      align: "center",
-    });
+    doc.setTextColor(75, 85, 99);
+    doc.text("Director", 65, pageHeight - 45, { align: "center" });
+    doc.text("SUM Academy", 65, pageHeight - 38, { align: "center" });
+
+    // Instructor Signature
+    doc.line(pageWidth - 90, pageHeight - 50, pageWidth - 40, pageHeight - 50);
+    doc.text("Course Instructor", pageWidth - 65, pageHeight - 45, { align: "center" });
+    doc.text(certificate.teacherName || "Faculty", pageWidth - 65, pageHeight - 38, { align: "center" });
+
+    // Signature images if available
     if (certSettings.signatureUrl) {
       const sigData = await loadImageAsDataUrl(certSettings.signatureUrl);
       if (sigData) {
-        doc.addImage(sigData, "PNG", 30, 146, 54, 12);
+        doc.addImage(sigData, "PNG", 50, pageHeight - 70, 30, 15);
       }
     }
   }
 
+  // QR Code for verification
   if (certSettings.showQr) {
-    doc.rect(pageWidth - 50, 146, 30, 30);
+    doc.setFillColor(255, 255, 255);
+    doc.roundedRect(pageWidth - 45, pageHeight - 45, 25, 25, 2, 2, "F");
+    doc.setDrawColor(59, 130, 246);
+    doc.setLineWidth(0.5);
+    doc.roundedRect(pageWidth - 45, pageHeight - 45, 25, 25, 2, 2);
+
+    // QR Code placeholder
     doc.setFontSize(8);
-    doc.setTextColor(...bodyColor);
-    doc.text("QR", pageWidth - 35, 162, { align: "center" });
-    doc.text("Placeholder", pageWidth - 35, 167, { align: "center" });
+    doc.setTextColor(59, 130, 246);
+    doc.text("QR", pageWidth - 32.5, pageHeight - 35, { align: "center" });
+    doc.text("CODE", pageWidth - 32.5, pageHeight - 30, { align: "center" });
   }
 
-  doc.setFont("courier", "normal");
-  doc.setFontSize(10);
-  doc.setTextColor(...bodyColor);
-  doc.text(`Cert ID: ${certificate.certId}`, 22, 184);
-  doc.text("Verify online using certificate ID", 22, 190);
+  // Footer
+  doc.setFontSize(8);
+  doc.setTextColor(156, 163, 175);
+  doc.text("This certificate is issued by SUM Academy and can be verified online using the certificate ID.", pageWidth / 2, pageHeight - 15, { align: "center" });
+  doc.text("© 2026 SUM Academy. All rights reserved.", pageWidth / 2, pageHeight - 10, { align: "center" });
 
   doc.save(`SUM_Certificate_${certificate.certId}.pdf`);
 };
