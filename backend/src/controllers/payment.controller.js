@@ -71,6 +71,22 @@ const normalizePromoCode = (value = "") =>
 
 const isPromoCodeFormatValid = (value = "") => /^[A-Z0-9]+$/.test(value);
 
+const normalizePaymentStatus = (value = "") =>
+  String(value || "")
+    .trim()
+    .toLowerCase();
+
+const ACTIVE_PROMO_USAGE_STATUSES = new Set([
+  "pending",
+  "pending_verification",
+  "paid",
+]);
+
+const RESERVED_CLASS_SEAT_STATUSES = new Set([
+  "pending",
+  "pending_verification",
+]);
+
 const escapeCsv = (value = "") =>
   `"${String(value ?? "").replace(/"/g, '""')}"`;
 
@@ -254,6 +270,92 @@ const validateClassShiftSelection = ({ classData = {}, shiftId = "", courseId = 
   return { shift: selectedShift, shiftCourseId };
 };
 
+const countActivePromoUsage = async ({ promoCodeId = "", normalizedCode = "" }) => {
+  const cleanPromoId = String(promoCodeId || "").trim();
+  const cleanCode = normalizePromoCode(normalizedCode);
+  const docsById = new Map();
+
+  if (cleanPromoId) {
+    const byIdSnap = await db
+      .collection(COLLECTIONS.PAYMENTS)
+      .where("promoCodeId", "==", cleanPromoId)
+      .get();
+    byIdSnap.docs.forEach((doc) => docsById.set(doc.id, doc));
+  }
+
+  if (cleanCode) {
+    const byCodeSnap = await db
+      .collection(COLLECTIONS.PAYMENTS)
+      .where("promoCode", "==", cleanCode)
+      .get();
+    byCodeSnap.docs.forEach((doc) => docsById.set(doc.id, doc));
+  }
+
+  let count = 0;
+  docsById.forEach((doc) => {
+    const row = doc.data() || {};
+    const status = normalizePaymentStatus(row.status);
+    if (ACTIVE_PROMO_USAGE_STATUSES.has(status)) {
+      count += 1;
+    }
+  });
+
+  return count;
+};
+
+const hasStudentUsedPromo = async ({ studentId = "", promoCodeId = "", normalizedCode = "" }) => {
+  const cleanStudentId = String(studentId || "").trim();
+  if (!cleanStudentId) return false;
+
+  const studentPaymentsSnap = await db
+    .collection(COLLECTIONS.PAYMENTS)
+    .where("studentId", "==", cleanStudentId)
+    .get();
+
+  const cleanPromoId = String(promoCodeId || "").trim();
+  const cleanCode = normalizePromoCode(normalizedCode);
+
+  return studentPaymentsSnap.docs.some((doc) => {
+    const payment = doc.data() || {};
+    const status = normalizePaymentStatus(payment.status);
+    if (!ACTIVE_PROMO_USAGE_STATUSES.has(status)) return false;
+
+    const samePromoId =
+      cleanPromoId && String(payment.promoCodeId || "").trim() === cleanPromoId;
+    const sameCode =
+      cleanCode && normalizePromoCode(payment.promoCode) === cleanCode;
+    return Boolean(samePromoId || sameCode);
+  });
+};
+
+const countReservedSeatsForClass = async (classId, excludedStudentIds = []) => {
+  const cleanClassId = String(classId || "").trim();
+  if (!cleanClassId) return 0;
+
+  const excluded = new Set(
+    (Array.isArray(excludedStudentIds) ? excludedStudentIds : [])
+      .map((id) => String(id || "").trim())
+      .filter(Boolean)
+  );
+
+  const snap = await db
+    .collection(COLLECTIONS.PAYMENTS)
+    .where("classId", "==", cleanClassId)
+    .get();
+
+  const reservedStudents = new Set();
+  snap.docs.forEach((doc) => {
+    const row = doc.data() || {};
+    const status = normalizePaymentStatus(row.status);
+    if (!RESERVED_CLASS_SEAT_STATUSES.has(status)) return;
+    const studentId = String(row.studentId || "").trim();
+    if (!studentId || excluded.has(studentId)) return;
+    reservedStudents.add(studentId);
+  });
+
+  return reservedStudents.size;
+};
+
 const fetchMergedPayments = async () => {
   const paymentsSnap = await db.collection(COLLECTIONS.PAYMENTS).get();
   const payments = paymentsSnap.docs.map((doc) => ({ id: doc.id, ...(doc.data() || {}) }));
@@ -302,6 +404,12 @@ const fetchMergedPayments = async () => {
       promoDiscountAmount: toNumber(item.promoDiscountAmount),
       status: String(item.status || "").toLowerCase() || "pending",
       receiptUrl: item.receiptUrl || null,
+      canApprove:
+        normalizePaymentStatus(item.status) === "pending_verification" &&
+        Boolean(String(item.receiptUrl || "").trim()),
+      isAwaitingReceipt:
+        normalizePaymentStatus(item.status) === "pending" &&
+        !String(item.receiptUrl || "").trim(),
       reference: item.reference || "",
       promoCode: item.promoCode || null,
       isInstallment: Boolean(item.isInstallment),
@@ -456,7 +564,7 @@ const getCurrentPaymentSettings = async () => {
   };
 };
 
-const resolvePromo = async (promoCode, courseId) => {
+const resolvePromo = async (promoCode, courseId, studentId = "") => {
   if (!promoCode) return { promoData: null, discountAmount: 0 };
   const normalized = normalizePromoCode(promoCode);
   if (!isPromoCodeFormatValid(normalized)) {
@@ -480,12 +588,28 @@ const resolvePromo = async (promoCode, courseId) => {
 
   const usageLimit = toNumber(promoData.usageLimit);
   const usageCount = toNumber(promoData.usageCount);
-  if (usageLimit > 0 && usageCount >= usageLimit) {
+  const reservedUsageCount = await countActivePromoUsage({
+    promoCodeId: promoDoc.id,
+    normalizedCode: normalized,
+  });
+  const effectiveUsageCount = Math.max(usageCount, reservedUsageCount);
+  if (usageLimit > 0 && effectiveUsageCount >= usageLimit) {
     throw new Error("PROMO_LIMIT_REACHED");
   }
 
   if (promoData.courseId && promoData.courseId !== courseId) {
     throw new Error("PROMO_INVALID_FOR_COURSE");
+  }
+
+  if (promoData.isSingleUse) {
+    const usedBefore = await hasStudentUsedPromo({
+      studentId,
+      promoCodeId: promoDoc.id,
+      normalizedCode: normalized,
+    });
+    if (usedBefore) {
+      throw new Error("PROMO_ALREADY_USED_BY_STUDENT");
+    }
   }
 
   return {
@@ -592,8 +716,38 @@ export const initiatePayment = async (req, res) => {
     const studentAlreadyInClass = classStudents.some(
       (entry) => entry.studentId === studentId
     );
+    const pendingSeatReservations = await countReservedSeatsForClass(
+      classId,
+      classStudents.map((entry) => entry.studentId)
+    );
+    const alreadyHasOpenPayment = !studentAlreadyInClass
+      ? (
+          await db
+            .collection(COLLECTIONS.PAYMENTS)
+            .where("studentId", "==", studentId)
+            .get()
+        ).docs.some((doc) => {
+          const row = doc.data() || {};
+          if (String(row.classId || "").trim() !== String(classId || "").trim()) {
+            return false;
+          }
+          const status = normalizePaymentStatus(row.status);
+          return (
+            RESERVED_CLASS_SEAT_STATUSES.has(status) ||
+            status === "paid"
+          );
+        })
+      : false;
+    if (alreadyHasOpenPayment) {
+      return errorResponse(
+        res,
+        "You already have an active enrollment request for this class.",
+        400
+      );
+    }
     const classCapacity = Math.max(toNumber(classData.capacity), 0);
-    if (classCapacity > 0 && !studentAlreadyInClass && classStudents.length >= classCapacity) {
+    const occupiedSeats = classStudents.length + pendingSeatReservations;
+    if (classCapacity > 0 && !studentAlreadyInClass && occupiedSeats >= classCapacity) {
       return errorResponse(
         res,
         "Class seats are fully reserved. Please select another class.",
@@ -616,7 +770,7 @@ export const initiatePayment = async (req, res) => {
     let promoDoc = null;
     let promoData = null;
     if (promoCode) {
-      const promoResult = await resolvePromo(promoCode, courseId);
+      const promoResult = await resolvePromo(promoCode, courseId, studentId);
       promoDoc = promoResult.promoDoc || null;
       promoData = promoResult.promoData || null;
     }
@@ -763,6 +917,9 @@ export const initiatePayment = async (req, res) => {
     }
     if (error.message === "PROMO_LIMIT_REACHED") {
       return errorResponse(res, "Promo code usage limit reached", 400);
+    }
+    if (error.message === "PROMO_ALREADY_USED_BY_STUDENT") {
+      return errorResponse(res, "You have already used this promo code", 400);
     }
     if (error.message === "PROMO_INVALID_FOR_COURSE") {
       return errorResponse(res, "Promo code not valid for selected course", 400);
@@ -1142,7 +1299,7 @@ export const getAdminPayments = async (req, res) => {
 export const verifyBankTransfer = async (req, res) => {
   try {
     const paymentId = req.params.id || req.params.paymentId;
-    const { action } = req.body || {};
+    const action = String(req.body?.action || "").trim().toLowerCase();
 
     if (!["approve", "reject"].includes(action)) {
       return errorResponse(res, "Action must be approve or reject", 400);
@@ -1153,22 +1310,53 @@ export const verifyBankTransfer = async (req, res) => {
     if (!paymentSnap.exists) return errorResponse(res, "Payment not found", 404);
 
     const payment = paymentSnap.data() || {};
-    const currentStatus = String(payment.status || "").toLowerCase();
-    const actionableStatuses = new Set(["pending", "pending_verification"]);
-    if (!actionableStatuses.has(currentStatus)) {
+    const currentStatus = normalizePaymentStatus(payment.status);
+    const canRejectStatuses = new Set(["pending", "pending_verification"]);
+    const canApproveStatuses = new Set(["pending_verification"]);
+    const hasReceipt = Boolean(String(payment.receiptUrl || "").trim());
+
+    if (action === "approve" && !hasReceipt) {
+      return errorResponse(
+        res,
+        "Receipt is required before approval. Ask student to upload receipt first.",
+        400,
+        { code: "RECEIPT_REQUIRED" }
+      );
+    }
+
+    if (action === "approve" && !canApproveStatuses.has(currentStatus)) {
       if (action === "approve" && currentStatus === "paid") {
         return successResponse(res, { paymentId, status: "paid" }, "Payment already approved");
       }
-      if (action === "reject" && currentStatus === "rejected") {
+      if (currentStatus === "pending") {
+        return errorResponse(
+          res,
+          "Payment cannot be approved until receipt is uploaded.",
+          400,
+          { code: "RECEIPT_NOT_UPLOADED" }
+        );
+      }
+      return errorResponse(
+        res,
+        "Only receipt-submitted requests can be approved",
+        400
+      );
+    }
+
+    if (action === "reject" && !canRejectStatuses.has(currentStatus)) {
+      if (currentStatus === "rejected") {
         return successResponse(
           res,
           { paymentId, status: "rejected" },
           "Payment already rejected"
         );
       }
+      if (currentStatus === "paid") {
+        return errorResponse(res, "Paid payment cannot be rejected", 400);
+      }
       return errorResponse(
         res,
-        "Only pending requests can be approved or rejected",
+        "Only pending requests can be rejected",
         400
       );
     }
@@ -1204,11 +1392,22 @@ export const verifyBankTransfer = async (req, res) => {
       const freshSnap = await transaction.get(paymentRef);
       if (!freshSnap.exists) throw new Error("PAYMENT_NOT_FOUND");
       const freshPayment = freshSnap.data() || {};
+      const freshStatus = normalizePaymentStatus(freshPayment.status);
+      if (freshStatus !== "pending_verification") {
+        throw new Error("RECEIPT_NOT_UPLOADED");
+      }
+      if (!String(freshPayment.receiptUrl || "").trim()) {
+        throw new Error("RECEIPT_REQUIRED");
+      }
+      if (!freshPayment.classId) {
+        throw new Error("CLASS_REQUIRED");
+      }
       let classData = null;
       let classRef = null;
       let normalizedClassStudents = [];
       let studentAlreadyInClass = false;
       let enrollmentStatus = "active";
+      let selectedShift = null;
       if (freshPayment.classId) {
         classRef = db.collection(COLLECTIONS.CLASSES).doc(freshPayment.classId);
         const classSnap = await transaction.get(classRef);
@@ -1228,6 +1427,7 @@ export const verifyBankTransfer = async (req, res) => {
         if (classShiftValidation.error) {
           throw new Error("CLASS_SHIFT_COURSE_MISMATCH");
         }
+        selectedShift = classShiftValidation.shift || null;
       }
 
       if (classData) {
@@ -1247,6 +1447,19 @@ export const verifyBankTransfer = async (req, res) => {
         }
       }
 
+      const classCourseIds = classData
+        ? getClassAssignedCourseIds(classData)
+        : [];
+      if (freshPayment.courseId && !classCourseIds.includes(freshPayment.courseId)) {
+        throw new Error("CLASS_SHIFT_COURSE_MISMATCH");
+      }
+      const enrollmentCourseIds = [
+        ...new Set([...classCourseIds, String(freshPayment.courseId || "").trim()].filter(Boolean)),
+      ];
+      if (!enrollmentCourseIds.length) {
+        throw new Error("CLASS_HAS_NO_COURSES");
+      }
+
       transaction.update(paymentRef, {
         status: "paid",
         verifiedBy: req.user.uid,
@@ -1258,84 +1471,111 @@ export const verifyBankTransfer = async (req, res) => {
         .collection(COLLECTIONS.ENROLLMENTS)
         .where("studentId", "==", freshPayment.studentId);
       const enrollmentSnap = await transaction.get(enrollmentQuery);
-      const hasEnrollment = enrollmentSnap.docs.some((doc) => {
-        const row = doc.data() || {};
-        return row.courseId === freshPayment.courseId;
-      });
       const studentRef = db.collection(COLLECTIONS.STUDENTS).doc(freshPayment.studentId);
-      const existingEnrollmentDoc = enrollmentSnap.docs.find((doc) => {
-        const row = doc.data() || {};
-        return row.courseId === freshPayment.courseId;
-      });
+      const existingEnrollmentRows = enrollmentSnap.docs.map((doc) => ({
+        ref: doc.ref,
+        data: doc.data() || {},
+      }));
 
-      if (!hasEnrollment) {
-        const enrollmentRef = db.collection(COLLECTIONS.ENROLLMENTS).doc();
-        transaction.set(enrollmentRef, {
-          studentId: freshPayment.studentId,
-          courseId: freshPayment.courseId,
-          paymentId,
-          classId: freshPayment.classId || null,
-          shiftId: freshPayment.shiftId || null,
-          status: enrollmentStatus,
-          progress: 0,
-          completedAt: null,
-          classStartDate: classData?.startDate || null,
-          classEndDate: classData?.endDate || null,
-          createdAt: FieldValue.serverTimestamp(),
+      enrollmentCourseIds.forEach((courseId) => {
+        const existingEnrollment = existingEnrollmentRows.find((row) => {
+          const existingCourseId = String(row.data?.courseId || "").trim();
+          const existingClassId = String(row.data?.classId || "").trim();
+          return (
+            existingCourseId === courseId &&
+            existingClassId === String(freshPayment.classId || "").trim()
+          );
         });
-        const courseRef = db.collection(COLLECTIONS.COURSES).doc(freshPayment.courseId);
-        transaction.update(courseRef, {
-          enrollmentCount: FieldValue.increment(1),
-          updatedAt: FieldValue.serverTimestamp(),
-        });
-      } else if (existingEnrollmentDoc) {
-        const existingEnrollmentData = existingEnrollmentDoc.data() || {};
+
+        if (!existingEnrollment) {
+          const enrollmentRef = db.collection(COLLECTIONS.ENROLLMENTS).doc();
+          transaction.set(enrollmentRef, {
+            studentId: freshPayment.studentId,
+            courseId,
+            paymentId,
+            classId: freshPayment.classId || null,
+            shiftId: freshPayment.shiftId || null,
+            status: enrollmentStatus,
+            progress: 0,
+            completedAt: null,
+            classStartDate: classData?.startDate || null,
+            classEndDate: classData?.endDate || null,
+            createdAt: FieldValue.serverTimestamp(),
+            updatedAt: FieldValue.serverTimestamp(),
+            source: "class_enrollment",
+          });
+          const courseRef = db.collection(COLLECTIONS.COURSES).doc(courseId);
+          transaction.set(
+            courseRef,
+            {
+              enrollmentCount: FieldValue.increment(1),
+              updatedAt: FieldValue.serverTimestamp(),
+            },
+            { merge: true }
+          );
+          return;
+        }
+
+        const existingEnrollmentData = existingEnrollment.data || {};
         const mergedStatus = mergeEnrollmentStatus(
           existingEnrollmentData.status,
           enrollmentStatus
         );
         transaction.set(
-          existingEnrollmentDoc.ref,
+          existingEnrollment.ref,
           {
             classId: freshPayment.classId || null,
             shiftId: freshPayment.shiftId || null,
             status: mergedStatus,
             classStartDate: classData?.startDate || null,
             classEndDate: classData?.endDate || null,
+            paymentId,
             updatedAt: FieldValue.serverTimestamp(),
           },
           { merge: true }
         );
-      }
+      });
 
-      if (freshPayment.courseId) {
-        const studentUpdates = {
-          enrolledCourses: FieldValue.arrayUnion(freshPayment.courseId),
-          updatedAt: FieldValue.serverTimestamp(),
-        };
-        if (freshPayment.classId) {
-          studentUpdates.enrolledClasses = FieldValue.arrayUnion(freshPayment.classId);
-        }
-        transaction.set(
-          studentRef,
-          studentUpdates,
-          { merge: true }
-        );
+      const studentUpdates = {
+        updatedAt: FieldValue.serverTimestamp(),
+      };
+      if (enrollmentCourseIds.length) {
+        studentUpdates.enrolledCourses = FieldValue.arrayUnion(...enrollmentCourseIds);
       }
+      if (freshPayment.classId) {
+        studentUpdates.enrolledClasses = FieldValue.arrayUnion(freshPayment.classId);
+      }
+      transaction.set(
+        studentRef,
+        studentUpdates,
+        { merge: true }
+      );
 
       if (freshPayment.promoCodeId) {
         const promoRef = db.collection(COLLECTIONS.PROMO_CODES).doc(freshPayment.promoCodeId);
-        transaction.update(promoRef, {
-          usageCount: FieldValue.increment(1),
-          updatedAt: FieldValue.serverTimestamp(),
-        });
+        const promoSnap = await transaction.get(promoRef);
+        if (promoSnap.exists) {
+          const promoData = promoSnap.data() || {};
+          const usageLimit = toNumber(promoData.usageLimit, 0);
+          const usageCount = toNumber(promoData.usageCount, 0);
+          if (usageLimit > 0 && usageCount >= usageLimit) {
+            throw new Error("PROMO_LIMIT_REACHED");
+          }
+          transaction.update(promoRef, {
+            usageCount: FieldValue.increment(1),
+            updatedAt: FieldValue.serverTimestamp(),
+          });
+        }
       }
 
       if (classRef && classData && !studentAlreadyInClass) {
         normalizedClassStudents.push({
           studentId: freshPayment.studentId,
           shiftId: freshPayment.shiftId || "",
-          courseId: freshPayment.courseId || "",
+          courseId:
+            String(selectedShift?.courseId || "").trim() ||
+            freshPayment.courseId ||
+            "",
           enrolledAt: new Date().toISOString(),
         });
         transaction.update(classRef, {
@@ -1426,6 +1666,43 @@ export const verifyBankTransfer = async (req, res) => {
       return errorResponse(
         res,
         "Selected class no longer exists. Please ask student to choose another class.",
+        400
+      );
+    }
+    if (error?.message === "CLASS_REQUIRED") {
+      return errorResponse(
+        res,
+        "Class-based enrollment is required. Payment must be linked to a class.",
+        400
+      );
+    }
+    if (error?.message === "RECEIPT_REQUIRED") {
+      return errorResponse(
+        res,
+        "Receipt is required before approval. Ask student to upload receipt first.",
+        400,
+        { code: "RECEIPT_REQUIRED" }
+      );
+    }
+    if (error?.message === "RECEIPT_NOT_UPLOADED") {
+      return errorResponse(
+        res,
+        "Payment cannot be approved until receipt is uploaded.",
+        400,
+        { code: "RECEIPT_NOT_UPLOADED" }
+      );
+    }
+    if (error?.message === "CLASS_HAS_NO_COURSES") {
+      return errorResponse(
+        res,
+        "Cannot approve payment because this class has no assigned courses.",
+        400
+      );
+    }
+    if (error?.message === "PROMO_LIMIT_REACHED") {
+      return errorResponse(
+        res,
+        "Promo code usage limit reached. Cannot approve this payment with this promo.",
         400
       );
     }

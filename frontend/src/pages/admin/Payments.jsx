@@ -10,6 +10,7 @@ import {
 } from "../../services/payment.service.js";
 
 const tabOptions = ["All", "JazzCash", "EasyPaisa", "Bank Transfer", "Pending"];
+const MotionDiv = motion.div;
 
 const methodBadgeClass = {
   jazzcash: "bg-rose-50 text-rose-600",
@@ -34,9 +35,10 @@ const formatMethod = (value = "") => {
   return method || "-";
 };
 const canReviewPayment = (payment = {}) =>
-  ["pending", "pending_verification"].includes(
-    String(payment.status || "").toLowerCase()
-  );
+  typeof payment.canApprove === "boolean"
+    ? payment.canApprove
+    : String(payment.status || "").toLowerCase() === "pending_verification" &&
+      Boolean(String(payment.receiptUrl || "").trim());
 
 const formatDate = (value) => {
   const date = value?.toDate ? value.toDate() : value ? new Date(value) : null;
@@ -377,7 +379,7 @@ function Payments() {
               className="absolute inset-0 bg-slate-900/40"
               onClick={() => setSelectedPayment(null)}
             />
-            <motion.div
+            <MotionDiv
               initial={{ opacity: 0, y: 20, scale: 0.96 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 20, scale: 0.96 }}
@@ -464,7 +466,7 @@ function Payments() {
                   </button>
                 </div>
               ) : null}
-            </motion.div>
+            </MotionDiv>
           </div>
         ) : null}
       </AnimatePresence>

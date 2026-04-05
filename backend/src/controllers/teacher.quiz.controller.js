@@ -433,6 +433,7 @@ const normalizeQuizSummary = (quizId, data = {}) => ({
   teacherId: trimText(data.teacherId),
   teacherName: trimText(data.teacherName),
   assignment: normalizeAssignmentInfo(data.assignment || {}),
+  isFinalQuiz: data.isFinalQuiz === true,
   isPublished: data.isPublished !== false,
 });
 
@@ -452,6 +453,7 @@ const buildQuizDocument = ({
   chapterId,
   chapterTitle,
   questions,
+  isFinalQuiz = false,
 }) => {
   const normalizedQuestions = questions.map((question, index) => ({
     ...question,
@@ -478,6 +480,7 @@ const buildQuizDocument = ({
     subjectName,
     chapterId: scope === "chapter" ? chapterId : "",
     chapterTitle: scope === "chapter" ? chapterTitle : "",
+    isFinalQuiz: Boolean(isFinalQuiz),
     questionCount: normalizedQuestions.length,
     totalMarks,
     questions: normalizedQuestions,
@@ -1052,6 +1055,7 @@ export const createTeacherQuiz = async (req, res) => {
     const subjectId = trimText(req.body?.subjectId);
     const chapterId = trimText(req.body?.chapterId);
     const questionInput = Array.isArray(req.body?.questions) ? req.body.questions : [];
+    const isFinalQuiz = req.body?.isFinalQuiz === true;
     const createTargetType = lowerText(
       req.body?.assignmentTargetType || req.body?.targetType || ""
     );
@@ -1105,6 +1109,7 @@ export const createTeacherQuiz = async (req, res) => {
       chapterId,
       chapterTitle: trimText(context.chapterData?.title),
       questions,
+      isFinalQuiz,
     });
 
     const shouldAssignToClass =

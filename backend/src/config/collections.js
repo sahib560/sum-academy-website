@@ -23,6 +23,7 @@ export const COLLECTIONS = {
   SETTINGS: "settings",
   SUPPORT_MESSAGES: "supportMessages",
   SECURITY_VIOLATIONS: "securityViolations",
+  FINAL_QUIZ_REQUESTS: "finalQuizRequests",
 };
 
 export const COURSE_SCHEMA = {

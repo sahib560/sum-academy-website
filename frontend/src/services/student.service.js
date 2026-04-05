@@ -9,6 +9,16 @@ export const getStudentCourses = () =>
 export const getCourseProgress = (courseId) =>
   api.get(`/student/courses/${courseId}/progress`).then((r) => r.data.data);
 
+export const getFinalQuizRequestStatus = (courseId) =>
+  api
+    .get(`/student/courses/${courseId}/final-quiz-request`)
+    .then((r) => r.data.data);
+
+export const requestFinalQuizForCourse = (courseId, data = {}) =>
+  api
+    .post(`/student/courses/${courseId}/final-quiz-request`, data)
+    .then((r) => r.data.data);
+
 export const markLectureComplete = (courseId, lectureId) =>
   api.post(`/student/courses/${courseId}/lectures/${lectureId}/complete`).then((r) => r.data);
 

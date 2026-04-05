@@ -21,6 +21,17 @@ const toSafeNumber = (value, fallback = 0) => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
+const normalizePaymentState = (value = "") =>
+  String(value || "")
+    .trim()
+    .toLowerCase();
+
+const ACTIVE_PROMO_USAGE_STATES = new Set([
+  "pending",
+  "pending_verification",
+  "paid",
+]);
+
 const parseCsvLine = (line = "") => {
   const row = [];
   let current = "";
@@ -92,6 +103,41 @@ const csvEscapeCell = (value = "") => {
 
 const buildCsv = (rows = []) =>
   rows.map((row) => row.map((cell) => csvEscapeCell(cell)).join(",")).join("\n");
+
+const countActivePromoUsages = async ({ promoCodeId = "", code = "" }) => {
+  const cleanPromoCodeId = String(promoCodeId || "").trim();
+  const normalizedCode = String(code || "")
+    .trim()
+    .toUpperCase();
+  const docsById = new Map();
+
+  if (cleanPromoCodeId) {
+    const byPromoIdSnap = await db
+      .collection(COLLECTIONS.PAYMENTS)
+      .where("promoCodeId", "==", cleanPromoCodeId)
+      .get();
+    byPromoIdSnap.docs.forEach((doc) => docsById.set(doc.id, doc));
+  }
+
+  if (normalizedCode) {
+    const byCodeSnap = await db
+      .collection(COLLECTIONS.PAYMENTS)
+      .where("promoCode", "==", normalizedCode)
+      .get();
+    byCodeSnap.docs.forEach((doc) => docsById.set(doc.id, doc));
+  }
+
+  let count = 0;
+  docsById.forEach((doc) => {
+    const payment = doc.data() || {};
+    const status = normalizePaymentState(payment.status);
+    if (ACTIVE_PROMO_USAGE_STATES.has(status)) {
+      count += 1;
+    }
+  });
+
+  return count;
+};
 
 const normalizeBulkPhone = (value = "") => normalizePakistanPhone(value);
 
@@ -4062,7 +4108,8 @@ export const validatePromoCode = async (req, res) => {
       return errorResponse(res, "Invalid promo code", 404);
     }
 
-    const promoData = snap.docs[0].data();
+    const promoDoc = snap.docs[0];
+    const promoData = promoDoc.data();
     const requesterStudentId = studentId || req.user?.uid || "";
 
     if (!promoData.isActive) {
@@ -4073,10 +4120,15 @@ export const validatePromoCode = async (req, res) => {
       return errorResponse(res, "Promo code has expired", 400);
     }
 
-    if (
-      Number(promoData.usageLimit || 0) > 0 &&
-      Number(promoData.usageCount || 0) >= Number(promoData.usageLimit || 0)
-    ) {
+    const usageLimit = Number(promoData.usageLimit || 0);
+    const storedUsageCount = Number(promoData.usageCount || 0);
+    const activeUsageCount = await countActivePromoUsages({
+      promoCodeId: promoDoc.id,
+      code: normalizedCode,
+    });
+    const effectiveUsageCount = Math.max(storedUsageCount, activeUsageCount);
+
+    if (usageLimit > 0 && effectiveUsageCount >= usageLimit) {
       return errorResponse(res, "Promo code usage limit reached", 400);
     }
 
@@ -4096,9 +4148,14 @@ export const validatePromoCode = async (req, res) => {
 
       const usedAlready = studentPayments.docs.some((doc) => {
         const payment = doc.data() || {};
+        const status = normalizePaymentState(payment.status);
+        const samePromoId =
+          String(payment.promoCodeId || "").trim() === String(promoDoc.id || "").trim();
+        const samePromoCode =
+          String(payment.promoCode || "").toUpperCase() === normalizedCode;
         return (
-          String(payment.promoCode || "").toUpperCase() === normalizedCode &&
-          String(payment.status || "").toLowerCase() !== "rejected"
+          (samePromoId || samePromoCode) &&
+          ACTIVE_PROMO_USAGE_STATES.has(status)
         );
       });
 
@@ -4146,6 +4203,9 @@ export const validatePromoCode = async (req, res) => {
         code: promoData.code,
         discountType: promoData.discountType,
         discountValue: promoData.discountValue,
+        usageLimit,
+        usageCount: effectiveUsageCount,
+        remainingUses: usageLimit > 0 ? Math.max(usageLimit - effectiveUsageCount, 0) : null,
         originalAmount,
         courseDiscountPercent,
         courseDiscountAmount,

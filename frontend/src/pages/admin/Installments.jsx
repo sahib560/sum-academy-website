@@ -36,9 +36,10 @@ const formatDate = (value) => {
 
 const formatPKR = (amount) => `PKR ${Number(amount || 0).toLocaleString("en-PK")}`;
 const canReviewPaymentRequest = (payment = {}) =>
-  ["pending", "pending_verification"].includes(
-    String(payment.status || "").toLowerCase()
-  );
+  typeof payment.canApprove === "boolean"
+    ? payment.canApprove
+    : String(payment.status || "").toLowerCase() === "pending_verification" &&
+      Boolean(String(payment.receiptUrl || "").trim());
 
 const getInitials = (name = "") =>
   String(name || "")

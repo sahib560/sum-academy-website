@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Toaster, toast } from "react-hot-toast";
@@ -253,6 +254,7 @@ function UploadZone({ labelText, helper, accept, onFile, error }) {
 
 function Courses() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [categoryFilter, setCategoryFilter] = useState("all");
@@ -1104,10 +1106,11 @@ function Courses() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => {
-                        setDrawerCourseId(c.id);
-                        setActiveSubjectId(c.subjects[0]?.id || "");
-                      }}
+                      onClick={() =>
+                        navigate(
+                          `/admin/course-content?courseId=${encodeURIComponent(c.id)}`
+                        )
+                      }
                       disabled={archiveMutation.isPending || deleteMutation.isPending}
                       className="rounded-full border border-slate-200 px-3 py-2 font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
                     >

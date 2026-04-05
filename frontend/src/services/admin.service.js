@@ -277,6 +277,17 @@ export const assignAdminQuiz = (quizId, data) =>
 export const getAdminQuizSubmissions = (quizId) =>
   api.get(`/admin/quizzes/${quizId}/submissions`).then((r) => r.data.data);
 
+export const getAdminFinalQuizRequests = (params) =>
+  api.get("/admin/final-quiz-requests", { params }).then((r) => r.data.data);
+
+export const updateAdminFinalQuizRequestStatus = (requestId, data) =>
+  api.patch(`/admin/final-quiz-requests/${requestId}`, data).then((r) => r.data);
+
+export const updateAdminCourseRewatchAccess = (courseId, studentId, data) =>
+  api
+    .patch(`/admin/courses/${courseId}/students/${studentId}/rewatch-access`, data)
+    .then((r) => r.data);
+
 export const bulkUploadAdminQuiz = (file, onUploadProgress) => {
   const formData = new FormData();
   formData.append("file", file);

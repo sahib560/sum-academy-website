@@ -269,6 +269,13 @@ const ACTIVE_ENROLLMENT_STATUSES = new Set([
   "",
 ]);
 const PENDING_PAYMENT_STATUSES = new Set(["pending", "pending_verification"]);
+const FINAL_QUIZ_REQUEST_STATUSES = new Set([
+  "pending",
+  "approved",
+  "rejected",
+  "completed",
+  "cancelled",
+]);
 
 const getStudentPendingPayments = async (uid, courseId = "") => {
   const snap = await db
@@ -833,6 +840,172 @@ const generateCertificateId = () => {
   return `SUM-${year}-${token.padEnd(8, "X").slice(0, 8)}`;
 };
 
+const isFinalQuizRow = (quiz = {}) => {
+  const tags = Array.isArray(quiz.tags) ? quiz.tags : [];
+  return (
+    quiz.isFinalQuiz === true ||
+    lowerText(quiz.quizType) === "final" ||
+    lowerText(quiz.assessmentType) === "final" ||
+    lowerText(quiz.type) === "final" ||
+    lowerText(quiz.category) === "final" ||
+    lowerText(quiz.tag) === "final" ||
+    tags.some((tag) => lowerText(tag) === "final")
+  );
+};
+
+const getCourseFinalQuizzes = async (courseId = "") => {
+  const cleanCourseId = trimText(courseId);
+  if (!cleanCourseId) return [];
+
+  const snap = await db
+    .collection(COLLECTIONS.QUIZZES)
+    .where("courseId", "==", cleanCourseId)
+    .get();
+
+  return snap.docs
+    .map((doc) => ({ id: doc.id, ...(doc.data() || {}) }))
+    .filter((row) => lowerText(row.status || "active") === "active")
+    .filter((row) => isFinalQuizRow(row));
+};
+
+const getLatestFinalQuizResultForStudent = async ({
+  studentId = "",
+  courseId = "",
+  finalQuizMap = {},
+}) => {
+  const cleanStudentId = trimText(studentId);
+  const cleanCourseId = trimText(courseId);
+  if (!cleanStudentId || !cleanCourseId) {
+    return null;
+  }
+
+  const snap = await db
+    .collection(COLLECTIONS.QUIZ_RESULTS)
+    .where("studentId", "==", cleanStudentId)
+    .where("courseId", "==", cleanCourseId)
+    .get();
+
+  const finalQuizIds = new Set(Object.keys(finalQuizMap));
+  if (!finalQuizIds.size) return null;
+
+  const rows = snap.docs
+    .map((doc) => ({ id: doc.id, ...(doc.data() || {}) }))
+    .filter((row) => finalQuizIds.has(trimText(row.quizId)))
+    .sort(
+      (a, b) =>
+        (parseDate(b.submittedAt || b.updatedAt || b.createdAt)?.getTime() || 0) -
+        (parseDate(a.submittedAt || a.updatedAt || a.createdAt)?.getTime() || 0)
+    );
+
+  if (!rows.length) return null;
+  const latest = rows[0];
+  const quizMeta = finalQuizMap[trimText(latest.quizId)] || {};
+  const passScore = toNumber(
+    latest.passScore ?? quizMeta.passScore,
+    50
+  );
+  const percentage = toNumber(
+    latest.percentage ?? latest.scorePercent ?? latest.totalScore,
+    0
+  );
+  const passed =
+    latest.isPassed === true ||
+    (lowerText(latest.status) === "completed" && percentage >= passScore);
+
+  return {
+    resultId: latest.id,
+    quizId: trimText(latest.quizId),
+    status: lowerText(latest.status || "completed"),
+    passScore,
+    percentage,
+    passed,
+    submittedAt: toIso(latest.submittedAt || latest.createdAt),
+  };
+};
+
+const getLatestFinalQuizRequest = async (studentId = "", courseId = "") => {
+  const cleanStudentId = trimText(studentId);
+  const cleanCourseId = trimText(courseId);
+  if (!cleanStudentId || !cleanCourseId) return null;
+
+  const snap = await db
+    .collection(COLLECTIONS.FINAL_QUIZ_REQUESTS)
+    .where("studentId", "==", cleanStudentId)
+    .where("courseId", "==", cleanCourseId)
+    .get();
+
+  const rows = snap.docs
+    .map((doc) => ({ id: doc.id, ...(doc.data() || {}) }))
+    .filter((row) => FINAL_QUIZ_REQUEST_STATUSES.has(lowerText(row.status || "pending")))
+    .sort(
+      (a, b) =>
+        (parseDate(
+          b.requestedAt || b.createdAt || b.updatedAt
+        )?.getTime() || 0) -
+        (parseDate(
+          a.requestedAt || a.createdAt || a.updatedAt
+        )?.getTime() || 0)
+    );
+
+  return rows[0] || null;
+};
+
+const resolveFinalQuizRequirementState = async ({
+  studentId = "",
+  courseId = "",
+}) => {
+  const finalQuizzes = await getCourseFinalQuizzes(courseId);
+  const finalQuizMap = finalQuizzes.reduce((acc, row) => {
+    acc[row.id] = row;
+    return acc;
+  }, {});
+  const requiresFinalQuiz = finalQuizzes.length > 0;
+  if (!requiresFinalQuiz) {
+    return {
+      requiresFinalQuiz: false,
+      finalQuizCount: 0,
+      finalQuizPassed: true,
+      requestId: "",
+      requestStatus: "",
+      requestSubmittedAt: null,
+      requestReviewedAt: null,
+      canRequest: false,
+      latestFinalQuizResult: null,
+    };
+  }
+
+  const [latestResult, latestRequest] = await Promise.all([
+    getLatestFinalQuizResultForStudent({
+      studentId,
+      courseId,
+      finalQuizMap,
+    }),
+    getLatestFinalQuizRequest(studentId, courseId),
+  ]);
+
+  const requestStatus = lowerText(latestRequest?.status || "");
+  const canRequest =
+    !latestResult?.passed &&
+    requestStatus !== "pending" &&
+    requestStatus !== "approved";
+
+  return {
+    requiresFinalQuiz: true,
+    finalQuizCount: finalQuizzes.length,
+    finalQuizPassed: Boolean(latestResult?.passed),
+    requestId: trimText(latestRequest?.id),
+    requestStatus,
+    requestSubmittedAt: toIso(
+      latestRequest?.requestedAt || latestRequest?.createdAt
+    ),
+    requestReviewedAt: toIso(
+      latestRequest?.reviewedAt || latestRequest?.updatedAt
+    ),
+    canRequest,
+    latestFinalQuizResult: latestResult,
+  };
+};
+
 const ensureCertificateForCompletion = async ({
   studentId,
   studentData,
@@ -893,6 +1066,85 @@ const ensureCertificateForCompletion = async ({
   }
 
   return { created: true, certificateId: certRef.id, certId };
+};
+
+const ensureCertificatesForFullyCompletedClasses = async ({
+  studentId,
+  studentData = {},
+  userData = {},
+  classRows = [],
+  enrollments = [],
+  progressRows = [],
+}) => {
+  const cleanStudentId = trimText(studentId);
+  if (!cleanStudentId) {
+    return {
+      targetedCourses: 0,
+      createdCertificates: 0,
+      blockedByFinalQuiz: 0,
+    };
+  }
+
+  const completedClassStates = classRows
+    .map((classData = {}) =>
+      buildClassCompletionStateForStudent({
+        uid: cleanStudentId,
+        classData,
+        enrollments,
+        progressRows,
+      })
+    )
+    .filter((row) => row.allCoursesCompleted && row.courseCompletionRows.length > 0);
+
+  const targetCourseIds = [
+    ...new Set(
+      completedClassStates
+        .flatMap((row) =>
+          row.courseCompletionRows
+            .filter((courseRow) => courseRow.completed)
+            .map((courseRow) => trimText(courseRow.courseId))
+        )
+        .filter(Boolean)
+    ),
+  ];
+
+  if (!targetCourseIds.length) {
+    return {
+      targetedCourses: 0,
+      createdCertificates: 0,
+      blockedByFinalQuiz: 0,
+    };
+  }
+
+  const courseMap = await getCourseDocsByIds(targetCourseIds);
+  let createdCertificates = 0;
+  let blockedByFinalQuiz = 0;
+
+  for (const courseId of targetCourseIds) {
+    const finalQuizState = await resolveFinalQuizRequirementState({
+      studentId: cleanStudentId,
+      courseId,
+    });
+    if (finalQuizState.requiresFinalQuiz && !finalQuizState.finalQuizPassed) {
+      blockedByFinalQuiz += 1;
+      continue;
+    }
+
+    const certResult = await ensureCertificateForCompletion({
+      studentId: cleanStudentId,
+      studentData,
+      userData,
+      courseId,
+      courseData: courseMap[courseId] || {},
+    });
+    if (certResult?.created) createdCertificates += 1;
+  }
+
+  return {
+    targetedCourses: targetCourseIds.length,
+    createdCertificates,
+    blockedByFinalQuiz,
+  };
 };
 
 export const getStudentDashboard = async (req, res) => {
@@ -1303,6 +1555,10 @@ export const getStudentCourseProgress = async (req, res) => {
       enrollments: enrollmentRows,
       progressRows: allProgressRows,
     });
+    const finalQuizState = await resolveFinalQuizRequirementState({
+      studentId: uid,
+      courseId,
+    });
 
     const lectureByChapter = {};
     lectures.forEach((lecture) => {
@@ -1403,7 +1659,20 @@ export const getStudentCourseProgress = async (req, res) => {
           hasClassContext: courseAccessState.hasClassContext,
           isLockedAfterCompletion: courseAccessState.isLocked,
           isCompletedWindow: courseAccessState.isCompletedWindow,
-          certificateEligible: courseAccessState.eligibleForCertificate,
+          certificateEligible:
+            courseAccessState.eligibleForCertificate &&
+            (!finalQuizState.requiresFinalQuiz || finalQuizState.finalQuizPassed),
+          finalQuiz: {
+            required: finalQuizState.requiresFinalQuiz,
+            total: finalQuizState.finalQuizCount,
+            passed: finalQuizState.finalQuizPassed,
+            requestId: finalQuizState.requestId || null,
+            requestStatus: finalQuizState.requestStatus || null,
+            requestSubmittedAt: finalQuizState.requestSubmittedAt,
+            requestReviewedAt: finalQuizState.requestReviewedAt,
+            canRequest: finalQuizState.canRequest,
+            latestResult: finalQuizState.latestFinalQuizResult,
+          },
           classStates: courseAccessState.classStates.map((row) => ({
             classId: row.classId,
             status: row.status,
@@ -1419,6 +1688,190 @@ export const getStudentCourseProgress = async (req, res) => {
   } catch (error) {
     console.error("getStudentCourseProgress error:", error);
     return errorResponse(res, "Failed to fetch course progress", 500);
+  }
+};
+
+export const getFinalQuizRequestStatus = async (req, res) => {
+  try {
+    const uid = trimText(req.user?.uid);
+    const courseId = trimText(req.params?.courseId);
+    if (!uid) return errorResponse(res, "Missing student uid", 400);
+    if (!courseId) return errorResponse(res, "courseId is required", 400);
+
+    const enrolledIds = await getStudentEnrolledCourseIds(uid, false);
+    if (!enrolledIds.includes(courseId)) {
+      return errorResponse(res, "You are not enrolled in this course", 403);
+    }
+
+    const finalQuizState = await resolveFinalQuizRequirementState({
+      studentId: uid,
+      courseId,
+    });
+
+    if (!finalQuizState.requiresFinalQuiz) {
+      return successResponse(
+        res,
+        {
+          required: false,
+          message: "No final quiz is configured for this course",
+        },
+        "Final quiz status fetched"
+      );
+    }
+
+    return successResponse(
+      res,
+      {
+        required: true,
+        total: finalQuizState.finalQuizCount,
+        passed: finalQuizState.finalQuizPassed,
+        requestId: finalQuizState.requestId || null,
+        requestStatus: finalQuizState.requestStatus || null,
+        requestSubmittedAt: finalQuizState.requestSubmittedAt,
+        requestReviewedAt: finalQuizState.requestReviewedAt,
+        canRequest: finalQuizState.canRequest,
+        latestResult: finalQuizState.latestFinalQuizResult,
+      },
+      "Final quiz status fetched"
+    );
+  } catch (error) {
+    console.error("getFinalQuizRequestStatus error:", error);
+    return errorResponse(res, "Failed to fetch final quiz status", 500);
+  }
+};
+
+export const requestFinalQuizForCourse = async (req, res) => {
+  try {
+    const uid = trimText(req.user?.uid);
+    const courseId = trimText(req.params?.courseId);
+    const notes = trimText(req.body?.notes || "");
+    if (!uid) return errorResponse(res, "Missing student uid", 400);
+    if (!courseId) return errorResponse(res, "courseId is required", 400);
+
+    const enrolledIds = await getStudentEnrolledCourseIds(uid, false);
+    if (!enrolledIds.includes(courseId)) {
+      return errorResponse(res, "You are not enrolled in this course", 403);
+    }
+
+    const finalQuizState = await resolveFinalQuizRequirementState({
+      studentId: uid,
+      courseId,
+    });
+    if (!finalQuizState.requiresFinalQuiz) {
+      return errorResponse(
+        res,
+        "No final quiz is configured for this course",
+        400,
+        { code: "FINAL_QUIZ_NOT_CONFIGURED" }
+      );
+    }
+    if (finalQuizState.finalQuizPassed) {
+      return errorResponse(
+        res,
+        "Final quiz is already passed for this course",
+        409,
+        { code: "FINAL_QUIZ_ALREADY_PASSED" }
+      );
+    }
+    if (["pending", "approved"].includes(finalQuizState.requestStatus)) {
+      return errorResponse(
+        res,
+        "A final quiz request is already in progress",
+        409,
+        {
+          code: "FINAL_QUIZ_REQUEST_EXISTS",
+          requestId: finalQuizState.requestId || null,
+          requestStatus: finalQuizState.requestStatus || null,
+        }
+      );
+    }
+
+    const [courseLectures, progressRows] = await Promise.all([
+      getCourseLectures(courseId),
+      getProgressRowsForStudent(uid, courseId),
+    ]);
+    const totalLectures = courseLectures.length;
+    const progressMap = buildLectureProgressMap(progressRows, courseId);
+    const completedLectures = courseLectures.filter(
+      (lecture) => progressMap[lecture.id]?.isCompleted
+    ).length;
+    const completionPercent =
+      totalLectures > 0
+        ? Math.round((completedLectures / totalLectures) * 100)
+        : 0;
+    const isCourseCompleted = totalLectures > 0 && completedLectures >= totalLectures;
+    if (!isCourseCompleted) {
+      return errorResponse(
+        res,
+        "Complete all course lectures before requesting the final quiz",
+        400,
+        {
+          code: "COURSE_NOT_COMPLETED",
+          completedLectures,
+          totalLectures,
+          completionPercent: clampPercent(completionPercent),
+        }
+      );
+    }
+
+    const [profile, courseSnap] = await Promise.all([
+      getStudentAndUser(uid),
+      db.collection(COLLECTIONS.COURSES).doc(courseId).get(),
+    ]);
+
+    const studentName =
+      trimText(profile.studentData.fullName) ||
+      trimText(profile.studentData.name) ||
+      trimText(profile.userData.fullName) ||
+      trimText(profile.userData.name) ||
+      getNameFromEmail(profile.userData.email || "");
+    const studentEmail = trimText(
+      profile.userData.email || profile.studentData.email
+    );
+    const courseName = trimText(courseSnap.data()?.title) || "Course";
+
+    const existingRequest = await getLatestFinalQuizRequest(uid, courseId);
+    const requestRef = existingRequest?.id
+      ? db.collection(COLLECTIONS.FINAL_QUIZ_REQUESTS).doc(existingRequest.id)
+      : db.collection(COLLECTIONS.FINAL_QUIZ_REQUESTS).doc();
+
+    const payload = {
+      studentId: uid,
+      studentName,
+      studentEmail,
+      courseId,
+      courseName,
+      status: "pending",
+      notes,
+      requestSource: "student",
+      requestedAt: serverTimestamp(),
+      reviewedAt: null,
+      reviewedBy: null,
+      reviewedByRole: "",
+      updatedAt: serverTimestamp(),
+      createdAt: existingRequest?.id ? existingRequest.createdAt || serverTimestamp() : serverTimestamp(),
+    };
+
+    await requestRef.set(payload, { merge: true });
+    const createdSnap = await requestRef.get();
+    const createdData = createdSnap.data() || {};
+
+    return successResponse(
+      res,
+      {
+        requestId: requestRef.id,
+        courseId,
+        courseName,
+        status: lowerText(createdData.status || "pending"),
+        requestedAt: toIso(createdData.requestedAt || createdData.createdAt),
+        notes: trimText(createdData.notes),
+      },
+      "Final quiz request submitted. Please wait for admin/teacher approval.",
+      201
+    );
+  } catch (error) {
+    console.error("requestFinalQuizForCourse error:", error);
+    return errorResponse(res, "Failed to request final quiz", 500);
   }
 };
 
@@ -1560,11 +2013,18 @@ export const markLectureComplete = async (req, res) => {
       enrollments: allEnrollments,
       progressRows: allProgressRows,
     });
+    const finalQuizState = await resolveFinalQuizRequirementState({
+      studentId: uid,
+      courseId,
+    });
+    const certificateEligibleNow =
+      certificateAccess.eligibleForCertificate &&
+      (!finalQuizState.requiresFinalQuiz || finalQuizState.finalQuizPassed);
 
     let certificate = null;
     let certificatePending = false;
     if (isCompleted) {
-      if (certificateAccess.eligibleForCertificate) {
+      if (certificateEligibleNow) {
         certificate = await ensureCertificateForCompletion({
           studentId: uid,
           studentData: profile.studentData,
@@ -1577,6 +2037,15 @@ export const markLectureComplete = async (req, res) => {
       }
     }
 
+    const classCertificateBatch = await ensureCertificatesForFullyCompletedClasses({
+      studentId: uid,
+      studentData: profile.studentData,
+      userData: profile.userData,
+      classRows,
+      enrollments: allEnrollments,
+      progressRows: allProgressRows,
+    });
+
     return successResponse(
       res,
       {
@@ -1586,9 +2055,29 @@ export const markLectureComplete = async (req, res) => {
         totalLectures,
         completionPercent: clampPercent(completionPercent),
         courseCompleted: isCompleted,
-        certificateIssued: Boolean(certificate?.created),
+        certificateIssued:
+          Boolean(certificate?.created) ||
+          Number(classCertificateBatch.createdCertificates || 0) > 0,
         certificatePending,
-        certificateEligible: certificateAccess.eligibleForCertificate,
+        certificateEligible: certificateEligibleNow,
+        certificateBlockedByFinalQuiz:
+          finalQuizState.requiresFinalQuiz && !finalQuizState.finalQuizPassed,
+        finalQuiz: {
+          required: finalQuizState.requiresFinalQuiz,
+          total: finalQuizState.finalQuizCount,
+          passed: finalQuizState.finalQuizPassed,
+          requestId: finalQuizState.requestId || null,
+          requestStatus: finalQuizState.requestStatus || null,
+          requestSubmittedAt: finalQuizState.requestSubmittedAt,
+          requestReviewedAt: finalQuizState.requestReviewedAt,
+          canRequest: finalQuizState.canRequest,
+          latestResult: finalQuizState.latestFinalQuizResult,
+        },
+        classCertificatesIssued: Number(classCertificateBatch.createdCertificates || 0),
+        classCertificateTargets: Number(classCertificateBatch.targetedCourses || 0),
+        classCertificateBlockedByFinalQuiz: Number(
+          classCertificateBatch.blockedByFinalQuiz || 0
+        ),
         classLockState: {
           hasClassContext: certificateAccess.hasClassContext,
           isLockedAfterCompletion: certificateAccess.isLocked,
@@ -1891,6 +2380,10 @@ export const getStudentQuizzes = async (req, res) => {
         return {
           id: quiz.id,
           title: trimText(quiz.title) || "Quiz",
+          isFinalQuiz:
+            quiz.isFinalQuiz === true ||
+            lowerText(quiz.quizType) === "final" ||
+            lowerText(quiz.assessmentType) === "final",
           courseId,
           courseName: trimText(quiz.courseName || courseData.title) || "Course",
           subjectId,
@@ -1976,6 +2469,10 @@ export const getQuizById = async (req, res) => {
         id: quizId,
         title: trimText(quizData.title) || "Quiz",
         description: trimText(quizData.description),
+        isFinalQuiz:
+          quizData.isFinalQuiz === true ||
+          lowerText(quizData.quizType) === "final" ||
+          lowerText(quizData.assessmentType) === "final",
         courseId,
         courseName: trimText(quizData.courseName) || "Course",
         subjectId: trimText(quizData.subjectId),
@@ -2033,6 +2530,7 @@ export const submitQuizAttempt = async (req, res) => {
 
     const questions = Array.isArray(quizData.questions) ? quizData.questions : [];
     if (!questions.length) return errorResponse(res, "Quiz has no questions", 400);
+    const isFinalQuiz = isFinalQuizRow(quizData);
 
     const answerMap = normalizeSubmittedAnswers(answers);
     let autoScore = 0;
@@ -2141,17 +2639,146 @@ export const submitQuizAttempt = async (req, res) => {
       updatedAt: serverTimestamp(),
     });
 
+    let certificateIssued = false;
+    let certificatePending = false;
+    let certificateBlockedByFinalQuiz = false;
+    let classCertificatesIssued = 0;
+    let classCertificateBlockedByFinalQuiz = 0;
+
+    if (isFinalQuiz && status === "completed") {
+      const latestRequest = await getLatestFinalQuizRequest(uid, courseId);
+      if (latestRequest?.id) {
+        await db
+          .collection(COLLECTIONS.FINAL_QUIZ_REQUESTS)
+          .doc(latestRequest.id)
+          .set(
+            {
+              status: isPassed ? "completed" : "rejected",
+              finalQuizPassed: Boolean(isPassed),
+              finalQuizResultId: resultRef.id,
+              reviewedAt: serverTimestamp(),
+              updatedAt: serverTimestamp(),
+            },
+            { merge: true }
+          );
+      }
+    }
+
+    if (isFinalQuiz && status === "completed" && isPassed) {
+      const [
+        profile,
+        courseLectures,
+        courseProgressRows,
+        allProgressRows,
+        allEnrollments,
+        classMembershipRows,
+        courseSnap,
+      ] = await Promise.all([
+        getStudentAndUser(uid),
+        getCourseLectures(courseId),
+        getProgressRowsForStudent(uid, courseId),
+        getProgressRowsForStudent(uid),
+        getEnrolledRows(uid),
+        getStudentClassMembershipRows(uid),
+        db.collection(COLLECTIONS.COURSES).doc(courseId).get(),
+      ]);
+
+      const totalLectures = courseLectures.length;
+      const progressMap = buildLectureProgressMap(courseProgressRows, courseId);
+      const completedCount = courseLectures.filter(
+        (lecture) => progressMap[lecture.id]?.isCompleted
+      ).length;
+      const courseCompleted = totalLectures > 0 && completedCount >= totalLectures;
+
+      const enrollmentClassIds = allEnrollments
+        .map((row) => trimText(row.classId))
+        .filter(Boolean);
+      const classMap = classMembershipRows.reduce((acc, row) => {
+        acc[trimText(row.id)] = row;
+        return acc;
+      }, {});
+      const missingClassIds = [...new Set(enrollmentClassIds)].filter(
+        (classId) => !classMap[classId]
+      );
+      const missingClassRows = await Promise.all(
+        missingClassIds.map(async (classId) => {
+          const snap = await db.collection(COLLECTIONS.CLASSES).doc(classId).get();
+          return snap.exists ? { id: snap.id, ...(snap.data() || {}) } : null;
+        })
+      );
+      const classRows = [...classMembershipRows, ...missingClassRows.filter(Boolean)].map(
+        (row) => ({
+          ...(row || {}),
+          id: trimText(row?.id),
+        })
+      );
+
+      const certificateAccess = resolveCourseAccessStateFromClasses({
+        uid,
+        courseId,
+        classRows,
+        enrollments: allEnrollments,
+        progressRows: allProgressRows,
+      });
+      const finalQuizState = await resolveFinalQuizRequirementState({
+        studentId: uid,
+        courseId,
+      });
+      const certificateEligibleNow =
+        certificateAccess.eligibleForCertificate &&
+        (!finalQuizState.requiresFinalQuiz || finalQuizState.finalQuizPassed);
+
+      if (courseCompleted) {
+        if (certificateEligibleNow) {
+          const certResult = await ensureCertificateForCompletion({
+            studentId: uid,
+            studentData: profile.studentData,
+            userData: profile.userData,
+            courseId,
+            courseData: courseSnap.exists ? courseSnap.data() || {} : {},
+          });
+          certificateIssued = Boolean(certResult?.created);
+        } else {
+          certificatePending = true;
+          certificateBlockedByFinalQuiz =
+            finalQuizState.requiresFinalQuiz && !finalQuizState.finalQuizPassed;
+        }
+      }
+
+      const classCertificateBatch = await ensureCertificatesForFullyCompletedClasses({
+        studentId: uid,
+        studentData: profile.studentData,
+        userData: profile.userData,
+        classRows,
+        enrollments: allEnrollments,
+        progressRows: allProgressRows,
+      });
+      classCertificatesIssued = Number(classCertificateBatch.createdCertificates || 0);
+      classCertificateBlockedByFinalQuiz = Number(
+        classCertificateBatch.blockedByFinalQuiz || 0
+      );
+      if (classCertificatesIssued > 0) {
+        certificateIssued = true;
+      }
+    }
+
     return successResponse(
       res,
       {
         resultId: resultRef.id,
         quizId,
+        isFinalQuiz,
         autoScore,
         totalMarks,
         shortAnswerPending,
         status,
         percentage,
         isPassed,
+        certificateIssued,
+        certificatePending,
+        certificateBlockedByFinalQuiz,
+        classCertificatesIssued,
+        classCertificateBlockedByFinalQuiz,
         answers: gradedAnswers.map((row) => ({
           questionId: row.questionId,
           questionType: row.questionType,

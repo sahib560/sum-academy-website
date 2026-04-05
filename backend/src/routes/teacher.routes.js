@@ -35,6 +35,9 @@ import {
   deleteLectureContent,
   getCourseStudents,
   updateVideoAccess,
+  updateCourseRewatchAccess,
+  getFinalQuizRequests,
+  updateFinalQuizRequestStatus,
   getTeacherStudents,
   getTeacherStudentById,
   getStudentProgress,
@@ -85,6 +88,12 @@ router.patch(
   "/courses/:courseId/students/:studentId/video-access",
   updateVideoAccess
 );
+router.patch(
+  "/courses/:courseId/students/:studentId/rewatch-access",
+  updateCourseRewatchAccess
+);
+router.get("/final-quiz-requests", getFinalQuizRequests);
+router.patch("/final-quiz-requests/:requestId", updateFinalQuizRequestStatus);
 
 router.get("/students", getTeacherStudents);
 router.get("/students/:studentId", getTeacherStudentById);

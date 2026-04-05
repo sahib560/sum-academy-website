@@ -3,12 +3,24 @@ import { AnimatePresence, motion as Motion } from "framer-motion";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import toast, { Toaster } from "react-hot-toast";
-import { FiLock } from "react-icons/fi";
+import {
+  FiBookOpen,
+  FiCheckCircle,
+  FiClock,
+  FiFileText,
+  FiLock,
+  FiMaximize2,
+  FiPause,
+  FiPlay,
+  FiShield,
+  FiVolume2,
+} from "react-icons/fi";
 import { Skeleton } from "../../components/Skeleton.jsx";
 import { useAuth } from "../../hooks/useAuth.js";
 import {
   getCourseProgress,
   markLectureComplete,
+  requestFinalQuizForCourse,
   reportStudentSecurityViolation,
 } from "../../services/student.service.js";
 import api from "../../api/axios.js";
@@ -108,6 +120,15 @@ const normalizeProgressPayload = (payload = {}) => {
       isLockedAfterCompletion: Boolean(access.isLockedAfterCompletion),
       isCompletedWindow: Boolean(access.isCompletedWindow),
       certificateEligible: access.certificateEligible !== false,
+      finalQuiz: {
+        required: Boolean(access?.finalQuiz?.required),
+        total: toNumber(access?.finalQuiz?.total, 0),
+        passed: Boolean(access?.finalQuiz?.passed),
+        requestId: access?.finalQuiz?.requestId || "",
+        requestStatus: access?.finalQuiz?.requestStatus || "",
+        requestSubmittedAt: access?.finalQuiz?.requestSubmittedAt || null,
+        canRequest: Boolean(access?.finalQuiz?.canRequest),
+      },
       classStates: Array.isArray(access.classStates) ? access.classStates : [],
     },
     chapters: normalizedChapters,
@@ -172,6 +193,13 @@ function StudentCoursePlayer() {
     [normalized.lectures, currentLectureId]
   );
   const classCompletionLocked = Boolean(normalized.access?.isLockedAfterCompletion);
+  const finalQuiz = normalized.access?.finalQuiz || {
+    required: false,
+    total: 0,
+    passed: true,
+    requestStatus: "",
+    canRequest: false,
+  };
 
   const watchedPercent = useMemo(() => {
     if (duration <= 0) return 0;
@@ -184,7 +212,11 @@ function StudentCoursePlayer() {
       markLectureComplete(targetCourseId, targetLectureId),
     onSuccess: (result) => {
       const data = result?.data || result?.data?.data || result || {};
-      if (data?.certificatePending) {
+      if (data?.certificateBlockedByFinalQuiz) {
+        toast.success(
+          "Course completed. Final quiz request is required before certificate."
+        );
+      } else if (data?.certificatePending) {
         toast.success("Lecture completed. Certificate will unlock after class completion.");
       } else {
         toast.success("Lecture marked as complete");
@@ -199,6 +231,20 @@ function StudentCoursePlayer() {
     onError: (mutationError) => {
       toast.error(
         mutationError?.response?.data?.message || "Failed to mark lecture complete"
+      );
+    },
+  });
+
+  const finalQuizRequestMutation = useMutation({
+    mutationFn: () => requestFinalQuizForCourse(courseId),
+    onSuccess: () => {
+      toast.success("Final quiz request sent to admin/teacher.");
+      queryClient.invalidateQueries({ queryKey: ["student-course-progress", courseId] });
+      queryClient.invalidateQueries({ queryKey: ["student-quizzes"] });
+    },
+    onError: (mutationError) => {
+      toast.error(
+        mutationError?.response?.data?.message || "Failed to send final quiz request"
       );
     },
   });
@@ -524,8 +570,37 @@ function StudentCoursePlayer() {
         </div>
       ) : null}
 
-      <Motion.section {...fadeUp}>
-        <h1 className="font-heading text-3xl text-slate-900">Learning Studio</h1>
+      <Motion.section
+        {...fadeUp}
+        className="overflow-hidden rounded-3xl border border-slate-200 bg-gradient-to-r from-cyan-50 via-white to-blue-50 p-5 shadow-sm"
+      >
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-xs uppercase tracking-[0.2em] text-slate-500">
+              Learning Studio
+            </p>
+            <h1 className="font-heading text-2xl text-slate-900 md:text-3xl">
+              {normalized.course.title || "Course Player"}
+            </h1>
+            <p className="mt-1 text-sm text-slate-600">
+              {normalized.course.teacherName || "Teacher"}
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <span className="inline-flex items-center gap-1 rounded-full border border-cyan-200 bg-cyan-100/70 px-3 py-1 font-semibold text-cyan-700">
+              <FiBookOpen className="h-3.5 w-3.5" />
+              {normalized.progress.completedLectures}/{normalized.progress.totalLectures} lectures
+            </span>
+            <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-100/70 px-3 py-1 font-semibold text-emerald-700">
+              <FiCheckCircle className="h-3.5 w-3.5" />
+              {Math.round(normalized.progress.completionPercent)}% complete
+            </span>
+            <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-100/70 px-3 py-1 font-semibold text-amber-700">
+              <FiShield className="h-3.5 w-3.5" />
+              Warnings {securityWarningCount}/{VIDEO_VIOLATION_LIMIT}
+            </span>
+          </div>
+        </div>
       </Motion.section>
 
       {isLoading ? (
@@ -547,7 +622,7 @@ function StudentCoursePlayer() {
           <Motion.section {...fadeUp} className="space-y-4">
             <div
               ref={playerRef}
-              className="protected-zone video-wrapper relative overflow-hidden rounded-3xl border border-slate-700 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 shadow-2xl"
+              className="protected-zone video-wrapper relative overflow-hidden rounded-3xl border border-slate-700/70 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 shadow-[0_30px_80px_-20px_rgba(15,23,42,0.85)] ring-1 ring-cyan-300/20"
               style={{ position: "relative" }}
             >
               <div className="aspect-video">
@@ -555,7 +630,7 @@ function StudentCoursePlayer() {
                   ref={videoRef}
                   src={videoSrc || undefined}
                   className="h-full w-full object-cover"
-                  style={{ pointerEvents: "none", filter: "contrast(1.03) saturate(1.08)" }}
+                  style={{ pointerEvents: "none", filter: "contrast(1.05) saturate(1.12)" }}
                   controls={false}
                   controlsList="nodownload nofullscreen"
                   disablePictureInPicture
@@ -608,7 +683,7 @@ function StudentCoursePlayer() {
               )}
 
               {!showLockedOverlay && !isLoadingVideo && !lectureHasVideo && (
-                <div className="absolute inset-0 flex items-center justify-center bg-slate-900/75 text-center text-xs font-semibold text-white">
+                <div className="absolute inset-0 flex items-center justify-center bg-slate-900/75 px-4 text-center text-xs font-semibold text-white">
                   No video attached for this lecture. Use notes below.
                 </div>
               )}
@@ -626,12 +701,12 @@ function StudentCoursePlayer() {
 
               {isLoadingVideo && (
                 <div className="absolute inset-0 flex items-center justify-center bg-slate-900/60 text-sm font-semibold text-white">
-                  Loading secure video...
+                  Loading secure video stream...
                 </div>
               )}
             </div>
 
-            <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm md:p-5">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
@@ -640,39 +715,40 @@ function StudentCoursePlayer() {
                   <h2 className="font-heading text-2xl text-slate-900">
                     {currentLecture?.title || "Select a lecture"}
                   </h2>
-                  {currentLecture?.isLiveSession ||
-                  String(currentLecture?.videoMode || "").toLowerCase() === "live_session" ? (
-                    <span className="mt-2 inline-flex rounded-full bg-rose-100 px-3 py-1 text-[11px] font-semibold text-rose-700">
-                      Live Session Replay
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    {(currentLecture?.isLiveSession ||
+                      String(currentLecture?.videoMode || "").toLowerCase() === "live_session") ? (
+                      <span className="inline-flex rounded-full bg-rose-100 px-3 py-1 text-[11px] font-semibold text-rose-700">
+                        Live Session Replay
+                      </span>
+                    ) : null}
+                    <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-3 py-1 text-[11px] font-semibold text-slate-600">
+                      <FiClock className="h-3 w-3" />
+                      {currentLecture?.duration || "--"}
                     </span>
-                  ) : null}
+                  </div>
                   <p className="mt-1 text-sm text-slate-500">
                     {normalized.course.teacherName}
                   </p>
                 </div>
                 <div className="text-right text-xs text-slate-500">
-                  <p>
-                    Watched: {Math.round(watchedPercent)}%
-                  </p>
-                  <p>
-                    Lecture: {currentLecture?.duration || "--"}
-                  </p>
-                  <p>
-                    Security warnings: {securityWarningCount}/{VIDEO_VIOLATION_LIMIT}
-                  </p>
+                  <p>Watched: {Math.round(watchedPercent)}%</p>
+                  <p>Lecture: {currentLecture?.duration || "--"}</p>
+                  <p>Security: {securityWarningCount}/{VIDEO_VIOLATION_LIMIT}</p>
                 </div>
               </div>
 
-              <div className="mt-4 space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
-                <div className="flex flex-wrap items-center gap-3">
+              <div className="mt-4 rounded-2xl border border-slate-800 bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 p-4 text-white shadow-inner">
+                <div className="mb-3 flex flex-wrap items-center gap-3">
                   <button
-                    className="rounded-full bg-primary px-4 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+                    className="inline-flex items-center gap-2 rounded-full bg-cyan-500 px-4 py-2 text-xs font-semibold text-slate-950 disabled:cursor-not-allowed disabled:opacity-50"
                     onClick={handlePlayPause}
                     disabled={showLockedOverlay || !lectureHasVideo || !videoSrc}
                   >
+                    {isPlaying ? <FiPause className="h-3.5 w-3.5" /> : <FiPlay className="h-3.5 w-3.5" />}
                     {isPlaying ? "Pause" : "Play"}
                   </button>
-                  <span className="text-xs font-semibold text-slate-700">
+                  <span className="text-xs font-semibold text-slate-100">
                     {formatSeconds(currentTime)} / {formatSeconds(duration)}
                   </span>
                 </div>
@@ -684,13 +760,16 @@ function StudentCoursePlayer() {
                   step={0.1}
                   value={currentTime}
                   onChange={handleSeek}
-                  className="w-full"
+                  className="w-full accent-cyan-400"
                   disabled={showLockedOverlay || !lectureHasVideo || !videoSrc}
                 />
 
-                <div className="grid gap-3 md:grid-cols-3">
-                  <label className="text-xs text-slate-600">
-                    Volume
+                <div className="mt-3 grid gap-3 md:grid-cols-3">
+                  <label className="text-xs text-slate-200">
+                    <span className="mb-1 inline-flex items-center gap-1">
+                      <FiVolume2 className="h-3.5 w-3.5" />
+                      Volume
+                    </span>
                     <input
                       type="range"
                       min={0}
@@ -698,18 +777,18 @@ function StudentCoursePlayer() {
                       step={0.01}
                       value={volume}
                       onChange={handleVolume}
-                      className="mt-1 w-full"
+                      className="mt-1 w-full accent-cyan-400"
                     />
                   </label>
 
-                  <label className="text-xs text-slate-600">
+                  <label className="text-xs text-slate-200">
                     Speed
                     <select
                       value={playbackRate}
                       onChange={handleSpeed}
-                      className="mt-1 w-full rounded-xl border border-slate-200 px-2 py-1 text-xs"
+                      className="mt-1 w-full rounded-xl border border-slate-600 bg-slate-900 px-2 py-1 text-xs text-white"
                     >
-                      {[0.5, 1, 1.25, 1.5, 2].map((speed) => (
+                      {[0.5, 0.75, 1, 1.25, 1.5, 1.75, 2].map((speed) => (
                         <option key={speed} value={speed}>
                           {speed}x
                         </option>
@@ -719,10 +798,11 @@ function StudentCoursePlayer() {
 
                   <div className="flex items-end">
                     <button
-                      className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700"
+                      className="inline-flex w-full items-center justify-center gap-1 rounded-xl border border-slate-600 bg-slate-900 px-3 py-2 text-xs font-semibold text-white"
                       onClick={handleFullscreen}
                       disabled={showLockedOverlay || !lectureHasVideo || !videoSrc}
                     >
+                      <FiMaximize2 className="h-3.5 w-3.5" />
                       Fullscreen
                     </button>
                   </div>
@@ -731,7 +811,8 @@ function StudentCoursePlayer() {
 
               {(currentLecture?.notes || lectureResources.length > 0) && (
                 <div className="mt-4 space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
-                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                  <p className="inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                    <FiFileText className="h-3.5 w-3.5" />
                     Lecture Resources
                   </p>
                   {currentLecture?.notes ? (
@@ -745,10 +826,10 @@ function StudentCoursePlayer() {
                           href={item.url}
                           target="_blank"
                           rel="noreferrer"
-                          className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700"
+                          className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-cyan-300 hover:bg-cyan-50"
                         >
                           <span>{item.title || "Resource"}</span>
-                          <span className="text-slate-500">Open</span>
+                          <span className="text-cyan-700">Open</span>
                         </a>
                       ))}
                     </div>
@@ -774,6 +855,28 @@ function StudentCoursePlayer() {
               <p className="mt-2 text-xs text-slate-500">
                 Mark as complete unlocks when watched over 80%.
               </p>
+              {normalized.progress.completionPercent >= 100 && finalQuiz.required && !finalQuiz.passed ? (
+                <div className="mt-3 rounded-2xl border border-indigo-200 bg-indigo-50 p-3 text-xs text-indigo-800">
+                  <p className="font-semibold">
+                    Final quiz is required before certificate generation.
+                  </p>
+                  <p className="mt-1">
+                    Status: {finalQuiz.requestStatus || "not_requested"}
+                  </p>
+                  <button
+                    type="button"
+                    className="mt-2 rounded-full border border-indigo-300 bg-white px-3 py-1 font-semibold text-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
+                    onClick={() => finalQuizRequestMutation.mutate()}
+                    disabled={!finalQuiz.canRequest || finalQuizRequestMutation.isPending}
+                  >
+                    {finalQuizRequestMutation.isPending
+                      ? "Sending..."
+                      : finalQuiz.canRequest
+                        ? "Request Final Quiz"
+                        : "Request Already Sent"}
+                  </button>
+                </div>
+              ) : null}
             </div>
           </Motion.section>
 
@@ -785,7 +888,7 @@ function StudentCoursePlayer() {
               <div className="mt-3 flex items-center gap-2 text-xs text-slate-500">
                 <div className="h-2 w-36 rounded-full bg-slate-100">
                   <div
-                    className="h-2 rounded-full bg-primary"
+                    className="h-2 rounded-full bg-gradient-to-r from-cyan-500 to-blue-500"
                     style={{ width: `${normalized.progress.completionPercent}%` }}
                   />
                 </div>
@@ -798,7 +901,7 @@ function StudentCoursePlayer() {
                   return (
                     <div
                       key={chapter.chapterId}
-                      className="rounded-2xl border border-slate-200 bg-slate-50 p-3"
+                      className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3"
                     >
                       <button
                         className="flex w-full items-center justify-between text-left"
@@ -820,10 +923,10 @@ function StudentCoursePlayer() {
                             return (
                               <button
                                 key={lecture.lectureId}
-                                className={`flex w-full items-center justify-between rounded-xl border px-3 py-2 text-left text-xs ${
+                                className={`flex w-full items-center justify-between rounded-xl border px-3 py-2 text-left text-xs transition ${
                                   isCurrent
-                                    ? "border-primary bg-primary/10"
-                                    : "border-slate-200 bg-white"
+                                    ? "border-cyan-300 bg-cyan-50"
+                                    : "border-slate-200 bg-white hover:border-cyan-200 hover:bg-cyan-50/40"
                                 } ${
                                   lecture.hasAccess === false ? "opacity-70" : ""
                                 }`}
@@ -831,11 +934,11 @@ function StudentCoursePlayer() {
                               >
                                 <div className="flex items-center gap-2">
                                   {lecture.isCompleted ? (
-                                    <span className="text-emerald-500">OK</span>
+                                    <FiCheckCircle className="h-3.5 w-3.5 text-emerald-500" />
                                   ) : lecture.hasAccess === false ? (
-                                    <span className="text-slate-400">LOCK</span>
+                                    <FiLock className="h-3.5 w-3.5 text-slate-400" />
                                   ) : isCurrent ? (
-                                    <span className="h-2 w-2 animate-pulse rounded-full bg-primary" />
+                                    <span className="h-2 w-2 animate-pulse rounded-full bg-cyan-500" />
                                   ) : (
                                     <span className="h-2 w-2 rounded-full bg-slate-300" />
                                   )}

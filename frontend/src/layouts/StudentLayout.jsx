@@ -19,6 +19,7 @@ import {
 import { logout } from "../services/auth.service.js";
 import { useAuth } from "../hooks/useAuth.js";
 import { getMyAnnouncements } from "../services/admin.service.js";
+import { getStudentDashboard } from "../services/student.service.js";
 import { useSettings } from "../hooks/useSettings.js";
 
 const MotionDiv = motion.div;
@@ -91,6 +92,13 @@ function StudentLayout() {
   });
   const notifications = announcementsQuery.data || [];
   const unreadCount = notifications.filter((item) => !item.isRead).length;
+  const dashboardQuery = useQuery({
+    queryKey: ["student-layout-dashboard-summary", userProfile?.uid],
+    queryFn: () => getStudentDashboard(),
+    enabled: Boolean(userProfile?.uid),
+    staleTime: 60 * 1000,
+    refetchInterval: 60 * 1000,
+  });
 
   const pageTitle = useMemo(() => {
     const match = navItems.find((item) =>
@@ -123,7 +131,16 @@ function StudentLayout() {
     .slice(0, 2)
     .join("")
     .toUpperCase();
-  const enrolledCount = userProfile?.enrolledCourses?.length ?? 0;
+  const classesCount = Number(
+    dashboardQuery.data?.stats?.enrolledClassesCount ??
+      userProfile?.enrolledClasses?.length ??
+      0
+  );
+  const coursesCount = Number(
+    dashboardQuery.data?.stats?.enrolledCoursesCount ??
+      userProfile?.enrolledCourses?.length ??
+      0
+  );
   const siteName = settings.general?.siteName || "SUM Academy";
   const logoUrl = settings.general?.logoUrl || "";
 
@@ -197,7 +214,7 @@ function StudentLayout() {
             <div className="flex-1">
               <p className="text-sm font-semibold text-slate-900">{displayName}</p>
               <span className="text-xs text-slate-500">
-                {enrolledCount} Courses
+                {classesCount} Classes • {coursesCount} Courses
               </span>
             </div>
           </div>

@@ -56,6 +56,7 @@ function Checkout() {
   const [installments, setInstallments] = useState(2);
   const [paymentMethod, setPaymentMethod] = useState("bank_transfer");
   const [initiatedPayment, setInitiatedPayment] = useState(null);
+  const [receiptSubmitted, setReceiptSubmitted] = useState(false);
 
   const { data: paymentConfig } = useQuery({
     queryKey: ["payment-method-config"],
@@ -229,6 +230,7 @@ function Checkout() {
       }),
     onSuccess: (data) => {
       setInitiatedPayment(data);
+      setReceiptSubmitted(false);
       toast.success(
         `${formatMethodLabel(data?.method || activePaymentMethod)} payment initiated.`
       );
@@ -601,13 +603,26 @@ function Checkout() {
                       userProfile?.uid || initiatedPayment.paymentId,
                       onProgress
                     );
-                    await saveReceiptUrl(initiatedPayment.paymentId, uploaded.url);
+                    const receiptRes = await saveReceiptUrl(
+                      initiatedPayment.paymentId,
+                      uploaded.url
+                    );
+                    if (receiptRes?.status === "pending_verification") {
+                      setReceiptSubmitted(true);
+                    }
                     toast.success("Payment submitted for verification");
                     return uploaded;
                   }}
                 />
-                <p className="text-xs text-amber-700">
-                  Status: Pending Admin Verification
+                <p
+                  className={`text-xs ${
+                    receiptSubmitted ? "text-amber-700" : "text-slate-600"
+                  }`}
+                >
+                  Status:{" "}
+                  {receiptSubmitted
+                    ? "Pending Admin Verification"
+                    : "Awaiting receipt upload"}
                 </p>
               </div>
             ) : null}

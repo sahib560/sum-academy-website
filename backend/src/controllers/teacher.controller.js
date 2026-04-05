@@ -410,6 +410,8 @@ export const getTeacherDashboard = async (req, res) => {
 
 const VIDEO_ACCESS_COLLECTION = "videoAccess";
 const VIDEO_LIBRARY_COLLECTION = COLLECTIONS.VIDEOS || "videos";
+const FINAL_QUIZ_REQUEST_COLLECTION =
+  COLLECTIONS.FINAL_QUIZ_REQUESTS || "finalQuizRequests";
 const COURSE_STATUSES = new Set(["draft", "published", "archived"]);
 const COURSE_MUTABLE_FIELDS = new Set([
   "title",
@@ -455,6 +457,7 @@ const ACTIVE_ENROLLMENT_STATUSES = new Set([
   "pending_review",
   "",
 ]);
+const FINAL_QUIZ_REQUEST_ACTIONS = new Set(["approve", "reject", "complete"]);
 
 const getClassShiftCourseMap = (classData = {}) => {
   const shifts = Array.isArray(classData.shifts) ? classData.shifts : [];
@@ -570,6 +573,58 @@ const resolveClassEntryCourseIds = (entry = {}, classData = {}) => {
   if (assignedCourseIds.length === 1) return [assignedCourseIds[0]];
 
   return [];
+};
+
+const isClassUnlockedForStudent = (classData = {}, studentId = "") => {
+  const cleanStudentId = trimText(studentId);
+  if (!cleanStudentId) return false;
+
+  const directIds = Array.isArray(classData.unlockedStudentIds)
+    ? classData.unlockedStudentIds
+    : [];
+  if (directIds.some((entry) => trimText(entry) === cleanStudentId)) return true;
+
+  const rewatchIds = Array.isArray(classData.rewatchUnlockedStudentIds)
+    ? classData.rewatchUnlockedStudentIds
+    : [];
+  if (rewatchIds.some((entry) => trimText(entry) === cleanStudentId)) return true;
+
+  const rows = Array.isArray(classData.unlockedStudents) ? classData.unlockedStudents : [];
+  return rows.some((entry) => {
+    const entryId =
+      typeof entry === "string"
+        ? trimText(entry)
+        : trimText(entry?.studentId || entry?.id || entry?.uid);
+    if (entryId !== cleanStudentId) return false;
+    if (typeof entry === "object" && entry?.active === false) return false;
+    return true;
+  });
+};
+
+const buildUnlockedStudentRows = (rows = [], studentId = "", unlocked = true, updatedBy = "") => {
+  const cleanStudentId = trimText(studentId);
+  if (!cleanStudentId) return Array.isArray(rows) ? rows : [];
+  const existing = Array.isArray(rows) ? rows : [];
+
+  const filtered = existing.filter((entry) => {
+    const entryId =
+      typeof entry === "string"
+        ? trimText(entry)
+        : trimText(entry?.studentId || entry?.id || entry?.uid);
+    return entryId && entryId !== cleanStudentId;
+  });
+
+  if (!unlocked) return filtered;
+
+  return [
+    ...filtered,
+    {
+      studentId: cleanStudentId,
+      active: true,
+      unlockedAt: new Date().toISOString(),
+      unlockedBy: trimText(updatedBy),
+    },
+  ];
 };
 
 const buildClassDerivedEnrollmentRows = (classDocs = [], allowedCourseIds = []) => {
@@ -900,13 +955,24 @@ const getTeacherAssignedSubjects = (courseData = {}, uid = "") => {
 const getCourseWithAssignedSubjects = async (
   courseId,
   uid,
-  forbiddenMessage = "You are not assigned to this course"
+  forbiddenMessage = "You are not assigned to this course",
+  role = ""
 ) => {
   const courseRef = db.collection(COLLECTIONS.COURSES).doc(courseId);
   const courseSnap = await courseRef.get();
   if (!courseSnap.exists) return { error: "Course not found", status: 404 };
 
   const courseData = courseSnap.data() || {};
+  const normalizedRole = lowerText(role);
+  if (normalizedRole === "admin") {
+    return {
+      courseRef,
+      courseSnap,
+      courseData,
+      mySubjects: getAllCourseSubjects(courseData),
+    };
+  }
+
   const assignedSubjects = getTeacherAssignedSubjects(courseData, uid);
   const isLegacyOwner = trimText(courseData.teacherId) === uid;
   const mySubjects =
@@ -943,7 +1009,7 @@ const getOrderedDocsWhere = async (collectionName, filters = []) => {
   }
 };
 
-const getChapterWithAssignedSubject = async (chapterId, uid) => {
+const getChapterWithAssignedSubject = async (chapterId, uid, role = "") => {
   const chapterRef = db.collection(COLLECTIONS.CHAPTERS).doc(chapterId);
   const chapterSnap = await chapterRef.get();
   if (!chapterSnap.exists) return { error: "Chapter not found", status: 404 };
@@ -955,8 +1021,17 @@ const getChapterWithAssignedSubject = async (chapterId, uid) => {
     return { error: "Chapter subject mapping is missing", status: 400 };
   }
 
-  const linkedCourse = await getCourseWithAssignedSubjects(courseId, uid);
+  const linkedCourse = await getCourseWithAssignedSubjects(
+    courseId,
+    uid,
+    "You are not assigned to this course",
+    role
+  );
   if (linkedCourse.error) return linkedCourse;
+
+  if (lowerText(role) === "admin") {
+    return { ...linkedCourse, chapterRef, chapterSnap, chapterData };
+  }
 
   const ownsSubject = linkedCourse.mySubjects.some(
     (subject) => subject.subjectId === subjectId
@@ -966,7 +1041,7 @@ const getChapterWithAssignedSubject = async (chapterId, uid) => {
   return { ...linkedCourse, chapterRef, chapterSnap, chapterData };
 };
 
-const getLectureWithAssignedSubject = async (lectureId, uid) => {
+const getLectureWithAssignedSubject = async (lectureId, uid, role = "") => {
   const lectureRef = db.collection(COLLECTIONS.LECTURES).doc(lectureId);
   const lectureSnap = await lectureRef.get();
   if (!lectureSnap.exists) return { error: "Lecture not found", status: 404 };
@@ -986,8 +1061,25 @@ const getLectureWithAssignedSubject = async (lectureId, uid) => {
     return { error: "Lecture subject mapping is missing", status: 400 };
   }
 
-  const linkedCourse = await getCourseWithAssignedSubjects(courseId, uid);
+  const linkedCourse = await getCourseWithAssignedSubjects(
+    courseId,
+    uid,
+    "You are not assigned to this course",
+    role
+  );
   if (linkedCourse.error) return linkedCourse;
+
+  if (lowerText(role) === "admin") {
+    return {
+      ...linkedCourse,
+      chapterRef,
+      chapterSnap,
+      chapterData,
+      lectureRef,
+      lectureSnap,
+      lectureData,
+    };
+  }
 
   const ownsSubject = linkedCourse.mySubjects.some(
     (subject) => subject.subjectId === subjectId
@@ -1251,7 +1343,9 @@ export const getTeacherVideoLibrary = async (req, res) => {
     let allowedCourseIds = new Set();
     if (role === "teacher") {
       const assignedCourses = await getTeacherAssignedCourses(uid);
-      allowedCourseIds = new Set(assignedCourses.map((row) => trimText(row.id)).filter(Boolean));
+      allowedCourseIds = new Set(
+        (assignedCourses.courseIds || []).map((id) => trimText(id)).filter(Boolean)
+      );
     }
 
     const payload = videos
@@ -1272,6 +1366,7 @@ export const getTeacherVideoLibrary = async (req, res) => {
 export const getTeacherCourseById = async (req, res) => {
   try {
     const uid = req.user?.uid;
+    const role = lowerText(req.user?.role);
     const courseId = trimText(req.params?.courseId);
     if (!uid) return errorResponse(res, "Missing teacher uid", 400);
     if (!courseId) return errorResponse(res, "courseId is required", 400);
@@ -1279,7 +1374,8 @@ export const getTeacherCourseById = async (req, res) => {
     const linkedCourse = await getCourseWithAssignedSubjects(
       courseId,
       uid,
-      "You are not assigned to this course"
+      "You are not assigned to this course",
+      role
     );
     if (linkedCourse.error) {
       return errorResponse(res, linkedCourse.error, linkedCourse.status);
@@ -1389,6 +1485,7 @@ export const getChapters = async (req, res) => {
 export const addChapterToCourse = async (req, res) => {
   try {
     const uid = req.user?.uid;
+    const role = lowerText(req.user?.role);
     const courseId = trimText(req.params?.courseId);
     const subjectId = trimText(req.params?.subjectId || req.body?.subjectId);
     const { title, order } = req.body || {};
@@ -1400,7 +1497,12 @@ export const addChapterToCourse = async (req, res) => {
       return errorResponse(res, "Chapter title must be at least 3 characters", 400);
     }
 
-    const linkedCourse = await getCourseWithAssignedSubjects(courseId, uid);
+    const linkedCourse = await getCourseWithAssignedSubjects(
+      courseId,
+      uid,
+      "You are not assigned to this course",
+      role
+    );
     if (linkedCourse.error) {
       return errorResponse(res, linkedCourse.error, linkedCourse.status);
     }
@@ -1451,12 +1553,13 @@ export const addChapterToCourse = async (req, res) => {
 export const updateChapter = async (req, res) => {
   try {
     const uid = req.user?.uid;
+    const role = lowerText(req.user?.role);
     const chapterId = trimText(req.params?.chapterId);
     const { title, order } = req.body || {};
     if (!uid) return errorResponse(res, "Missing teacher uid", 400);
     if (!chapterId) return errorResponse(res, "chapterId is required", 400);
 
-    const linked = await getChapterWithAssignedSubject(chapterId, uid);
+    const linked = await getChapterWithAssignedSubject(chapterId, uid, role);
     if (linked.error) return errorResponse(res, linked.error, linked.status);
 
     const updates = {};
@@ -1497,11 +1600,12 @@ export const updateChapter = async (req, res) => {
 export const deleteChapter = async (req, res) => {
   try {
     const uid = req.user?.uid;
+    const role = lowerText(req.user?.role);
     const chapterId = trimText(req.params?.chapterId);
     if (!uid) return errorResponse(res, "Missing teacher uid", 400);
     if (!chapterId) return errorResponse(res, "chapterId is required", 400);
 
-    const linked = await getChapterWithAssignedSubject(chapterId, uid);
+    const linked = await getChapterWithAssignedSubject(chapterId, uid, role);
     if (linked.error) return errorResponse(res, linked.error, linked.status);
 
     const lecturesSnap = await db
@@ -1524,11 +1628,12 @@ export const deleteChapter = async (req, res) => {
 export const getLectures = async (req, res) => {
   try {
     const uid = req.user?.uid;
+    const role = lowerText(req.user?.role);
     const chapterId = trimText(req.params?.chapterId);
     if (!uid) return errorResponse(res, "Missing teacher uid", 400);
     if (!chapterId) return errorResponse(res, "chapterId is required", 400);
 
-    const linked = await getChapterWithAssignedSubject(chapterId, uid);
+    const linked = await getChapterWithAssignedSubject(chapterId, uid, role);
     if (linked.error) return errorResponse(res, linked.error, linked.status);
 
     const lecturesSnap = await getOrderedDocsWhere(COLLECTIONS.LECTURES, [
@@ -1548,6 +1653,7 @@ export const getLectures = async (req, res) => {
 export const addLecture = async (req, res) => {
   try {
     const uid = req.user?.uid;
+    const role = lowerText(req.user?.role);
     const chapterId = trimText(req.params?.chapterId);
     const { title, order } = req.body || {};
 
@@ -1557,7 +1663,7 @@ export const addLecture = async (req, res) => {
       return errorResponse(res, "Lecture title must be at least 3 characters", 400);
     }
 
-    const linked = await getChapterWithAssignedSubject(chapterId, uid);
+    const linked = await getChapterWithAssignedSubject(chapterId, uid, role);
     if (linked.error) return errorResponse(res, linked.error, linked.status);
 
     const existingSnap = await db
@@ -1613,6 +1719,7 @@ export const addLecture = async (req, res) => {
 export const updateLecture = async (req, res) => {
   try {
     const uid = req.user?.uid;
+    const role = lowerText(req.user?.role);
     const lectureId = trimText(req.params?.lectureId);
     const title = trimText(req.body?.title);
     if (!uid) return errorResponse(res, "Missing teacher uid", 400);
@@ -1621,7 +1728,7 @@ export const updateLecture = async (req, res) => {
       return errorResponse(res, "Lecture title must be at least 3 characters", 400);
     }
 
-    const linked = await getLectureWithAssignedSubject(lectureId, uid);
+    const linked = await getLectureWithAssignedSubject(lectureId, uid, role);
     if (linked.error) return errorResponse(res, linked.error, linked.status);
 
     await linked.lectureRef.update({
@@ -1644,11 +1751,12 @@ export const updateLecture = async (req, res) => {
 export const deleteLecture = async (req, res) => {
   try {
     const uid = req.user?.uid;
+    const role = lowerText(req.user?.role);
     const lectureId = trimText(req.params?.lectureId);
     if (!uid) return errorResponse(res, "Missing teacher uid", 400);
     if (!lectureId) return errorResponse(res, "lectureId is required", 400);
 
-    const linked = await getLectureWithAssignedSubject(lectureId, uid);
+    const linked = await getLectureWithAssignedSubject(lectureId, uid, role);
     if (linked.error) return errorResponse(res, linked.error, linked.status);
 
     const chapterId = trimText(linked.lectureData.chapterId);
@@ -1677,12 +1785,13 @@ export const deleteLecture = async (req, res) => {
 export const saveLectureContent = async (req, res) => {
   try {
     const uid = req.user?.uid;
+    const role = lowerText(req.user?.role);
     const lectureId = trimText(req.params?.lectureId);
     const { type, title, url, size = 0, duration, videoId } = req.body || {};
     if (!uid) return errorResponse(res, "Missing teacher uid", 400);
     if (!lectureId) return errorResponse(res, "lectureId is required", 400);
 
-    const linked = await getLectureWithAssignedSubject(lectureId, uid);
+    const linked = await getLectureWithAssignedSubject(lectureId, uid, role);
     if (linked.error) return errorResponse(res, linked.error, linked.status);
 
     const normalizedType = lowerText(type);
@@ -1695,6 +1804,13 @@ export const saveLectureContent = async (req, res) => {
     let firstLiveSession = false;
 
     if (normalizedType === "video") {
+      if (!trimText(videoId) && !trimText(url)) {
+        return errorResponse(
+          res,
+          "Either videoId or url is required for video content.",
+          400
+        );
+      }
       const resolvedVideo = await resolveLectureVideoMeta({
         courseId: trimText(linked.lectureData.courseId),
         lectureId,
@@ -1762,6 +1878,7 @@ export const saveLectureContent = async (req, res) => {
 export const deleteLectureContent = async (req, res) => {
   try {
     const uid = req.user?.uid;
+    const role = lowerText(req.user?.role);
     const lectureId = trimText(req.params?.lectureId);
     const contentId = trimText(req.params?.contentId);
     const normalizedType = lowerText(req.body?.type);
@@ -1772,7 +1889,7 @@ export const deleteLectureContent = async (req, res) => {
       return errorResponse(res, "type must be video, pdf or book", 400);
     }
 
-    const linked = await getLectureWithAssignedSubject(lectureId, uid);
+    const linked = await getLectureWithAssignedSubject(lectureId, uid, role);
     if (linked.error) return errorResponse(res, linked.error, linked.status);
 
     const lectureData = linked.lectureSnap.data() || {};
@@ -1809,11 +1926,17 @@ export const deleteLectureContent = async (req, res) => {
 export const getCourseStudents = async (req, res) => {
   try {
     const uid = req.user?.uid;
+    const role = lowerText(req.user?.role);
     const courseId = trimText(req.params?.courseId);
     if (!uid) return errorResponse(res, "Missing teacher uid", 400);
     if (!courseId) return errorResponse(res, "courseId is required", 400);
 
-    const linkedCourse = await getCourseWithAssignedSubjects(courseId, uid);
+    const linkedCourse = await getCourseWithAssignedSubjects(
+      courseId,
+      uid,
+      "You are not assigned to this course",
+      role
+    );
     if (linkedCourse.error) {
       return errorResponse(res, linkedCourse.error, linkedCourse.status);
     }
@@ -1837,6 +1960,43 @@ export const getCourseStudents = async (req, res) => {
       enrollments,
       inferredEnrollments
     );
+    const classMetaByStudentId = {};
+    classDocs.forEach((row) => {
+      const classId = trimText(row.id);
+      const classData = row.data || {};
+      if (!classId) return;
+      const assignedCourseIds = getClassAssignedCourseIds(classData);
+      const classHasCourse = assignedCourseIds.includes(courseId);
+      if (!classHasCourse) return;
+
+      const className = trimText(classData.name) || "Class";
+      const batchCode = trimText(classData.batchCode);
+      const studentEntries = getClassStudentEntries(classData);
+
+      studentEntries.forEach((entry) => {
+        const studentId = trimText(entry.studentId);
+        if (!studentId) return;
+
+        const entryCourseIds = resolveClassEntryCourseIds(entry, classData);
+        const linkedToCourse = entryCourseIds.length
+          ? entryCourseIds.includes(courseId)
+          : classHasCourse;
+        if (!linkedToCourse) return;
+
+        if (!Array.isArray(classMetaByStudentId[studentId])) {
+          classMetaByStudentId[studentId] = [];
+        }
+        if (classMetaByStudentId[studentId].some((item) => item.classId === classId)) {
+          return;
+        }
+        classMetaByStudentId[studentId].push({
+          classId,
+          className,
+          batchCode,
+          rewatchUnlocked: isClassUnlockedForStudent(classData, studentId),
+        });
+      });
+    });
 
     const studentIds = [
       ...new Set(
@@ -1899,14 +2059,20 @@ export const getCourseStudents = async (req, res) => {
         trimText(userData.displayName) ||
         getNameFromEmail(userData.email || "") ||
         "Student";
+      const studentClasses = Array.isArray(classMetaByStudentId[studentId])
+        ? classMetaByStudentId[studentId]
+        : [];
 
       return {
         studentId,
         fullName,
         email: trimText(userData.email || studentData.email),
+        classIds: studentClasses.map((item) => item.classId),
+        classes: studentClasses,
         enrolledAt: toIso(row.createdAt || row.enrolledAt),
         progress: Number.isFinite(progress) ? Math.max(0, Math.min(100, progress)) : 0,
         completedAt: toIso(row.completedAt || progressData?.completedAt),
+        rewatchUnlocked: studentClasses.some((item) => item.rewatchUnlocked),
         lastActive: toIso(
           progressData?.updatedAt ||
             progressData?.lastActiveAt ||
@@ -1933,6 +2099,7 @@ export const getCourseStudents = async (req, res) => {
 export const updateVideoAccess = async (req, res) => {
   try {
     const uid = req.user?.uid;
+    const role = lowerText(req.user?.role);
     const courseId = trimText(req.params?.courseId);
     const studentId = trimText(req.params?.studentId);
     const lectureId = trimText(req.body?.lectureId);
@@ -1946,7 +2113,11 @@ export const updateVideoAccess = async (req, res) => {
       return errorResponse(res, "lectureId is required", 400);
     }
 
-    const linkedLecture = await getLectureWithAssignedSubject(lectureId, uid);
+    const linkedLecture = await getLectureWithAssignedSubject(
+      lectureId,
+      uid,
+      role
+    );
     if (linkedLecture.error) {
       return errorResponse(res, linkedLecture.error, linkedLecture.status);
     }
@@ -1982,6 +2153,229 @@ export const updateVideoAccess = async (req, res) => {
   } catch (error) {
     console.error("updateVideoAccess error:", error);
     return errorResponse(res, "Failed to update video access", 500);
+  }
+};
+
+export const updateCourseRewatchAccess = async (req, res) => {
+  try {
+    const uid = trimText(req.user?.uid);
+    const role = lowerText(req.user?.role);
+    const courseId = trimText(req.params?.courseId);
+    const studentId = trimText(req.params?.studentId);
+    const unlocked = req.body?.unlocked !== false;
+    const lockAfterCompletionRaw = req.body?.lockAfterCompletion;
+
+    if (!uid) return errorResponse(res, "Missing user uid", 400);
+    if (!courseId || !studentId) {
+      return errorResponse(res, "courseId and studentId are required", 400);
+    }
+
+    const classDocs =
+      role === "admin"
+        ? (
+            await db.collection(COLLECTIONS.CLASSES).get()
+          ).docs.map((doc) => ({ id: doc.id, data: doc.data() || {} }))
+        : await getTeacherAssignedClassDocs(uid);
+
+    const targetClasses = classDocs.filter((row) => {
+      const classData = row.data || {};
+      const classHasCourse = getClassAssignedCourseIds(classData).includes(courseId);
+      if (!classHasCourse) return false;
+      const studentEntries = getClassStudentEntries(classData).filter(
+        (entry) => trimText(entry.studentId) === studentId
+      );
+      if (!studentEntries.length) return false;
+      return studentEntries.some((entry) => {
+        const courseIds = resolveClassEntryCourseIds(entry, classData);
+        return courseIds.length ? courseIds.includes(courseId) : classHasCourse;
+      });
+    });
+
+    if (!targetClasses.length) {
+      return errorResponse(
+        res,
+        "No class enrollment found for this student in the selected course",
+        404
+      );
+    }
+
+    await Promise.all(
+      targetClasses.map(async (row) => {
+        const classRef = db.collection(COLLECTIONS.CLASSES).doc(row.id);
+        const classData = row.data || {};
+        const updates = {
+          unlockedStudents: buildUnlockedStudentRows(
+            classData.unlockedStudents,
+            studentId,
+            unlocked,
+            uid
+          ),
+          updatedAt: serverTimestamp(),
+        };
+
+        if (unlocked) {
+          updates.unlockedStudentIds = admin.firestore.FieldValue.arrayUnion(studentId);
+          updates.rewatchUnlockedStudentIds =
+            admin.firestore.FieldValue.arrayUnion(studentId);
+        } else {
+          updates.unlockedStudentIds = admin.firestore.FieldValue.arrayRemove(studentId);
+          updates.rewatchUnlockedStudentIds =
+            admin.firestore.FieldValue.arrayRemove(studentId);
+        }
+
+        if (typeof lockAfterCompletionRaw === "boolean") {
+          updates.lockAfterCompletion = lockAfterCompletionRaw;
+        }
+
+        await classRef.set(updates, { merge: true });
+      })
+    );
+
+    return successResponse(
+      res,
+      {
+        courseId,
+        studentId,
+        unlocked,
+        affectedClasses: targetClasses.map((row) => ({
+          classId: row.id,
+          className: trimText(row.data?.name) || "Class",
+          batchCode: trimText(row.data?.batchCode),
+        })),
+      },
+      unlocked
+        ? "Rewatch unlocked for completed class content"
+        : "Rewatch lock restored for completed class content"
+    );
+  } catch (error) {
+    console.error("updateCourseRewatchAccess error:", error);
+    return errorResponse(res, "Failed to update rewatch access", 500);
+  }
+};
+
+export const getFinalQuizRequests = async (req, res) => {
+  try {
+    const uid = trimText(req.user?.uid);
+    const role = lowerText(req.user?.role);
+    const statusFilter = lowerText(req.query?.status);
+    const courseFilter = trimText(req.query?.courseId);
+    if (!uid) return errorResponse(res, "Missing user uid", 400);
+
+    let rows = [];
+    try {
+      const snap = await db
+        .collection(FINAL_QUIZ_REQUEST_COLLECTION)
+        .orderBy("requestedAt", "desc")
+        .get();
+      rows = snap.docs.map((doc) => ({ id: doc.id, ...(doc.data() || {}) }));
+    } catch {
+      const snap = await db.collection(FINAL_QUIZ_REQUEST_COLLECTION).get();
+      rows = snap.docs
+        .map((doc) => ({ id: doc.id, ...(doc.data() || {}) }))
+        .sort(
+          (a, b) =>
+            (new Date(toIso(b.requestedAt || b.createdAt) || 0).getTime() || 0) -
+            (new Date(toIso(a.requestedAt || a.createdAt) || 0).getTime() || 0)
+        );
+    }
+
+    if (role !== "admin") {
+      const teacherCourses = await getTeacherAssignedCourses(uid);
+      const allowedCourseIds = new Set(teacherCourses.courseIds || []);
+      rows = rows.filter((row) => allowedCourseIds.has(trimText(row.courseId)));
+    }
+
+    if (courseFilter) {
+      rows = rows.filter((row) => trimText(row.courseId) === courseFilter);
+    }
+    if (statusFilter) {
+      rows = rows.filter((row) => lowerText(row.status) === statusFilter);
+    }
+
+    const payload = rows.map((row) => ({
+      requestId: row.id,
+      studentId: trimText(row.studentId),
+      studentName: trimText(row.studentName) || "Student",
+      studentEmail: trimText(row.studentEmail),
+      courseId: trimText(row.courseId),
+      courseName: trimText(row.courseName) || "Course",
+      status: lowerText(row.status || "pending"),
+      notes: trimText(row.notes),
+      requestedAt: toIso(row.requestedAt || row.createdAt),
+      reviewedAt: toIso(row.reviewedAt),
+      reviewedBy: trimText(row.reviewedBy),
+      reviewedByRole: lowerText(row.reviewedByRole),
+      finalQuizPassed: row.finalQuizPassed === true,
+      finalQuizResultId: trimText(row.finalQuizResultId),
+      updatedAt: toIso(row.updatedAt),
+    }));
+
+    return successResponse(res, payload, "Final quiz requests fetched");
+  } catch (error) {
+    console.error("getFinalQuizRequests error:", error);
+    return errorResponse(res, "Failed to fetch final quiz requests", 500);
+  }
+};
+
+export const updateFinalQuizRequestStatus = async (req, res) => {
+  try {
+    const uid = trimText(req.user?.uid);
+    const role = lowerText(req.user?.role);
+    const requestId = trimText(req.params?.requestId);
+    const action = lowerText(req.body?.action);
+    const notes = trimText(req.body?.notes || "");
+
+    if (!uid) return errorResponse(res, "Missing user uid", 400);
+    if (!requestId) return errorResponse(res, "requestId is required", 400);
+    if (!FINAL_QUIZ_REQUEST_ACTIONS.has(action)) {
+      return errorResponse(res, "action must be approve, reject or complete", 400);
+    }
+
+    const requestRef = db.collection(FINAL_QUIZ_REQUEST_COLLECTION).doc(requestId);
+    const requestSnap = await requestRef.get();
+    if (!requestSnap.exists) return errorResponse(res, "Request not found", 404);
+    const requestData = requestSnap.data() || {};
+
+    if (role !== "admin") {
+      const teacherCourses = await getTeacherAssignedCourses(uid);
+      const allowedCourseIds = new Set(teacherCourses.courseIds || []);
+      if (!allowedCourseIds.has(trimText(requestData.courseId))) {
+        return errorResponse(res, "Forbidden", 403);
+      }
+    }
+
+    const nextStatus =
+      action === "approve" ? "approved" : action === "reject" ? "rejected" : "completed";
+
+    await requestRef.set(
+      {
+        status: nextStatus,
+        reviewerNotes: notes,
+        reviewedBy: uid,
+        reviewedByRole: role || "teacher",
+        reviewedAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    );
+
+    const updatedSnap = await requestRef.get();
+    const updatedData = updatedSnap.data() || {};
+
+    return successResponse(
+      res,
+      {
+        requestId,
+        status: lowerText(updatedData.status || nextStatus),
+        reviewedAt: toIso(updatedData.reviewedAt),
+        reviewedBy: trimText(updatedData.reviewedBy),
+        reviewerNotes: trimText(updatedData.reviewerNotes),
+      },
+      "Final quiz request updated"
+    );
+  } catch (error) {
+    console.error("updateFinalQuizRequestStatus error:", error);
+    return errorResponse(res, "Failed to update final quiz request", 500);
   }
 };
 

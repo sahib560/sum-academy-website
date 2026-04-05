@@ -22,6 +22,11 @@ import {
   bulkUploadTeacherQuiz,
   getQuizSubmissions,
 } from "../controllers/teacher.quiz.controller.js";
+import {
+  getFinalQuizRequests,
+  updateFinalQuizRequestStatus,
+  updateCourseRewatchAccess,
+} from "../controllers/teacher.controller.js";
 
 const router = Router();
 const upload = multer({
@@ -105,6 +110,12 @@ router.post("/quizzes", adminOnly, createTeacherQuiz);
 router.post("/quizzes/bulk-upload", adminOnly, upload.single("file"), bulkUploadTeacherQuiz);
 router.patch("/quizzes/:quizId/assign", adminOnly, assignQuizToStudents);
 router.get("/quizzes/:quizId/submissions", adminOnly, getQuizSubmissions);
+router.get("/final-quiz-requests", adminOnly, getFinalQuizRequests);
+router.patch(
+  "/final-quiz-requests/:requestId",
+  adminOnly,
+  updateFinalQuizRequestStatus
+);
 
 router.get("/courses", adminOnly, adminController.getCourses);
 router.get("/videos", adminOnly, adminController.getVideoLibrary);
@@ -139,6 +150,11 @@ router.post(
   "/courses/:courseId/subjects/:subjectId/content",
   adminOnly,
   adminController.addCourseContent
+);
+router.patch(
+  "/courses/:courseId/students/:studentId/rewatch-access",
+  adminOnly,
+  updateCourseRewatchAccess
 );
 router.get(
   "/courses/:courseId/content",
@@ -213,7 +229,7 @@ router.get("/payments", adminOnly, paymentController.getAdminPayments);
 router.patch(
   "/payments/:paymentId/verify",
   adminOnly,
-  adminController.verifyBankTransfer
+  paymentController.verifyBankTransfer
 );
 
 router.get("/installments", adminOnly, paymentController.getInstallments);

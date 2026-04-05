@@ -58,6 +58,19 @@ export const updateVideoAccess = (courseId, studentId, data) =>
     .patch(`/teacher/courses/${courseId}/students/${studentId}/video-access`, data)
     .then((r) => r.data);
 
+export const updateCourseRewatchAccess = (courseId, studentId, data) =>
+  api
+    .patch(`/teacher/courses/${courseId}/students/${studentId}/rewatch-access`, data)
+    .then((r) => r.data);
+
+export const getFinalQuizRequests = (params) =>
+  api.get("/teacher/final-quiz-requests", { params }).then((r) => r.data.data);
+
+export const updateFinalQuizRequestStatus = (requestId, data) =>
+  api
+    .patch(`/teacher/final-quiz-requests/${requestId}`, data)
+    .then((r) => r.data);
+
 export const getTeacherStudents = () =>
   api.get("/teacher/students").then((r) => r.data.data);
 

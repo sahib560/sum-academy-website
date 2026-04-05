@@ -319,6 +319,7 @@ function AppLayout({ showComingSoon }) {
           <Route path="dashboard" element={<Dashboard />} />
           <Route path="users" element={<Users />} />
           <Route path="courses" element={<AdminCourses />} />
+          <Route path="course-content" element={<TeacherMyCourses />} />
           <Route path="teachers" element={<AdminTeachers />} />
           <Route path="students" element={<Students />} />
           <Route path="classes" element={<Classes />} />

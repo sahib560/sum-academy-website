@@ -4,7 +4,9 @@ import {
   getStudentDashboard,
   getStudentCourses,
   getStudentCourseProgress,
+  getFinalQuizRequestStatus,
   markLectureComplete,
+  requestFinalQuizForCourse,
   getStudentCertificates,
   getStudentQuizzes,
   getQuizById,
@@ -24,6 +26,8 @@ router.use(verifyToken, requireRole("student"));
 router.get("/dashboard", getStudentDashboard);
 router.get("/courses", getStudentCourses);
 router.get("/courses/:courseId/progress", getStudentCourseProgress);
+router.get("/courses/:courseId/final-quiz-request", getFinalQuizRequestStatus);
+router.post("/courses/:courseId/final-quiz-request", requestFinalQuizForCourse);
 router.post("/courses/:courseId/lectures/:lectureId/complete", markLectureComplete);
 
 router.get("/certificates", getStudentCertificates);
