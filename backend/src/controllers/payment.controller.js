@@ -793,8 +793,14 @@ export const uploadPaymentReceipt = async (req, res) => {
     if (payment.studentId !== req.user.uid) {
       return errorResponse(res, "You can upload receipt for your own payment only", 403);
     }
-    if (payment.method !== "bank_transfer") {
-      return errorResponse(res, "Receipt upload is only for bank transfer", 400);
+    const paymentMethod = String(payment.method || "").toLowerCase();
+    const supportedReceiptMethods = new Set([
+      "bank_transfer",
+      "easypaisa",
+      "jazzcash",
+    ]);
+    if (!supportedReceiptMethods.has(paymentMethod)) {
+      return errorResponse(res, "Unsupported payment method for receipt upload", 400);
     }
 
     await paymentRef.update({
