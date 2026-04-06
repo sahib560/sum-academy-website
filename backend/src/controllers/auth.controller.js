@@ -152,10 +152,53 @@ const findUserDocByEmail = async (email = "") => {
   return { id: matchedDoc.id, data: matchedDoc.data() || {} };
 };
 
+const findRoleProfileByEmail = async (email = "") => {
+  const normalizedEmail = normalizeEmail(email);
+  if (!normalizedEmail) return null;
+
+  const roleCollections = [
+    { role: "student", collection: "students" },
+    { role: "teacher", collection: "teachers" },
+    { role: "admin", collection: "admins" },
+  ];
+
+  for (const { role, collection } of roleCollections) {
+    const exactSnap = await db
+      .collection(collection)
+      .where("email", "==", normalizedEmail)
+      .limit(1)
+      .get();
+
+    if (!exactSnap.empty) {
+      const doc = exactSnap.docs[0];
+      return { role, collection, id: doc.id, data: doc.data() || {} };
+    }
+  }
+
+  // Legacy safety: older rows may store mixed-case email.
+  for (const { role, collection } of roleCollections) {
+    const allSnap = await db.collection(collection).get();
+    const matchedDoc = allSnap.docs.find(
+      (doc) => normalizeEmail(doc.data()?.email) === normalizedEmail
+    );
+    if (matchedDoc) {
+      return {
+        role,
+        collection,
+        id: matchedDoc.id,
+        data: matchedDoc.data() || {},
+      };
+    }
+  }
+
+  return null;
+};
+
 const resolveRecoveryAccount = async (email = "") => {
   const normalizedEmail = normalizeEmail(email);
   let authUser = null;
   let userDoc = null;
+  let roleProfile = null;
 
   try {
     authUser = await admin.auth().getUserByEmail(normalizedEmail);
@@ -166,6 +209,22 @@ const resolveRecoveryAccount = async (email = "") => {
   }
 
   userDoc = await findUserDocByEmail(normalizedEmail);
+  if (!userDoc) {
+    roleProfile = await findRoleProfileByEmail(normalizedEmail);
+    if (roleProfile) {
+      const profileUid =
+        trimText(roleProfile?.data?.uid) || trimText(roleProfile?.id);
+      userDoc = {
+        id: profileUid,
+        data: {
+          ...(roleProfile?.data || {}),
+          uid: profileUid,
+          role: trimText(roleProfile?.data?.role) || roleProfile.role,
+          email: normalizedEmail,
+        },
+      };
+    }
+  }
 
   if (!authUser && userDoc?.id) {
     const candidateUids = [
@@ -190,7 +249,7 @@ const resolveRecoveryAccount = async (email = "") => {
     }
   }
 
-  return { authUser, userDoc };
+  return { authUser, userDoc, roleProfile };
 };
 
 const getUserNameByEmail = async (email) => {
@@ -472,13 +531,17 @@ const sendForgotPasswordOtp = async (req, res) => {
     const otp = createOtp();
     const otpHash = hashOtp(otp);
     const recoveryEmail = normalizeEmail(authUser?.email || userData.email || email);
+    const recoveryAuthUid =
+      trimText(authUser?.uid) ||
+      trimText(userData?.uid) ||
+      trimText(userDoc?.id);
     const userName = await getUserNameByEmail(recoveryEmail);
 
     await ref.set(
       {
         purpose: "forgot-password",
         email: recoveryEmail,
-        authUid: trimText(authUser?.uid),
+        authUid: recoveryAuthUid,
         otpHash,
         attempts: 0,
         verified: false,
@@ -607,15 +670,60 @@ const resetForgotPassword = async (req, res) => {
       });
     }
 
+    const { authUser, userDoc } = await resolveRecoveryAccount(email);
     const tokenAuthUid = trimText(tokenValidation?.data?.authUid);
-    let authUid = tokenAuthUid;
+    let authUid =
+      tokenAuthUid ||
+      trimText(authUser?.uid) ||
+      trimText(userDoc?.data?.uid) ||
+      trimText(userDoc?.id);
+
     if (!authUid) {
-      const { authUser } = await resolveRecoveryAccount(email);
-      authUid = trimText(authUser?.uid);
+      try {
+        const fallbackUser = await admin.auth().getUserByEmail(email);
+        authUid = trimText(fallbackUser?.uid);
+      } catch (authError) {
+        if (authError?.code !== "auth/user-not-found") {
+          throw authError;
+        }
+      }
     }
+
     if (!authUid) return errorResponse(res, "User not found", 404);
 
-    const authUserRecord = await admin.auth().getUser(authUid);
+    let authUserRecord = null;
+    try {
+      authUserRecord = await admin.auth().getUser(authUid);
+    } catch (authError) {
+      if (authError?.code !== "auth/user-not-found") {
+        throw authError;
+      }
+    }
+
+    if (!authUserRecord) {
+      const role = trimText(userDoc?.data?.role).toLowerCase();
+      try {
+        authUserRecord = await admin.auth().createUser({
+          uid: authUid,
+          email,
+          password: newPassword,
+          emailVerified: true,
+          disabled: false,
+        });
+      } catch (createError) {
+        if (createError?.code === "auth/email-already-exists") {
+          authUserRecord = await admin.auth().getUserByEmail(email);
+          authUid = trimText(authUserRecord?.uid);
+        } else {
+          throw createError;
+        }
+      }
+
+      if (authUserRecord && ["student", "teacher", "admin"].includes(role)) {
+        await admin.auth().setCustomUserClaims(authUserRecord.uid, { role });
+      }
+    }
+
     const authEmail = normalizeEmail(authUserRecord?.email || "");
     if (!authEmail || authEmail !== email) {
       return errorResponse(res, "Email and account do not match", 400);
