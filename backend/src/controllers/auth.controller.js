@@ -128,20 +128,68 @@ const markOtpUsed = async (ref) => {
   );
 };
 
-const getUserNameByEmail = async (email) => {
-  const emailLower = normalizeEmail(email);
-  const usersSnap = await db
+const findUserDocByEmail = async (email = "") => {
+  const normalizedEmail = normalizeEmail(email);
+  if (!normalizedEmail) return null;
+
+  const exactSnap = await db
     .collection("users")
-    .where("email", "==", emailLower)
+    .where("email", "==", normalizedEmail)
     .limit(1)
     .get();
+  if (!exactSnap.empty) {
+    const doc = exactSnap.docs[0];
+    return { id: doc.id, data: doc.data() || {} };
+  }
 
-  if (usersSnap.empty) {
+  // Legacy safety: older rows may store email with mixed casing.
+  const allUsersSnap = await db.collection("users").get();
+  const matchedDoc = allUsersSnap.docs.find(
+    (doc) => normalizeEmail(doc.data()?.email) === normalizedEmail
+  );
+  if (!matchedDoc) return null;
+
+  return { id: matchedDoc.id, data: matchedDoc.data() || {} };
+};
+
+const resolveRecoveryAccount = async (email = "") => {
+  const normalizedEmail = normalizeEmail(email);
+  let authUser = null;
+  let userDoc = null;
+
+  try {
+    authUser = await admin.auth().getUserByEmail(normalizedEmail);
+  } catch (authError) {
+    if (authError?.code !== "auth/user-not-found") {
+      throw authError;
+    }
+  }
+
+  userDoc = await findUserDocByEmail(normalizedEmail);
+
+  if (!authUser && userDoc?.id) {
+    try {
+      authUser = await admin.auth().getUser(userDoc.id);
+    } catch (authError) {
+      if (authError?.code !== "auth/user-not-found") {
+        throw authError;
+      }
+    }
+  }
+
+  return { authUser, userDoc };
+};
+
+const getUserNameByEmail = async (email) => {
+  const emailLower = normalizeEmail(email);
+  const matchedUser = await findUserDocByEmail(emailLower);
+
+  if (!matchedUser) {
     return getNameFromEmail(emailLower);
   }
 
-  const userData = usersSnap.docs[0].data() || {};
-  const uid = userData.uid || usersSnap.docs[0].id;
+  const userData = matchedUser.data || {};
+  const uid = userData.uid || matchedUser.id;
   const role = userData.role;
 
   let roleDoc = null;
@@ -376,36 +424,11 @@ const sendForgotPasswordOtp = async (req, res) => {
       return errorResponse(res, "Valid email is required", 400);
     }
 
-    let userRecord = null;
-    try {
-      userRecord = await admin.auth().getUserByEmail(email);
-    } catch (authError) {
-      if (authError?.code !== "auth/user-not-found") {
-        throw authError;
-      }
-    }
-
-    if (!userRecord) {
+    const { authUser, userDoc } = await resolveRecoveryAccount(email);
+    if (!authUser && !userDoc) {
       return errorResponse(res, "Account not found", 404);
     }
-
-    if (!userRecord.emailVerified) {
-      return errorResponse(
-        res,
-        "Email is not verified. Please verify your email first.",
-        403
-      );
-    }
-
-    const userSnap = await db
-      .collection("users")
-      .where("email", "==", email)
-      .limit(1)
-      .get();
-    if (userSnap.empty) {
-      return errorResponse(res, "Account not found", 404);
-    }
-    const userData = userSnap.docs[0].data() || {};
+    const userData = userDoc?.data || {};
     if (userData.isActive === false) {
       return errorResponse(
         res,
@@ -435,12 +458,13 @@ const sendForgotPasswordOtp = async (req, res) => {
 
     const otp = createOtp();
     const otpHash = hashOtp(otp);
-    const userName = await getUserNameByEmail(email);
+    const recoveryEmail = normalizeEmail(authUser?.email || userData.email || email);
+    const userName = await getUserNameByEmail(recoveryEmail);
 
     await ref.set(
       {
         purpose: "forgot-password",
-        email,
+        email: recoveryEmail,
         otpHash,
         attempts: 0,
         verified: false,
@@ -455,7 +479,7 @@ const sendForgotPasswordOtp = async (req, res) => {
       { merge: true }
     );
 
-    await sendForgotPasswordOTP(email, userName, otp);
+    await sendForgotPasswordOTP(recoveryEmail, userName, otp);
 
     return successResponse(
       res,
@@ -569,18 +593,12 @@ const resetForgotPassword = async (req, res) => {
       });
     }
 
-    let userRecord;
-    try {
-      userRecord = await admin.auth().getUserByEmail(email);
-    } catch (authError) {
-      if (authError?.code === "auth/user-not-found") {
-        return errorResponse(res, "User not found", 404);
-      }
-      throw authError;
-    }
+    const { authUser, userDoc } = await resolveRecoveryAccount(email);
+    const authUid = authUser?.uid || userDoc?.id || "";
+    if (!authUid) return errorResponse(res, "User not found", 404);
 
-    await admin.auth().updateUser(userRecord.uid, { password: newPassword });
-    await admin.auth().revokeRefreshTokens(userRecord.uid);
+    await admin.auth().updateUser(authUid, { password: newPassword });
+    await admin.auth().revokeRefreshTokens(authUid);
     await markOtpUsed(tokenValidation.ref);
 
     return successResponse(res, {}, "Password reset successful");
