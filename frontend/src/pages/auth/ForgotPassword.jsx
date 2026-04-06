@@ -147,8 +147,8 @@ function ForgotPassword() {
       setLoading(true);
       await resetForgotPassword(
         email.trim(),
-        password.trim(),
-        confirmPassword.trim(),
+        password,
+        confirmPassword,
         otpVerificationToken
       );
       setLoading(false);

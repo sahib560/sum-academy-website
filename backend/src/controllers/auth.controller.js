@@ -641,8 +641,8 @@ const verifyForgotPasswordOtp = async (req, res) => {
 const resetForgotPassword = async (req, res) => {
   try {
     const email = normalizeEmail(req.body?.email);
-    const newPassword = String(req.body?.newPassword || "").trim();
-    const confirmPassword = String(req.body?.confirmPassword || "").trim();
+    const newPassword = String(req.body?.newPassword || "");
+    const confirmPassword = String(req.body?.confirmPassword || "");
     const otpVerificationToken = trimText(req.body?.otpVerificationToken);
 
     if (!isValidEmail(email)) {

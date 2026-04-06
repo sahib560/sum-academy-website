@@ -163,15 +163,38 @@ const registerWithGoogle = async (
 };
 
 const loginWithEmail = async (email, password) => {
-  const normalizedEmail = String(email || "").trim();
-  const { user } = await signInWithEmailAndPassword(
-    firebaseAuth,
-    normalizedEmail,
-    password
-  );
+  const normalizedEmail = String(email || "").trim().toLowerCase();
+  const rawPassword = String(password || "");
+  let signInUser = null;
 
   try {
-    const token = await user.getIdToken();
+    const { user } = await signInWithEmailAndPassword(
+      firebaseAuth,
+      normalizedEmail,
+      rawPassword
+    );
+    signInUser = user;
+  } catch (signInError) {
+    const trimmedPassword = rawPassword.trim();
+    const canRetryWithTrimmed =
+      signInError?.code === "auth/invalid-credential" &&
+      trimmedPassword &&
+      trimmedPassword !== rawPassword;
+
+    if (!canRetryWithTrimmed) {
+      throw signInError;
+    }
+
+    const { user } = await signInWithEmailAndPassword(
+      firebaseAuth,
+      normalizedEmail,
+      trimmedPassword
+    );
+    signInUser = user;
+  }
+
+  try {
+    const token = await signInUser.getIdToken();
     const response = await api.post(
       "/auth/login",
       { token },
