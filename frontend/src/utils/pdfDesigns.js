@@ -506,89 +506,93 @@ export const generateCertificatePDF = async ({
   const H = 210;
   const logo = await loadLogo(logoUrl);
 
-  doc.setFillColor(...BRAND.dark);
+  doc.setFillColor(245, 252, 255);
   doc.rect(0, 0, W, H, "F");
 
-  doc.setDrawColor(...BRAND.blue);
-  doc.setLineWidth(1.5);
-  doc.line(0, 0, 40, 0);
-  doc.line(0, 0, 0, 40);
-  doc.line(W, H, W - 40, H);
-  doc.line(W, H, W, H - 40);
+  doc.setFillColor(225, 245, 250);
+  doc.circle(26, 24, 18, "F");
+  doc.circle(W - 24, H - 20, 24, "F");
+  doc.setFillColor(220, 252, 231);
+  doc.circle(W - 40, 28, 12, "F");
 
-  doc.setDrawColor(...BRAND.orange);
-  doc.setLineWidth(1);
-  doc.line(W, 0, W - 40, 0);
-  doc.line(W, 0, W, 40);
-  doc.line(0, H, 40, H);
-  doc.line(0, H, 0, H - 40);
+  doc.setDrawColor(178, 229, 241);
+  doc.setLineWidth(1.1);
+  doc.roundedRect(10, 10, W - 20, H - 20, 4, 4);
+  doc.setDrawColor(14, 165, 233);
+  doc.setLineWidth(0.3);
+  doc.roundedRect(14, 14, W - 28, H - 28, 3, 3);
 
-  doc.setDrawColor(74, 99, 245, 0.3);
-  doc.setLineWidth(0.5);
-  doc.roundedRect(12, 12, W - 24, H - 24, 4, 4);
+  doc.setFillColor(8, 145, 178);
+  doc.rect(0, 0, W, 12, "F");
 
   if (logo) {
     try {
-      doc.addImage(logo, getImageFormat(logo), 18, 18, 24, 24);
+      doc.addImage(logo, getImageFormat(logo), 18, 20, 22, 22);
     } catch {
-      doc.setFillColor(...BRAND.blue);
-      doc.circle(30, 30, 12, "F");
-      doc.setTextColor(...BRAND.white);
+      doc.setFillColor(8, 145, 178);
+      doc.circle(29, 31, 11, "F");
+      doc.setTextColor(255, 255, 255);
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(14);
-      doc.text("S", 30, 35, { align: "center" });
+      doc.setFontSize(12);
+      doc.text("S", 29, 35, { align: "center" });
     }
   } else {
-    doc.setFillColor(...BRAND.blue);
-    doc.circle(30, 30, 12, "F");
-    doc.setTextColor(...BRAND.white);
+    doc.setFillColor(8, 145, 178);
+    doc.circle(29, 31, 11, "F");
+    doc.setTextColor(255, 255, 255);
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(14);
-    doc.text("S", 30, 35, { align: "center" });
+    doc.setFontSize(12);
+    doc.text("S", 29, 35, { align: "center" });
   }
 
-  doc.setTextColor(148, 163, 184);
+  doc.setTextColor(15, 23, 42);
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(10);
-  doc.text("SUM ACADEMY", W - 20, 26, { align: "right" });
+  doc.setFontSize(15);
+  doc.text("SUM Academy", 46, 28);
+  doc.setTextColor(8, 145, 178);
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(7.5);
-  doc.text("sumacademy.net", W - 20, 32, { align: "right" });
+  doc.setFontSize(8.5);
+  doc.text("Medical Learning Excellence", 46, 35);
 
-  doc.setDrawColor(...BRAND.blue);
-  doc.setLineWidth(0.8);
-  doc.line(20, 50, W - 20, 50);
-  doc.setFillColor(...BRAND.orange);
-  doc.circle(W / 2, 50, 2, "F");
-  doc.setDrawColor(...BRAND.blue);
-  doc.setLineWidth(0.3);
-  doc.line(20, 52, W - 20, 52);
-
-  doc.setTextColor(148, 163, 184);
+  doc.setTextColor(51, 65, 85);
   doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.text("sumacademy.net", W - 20, 28, { align: "right" });
+
+  doc.setTextColor(14, 116, 144);
+  doc.setFont("helvetica", "bold");
   doc.setFontSize(9);
-  doc.setCharSpace(4);
-  doc.text("CERTIFICATE OF COMPLETION", W / 2, 66, { align: "center" });
+  doc.setCharSpace(3.5);
+  doc.text("CERTIFICATE OF COMPLETION", W / 2, 58, { align: "center" });
   doc.setCharSpace(0);
 
-  doc.setTextColor(148, 163, 184);
+  doc.setDrawColor(125, 211, 252);
+  doc.setLineWidth(0.8);
+  doc.line(28, 63, W - 28, 63);
+  doc.setFillColor(8, 145, 178);
+  doc.circle(W / 2, 63, 1.6, "F");
+  doc.setFillColor(22, 163, 74);
+  doc.rect(W / 2 - 0.6, 62, 1.2, 3.2, "F");
+  doc.rect(W / 2 - 1.6, 63, 3.2, 1.2, "F");
+
+  doc.setTextColor(71, 85, 105);
   doc.setFont("helvetica", "italic");
   doc.setFontSize(10);
-  doc.text("This is to certify that", W / 2, 78, { align: "center" });
+  doc.text("This is to certify that", W / 2, 76, { align: "center" });
 
-  doc.setTextColor(...BRAND.white);
+  doc.setTextColor(15, 23, 42);
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(34);
-  doc.text(studentName || "Student Name", W / 2, 96, { align: "center" });
+  doc.setFontSize(33);
+  doc.text(studentName || "Student Name", W / 2, 94, { align: "center" });
 
   const nameWidth = doc.getTextWidth(studentName || "Student Name");
   const nameX = (W - nameWidth) / 2;
-  doc.setDrawColor(...BRAND.blue);
-  doc.setLineWidth(1.5);
+  doc.setDrawColor(6, 182, 212);
+  doc.setLineWidth(1.2);
+  doc.line(nameX, 97, nameX + nameWidth, 97);
+  doc.setDrawColor(34, 197, 94);
+  doc.setLineWidth(0.4);
   doc.line(nameX, 99, nameX + nameWidth, 99);
-  doc.setDrawColor(...BRAND.orange);
-  doc.setLineWidth(0.5);
-  doc.line(nameX, 101, nameX + nameWidth, 101);
 
   const normalizedScope = String(completionScope || "").toLowerCase();
   const isClassScope = normalizedScope === "class";
@@ -599,75 +603,78 @@ export const generateCertificatePDF = async ({
       : courseName || className || "Course");
   const scopeLabel = isClassScope ? "class" : "course";
 
-  doc.setTextColor(148, 163, 184);
+  doc.setTextColor(71, 85, 105);
   doc.setFont("helvetica", "italic");
   doc.setFontSize(10);
   doc.text(`has successfully completed the ${scopeLabel}`, W / 2, 112, {
     align: "center",
   });
 
-  doc.setTextColor(...BRAND.blue);
+  doc.setTextColor(8, 145, 178);
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(20);
+  doc.setFontSize(19);
   doc.text(achievedTitle || "Completion", W / 2, 126, { align: "center" });
 
-  doc.setDrawColor(...BRAND.blue);
+  doc.setDrawColor(125, 211, 252);
   doc.setLineWidth(0.3);
-  doc.line(20, 136, W - 20, 136);
+  doc.line(28, 136, W - 28, 136);
   doc.setLineWidth(0.8);
-  doc.line(20, 138, W - 20, 138);
-  doc.setFillColor(...BRAND.orange);
-  doc.circle(W / 2, 138, 2, "F");
+  doc.line(28, 138, W - 28, 138);
+  doc.setFillColor(34, 197, 94);
+  doc.circle(W / 2, 137, 1.7, "F");
 
   const bottomY = 150;
 
-  doc.setTextColor(148, 163, 184);
+  doc.setTextColor(100, 116, 139);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8);
   doc.text("DATE OF ISSUE", 50, bottomY, { align: "center" });
 
-  doc.setDrawColor(74, 99, 245);
+  doc.setDrawColor(14, 165, 233);
   doc.setLineWidth(0.5);
   doc.line(25, bottomY + 2, 75, bottomY + 2);
 
-  doc.setTextColor(...BRAND.white);
+  doc.setTextColor(15, 23, 42);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(10);
   doc.text(formatDate(issuedDate, "en-GB"), 50, bottomY + 10, { align: "center" });
 
-  doc.setTextColor(148, 163, 184);
+  doc.setTextColor(100, 116, 139);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(7);
   doc.text("CERTIFICATE ID", W / 2, bottomY, { align: "center" });
 
-  doc.setFillColor(26, 35, 60);
+  doc.setFillColor(224, 242, 254);
   doc.roundedRect(W / 2 - 40, bottomY + 3, 80, 10, 2, 2, "F");
-  doc.setTextColor(...BRAND.blue);
+  doc.setDrawColor(125, 211, 252);
+  doc.setLineWidth(0.3);
+  doc.roundedRect(W / 2 - 40, bottomY + 3, 80, 10, 2, 2);
+  doc.setTextColor(14, 116, 144);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(9);
   doc.text((certId || "SUM-XXXX-XXXXXXXX").toUpperCase(), W / 2, bottomY + 10, {
     align: "center",
   });
 
-  doc.setTextColor(148, 163, 184);
+  doc.setTextColor(100, 116, 139);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8);
   doc.text("AUTHORIZED BY", W - 50, bottomY, { align: "center" });
 
-  doc.setDrawColor(74, 99, 245);
+  doc.setDrawColor(14, 165, 233);
   doc.setLineWidth(0.5);
   doc.line(W - 75, bottomY + 2, W - 25, bottomY + 2);
 
-  doc.setTextColor(...BRAND.white);
+  doc.setTextColor(15, 23, 42);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(10);
   doc.text(instructorName || "SUM Academy", W - 50, bottomY + 10, { align: "center" });
-  doc.setTextColor(148, 163, 184);
+  doc.setTextColor(100, 116, 139);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(7.5);
-  doc.text("Director, SUM Academy", W - 50, bottomY + 16, { align: "center" });
+  doc.text("Academic Director", W - 50, bottomY + 16, { align: "center" });
 
-  doc.setTextColor(100, 116, 139);
+  doc.setTextColor(71, 85, 105);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(7);
   doc.text(`Verify at: sumacademy.net/verify/${certId || ""}`, W / 2, H - 18, {

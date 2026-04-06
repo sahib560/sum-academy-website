@@ -3,7 +3,6 @@ import { AnimatePresence, motion } from "framer-motion";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import toast, { Toaster } from "react-hot-toast";
 import { useSettings } from "../../hooks/useSettings.js";
-import { defaultSettings } from "../../context/SettingsContext.jsx";
 import {
   generateCertificate,
   getCertificates,
@@ -13,6 +12,7 @@ import {
   unrevokeCertificate,
 } from "../../services/admin.service.js";
 import { generateCertificatePDF } from "../../utils/pdfDesigns.js";
+import CertificatePreviewCard from "../../components/CertificatePreviewCard.jsx";
 const EMPTY = [];
 const MotionDiv = motion.div;
 
@@ -90,7 +90,7 @@ async function downloadCertPdf(cert, logoUrl) {
   });
 }
 
-function PreviewModal({ cert, onClose, certSettings, logoUrl }) {
+function PreviewModal({ cert, onClose, logoUrl }) {
   if (!cert) return null;
   return (
     <AnimatePresence>
@@ -102,102 +102,11 @@ function PreviewModal({ cert, onClose, certSettings, logoUrl }) {
             <button className="rounded-full border border-slate-200 px-3 py-1 text-sm" onClick={onClose}>X</button>
           </div>
 
-          <div
-            className="mt-5 rounded-3xl border-2 border-primary/30 bg-gradient-to-br from-white via-slate-50 to-white p-8"
-            style={{ background: certSettings.backgroundColor }}
-          >
-            <div
-              className="rounded-2xl border border-primary/30 p-8"
-              style={{ borderColor: certSettings.borderColor }}
-            >
-              {certSettings.showLogo && certSettings.logoUrl ? (
-                <div className="mx-auto flex h-14 w-20 items-center justify-center">
-                  <img
-                    src={certSettings.logoUrl}
-                    alt="Certificate logo"
-                    className="max-h-14 object-contain"
-                  />
-                </div>
-              ) : (
-                <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-primary text-xl font-bold text-white">
-                  S
-                </div>
-              )}
-              <p
-                className="mt-3 text-center text-3xl font-bold"
-                style={{ color: certSettings.headingColor }}
-              >
-                SUM ACADEMY
-              </p>
-              <p className="text-center text-sm" style={{ color: certSettings.bodyColor }}>
-                Certificate of Completion
-              </p>
-              <div className="mx-auto mt-4 h-px w-72 bg-slate-200" />
-
-              <div className="mt-8 space-y-3 text-center">
-                <p className="text-sm italic" style={{ color: certSettings.bodyColor }}>
-                  This is to certify that
-                </p>
-                <p
-                  className="font-heading text-5xl font-semibold"
-                  style={{ color: certSettings.nameColor }}
-                >
-                  {cert.studentName || "Student"}
-                </p>
-                <p className="text-sm italic" style={{ color: certSettings.bodyColor }}>
-                  has successfully completed the {certScope(cert) === "class" ? "class" : "course"}
-                </p>
-                <p className="text-3xl font-bold" style={{ color: certSettings.headingColor }}>
-                  {certTitle(cert)}
-                </p>
-                <p className="text-sm italic" style={{ color: certSettings.bodyColor }}>
-                  with distinction
-                </p>
-              </div>
-
-              <div className="mt-10 grid gap-6 md:grid-cols-3">
-                <div>
-                  <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Issue Date</p>
-                  <p className="mt-1 text-sm" style={{ color: certSettings.bodyColor }}>
-                    {dateLabel(cert.issuedAt || cert.createdAt)}
-                  </p>
-                </div>
-                <div className="text-center">
-                  <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Cert ID</p>
-                  <p className="mt-1 font-mono text-sm" style={{ color: certSettings.nameColor }}>
-                    {cert.certId || cert.id}
-                  </p>
-                </div>
-                {certSettings.showSignature ? (
-                  <div className="text-right">
-                    {certSettings.signatureUrl ? (
-                      <img
-                        src={certSettings.signatureUrl}
-                        alt="Signature"
-                        className="ml-auto h-10 object-contain"
-                      />
-                    ) : (
-                      <div className="ml-auto h-px w-36 bg-slate-300" />
-                    )}
-                    <p className="mt-1 text-xs text-slate-500">
-                      {certSettings.signatureLabel || "Authorized Signature"}
-                    </p>
-                  </div>
-                ) : null}
-              </div>
-
-              {certSettings.showQr ? (
-                <div className="mt-8 flex items-end justify-between">
-                  <div className="h-20 w-20 rounded-lg border border-slate-300 bg-white text-center text-xs leading-[80px] text-slate-500">
-                    QR
-                  </div>
-                  <div className="text-right">
-                    <p className="text-xs text-slate-400">Scan to verify</p>
-                    <p className="mt-1 text-[11px] text-slate-500">{verifyLinkFor(cert)}</p>
-                  </div>
-                </div>
-              ) : null}
-            </div>
+          <div className="mt-5">
+            <CertificatePreviewCard
+              certificate={cert}
+              logoUrl={logoUrl || ""}
+            />
           </div>
 
           <div className="mt-5 flex flex-wrap gap-2">
@@ -354,7 +263,6 @@ function GenerateModal({
 export default function Certificates() {
   const qc = useQueryClient();
   const { settings } = useSettings();
-  const certSettings = settings?.certificate || defaultSettings.certificate;
   const logoUrl = settings?.general?.logoUrl || null;
   const [search, setSearch] = useState("");
   const [courseFilter, setCourseFilter] = useState("all");
@@ -634,7 +542,6 @@ export default function Certificates() {
       <PreviewModal
         cert={preview}
         onClose={() => setPreview(null)}
-        certSettings={certSettings}
         logoUrl={logoUrl}
       />
 

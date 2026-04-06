@@ -8,6 +8,7 @@ import { Skeleton } from "../../components/Skeleton.jsx";
 import { useSettings } from "../../hooks/useSettings.js";
 import { useAuth } from "../../hooks/useAuth.js";
 import { defaultSettings } from "../../context/SettingsContext.jsx";
+import CertificatePreviewCard from "../../components/CertificatePreviewCard.jsx";
 import {
   getStudentCertificates,
   getStudentCourses,
@@ -19,22 +20,6 @@ const fadeUp = {
   whileInView: { opacity: 1, y: 0 },
   viewport: { once: true, amount: 0.2 },
   transition: { duration: 0.45 },
-};
-
-const toDate = (value) => {
-  if (!value) return null;
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
-};
-
-const formatDate = (value) => {
-  const parsed = toDate(value);
-  if (!parsed) return "N/A";
-  return parsed.toLocaleDateString("en-US", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  });
 };
 
 const sanitizeText = (value = "") =>
@@ -227,54 +212,11 @@ function StudentCertificates() {
               key={certificate.id}
               className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"
             >
-              <div
-                className="rounded-2xl border border-slate-200 bg-white p-4"
-                style={{ background: certSettings.backgroundColor }}
-              >
-                <div
-                  className="h-1.5 w-full rounded-full"
-                  style={{ background: certSettings.borderColor }}
-                />
-                <div className="mt-3 flex items-center justify-between gap-2">
-                  <span className="font-heading text-sm" style={{ color: certSettings.headingColor }}>
-                    SUM Academy
-                  </span>
-                  <span className="text-[10px] uppercase tracking-[0.12em] text-slate-400">
-                    Official
-                  </span>
-                </div>
-                <p className="mt-2 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
-                  Certificate of Completion
-                </p>
-                <p
-                  className="mt-3 text-base text-slate-900"
-                  style={{ fontFamily: "\"Playfair Display\", serif" }}
-                >
-                  {certificate.completionTitle ||
-                    (certificate.className
-                      ? `${certificate.className}${
-                          certificate.courseName ? ` - ${certificate.courseName}` : ""
-                        }`
-                      : certificate.courseName)}
-                </p>
-                {certificate.isRevoked ? (
-                  <span className="mt-2 inline-flex rounded-full border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-rose-700">
-                    Revoked by admin
-                  </span>
-                ) : null}
-                <p className="mt-1 text-xs" style={{ color: certSettings.bodyColor }}>
-                  {certificate.studentName}
-                </p>
-                <p className="mt-2 text-[11px] text-slate-400">
-                  Issued {formatDate(certificate.issuedAt)}
-                </p>
-                <p className="mt-1 font-mono text-[10px] text-slate-500">{certificate.certId}</p>
-                {certSettings.showQr ? (
-                  <div className="mt-3 flex h-12 w-12 items-center justify-center rounded border border-slate-200 bg-slate-100 text-[10px] text-slate-500">
-                    QR
-                  </div>
-                ) : null}
-              </div>
+              <CertificatePreviewCard
+                certificate={certificate}
+                logoUrl={logoUrl || certSettings.logoUrl || ""}
+                compact
+              />
 
               <div className="mt-4 grid gap-2">
                 <button
