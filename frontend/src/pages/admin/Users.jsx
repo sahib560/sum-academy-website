@@ -75,6 +75,8 @@ const emptyEditForm = {
   uid: "",
   fullName: "",
   email: "",
+  newPassword: "",
+  confirmPassword: "",
   phone: "",
   subject: "",
   bio: "",
@@ -245,6 +247,24 @@ const validateEditForm = (values) => {
 
   if (!values.role) {
     errors.role = "Role is required.";
+  }
+  const hasPasswordInput =
+    String(values.newPassword || "").length > 0 ||
+    String(values.confirmPassword || "").length > 0;
+
+  if (hasPasswordInput) {
+    if (!values.newPassword) {
+      errors.newPassword = "New password is required.";
+    } else if (!PASSWORD_REGEX.test(values.newPassword)) {
+      errors.newPassword =
+        "Password must be 8+ chars with uppercase, number, and special char.";
+    }
+
+    if (!values.confirmPassword) {
+      errors.confirmPassword = "Confirm password is required.";
+    } else if (values.confirmPassword !== values.newPassword) {
+      errors.confirmPassword = "Passwords do not match.";
+    }
   }
 
   return errors;
@@ -442,6 +462,8 @@ function Users() {
   const [selectedUser, setSelectedUser] = useState(null);
   const [pendingStatusMap, setPendingStatusMap] = useState({});
   const [showAddPassword, setShowAddPassword] = useState(false);
+  const [showEditPassword, setShowEditPassword] = useState(false);
+  const [showEditConfirmPassword, setShowEditConfirmPassword] = useState(false);
 
   useEffect(() => {
     const timer = setTimeout(
@@ -500,6 +522,7 @@ function Users() {
       await updateUser(values.uid, {
         name: values.fullName.trim(),
         email: values.email.trim(),
+        password: values.newPassword || undefined,
         phone: values.phone.trim() ? normalizePakistanPhone(values.phone) : "",
         subject: values.role === "teacher" ? values.subject.trim() : undefined,
         bio: values.role === "teacher" ? values.bio.trim() : undefined,
@@ -524,6 +547,9 @@ function Users() {
       setIsEditOpen(false);
       setSelectedUser(null);
       setEditTouched({});
+      setEditForm(emptyEditForm);
+      setShowEditPassword(false);
+      setShowEditConfirmPassword(false);
       toast.success("User updated successfully.");
     },
     onError: (error) => {
@@ -626,6 +652,8 @@ function Users() {
       uid: user.uid,
       fullName: user.fullName || "",
       email: user.email || "",
+      newPassword: "",
+      confirmPassword: "",
       phone: user.phone || "",
       subject: user.subject || "",
       bio: user.bio || "",
@@ -639,6 +667,8 @@ function Users() {
       isActive: user.isActive,
       role: normalizedRole,
     });
+    setShowEditPassword(false);
+    setShowEditConfirmPassword(false);
     setEditTouched({});
     setIsEditOpen(true);
   };
@@ -1217,7 +1247,17 @@ function Users() {
         </form>
       </ModalShell>
 
-      <ModalShell open={isEditOpen} onClose={() => setIsEditOpen(false)} title="Edit User">
+      <ModalShell
+        open={isEditOpen}
+        onClose={() => {
+          setIsEditOpen(false);
+          setEditForm(emptyEditForm);
+          setEditTouched({});
+          setShowEditPassword(false);
+          setShowEditConfirmPassword(false);
+        }}
+        title="Edit User"
+      >
         <form
           className="mt-6 space-y-4"
           onSubmit={(event) => {
@@ -1225,6 +1265,8 @@ function Users() {
             setEditTouched({
               fullName: true,
               email: true,
+              newPassword: true,
+              confirmPassword: true,
               phone: true,
               role: true,
               fatherPhone: true,
@@ -1255,6 +1297,85 @@ function Users() {
             placeholder="Email"
             error={editTouched.email ? editErrors.email : ""}
           />
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <p className="text-sm font-semibold text-slate-900">Login Credentials</p>
+            <p className="mt-1 text-xs text-slate-500">
+              Optional: set a new password for this user.
+            </p>
+
+            <div className="mt-3">
+              <label className="text-sm font-semibold text-slate-700">New Password</label>
+              <div className="relative mt-2">
+                <input
+                  type={showEditPassword ? "text" : "password"}
+                  value={editForm.newPassword}
+                  onChange={(event) => {
+                    setEditForm((prev) => ({ ...prev, newPassword: event.target.value }));
+                    setEditTouched((prev) => ({ ...prev, newPassword: true }));
+                  }}
+                  placeholder="Leave blank to keep current password"
+                  className={`w-full rounded-2xl border px-4 py-3 pr-12 text-sm text-slate-700 shadow-sm outline-none transition ${
+                    editTouched.newPassword && editErrors.newPassword
+                      ? "border-rose-200 focus:border-rose-400 focus:ring-2 focus:ring-rose-100"
+                      : "border-slate-200 focus:border-primary focus:ring-2 focus:ring-primary/10"
+                  } bg-white`}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowEditPassword((prev) => !prev)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full p-2 text-slate-400 transition hover:text-slate-700"
+                  aria-label={showEditPassword ? "Hide password" : "Show password"}
+                >
+                  {showEditPassword ? (
+                    <FiEyeOff className="h-5 w-5" />
+                  ) : (
+                    <FiEye className="h-5 w-5" />
+                  )}
+                </button>
+              </div>
+              <FieldError message={editTouched.newPassword ? editErrors.newPassword : ""} />
+            </div>
+
+            <div className="mt-3">
+              <label className="text-sm font-semibold text-slate-700">Confirm Password</label>
+              <div className="relative mt-2">
+                <input
+                  type={showEditConfirmPassword ? "text" : "password"}
+                  value={editForm.confirmPassword}
+                  onChange={(event) => {
+                    setEditForm((prev) => ({
+                      ...prev,
+                      confirmPassword: event.target.value,
+                    }));
+                    setEditTouched((prev) => ({ ...prev, confirmPassword: true }));
+                  }}
+                  placeholder="Confirm new password"
+                  className={`w-full rounded-2xl border px-4 py-3 pr-12 text-sm text-slate-700 shadow-sm outline-none transition ${
+                    editTouched.confirmPassword && editErrors.confirmPassword
+                      ? "border-rose-200 focus:border-rose-400 focus:ring-2 focus:ring-rose-100"
+                      : "border-slate-200 focus:border-primary focus:ring-2 focus:ring-primary/10"
+                  } bg-white`}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowEditConfirmPassword((prev) => !prev)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full p-2 text-slate-400 transition hover:text-slate-700"
+                  aria-label={showEditConfirmPassword ? "Hide password" : "Show password"}
+                >
+                  {showEditConfirmPassword ? (
+                    <FiEyeOff className="h-5 w-5" />
+                  ) : (
+                    <FiEye className="h-5 w-5" />
+                  )}
+                </button>
+              </div>
+              <FieldError
+                message={
+                  editTouched.confirmPassword ? editErrors.confirmPassword : ""
+                }
+              />
+            </div>
+          </div>
 
           <TextInput
             label="Phone"
@@ -1395,7 +1516,13 @@ function Users() {
           <div className="flex justify-end gap-3 pt-2">
             <button
               type="button"
-              onClick={() => setIsEditOpen(false)}
+              onClick={() => {
+                setIsEditOpen(false);
+                setEditForm(emptyEditForm);
+                setEditTouched({});
+                setShowEditPassword(false);
+                setShowEditConfirmPassword(false);
+              }}
               className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600"
             >
               Cancel

@@ -1808,17 +1808,14 @@ export const updateUser = async (req, res) => {
       password,
     } = req.body || {};
 
-    if (password !== undefined) {
-      return errorResponse(
-        res,
-        "Password cannot be changed from this endpoint",
-        400
-      );
-    }
-
     const trim = (value = "") => String(value || "").trim();
     const isValidEmail = (value = "") =>
       /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim());
+    const hasPasswordField = Object.prototype.hasOwnProperty.call(
+      req.body || {},
+      "password"
+    );
+    const nextPassword = typeof password === "string" ? password : "";
 
     const nextName = trim(name || fullName);
     const nextEmail = trim(email).toLowerCase();
@@ -1841,6 +1838,14 @@ export const updateUser = async (req, res) => {
 
     if (nextEmail && !isValidEmail(nextEmail)) {
       return errorResponse(res, "Enter a valid email address", 400);
+    }
+    if (hasPasswordField) {
+      if (!nextPassword || !nextPassword.trim()) {
+        return errorResponse(res, "Password cannot be empty", 400);
+      }
+      if (nextPassword.length < 6) {
+        return errorResponse(res, "Password must be at least 6 characters", 400);
+      }
     }
     if ((phone !== undefined || phoneNumber !== undefined) && nextPhoneRaw && !isPakistanPhone(nextPhone)) {
       return errorResponse(
@@ -1907,6 +1912,9 @@ export const updateUser = async (req, res) => {
       if (nextName) authUpdates.displayName = nextName;
       if (nextEmail && nextEmail !== String(userData.email || "").toLowerCase()) {
         authUpdates.email = nextEmail;
+      }
+      if (hasPasswordField && nextPassword) {
+        authUpdates.password = nextPassword;
       }
       if (Object.keys(authUpdates).length > 0) {
         await admin.auth().updateUser(uid, authUpdates);
@@ -1984,8 +1992,11 @@ export const updateUser = async (req, res) => {
         role: userData.role,
         fullName: nextName || userData.fullName || userData.name || "",
         email: nextEmail || userData.email || "",
+        passwordUpdated: Boolean(hasPasswordField && nextPassword),
       },
-      "User updated"
+      hasPasswordField && nextPassword
+        ? "User profile and password updated"
+        : "User updated"
     );
   } catch (e) {
     console.error("updateUser error:", e);
