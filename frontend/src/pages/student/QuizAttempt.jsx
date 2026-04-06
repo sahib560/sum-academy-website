@@ -101,6 +101,22 @@ function StudentQuizAttempt() {
   const [showReview, setShowReview] = useState(false);
   const [animatedPercent, setAnimatedPercent] = useState(0);
   const [securityDeactivatedInfo, setSecurityDeactivatedInfo] = useState(null);
+  const isMobileClient = useMemo(() => {
+    if (typeof window === "undefined" || typeof navigator === "undefined") return false;
+    const ua = String(navigator.userAgent || "");
+    const coarsePointer =
+      typeof window.matchMedia === "function"
+        ? window.matchMedia("(pointer: coarse)").matches
+        : false;
+    return (
+      /Android|iPhone|iPad|iPod|Mobile|Opera Mini|IEMobile|BlackBerry/i.test(ua) ||
+      coarsePointer
+    );
+  }, []);
+  const shouldEnforceFullscreen = useMemo(() => {
+    if (typeof document === "undefined") return false;
+    return !isMobileClient && Boolean(document.documentElement?.requestFullscreen);
+  }, [isMobileClient]);
   const lastReportedViolationRef = useRef({
     reason: "",
     count: 0,
@@ -259,10 +275,19 @@ function StudentQuizAttempt() {
     autoSubmitQueuedRef.current = false;
 
     const cleanup = setupMaxProtection({
-      enforceFullscreenMode: true,
+      enforceFullscreenMode: shouldEnforceFullscreen,
       quizMode: true,
       maxViolations: TAB_SWITCH_LIMIT,
       onViolation: (count, reason) => {
+        const actionableReasons = new Set([
+          "tab_switch",
+          "window_blur",
+          "printscreen",
+          "devtools",
+          "screenshot",
+          "screen_record",
+        ]);
+        if (!actionableReasons.has(reason)) return;
         violationsRef.current = count;
         setTabSwitchCount(count);
         void reportViolationToBackend(count, reason);
@@ -301,9 +326,11 @@ function StudentQuizAttempt() {
     started,
     submittedResult,
     submitMutation.isPending,
+    shouldEnforceFullscreen,
   ]);
 
   useEffect(() => {
+    if (!shouldEnforceFullscreen) return undefined;
     const onFullscreenChange = () => {
       if (!started || submittedResult) return;
       if (!document.fullscreenElement) {
@@ -316,9 +343,10 @@ function StudentQuizAttempt() {
     return () => {
       document.removeEventListener("fullscreenchange", onFullscreenChange);
     };
-  }, [started, submittedResult]);
+  }, [started, submittedResult, shouldEnforceFullscreen]);
 
   const requestQuizFullscreen = async () => {
+    if (!shouldEnforceFullscreen) return;
     try {
       await document.documentElement.requestFullscreen();
       setShowFullscreenWarning(false);
@@ -329,7 +357,9 @@ function StudentQuizAttempt() {
 
   const startQuiz = async () => {
     if (started) return;
-    await requestQuizFullscreen();
+    if (shouldEnforceFullscreen) {
+      await requestQuizFullscreen();
+    }
     setTimeLeft(initialDurationSeconds);
     setStarted(true);
   };
@@ -607,7 +637,9 @@ function StudentQuizAttempt() {
               <h1 className="font-heading text-2xl text-slate-900">{quiz.title}</h1>
               <p className="mt-2 text-sm text-slate-500">{quiz.courseName}</p>
               <p className="mt-4 text-sm text-slate-600">
-                This quiz requires fullscreen mode and active tab monitoring.
+                {shouldEnforceFullscreen
+                  ? "This quiz requires fullscreen mode and active tab monitoring."
+                  : "This quiz uses active tab monitoring on your device."}
               </p>
               <button className="btn-primary mt-6" onClick={startQuiz}>
                 Start Quiz
@@ -901,7 +933,7 @@ function StudentQuizAttempt() {
       </AnimatePresence>
 
       <AnimatePresence>
-        {showFullscreenWarning && (
+        {showFullscreenWarning && shouldEnforceFullscreen && (
           <div className="fixed inset-0 z-[85] flex items-center justify-center bg-slate-950/85 px-4 text-center text-white">
             <Motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
               <h3 className="font-heading text-2xl">Please stay in fullscreen during quiz</h3>

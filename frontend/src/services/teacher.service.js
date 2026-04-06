@@ -9,6 +9,9 @@ export const getTeacherCourses = () =>
 export const getTeacherVideos = () =>
   api.get("/teacher/videos").then((r) => r.data.data || []);
 
+export const createTeacherVideo = (data) =>
+  api.post("/teacher/videos", data).then((r) => r.data);
+
 export const getTeacherCourseById = (courseId) =>
   api.get(`/teacher/courses/${courseId}`).then((r) => r.data.data);
 

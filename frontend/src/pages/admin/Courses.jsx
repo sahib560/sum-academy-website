@@ -7,6 +7,7 @@ import { FiX } from "react-icons/fi";
 import {
   addCourseContent,
   addCourseSubject,
+  createAdminVideo,
   createCourse,
   deleteCourse,
   deleteCourseContent,
@@ -287,6 +288,8 @@ function Courses() {
     title: "",
     file: null,
     libraryVideoId: "",
+    saveToGallery: false,
+    isLiveSession: false,
     progress: 0,
     status: "idle",
     error: "",
@@ -566,6 +569,13 @@ function Courses() {
       toast.error(err?.response?.data?.error || "Failed to add content."),
   });
 
+  const createGalleryVideoMutation = useMutation({
+    mutationFn: createAdminVideo,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["admin", "videos"] });
+    },
+  });
+
   const deleteContentMutation = useMutation({
     mutationFn: async ({ courseId, item }) => {
       try {
@@ -790,6 +800,8 @@ function Courses() {
             title: resolvedTitle,
             url: selectedLibraryVideo.url,
             videoId: selectedLibraryVideo.id,
+            isLiveSession: Boolean(videoState.isLiveSession),
+            videoMode: videoState.isLiveSession ? "live_session" : "recorded",
             size: Number(selectedLibraryVideo.size || 0),
             subjectId: activeSubject.id,
           },
@@ -798,6 +810,8 @@ function Courses() {
           title: "",
           file: null,
           libraryVideoId: "",
+          saveToGallery: false,
+          isLiveSession: false,
           progress: 100,
           status: "done",
           error: "",
@@ -842,15 +856,39 @@ function Courses() {
           type: "video",
           title: resolvedTitle,
           url: uploaded.url,
+          isLiveSession: Boolean(videoState.isLiveSession),
+          videoMode: videoState.isLiveSession ? "live_session" : "recorded",
           size: uploaded.size,
           subjectId: activeSubject.id,
         },
       });
 
+      if (videoState.saveToGallery) {
+        try {
+          await createGalleryVideoMutation.mutateAsync({
+            title: resolvedTitle,
+            url: uploaded.url,
+            courseId: drawerCourse.id,
+            courseName: drawerCourse.title || "",
+            teacherId: activeSubject.teacherId || "",
+            teacherName: activeSubject.teacherName || "",
+            isLiveSession: Boolean(videoState.isLiveSession),
+            videoMode: videoState.isLiveSession ? "live_session" : "recorded",
+          });
+        } catch (galleryError) {
+          toast.error(
+            galleryError?.response?.data?.error ||
+              "Video added to course, but failed to save in gallery."
+          );
+        }
+      }
+
       setVideoState({
         title: "",
         file: null,
         libraryVideoId: "",
+        saveToGallery: false,
+        isLiveSession: false,
         progress: 100,
         status: "done",
         error: "",
@@ -1694,7 +1732,7 @@ function Courses() {
                       <div className="space-y-3 rounded-2xl border border-slate-200 p-4">
                         <div className="flex items-center justify-between">
                           <h4 className="font-heading text-lg text-slate-900">Videos</h4>
-                          <button type="button" onClick={() => { setVideoState({ title: "", file: null, libraryVideoId: "", progress: 0, status: "idle", error: "" }); setShowVideoModal(true); }} className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-700">Add Video</button>
+                          <button type="button" onClick={() => { setVideoState({ title: "", file: null, libraryVideoId: "", saveToGallery: false, isLiveSession: false, progress: 0, status: "idle", error: "" }); setShowVideoModal(true); }} className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-700">Add Video</button>
                         </div>
                         {videos.length === 0 ? (
                           <p className="text-sm text-slate-500">No videos yet.</p>
@@ -1844,6 +1882,7 @@ function Courses() {
                 setVideoState((p) => ({
                   ...p,
                   libraryVideoId: e.target.value,
+                  file: null,
                   error: "",
                 }))
               }
@@ -1857,14 +1896,52 @@ function Courses() {
               ))}
             </select>
             <p className="mt-1 text-xs text-slate-500">
-              First video in a course is marked as live session automatically.
+              First video in a subject is always treated as live session.
             </p>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <label className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                checked={videoState.isLiveSession}
+                onChange={(e) =>
+                  setVideoState((p) => ({
+                    ...p,
+                    isLiveSession: e.target.checked,
+                  }))
+                }
+                className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary"
+              />
+              Mark as live session
+            </label>
+            <label className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                checked={videoState.saveToGallery}
+                disabled={Boolean(videoState.libraryVideoId)}
+                onChange={(e) =>
+                  setVideoState((p) => ({
+                    ...p,
+                    saveToGallery: e.target.checked,
+                  }))
+                }
+                className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary disabled:opacity-50"
+              />
+              Save uploaded file to gallery
+            </label>
           </div>
           <UploadZone
             labelText="Upload Video"
             helper="MP4, AVI, MOV - max 2GB"
             accept="video/mp4,video/x-msvideo,video/quicktime"
-            onFile={(file) => setVideoState((p) => ({ ...p, file, error: "" }))}
+            onFile={(file) =>
+              setVideoState((p) => ({
+                ...p,
+                file,
+                libraryVideoId: "",
+                error: "",
+              }))
+            }
             error={videoState.libraryVideoId ? "" : videoState.error}
           />
           {videoState.file ? (

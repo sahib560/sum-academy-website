@@ -69,6 +69,16 @@ const toNumber = (value, fallback = 0) => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
+const parseNullableBoolean = (value) => {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    const clean = value.trim().toLowerCase();
+    if (clean === "true") return true;
+    if (clean === "false") return false;
+  }
+  return null;
+};
+
 const capitalize = (value = "") => {
   const normalized = String(value || "").trim();
   if (!normalized) return "Draft";
@@ -1124,6 +1134,11 @@ const normalizeVideoLibraryRow = (id, data = {}) => ({
   courseName: trimText(data.courseName),
   teacherId: trimText(data.teacherId),
   teacherName: trimText(data.teacherName) || "Teacher",
+  videoMode:
+    trimText(data.videoMode).toLowerCase() === "live_session"
+      ? "live_session"
+      : "recorded",
+  isLiveSession: Boolean(data.isLiveSession),
   isActive: data.isActive !== false,
   createdAt: toIso(data.createdAt),
   updatedAt: toIso(data.updatedAt),
@@ -1137,14 +1152,76 @@ const getVideoLibraryEntry = async (videoId) => {
   return { id: snap.id, ...(snap.data() || {}) };
 };
 
-const getCourseVideoCount = async (courseId, ignoreLectureId = "") => {
+const getCourseStudentIdsForAnnouncement = async (courseId = "") => {
+  const cleanCourseId = trimText(courseId);
+  if (!cleanCourseId) return [];
+
+  const snap = await db
+    .collection(COLLECTIONS.ENROLLMENTS)
+    .where("courseId", "==", cleanCourseId)
+    .get();
+
+  return [
+    ...new Set(
+      snap.docs
+        .map((doc) => doc.data() || {})
+        .filter((row) => ACTIVE_ENROLLMENT_STATUSES.has(lowerText(row.status || "active")))
+        .map((row) => trimText(row.studentId))
+        .filter(Boolean)
+    ),
+  ];
+};
+
+const createCourseStudentAnnouncement = async ({
+  title = "",
+  message = "",
+  courseId = "",
+  courseName = "",
+  postedBy = "",
+  postedByName = "Teacher",
+  postedByRole = "teacher",
+}) => {
+  const cleanCourseId = trimText(courseId);
+  const cleanTitle = trimText(title);
+  const cleanMessage = trimText(message);
+  if (!cleanCourseId || !cleanTitle || !cleanMessage) return;
+
+  const recipientIds = await getCourseStudentIdsForAnnouncement(cleanCourseId);
+  if (recipientIds.length < 1) return;
+
+  await db.collection(COLLECTIONS.ANNOUNCEMENTS).add({
+    title: cleanTitle,
+    message: cleanMessage,
+    targetType: "course",
+    targetId: cleanCourseId,
+    targetName: trimText(courseName) || "Course",
+    audienceRole: "student",
+    postedBy: trimText(postedBy),
+    postedByName: trimText(postedByName) || "Teacher",
+    postedByRole: trimText(postedByRole) || "teacher",
+    sendEmail: false,
+    isPinned: false,
+    studentsReached: recipientIds.length,
+    recipientIds,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+};
+
+const getSubjectVideoCount = async ({
+  courseId,
+  subjectId = "",
+  ignoreLectureId = "",
+}) => {
   const cleanCourseId = trimText(courseId);
   if (!cleanCourseId) return 0;
+  const cleanSubjectId = trimText(subjectId);
   const snap = await db.collection(COLLECTIONS.LECTURES).where("courseId", "==", cleanCourseId).get();
   const ignored = trimText(ignoreLectureId);
   return snap.docs.filter((doc) => {
     if (ignored && doc.id === ignored) return false;
     const data = doc.data() || {};
+    if (cleanSubjectId && trimText(data.subjectId) !== cleanSubjectId) return false;
     return Boolean(trimText(data.videoUrl));
   }).length;
 };
@@ -1152,25 +1229,29 @@ const getCourseVideoCount = async (courseId, ignoreLectureId = "") => {
 const resolveLectureVideoMeta = async ({
   courseId,
   lectureId,
+  subjectId = "",
   currentLectureData = {},
   requestedVideoId = "",
   requestedTitle = "",
   requestedUrl = "",
+  requestedVideoMode = "",
+  requestedIsLiveSession = null,
 }) => {
   const cleanVideoId = trimText(requestedVideoId);
   let sourceTitle = trimText(requestedTitle);
   let sourceUrl = trimText(requestedUrl);
+  let selectedVideoRow = null;
 
   if (cleanVideoId) {
-    const videoRow = await getVideoLibraryEntry(cleanVideoId);
-    if (!videoRow || videoRow.isActive === false) {
+    selectedVideoRow = await getVideoLibraryEntry(cleanVideoId);
+    if (!selectedVideoRow || selectedVideoRow.isActive === false) {
       return { error: "Video library item not found", status: 404 };
     }
-    sourceUrl = resolveVideoLibraryUrl(videoRow);
+    sourceUrl = resolveVideoLibraryUrl(selectedVideoRow);
     if (!sourceUrl) {
       return { error: "Selected video has no URL", status: 400 };
     }
-    sourceTitle = trimText(videoRow.title) || sourceTitle;
+    sourceTitle = trimText(selectedVideoRow.title) || sourceTitle;
   }
 
   if (!sourceUrl) {
@@ -1185,10 +1266,35 @@ const resolveLectureVideoMeta = async ({
   let isLiveSession = existingLive;
 
   if (!hasExistingVideo) {
-    const existingCourseVideoCount = await getCourseVideoCount(courseId, lectureId);
-    const isFirstCourseVideo = existingCourseVideoCount < 1;
-    videoMode = isFirstCourseVideo ? "live_session" : "recorded";
-    isLiveSession = isFirstCourseVideo;
+    const existingSubjectVideoCount = await getSubjectVideoCount({
+      courseId,
+      subjectId,
+      ignoreLectureId: lectureId,
+    });
+    const isFirstSubjectVideo = existingSubjectVideoCount < 1;
+    const requestedLive = parseNullableBoolean(requestedIsLiveSession);
+    const requestedMode = trimText(requestedVideoMode).toLowerCase();
+    let preferredLive = null;
+
+    if (requestedLive !== null) {
+      preferredLive = requestedLive;
+    } else if (requestedMode === "live_session") {
+      preferredLive = true;
+    } else if (requestedMode === "recorded") {
+      preferredLive = false;
+    } else if (cleanVideoId) {
+      preferredLive =
+        trimText(selectedVideoRow?.videoMode).toLowerCase() === "live_session" ||
+        Boolean(selectedVideoRow?.isLiveSession);
+    }
+
+    if (isFirstSubjectVideo) {
+      videoMode = "live_session";
+      isLiveSession = true;
+    } else {
+      isLiveSession = preferredLive === true;
+      videoMode = isLiveSession ? "live_session" : "recorded";
+    }
   }
 
   return {
@@ -1379,6 +1485,86 @@ export const getTeacherVideoLibrary = async (req, res) => {
   } catch (error) {
     console.error("getTeacherVideoLibrary error:", error);
     return errorResponse(res, "Failed to fetch video library", 500);
+  }
+};
+
+export const createTeacherVideoLibraryItem = async (req, res) => {
+  try {
+    const uid = trimText(req.user?.uid);
+    const role = lowerText(req.user?.role || "teacher");
+    if (!uid) return errorResponse(res, "Missing user uid", 400);
+
+    const {
+      title = "",
+      url = "",
+      courseId = "",
+      courseName = "",
+      teacherId = "",
+      teacherName = "",
+      isActive = true,
+      isLiveSession = false,
+      videoMode = "",
+    } = req.body || {};
+
+    const cleanTitle = trimText(title);
+    const cleanUrl = trimText(url);
+    const cleanCourseId = trimText(courseId);
+    if (cleanTitle.length < 3) {
+      return errorResponse(res, "title must be at least 3 characters", 400);
+    }
+    if (!cleanUrl) return errorResponse(res, "url is required", 400);
+    if (!cleanCourseId) return errorResponse(res, "courseId is required", 400);
+
+    const courseSnap = await db.collection(COLLECTIONS.COURSES).doc(cleanCourseId).get();
+    if (!courseSnap.exists) {
+      return errorResponse(res, "Course not found", 404);
+    }
+    const courseData = courseSnap.data() || {};
+
+    if (role === "teacher" && !isCourseOwner(courseData, uid)) {
+      return errorResponse(res, "You are not assigned to this course", 403);
+    }
+
+    const resolvedTeacherId = role === "teacher" ? uid : trimText(teacherId);
+    const resolvedTeacherName =
+      role === "teacher"
+        ? await getTeacherDisplayName(uid, req.user?.email || "")
+        : trimText(teacherName) || trimText(courseData.teacherName) || "Teacher";
+    const liveFlag =
+      parseNullableBoolean(isLiveSession) === true ||
+      trimText(videoMode).toLowerCase() === "live_session";
+
+    const payload = {
+      title: cleanTitle,
+      url: cleanUrl,
+      courseId: cleanCourseId,
+      courseName: trimText(courseName) || trimText(courseData.title) || "Course",
+      teacherId: resolvedTeacherId,
+      teacherName: resolvedTeacherName,
+      videoMode: liveFlag ? "live_session" : "recorded",
+      isLiveSession: liveFlag,
+      isActive: isActive !== false,
+      createdBy: uid,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    };
+
+    const ref = db.collection(VIDEO_LIBRARY_COLLECTION).doc();
+    await ref.set(payload);
+
+    return successResponse(
+      res,
+      normalizeVideoLibraryRow(ref.id, {
+        ...payload,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }),
+      "Video added to library",
+      201
+    );
+  } catch (error) {
+    console.error("createTeacherVideoLibraryItem error:", error);
+    return errorResponse(res, "Failed to add video to library", 500);
   }
 };
 
@@ -1806,7 +1992,16 @@ export const saveLectureContent = async (req, res) => {
     const uid = req.user?.uid;
     const role = lowerText(req.user?.role);
     const lectureId = trimText(req.params?.lectureId);
-    const { type, title, url, size = 0, duration, videoId } = req.body || {};
+    const {
+      type,
+      title,
+      url,
+      size = 0,
+      duration,
+      videoId,
+      videoMode,
+      isLiveSession,
+    } = req.body || {};
     if (!uid) return errorResponse(res, "Missing teacher uid", 400);
     if (!lectureId) return errorResponse(res, "lectureId is required", 400);
 
@@ -1820,6 +2015,7 @@ export const saveLectureContent = async (req, res) => {
 
     const currentData = linked.lectureSnap.data() || {};
     const updates = {};
+    const hadVideoBefore = Boolean(trimText(currentData.videoUrl));
     let firstLiveSession = false;
 
     if (normalizedType === "video") {
@@ -1833,10 +2029,13 @@ export const saveLectureContent = async (req, res) => {
       const resolvedVideo = await resolveLectureVideoMeta({
         courseId: trimText(linked.lectureData.courseId),
         lectureId,
+        subjectId: trimText(linked.lectureData.subjectId),
         currentLectureData: currentData,
         requestedVideoId: videoId,
         requestedTitle: title,
         requestedUrl: url,
+        requestedVideoMode: videoMode,
+        requestedIsLiveSession: isLiveSession,
       });
       if (resolvedVideo.error) {
         return errorResponse(res, resolvedVideo.error, resolvedVideo.status || 400);
@@ -1878,6 +2077,30 @@ export const saveLectureContent = async (req, res) => {
     await linked.lectureRef.update(updates);
 
     const updatedSnap = await linked.lectureRef.get();
+    if (
+      normalizedType === "video" &&
+      !hadVideoBefore &&
+      trimText(updates.videoUrl)
+    ) {
+      try {
+        await createCourseStudentAnnouncement({
+          title: `New Video Added: ${trimText(updates.videoTitle) || "Lecture Video"}`,
+          message: `${
+            trimText(linked.lectureData.title) || "A lecture"
+          } now has a new video in ${
+            trimText(linked.courseData.title) || "your course"
+          }.`,
+          courseId: trimText(linked.lectureData.courseId),
+          courseName: trimText(linked.courseData.title),
+          postedBy: uid,
+          postedByName: await getTeacherDisplayName(uid, req.user?.email || ""),
+          postedByRole: role || "teacher",
+        });
+      } catch (announcementError) {
+        console.error("saveLectureContent announcement error:", announcementError);
+      }
+    }
+
     return successResponse(
       res,
       {
@@ -1885,7 +2108,7 @@ export const saveLectureContent = async (req, res) => {
         isFirstLiveSession: firstLiveSession,
       },
       firstLiveSession
-        ? "Lecture content saved. First course video marked as live session."
+        ? "Lecture content saved. First subject video marked as live session."
         : "Lecture content saved"
     );
   } catch (error) {

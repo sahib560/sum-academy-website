@@ -56,15 +56,108 @@ const getCourseEnrollmentRows = async (studentId, courseId) => {
     .filter((row) => trimText(row.courseId) === courseId);
 };
 
+const startOfDay = (value) => {
+  const parsed = toDate(value);
+  if (!parsed) return null;
+  const clone = new Date(parsed);
+  clone.setHours(0, 0, 0, 0);
+  return clone;
+};
+
+const evaluateEnrollmentWindow = (row = {}) => {
+  const startDate = startOfDay(row.classStartDate);
+  const endDate = startOfDay(row.classEndDate);
+  const today = startOfDay(new Date());
+
+  if (startDate && today && today.getTime() < startDate.getTime()) {
+    return {
+      allowed: false,
+      code: "CLASS_NOT_STARTED",
+      message: "Class has not started yet. Access opens on the class start date.",
+      meta: {
+        classStartDate: toIso(row.classStartDate),
+        classEndDate: toIso(row.classEndDate),
+      },
+    };
+  }
+
+  if (endDate && today && today.getTime() > endDate.getTime()) {
+    return {
+      allowed: false,
+      code: "CLASS_ENDED",
+      message: "Class has ended. Learning access is closed.",
+      meta: {
+        classStartDate: toIso(row.classStartDate),
+        classEndDate: toIso(row.classEndDate),
+      },
+    };
+  }
+
+  return { allowed: true, code: "", message: "", meta: {} };
+};
+
 const ensureStudentEnrolled = async (studentId, courseId) => {
   const rows = await getCourseEnrollmentRows(studentId, courseId);
-  const activeRows = rows.filter((row) =>
+  const eligibleRows = rows.filter((row) =>
     ["active", "completed", "upcoming", "pending_review", ""].includes(
       lowerText(row.status || "active")
     )
   );
-  if (!activeRows.length) return { enrolled: false, rows: [] };
-  return { enrolled: true, rows: activeRows };
+  if (!eligibleRows.length) return { enrolled: false, rows: [] };
+
+  const checks = eligibleRows.map((row) => {
+    const status = lowerText(row.status || "active");
+    if (status === "upcoming") {
+      return {
+        row,
+        allowed: false,
+        code: "CLASS_NOT_STARTED",
+        message: "Class has not started yet. Access opens on the class start date.",
+        meta: {
+          classStartDate: toIso(row.classStartDate),
+          classEndDate: toIso(row.classEndDate),
+        },
+      };
+    }
+
+    if (
+      ["pending_review", "awaiting_payment", "awaiting_receipt", "pending_verification"].includes(
+        status
+      )
+    ) {
+      return {
+        row,
+        allowed: false,
+        code: "PAYMENT_PENDING",
+        message: "Payment verification is pending. Learning access will open after approval.",
+        meta: {},
+      };
+    }
+
+    const windowState = evaluateEnrollmentWindow(row);
+    return { row, ...windowState };
+  });
+
+  const learningRows = checks.filter((item) => item.allowed).map((item) => item.row);
+  if (learningRows.length > 0) {
+    return { enrolled: true, rows: learningRows };
+  }
+
+  const preferredError =
+    checks.find((item) => item.code === "PAYMENT_PENDING") ||
+    checks.find((item) => item.code === "CLASS_NOT_STARTED") ||
+    checks.find((item) => item.code === "CLASS_ENDED") ||
+    checks[0];
+
+  return {
+    enrolled: true,
+    rows: eligibleRows,
+    accessDenied: true,
+    error: preferredError?.message || "Learning access is not available for this class.",
+    status: 403,
+    code: preferredError?.code || "ACCESS_DENIED",
+    meta: preferredError?.meta || {},
+  };
 };
 
 const getCourseChapters = async (courseId) => {
@@ -234,7 +327,12 @@ const toSubjectQuizList = (quizzes = []) =>
     return scope === "subject" || !hasChapter;
   });
 
-const buildCourseContentForStudent = async (studentId, courseId) => {
+const buildCourseContentForStudent = async (
+  studentId,
+  courseId,
+  options = {}
+) => {
+  const { ignoreAccessWindow = false } = options;
   const cleanCourseId = trimText(courseId);
   const courseSnap = await db.collection("courses").doc(cleanCourseId).get();
   if (!courseSnap.exists) {
@@ -244,6 +342,14 @@ const buildCourseContentForStudent = async (studentId, courseId) => {
   const enrollmentState = await ensureStudentEnrolled(studentId, cleanCourseId);
   if (!enrollmentState.enrolled) {
     return { error: "Not enrolled in this course", status: 403 };
+  }
+  if (enrollmentState.accessDenied && !ignoreAccessWindow) {
+    return {
+      error: enrollmentState.error || "Learning access is currently unavailable.",
+      status: enrollmentState.status || 403,
+      code: enrollmentState.code || "ACCESS_DENIED",
+      meta: enrollmentState.meta || {},
+    };
   }
 
   const chapters = await getCourseChapters(cleanCourseId);
@@ -553,8 +659,15 @@ export const getCourseContent = async (req, res) => {
     if (!courseId) return errorResponse(res, "courseId is required", 400);
     if (!studentId) return errorResponse(res, "Missing student uid", 400);
 
-    const built = await buildCourseContentForStudent(studentId, courseId);
-    if (built.error) return errorResponse(res, built.error, built.status || 400);
+    const built = await buildCourseContentForStudent(studentId, courseId, {
+      ignoreAccessWindow: true,
+    });
+    if (built.error) {
+      return errorResponse(res, built.error, built.status || 400, {
+        ...(built.meta || {}),
+        ...(built.code ? { code: built.code } : {}),
+      });
+    }
 
     return successResponse(
       res,
@@ -587,7 +700,12 @@ export const markLectureComplete = async (req, res) => {
     if (!studentId) return errorResponse(res, "Missing student uid", 400);
 
     const builtBefore = await buildCourseContentForStudent(studentId, courseId);
-    if (builtBefore.error) return errorResponse(res, builtBefore.error, builtBefore.status || 400);
+    if (builtBefore.error) {
+      return errorResponse(res, builtBefore.error, builtBefore.status || 400, {
+        ...(builtBefore.meta || {}),
+        ...(builtBefore.code ? { code: builtBefore.code } : {}),
+      });
+    }
 
     if (builtBefore.isCourseCompleted) {
       return errorResponse(res, "Course is already completed", 400, {
@@ -629,7 +747,12 @@ export const markLectureComplete = async (req, res) => {
     });
 
     const builtAfter = await buildCourseContentForStudent(studentId, courseId);
-    if (builtAfter.error) return errorResponse(res, builtAfter.error, builtAfter.status || 400);
+    if (builtAfter.error) {
+      return errorResponse(res, builtAfter.error, builtAfter.status || 400, {
+        ...(builtAfter.meta || {}),
+        ...(builtAfter.code ? { code: builtAfter.code } : {}),
+      });
+    }
 
     const courseCompleted = Boolean(builtAfter.fullyCompleted);
     let certificateGenerated = false;
@@ -702,7 +825,12 @@ export const saveWatchProgress = async (req, res) => {
     if (!studentId) return errorResponse(res, "Missing student uid", 400);
 
     const built = await buildCourseContentForStudent(studentId, courseId);
-    if (built.error) return errorResponse(res, built.error, built.status || 400);
+    if (built.error) {
+      return errorResponse(res, built.error, built.status || 400, {
+        ...(built.meta || {}),
+        ...(built.code ? { code: built.code } : {}),
+      });
+    }
 
     const lectureRow = built.chapters
       .flatMap((chapter) => chapter.lectures)
@@ -897,7 +1025,12 @@ export const getStudentCourseProgress = async (req, res) => {
     }
 
     const built = await buildCourseContentForStudent(studentId, courseId);
-    if (built.error) return errorResponse(res, built.error, built.status || 400);
+    if (built.error) {
+      return errorResponse(res, built.error, built.status || 400, {
+        ...(built.meta || {}),
+        ...(built.code ? { code: built.code } : {}),
+      });
+    }
 
     const lectures = built.chapters.flatMap((chapter) =>
       chapter.lectures.map((lecture) => ({

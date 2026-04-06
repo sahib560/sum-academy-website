@@ -15,6 +15,7 @@ import {
   getTeacherCourseById,
   getTeacherCourses,
   getTeacherVideos,
+  createTeacherVideo,
   saveLectureContent,
   updateCourseRewatchAccess,
   updateLecture,
@@ -78,7 +79,16 @@ function MyCourses() {
   const [isContentInputSaving, setIsContentInputSaving] = useState(false);
   const [chapterDeleteModal, setChapterDeleteModal] = useState({ open: false, chapterId: "" });
 
-  const [videoUpload, setVideoUpload] = useState({ file: null, libraryVideoId: "", progress: 0, uploading: false, stage: "" });
+  const [videoUpload, setVideoUpload] = useState({
+    file: null,
+    libraryVideoId: "",
+    progress: 0,
+    uploading: false,
+    stage: "",
+    error: "",
+    saveToGallery: false,
+    isLiveSession: false,
+  });
   const [resourceModal, setResourceModal] = useState({ open: false, type: "pdf", lectureId: "" });
   const [resourceTitle, setResourceTitle] = useState("");
 
@@ -116,6 +126,7 @@ function MyCourses() {
   const updateLectureMutation = useMutation({ mutationFn: ({ lectureId, data }) => updateLecture(lectureId, data) });
   const deleteLectureMutation = useMutation({ mutationFn: deleteLecture });
   const saveLectureContentMutation = useMutation({ mutationFn: ({ lectureId, data }) => saveLectureContent(lectureId, data) });
+  const createTeacherVideoMutation = useMutation({ mutationFn: createTeacherVideo });
   const deleteLectureContentMutation = useMutation({ mutationFn: ({ lectureId, contentId, type }) => deleteLectureContent(lectureId, contentId, type) });
   const updateVideoAccessMutation = useMutation({ mutationFn: ({ courseId, studentId, data }) => updateVideoAccess(courseId, studentId, data) });
   const updateCourseRewatchAccessMutation = useMutation({
@@ -258,6 +269,8 @@ function MyCourses() {
             videoId: selectedVideo.id,
             title: selectedVideo.title,
             url: selectedVideo.url,
+            isLiveSession: Boolean(videoUpload.isLiveSession),
+            videoMode: videoUpload.isLiveSession ? "live_session" : "recorded",
             size: Number(selectedVideo.size || 0),
             duration: selectedVideo.duration || "",
           },
@@ -269,6 +282,9 @@ function MyCourses() {
           progress: 100,
           uploading: false,
           stage: "",
+          error: "",
+          saveToGallery: false,
+          isLiveSession: false,
         });
         toast.success("Video linked from library");
       } catch (error) {
@@ -292,7 +308,39 @@ function MyCourses() {
         selectedSubjectId,
         (progress) => setVideoUpload((prev) => ({ ...prev, progress }))
       );
-      await saveLectureContentMutation.mutateAsync({ lectureId: selectedLecture.lectureId, data: { type: "video", title: videoUpload.file.name, url: uploaded.url, size: uploaded.size, duration: "" } });
+      await saveLectureContentMutation.mutateAsync({
+        lectureId: selectedLecture.lectureId,
+        data: {
+          type: "video",
+          title: videoUpload.file.name,
+          url: uploaded.url,
+          isLiveSession: Boolean(videoUpload.isLiveSession),
+          videoMode: videoUpload.isLiveSession ? "live_session" : "recorded",
+          size: uploaded.size,
+          duration: "",
+        },
+      });
+
+      if (videoUpload.saveToGallery) {
+        try {
+          await createTeacherVideoMutation.mutateAsync({
+            title: videoUpload.file.name,
+            url: uploaded.url,
+            courseId: contentCourseId,
+            courseName: contentQuery.data?.courseTitle || "",
+            teacherId: "",
+            teacherName: "",
+            isLiveSession: Boolean(videoUpload.isLiveSession),
+            videoMode: videoUpload.isLiveSession ? "live_session" : "recorded",
+          });
+        } catch (galleryError) {
+          toast.error(
+            galleryError?.response?.data?.error ||
+              "Video added to lecture, but failed to save in gallery"
+          );
+        }
+      }
+
       await invalidateCourse(contentCourseId);
       setVideoUpload({
         file: null,
@@ -300,6 +348,9 @@ function MyCourses() {
         progress: 0,
         uploading: false,
         stage: "",
+        error: "",
+        saveToGallery: false,
+        isLiveSession: false,
       });
       toast.success("Video uploaded successfully");
     } catch (error) {
@@ -343,7 +394,7 @@ function MyCourses() {
               <div className="border-b border-slate-200 p-4"><div className="flex items-center justify-between"><div><h2 className="font-heading text-2xl text-slate-900">{contentQuery.data?.courseTitle || "Course"}</h2><div className="mt-2"><StatusBadge status={contentQuery.data?.courseStatus} /></div></div><button className="rounded-full border border-slate-300 px-3 py-1 text-sm font-semibold text-slate-600" onClick={() => setContentCourseId("")} disabled={isContentBusy}>Close</button></div><p className="mt-3 rounded-2xl border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-800">You can only add content to your assigned subjects.</p><div className="mt-3 flex flex-wrap gap-2">{contentSubjects.map((subject) => <button key={subject.subjectId} className={`rounded-full px-3 py-1.5 text-xs font-semibold ${selectedSubjectId === subject.subjectId ? "bg-primary text-white" : "border border-slate-200 text-slate-600"}`} onClick={() => { setSelectedSubjectId(subject.subjectId); setSelectedLectureId(""); }} disabled={isContentBusy}>{subject.subjectName || "Subject"}</button>)}</div></div>
               <div className="grid h-[calc(100%-190px)] min-h-0 lg:grid-cols-[280px_1fr]">
                 <aside className="border-r border-slate-200 p-4"><div className="space-y-3 overflow-y-auto" style={{ maxHeight: "calc(100vh - 280px)" }}>{contentChapters.map((chapter) => <div key={chapter.chapterId} className="rounded-2xl border border-slate-200 p-3"><div className="flex items-center gap-2"><button className="text-slate-500" onClick={() => setExpandedChapters((prev) => ({ ...prev, [chapter.chapterId]: !prev[chapter.chapterId] }))} disabled={isContentBusy}>{expandedChapters[chapter.chapterId] ? "?" : "?"}</button><span className="text-xs font-semibold text-slate-700">{chapter.title}</span><button className="ml-auto text-xs text-rose-600" onClick={() => setChapterDeleteModal({ open: true, chapterId: chapter.chapterId })} disabled={isContentBusy}>Delete</button></div>{expandedChapters[chapter.chapterId] ? <div className="mt-2 space-y-2 pl-4">{(chapter.lectures || []).map((lecture) => <div key={lecture.lectureId} className="flex items-center gap-2"><button className={`flex-1 rounded-xl border px-2 py-1 text-left text-xs ${selectedLectureId === lecture.lectureId ? "border-primary bg-primary/5" : "border-slate-200"}`} onClick={() => setSelectedLectureId(lecture.lectureId)} disabled={isContentBusy}>{lecture.title}</button><button className="text-xs text-rose-600" onClick={() => deleteLectureMutation.mutateAsync(lecture.lectureId).then(() => invalidateCourse(contentCourseId)).then(() => toast.success("Lecture deleted")).catch((error) => toast.error(error?.response?.data?.message || "Failed to delete lecture"))} disabled={isContentBusy}>X</button></div>)}<button className="rounded-full border border-slate-200 px-3 py-1 text-[11px] font-semibold text-slate-700" onClick={() => setContentInputModal({ open: true, type: "lecture", chapterId: chapter.chapterId, title: "" })} disabled={isContentBusy}>Add Lecture</button></div> : null}</div>)}</div><button className="mt-3 w-full rounded-full bg-primary px-4 py-2 text-sm font-semibold text-white" onClick={() => setContentInputModal({ open: true, type: "chapter", chapterId: "", title: "" })} disabled={isContentBusy || !selectedSubjectId}>Add Chapter</button></aside>
-                <section className="overflow-y-auto p-5">{!selectedLecture ? <div className="rounded-3xl border border-dashed border-slate-300 p-10 text-center text-slate-500">Select a lecture from the left to add content</div> : <div className="space-y-5"><div className="rounded-2xl border border-slate-200 p-4"><div className="flex flex-wrap gap-2"><input value={lectureTitleDraft} onChange={(e) => setLectureTitleDraft(e.target.value)} className="flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm" /><button className="rounded-full border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700" onClick={saveLectureTitle} disabled={isContentBusy}>Save title</button></div></div><div className="rounded-2xl border border-slate-200 p-4"><h3 className="font-heading text-xl text-slate-900">Lecture Video</h3>{!selectedLecture.videoUrl ? <><div className="mt-3 space-y-3"><select value={videoUpload.libraryVideoId} onChange={(e) => setVideoUpload((prev) => ({ ...prev, libraryVideoId: e.target.value, error: "" }))} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"><option value="">Upload new video file</option>{videoLibrary.map((item) => <option key={item.id} value={item.id}>{item.title || "Video"}</option>)}</select><label className="block rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 p-6 text-center"><input type="file" className="hidden" accept="video/mp4,video/x-msvideo,video/quicktime" onChange={(e) => setVideoUpload((prev) => ({ ...prev, file: e.target.files?.[0] || null, progress: 0 }))} /><p className="text-sm font-semibold text-slate-700">{videoUpload.file ? videoUpload.file.name : "Select MP4, AVI, or MOV"}</p><p className="text-xs text-slate-500">{videoUpload.file ? formatFileSize(videoUpload.file.size) : "Maximum 2GB"}</p></label><div className="flex gap-2"><button className="btn-primary" onClick={startVideoUpload} disabled={isContentBusy}>Upload Video</button>{videoUpload.uploading ? <button className="btn-outline" onClick={() => { setVideoUpload({ file: null, libraryVideoId: "", progress: 0, uploading: false, stage: "" }); }} disabled={!videoUpload.uploading}>Cancel</button> : null}</div></div><div className="mt-3"><FileUploader accept="video/mp4,video/avi,video/x-msvideo,video/quicktime,.mov" maxSize={2048} label="Upload Lecture Video" hint="MP4, AVI, MOV - max 2GB" disabled={isContentBusy || !selectedSubjectId} onUpload={async (file, { onProgress }) => { if (!selectedLecture) throw new Error("Select lecture first"); const uploaded = await uploadCourseVideo(file, contentCourseId, selectedSubjectId, onProgress); await saveLectureContentMutation.mutateAsync({ lectureId: selectedLecture.lectureId, data: { type: "video", title: file.name, url: uploaded.url, size: uploaded.size, duration: "" } }); await invalidateCourse(contentCourseId); setVideoUpload({ file: null, libraryVideoId: "", progress: 0, uploading: false, stage: "" }); toast.success("Video uploaded successfully"); return uploaded; }} /></div></> : <div className="mt-3 rounded-2xl border border-slate-200 p-3"><p className="font-semibold text-slate-800">{selectedLecture.videoTitle || "Lecture video"}</p><p className="text-xs text-slate-500">Duration: {selectedLecture.videoDuration || "-"}</p><div className="mt-3 flex gap-2"><button className="btn-outline" onClick={() => setVideoUpload((prev) => ({ ...prev, file: null }))} disabled={isContentBusy}>Replace Video</button><button className="rounded-full border border-rose-300 px-3 py-2 text-xs font-semibold text-rose-600" onClick={() => deleteLectureContentMutation.mutateAsync({ lectureId: selectedLecture.lectureId, contentId: "video", type: "video" }).then(() => invalidateCourse(contentCourseId)).then(() => toast.success("Content removed")).catch((error) => toast.error(error?.response?.data?.message || "Failed to delete"))} disabled={isContentBusy}>Delete Video</button></div></div>}</div><div className="rounded-2xl border border-slate-200 p-4"><div className="flex items-center justify-between"><h3 className="font-heading text-xl text-slate-900">Lecture Notes (PDF)</h3><button className="rounded-full border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700" onClick={() => { setResourceModal({ open: true, type: "pdf", lectureId: selectedLecture.lectureId }); setResourceTitle(""); }} disabled={isContentBusy}>Add PDF Notes</button></div><div className="mt-3 space-y-2">{(selectedLecture.pdfNotes || []).map((item) => <div key={item.id} className="flex items-center justify-between rounded-xl border border-slate-200 p-2 text-sm"><div><p className="font-semibold text-slate-800">{item.title}</p><p className="text-xs text-slate-500">{formatFileSize(item.size)}</p></div><button className="rounded-full border border-rose-300 px-3 py-1 text-xs font-semibold text-rose-600" onClick={() => deleteLectureContentMutation.mutateAsync({ lectureId: selectedLecture.lectureId, contentId: item.id, type: "pdf" }).then(() => invalidateCourse(contentCourseId)).then(() => toast.success("Content removed")).catch((error) => toast.error(error?.response?.data?.message || "Failed to delete"))} disabled={isContentBusy}>Delete</button></div>)}</div></div><div className="rounded-2xl border border-slate-200 p-4"><div className="flex items-center justify-between"><h3 className="font-heading text-xl text-slate-900">Books</h3><button className="rounded-full border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700" onClick={() => { setResourceModal({ open: true, type: "book", lectureId: selectedLecture.lectureId }); setResourceTitle(""); }} disabled={isContentBusy}>Add Book</button></div><div className="mt-3 space-y-2">{(selectedLecture.books || []).map((item) => <div key={item.id} className="flex items-center justify-between rounded-xl border border-slate-200 p-2 text-sm"><div><p className="font-semibold text-slate-800">{item.title}</p><p className="text-xs text-slate-500">{formatFileSize(item.size)}</p></div><button className="rounded-full border border-rose-300 px-3 py-1 text-xs font-semibold text-rose-600" onClick={() => deleteLectureContentMutation.mutateAsync({ lectureId: selectedLecture.lectureId, contentId: item.id, type: "book" }).then(() => invalidateCourse(contentCourseId)).then(() => toast.success("Content removed")).catch((error) => toast.error(error?.response?.data?.message || "Failed to delete"))} disabled={isContentBusy}>Delete</button></div>)}</div></div></div>}</section>
+                <section className="overflow-y-auto p-5">{!selectedLecture ? <div className="rounded-3xl border border-dashed border-slate-300 p-10 text-center text-slate-500">Select a lecture from the left to add content</div> : <div className="space-y-5"><div className="rounded-2xl border border-slate-200 p-4"><div className="flex flex-wrap gap-2"><input value={lectureTitleDraft} onChange={(e) => setLectureTitleDraft(e.target.value)} className="flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm" /><button className="rounded-full border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700" onClick={saveLectureTitle} disabled={isContentBusy}>Save title</button></div></div><div className="rounded-2xl border border-slate-200 p-4"><h3 className="font-heading text-xl text-slate-900">Lecture Video</h3>{!selectedLecture.videoUrl ? <><div className="mt-3 space-y-3"><select value={videoUpload.libraryVideoId} onChange={(e) => setVideoUpload((prev) => ({ ...prev, libraryVideoId: e.target.value, file: null, saveToGallery: false, error: "" }))} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"><option value="">Upload new video file</option>{videoLibrary.map((item) => <option key={item.id} value={item.id}>{item.title || "Video"}</option>)}</select><div className="grid gap-2 sm:grid-cols-2"><label className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700"><input type="checkbox" checked={videoUpload.isLiveSession} onChange={(e) => setVideoUpload((prev) => ({ ...prev, isLiveSession: e.target.checked }))} />Mark as live session</label><label className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700"><input type="checkbox" checked={videoUpload.saveToGallery} disabled={Boolean(videoUpload.libraryVideoId)} onChange={(e) => setVideoUpload((prev) => ({ ...prev, saveToGallery: e.target.checked }))} />Save uploaded file to gallery</label></div><label className="block rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 p-6 text-center"><input type="file" className="hidden" accept="video/mp4,video/x-msvideo,video/quicktime" onChange={(e) => setVideoUpload((prev) => ({ ...prev, file: e.target.files?.[0] || null, libraryVideoId: "", progress: 0, error: "" }))} /><p className="text-sm font-semibold text-slate-700">{videoUpload.file ? videoUpload.file.name : "Select MP4, AVI, or MOV"}</p><p className="text-xs text-slate-500">{videoUpload.file ? formatFileSize(videoUpload.file.size) : "Maximum 2GB"}</p></label><div className="flex gap-2"><button className="btn-primary" onClick={startVideoUpload} disabled={isContentBusy}>Upload Video</button>{videoUpload.uploading ? <button className="btn-outline" onClick={() => { setVideoUpload({ file: null, libraryVideoId: "", progress: 0, uploading: false, stage: "", error: "", saveToGallery: false, isLiveSession: false }); }} disabled={!videoUpload.uploading}>Cancel</button> : null}</div></div><div className="mt-3"><FileUploader accept="video/mp4,video/avi,video/x-msvideo,video/quicktime,.mov" maxSize={2048} label="Upload Lecture Video" hint="MP4, AVI, MOV - max 2GB" disabled={isContentBusy || !selectedSubjectId} onUpload={async (file, { onProgress }) => { if (!selectedLecture) throw new Error("Select lecture first"); const uploaded = await uploadCourseVideo(file, contentCourseId, selectedSubjectId, onProgress); await saveLectureContentMutation.mutateAsync({ lectureId: selectedLecture.lectureId, data: { type: "video", title: file.name, url: uploaded.url, isLiveSession: Boolean(videoUpload.isLiveSession), videoMode: videoUpload.isLiveSession ? "live_session" : "recorded", size: uploaded.size, duration: "" } }); if (videoUpload.saveToGallery) { try { await createTeacherVideoMutation.mutateAsync({ title: file.name, url: uploaded.url, courseId: contentCourseId, courseName: contentQuery.data?.courseTitle || "", teacherId: "", teacherName: "", isLiveSession: Boolean(videoUpload.isLiveSession), videoMode: videoUpload.isLiveSession ? "live_session" : "recorded" }); } catch (galleryError) { toast.error(galleryError?.response?.data?.error || "Video added to lecture, but failed to save in gallery"); } } await invalidateCourse(contentCourseId); setVideoUpload({ file: null, libraryVideoId: "", progress: 0, uploading: false, stage: "", error: "", saveToGallery: false, isLiveSession: false }); toast.success("Video uploaded successfully"); return uploaded; }} /></div></> : <div className="mt-3 rounded-2xl border border-slate-200 p-3"><p className="font-semibold text-slate-800">{selectedLecture.videoTitle || "Lecture video"}</p><p className="text-xs text-slate-500">Duration: {selectedLecture.videoDuration || "-"}</p><div className="mt-3 flex gap-2"><button className="btn-outline" onClick={() => setVideoUpload((prev) => ({ ...prev, file: null }))} disabled={isContentBusy}>Replace Video</button><button className="rounded-full border border-rose-300 px-3 py-2 text-xs font-semibold text-rose-600" onClick={() => deleteLectureContentMutation.mutateAsync({ lectureId: selectedLecture.lectureId, contentId: "video", type: "video" }).then(() => invalidateCourse(contentCourseId)).then(() => toast.success("Content removed")).catch((error) => toast.error(error?.response?.data?.message || "Failed to delete"))} disabled={isContentBusy}>Delete Video</button></div></div>}</div><div className="rounded-2xl border border-slate-200 p-4"><div className="flex items-center justify-between"><h3 className="font-heading text-xl text-slate-900">Lecture Notes (PDF)</h3><button className="rounded-full border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700" onClick={() => { setResourceModal({ open: true, type: "pdf", lectureId: selectedLecture.lectureId }); setResourceTitle(""); }} disabled={isContentBusy}>Add PDF Notes</button></div><div className="mt-3 space-y-2">{(selectedLecture.pdfNotes || []).map((item) => <div key={item.id} className="flex items-center justify-between rounded-xl border border-slate-200 p-2 text-sm"><div><p className="font-semibold text-slate-800">{item.title}</p><p className="text-xs text-slate-500">{formatFileSize(item.size)}</p></div><button className="rounded-full border border-rose-300 px-3 py-1 text-xs font-semibold text-rose-600" onClick={() => deleteLectureContentMutation.mutateAsync({ lectureId: selectedLecture.lectureId, contentId: item.id, type: "pdf" }).then(() => invalidateCourse(contentCourseId)).then(() => toast.success("Content removed")).catch((error) => toast.error(error?.response?.data?.message || "Failed to delete"))} disabled={isContentBusy}>Delete</button></div>)}</div></div><div className="rounded-2xl border border-slate-200 p-4"><div className="flex items-center justify-between"><h3 className="font-heading text-xl text-slate-900">Books</h3><button className="rounded-full border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700" onClick={() => { setResourceModal({ open: true, type: "book", lectureId: selectedLecture.lectureId }); setResourceTitle(""); }} disabled={isContentBusy}>Add Book</button></div><div className="mt-3 space-y-2">{(selectedLecture.books || []).map((item) => <div key={item.id} className="flex items-center justify-between rounded-xl border border-slate-200 p-2 text-sm"><div><p className="font-semibold text-slate-800">{item.title}</p><p className="text-xs text-slate-500">{formatFileSize(item.size)}</p></div><button className="rounded-full border border-rose-300 px-3 py-1 text-xs font-semibold text-rose-600" onClick={() => deleteLectureContentMutation.mutateAsync({ lectureId: selectedLecture.lectureId, contentId: item.id, type: "book" }).then(() => invalidateCourse(contentCourseId)).then(() => toast.success("Content removed")).catch((error) => toast.error(error?.response?.data?.message || "Failed to delete"))} disabled={isContentBusy}>Delete</button></div>)}</div></div></div>}</section>
               </div>
             </Motion.div>
           </div>
@@ -452,6 +503,8 @@ function MyCourses() {
 }
 
 export default MyCourses;
+
+
 
 
 

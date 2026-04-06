@@ -31,6 +31,13 @@ const ACTIVE_PROMO_USAGE_STATES = new Set([
   "pending_verification",
   "paid",
 ]);
+const ANNOUNCEMENT_ELIGIBLE_ENROLLMENT_STATES = new Set([
+  "",
+  "active",
+  "upcoming",
+  "completed",
+  "pending_review",
+]);
 
 const parseCsvLine = (line = "") => {
   const row = [];
@@ -137,6 +144,112 @@ const countActivePromoUsages = async ({ promoCodeId = "", code = "" }) => {
   });
 
   return count;
+};
+
+const parsePromoExpiryDate = (value) => {
+  if (!value) return null;
+  if (typeof value?.toDate === "function") return value.toDate();
+
+  const raw = String(value).trim();
+  if (!raw) return null;
+
+  // Date-only inputs should remain valid for the entire selected day.
+  const dateOnlyMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (dateOnlyMatch) {
+    const year = Number(dateOnlyMatch[1]);
+    const month = Number(dateOnlyMatch[2]);
+    const day = Number(dateOnlyMatch[3]);
+    return new Date(year, month - 1, day, 23, 59, 59, 999);
+  }
+
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return null;
+
+  // Backward compatibility for old promo docs saved at midnight UTC.
+  if (/^\d{4}-\d{2}-\d{2}T00:00:00(?:\.000)?Z$/i.test(raw)) {
+    const year = parsed.getUTCFullYear();
+    const month = parsed.getUTCMonth();
+    const day = parsed.getUTCDate();
+    return new Date(year, month, day, 23, 59, 59, 999);
+  }
+
+  return parsed;
+};
+
+const isPromoExpired = (value) => {
+  const expiryDate = parsePromoExpiryDate(value);
+  if (!expiryDate) return false;
+  return expiryDate.getTime() < Date.now();
+};
+
+const parseNullableBoolean = (value) => {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    const clean = value.trim().toLowerCase();
+    if (clean === "true") return true;
+    if (clean === "false") return false;
+  }
+  return null;
+};
+
+const getCourseAnnouncementRecipientIds = async (courseId = "") => {
+  const cleanCourseId = String(courseId || "").trim();
+  if (!cleanCourseId) return [];
+
+  const snap = await db
+    .collection(COLLECTIONS.ENROLLMENTS)
+    .where("courseId", "==", cleanCourseId)
+    .get();
+
+  return [
+    ...new Set(
+      snap.docs
+        .map((doc) => doc.data() || {})
+        .filter((row) =>
+          ANNOUNCEMENT_ELIGIBLE_ENROLLMENT_STATES.has(
+            normalizePaymentState(row.status || "active")
+          )
+        )
+        .map((row) => String(row.studentId || "").trim())
+        .filter(Boolean)
+    ),
+  ];
+};
+
+const createCourseStudentAnnouncement = async ({
+  title = "",
+  message = "",
+  courseId = "",
+  courseName = "",
+  postedBy = "",
+  postedByName = "Admin",
+  postedByRole = "admin",
+}) => {
+  const cleanCourseId = String(courseId || "").trim();
+  const cleanTitle = String(title || "").trim();
+  const cleanMessage = String(message || "").trim();
+  if (!cleanCourseId || !cleanTitle || !cleanMessage) return;
+
+  const recipientIds = await getCourseAnnouncementRecipientIds(cleanCourseId);
+  if (recipientIds.length < 1) return;
+
+  await db.collection(COLLECTIONS.ANNOUNCEMENTS).add({
+    title: cleanTitle,
+    message: cleanMessage,
+    targetType: "course",
+    targetId: cleanCourseId,
+    targetName: String(courseName || "").trim() || "Course",
+    audienceRole: "student",
+    postedBy: String(postedBy || "").trim(),
+    postedByName: String(postedByName || "").trim() || "Admin",
+    postedByRole: String(postedByRole || "").trim() || "admin",
+    sendEmail: false,
+    isPinned: false,
+    studentsReached: recipientIds.length,
+    recipientIds,
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
 };
 
 const normalizeBulkPhone = (value = "") => normalizePakistanPhone(value);
@@ -730,6 +843,11 @@ const normalizeVideoLibraryRow = (id, row = {}) => ({
   courseName: String(row.courseName || "").trim(),
   teacherId: String(row.teacherId || "").trim(),
   teacherName: String(row.teacherName || "").trim() || "Teacher",
+  videoMode:
+    String(row.videoMode || "").trim().toLowerCase() === "live_session"
+      ? "live_session"
+      : "recorded",
+  isLiveSession: Boolean(row.isLiveSession),
   isActive: row.isActive !== false,
   createdAt: toIsoOrNull(row.createdAt),
   updatedAt: toIsoOrNull(row.updatedAt),
@@ -2402,6 +2520,8 @@ export const createVideoLibraryItem = async (req, res) => {
       teacherId = "",
       teacherName = "",
       isActive = true,
+      isLiveSession = false,
+      videoMode = "",
     } = req.body || {};
 
     if (String(title).trim().length < 3) {
@@ -2433,6 +2553,10 @@ export const createVideoLibraryItem = async (req, res) => {
       String(teacherSnap?.data?.()?.fullName || "").trim() ||
       String(courseData.teacherName || "").trim() ||
       "Teacher";
+    const requestedLive = parseNullableBoolean(isLiveSession);
+    const isLiveFlag =
+      requestedLive === true ||
+      String(videoMode || "").trim().toLowerCase() === "live_session";
 
     const ref = db.collection(VIDEO_LIBRARY_COLLECTION).doc();
     const payload = {
@@ -2442,6 +2566,8 @@ export const createVideoLibraryItem = async (req, res) => {
       courseName: resolvedCourseName,
       teacherId: String(teacherId).trim(),
       teacherName: resolvedTeacherName,
+      videoMode: isLiveFlag ? "live_session" : "recorded",
+      isLiveSession: isLiveFlag,
       isActive: isActive !== false,
       createdBy: req.user?.uid || "",
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -2477,6 +2603,8 @@ export const addCourseContent = async (req, res) => {
       size = 0,
       contentType = "",
       noteType = "",
+      isLiveSession,
+      videoMode: requestedVideoMode,
     } = req.body;
 
     if (!type) {
@@ -2507,6 +2635,7 @@ export const addCourseContent = async (req, res) => {
     let resolvedTitle = String(title || "").trim();
     let resolvedUrl = String(url || "").trim();
     const resolvedVideoId = String(videoId || "").trim();
+    let resolvedVideoMeta = null;
     if (type === "video" && resolvedVideoId) {
       const videoSnap = await db
         .collection(VIDEO_LIBRARY_COLLECTION)
@@ -2521,6 +2650,10 @@ export const addCourseContent = async (req, res) => {
       if (!resolvedUrl) {
         return errorResponse(res, "Selected video has no URL", 400);
       }
+      resolvedVideoMeta = {
+        videoMode: String(videoData.videoMode || "").trim().toLowerCase(),
+        isLiveSession: Boolean(videoData.isLiveSession),
+      };
     }
 
     if (!resolvedTitle || !resolvedUrl) {
@@ -2532,18 +2665,41 @@ export const addCourseContent = async (req, res) => {
     }
 
     let videoMode = "recorded";
-    let isLiveSession = false;
+    let resolvedIsLiveSession = false;
     if (type === "video") {
+      const requestedLive = parseNullableBoolean(isLiveSession);
+      const requestedMode = String(requestedVideoMode || "").trim().toLowerCase();
+      let preferredLive = null;
+
+      if (requestedLive !== null) {
+        preferredLive = requestedLive;
+      } else if (requestedMode === "live_session") {
+        preferredLive = true;
+      } else if (requestedMode === "recorded") {
+        preferredLive = false;
+      } else if (resolvedVideoMeta) {
+        preferredLive =
+          resolvedVideoMeta.videoMode === "live_session" ||
+          resolvedVideoMeta.isLiveSession === true;
+      }
+
       const existingContentSnap = await db
         .collection(COLLECTIONS.COURSES)
         .doc(courseId)
         .collection("content")
+        .where("subjectId", "==", subjectId)
         .where("type", "==", "video")
         .limit(1)
         .get();
-      const isFirstCourseVideo = existingContentSnap.empty;
-      videoMode = isFirstCourseVideo ? "live_session" : "recorded";
-      isLiveSession = isFirstCourseVideo;
+      const isFirstSubjectVideo = existingContentSnap.empty;
+
+      if (isFirstSubjectVideo) {
+        resolvedIsLiveSession = true;
+        videoMode = "live_session";
+      } else {
+        resolvedIsLiveSession = preferredLive === true;
+        videoMode = resolvedIsLiveSession ? "live_session" : "recorded";
+      }
     }
 
     const contentData = {
@@ -2554,7 +2710,7 @@ export const addCourseContent = async (req, res) => {
       url: resolvedUrl,
       videoId: resolvedVideoId || null,
       videoMode,
-      isLiveSession,
+      isLiveSession: resolvedIsLiveSession,
       size: toSafeNumber(size, 0),
       contentType: contentType || "",
       noteType: noteType || "",
@@ -2572,6 +2728,28 @@ export const addCourseContent = async (req, res) => {
     await db.collection(COLLECTIONS.COURSES).doc(courseId).update({
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
+
+    if (type === "video") {
+      try {
+        const actorName =
+          String(req.user?.fullName || req.user?.name || req.user?.email || "")
+            .trim()
+            .split("@")[0] || "Admin";
+        await createCourseStudentAnnouncement({
+          title: `New Video Added: ${resolvedTitle}`,
+          message: `${resolvedTitle} was added to ${
+            String(subject?.name || "a subject").trim() || "your subject"
+          } in ${String(courseData?.title || "your course").trim()}.`,
+          courseId,
+          courseName: String(courseData?.title || "").trim(),
+          postedBy: req.user?.uid || "",
+          postedByName: actorName,
+          postedByRole: "admin",
+        });
+      } catch (announcementError) {
+        console.error("addCourseContent announcement error:", announcementError);
+      }
+    }
 
     return successResponse(res, contentData, "Content added", 201);
   } catch (e) {
@@ -3930,8 +4108,8 @@ export const createPromoCode = async (req, res) => {
 
     let expiresAtIso = null;
     if (expiresAt) {
-      const expiryDate = new Date(expiresAt);
-      if (Number.isNaN(expiryDate.getTime())) {
+      const expiryDate = parsePromoExpiryDate(expiresAt);
+      if (!expiryDate) {
         return errorResponse(res, "Invalid expiresAt date", 400);
       }
       if (expiryDate <= new Date()) {
@@ -4081,8 +4259,8 @@ export const updatePromoCode = async (req, res) => {
       if (expiresAt === null || expiresAt === "") {
         updates.expiresAt = null;
       } else {
-        const expiryDate = new Date(expiresAt);
-        if (Number.isNaN(expiryDate.getTime())) {
+        const expiryDate = parsePromoExpiryDate(expiresAt);
+        if (!expiryDate) {
           return errorResponse(res, "Invalid expiresAt date", 400);
         }
         if (expiryDate <= new Date()) {
@@ -4160,7 +4338,7 @@ export const validatePromoCode = async (req, res) => {
       return errorResponse(res, "Promo code is inactive", 400);
     }
 
-    if (promoData.expiresAt && new Date(promoData.expiresAt) < new Date()) {
+    if (isPromoExpired(promoData.expiresAt)) {
       return errorResponse(res, "Promo code has expired", 400);
     }
 

@@ -371,6 +371,47 @@ const getStudentIdsForCourse = async (courseId = "") => {
   return [...new Set([...fromEnrollments, ...fromClasses])];
 };
 
+const createCourseQuizAnnouncement = async ({
+  courseId = "",
+  courseName = "",
+  quizId = "",
+  quizTitle = "",
+  postedBy = "",
+  postedByName = "Teacher",
+  postedByRole = "teacher",
+}) => {
+  const cleanCourseId = trimText(courseId);
+  const cleanQuizTitle = trimText(quizTitle);
+  if (!cleanCourseId || !cleanQuizTitle) return;
+
+  const recipientIds = await getStudentIdsForCourse(cleanCourseId);
+  if (recipientIds.length < 1) return;
+
+  await db.collection(COLLECTIONS.ANNOUNCEMENTS).add({
+    title: `New Quiz Available: ${cleanQuizTitle}`,
+    message: `A new quiz "${cleanQuizTitle}" has been added in ${
+      trimText(courseName) || "your course"
+    }. Please attempt it on time.`,
+    targetType: "course",
+    targetId: cleanCourseId,
+    targetName: trimText(courseName) || "Course",
+    audienceRole: "student",
+    postedBy: trimText(postedBy),
+    postedByName: trimText(postedByName) || "Teacher",
+    postedByRole: trimText(postedByRole) || "teacher",
+    sendEmail: false,
+    isPinned: false,
+    studentsReached: recipientIds.length,
+    recipientIds,
+    meta: {
+      kind: "quiz",
+      quizId: trimText(quizId),
+    },
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+};
+
 const normalizeAssignmentInfo = (assignment = {}) => {
   const students = Array.isArray(assignment.students) ? assignment.students : [];
   const normalizedStudents = students
@@ -1182,6 +1223,20 @@ export const createTeacherQuiz = async (req, res) => {
     const quizRef = await db.collection(COLLECTIONS.QUIZZES).add(payload);
     const createdSnap = await quizRef.get();
     const createdData = createdSnap.data() || payload;
+
+    try {
+      await createCourseQuizAnnouncement({
+        courseId,
+        courseName: trimText(context.courseData.title) || "Course",
+        quizId: quizRef.id,
+        quizTitle: title,
+        postedBy: uid,
+        postedByName: actorName,
+        postedByRole: role || "teacher",
+      });
+    } catch (announcementError) {
+      console.error("createTeacherQuiz announcement error:", announcementError);
+    }
 
     return successResponse(
       res,

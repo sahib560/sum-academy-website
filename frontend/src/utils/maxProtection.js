@@ -8,6 +8,18 @@ let onMaxViolationCallback = null;
 let hasReachedViolationLimit = false;
 let lastViolation = { reason: "", at: 0 };
 
+const isLikelyMobileDevice = () => {
+  if (typeof window === "undefined" || typeof navigator === "undefined") return false;
+  const ua = String(navigator.userAgent || "");
+  const coarsePointer = typeof window.matchMedia === "function"
+    ? window.matchMedia("(pointer: coarse)").matches
+    : false;
+  return (
+    /Android|iPhone|iPad|iPod|Mobile|Opera Mini|IEMobile|BlackBerry/i.test(ua) ||
+    coarsePointer
+  );
+};
+
 export const setViolationCallback = (cb) => {
   onViolationCallback = typeof cb === "function" ? cb : null;
 };
@@ -235,19 +247,31 @@ export const blockPrintScreen = (event) => {
 };
 
 export const setupVisibilityGuard = (onViolate) => {
+  let blurTimer = null;
+  let lastHiddenAt = 0;
+
   const onHidden = () => {
     if (document.hidden || document.visibilityState === "hidden") {
+      lastHiddenAt = Date.now();
       recordViolation("tab_switch");
       if (typeof onViolate === "function") onViolate("tab_switch");
     }
   };
 
   const onBlur = () => {
-    recordViolation("window_blur");
-    if (typeof onViolate === "function") onViolate("window_blur");
+    // Avoid false positives from virtual keyboard, browser chrome, and transient focus shifts.
+    clearTimeout(blurTimer);
+    blurTimer = setTimeout(() => {
+      const isHidden = document.hidden || document.visibilityState === "hidden";
+      if (!isHidden) return;
+      if (Date.now() - lastHiddenAt < 1400) return;
+      recordViolation("window_blur");
+      if (typeof onViolate === "function") onViolate("window_blur");
+    }, 600);
   };
 
   const onFocus = () => {
+    clearTimeout(blurTimer);
     unblurContent();
   };
 
@@ -256,6 +280,7 @@ export const setupVisibilityGuard = (onViolate) => {
   window.addEventListener("focus", onFocus);
 
   return () => {
+    clearTimeout(blurTimer);
     document.removeEventListener("visibilitychange", onHidden);
     window.removeEventListener("blur", onBlur);
     window.removeEventListener("focus", onFocus);
@@ -263,6 +288,8 @@ export const setupVisibilityGuard = (onViolate) => {
 };
 
 export const setupDevToolsDetection = () => {
+  if (isLikelyMobileDevice()) return () => {};
+
   let devToolsOpen = false;
 
   const check = () => {
@@ -366,7 +393,6 @@ export const enforceFullscreen = (onExit) => {
       document.mozFullScreenElement;
 
     if (isFullscreen) return;
-    recordViolation("window_blur");
     if (typeof onExit === "function") onExit();
     setTimeout(request, 1000);
   };
@@ -407,25 +433,26 @@ export const setupMaxProtection = ({
   hasReachedViolationLimit = false;
   lastViolation = { reason: "", at: 0 };
   applyCSSScreenshotBlock();
+  const isMobile = isLikelyMobileDevice();
 
   const previousBodyUserSelect = document.body.style.userSelect;
   const previousBodyWebkitUserSelect = document.body.style.webkitUserSelect;
 
   const onContextMenu = (event) => {
     stopEvent(event);
-    recordViolation("screenshot");
+    if (!isMobile) recordViolation("screenshot");
   };
   const onCopy = (event) => {
     stopEvent(event);
-    recordViolation("screenshot");
+    if (!isMobile) recordViolation("screenshot");
   };
   const onCut = (event) => {
     stopEvent(event);
-    recordViolation("screenshot");
+    if (!isMobile) recordViolation("screenshot");
   };
   const onDragStart = (event) => {
     stopEvent(event);
-    recordViolation("screenshot");
+    if (!isMobile) recordViolation("screenshot");
   };
 
   document.addEventListener("keydown", blockKeys, true);
@@ -445,10 +472,10 @@ export const setupMaxProtection = ({
 
   if (quizMode) {
     cleanupVisibility = setupVisibilityGuard(onViolation);
-    if (enforceFullscreenMode) {
+    if (enforceFullscreenMode && !isMobile) {
       cleanupFullscreen = enforceFullscreen(() => {
         if (typeof onViolation === "function") {
-          onViolation(violationCount.current, "window_blur");
+          onViolation(violationCount.current, "fullscreen_exit");
         }
       });
     }

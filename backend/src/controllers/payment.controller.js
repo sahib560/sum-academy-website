@@ -26,6 +26,36 @@ const parseDate = (value) => {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 };
 
+const parsePromoExpiryDate = (value) => {
+  if (!value) return null;
+  if (typeof value?.toDate === "function") return value.toDate();
+
+  const raw = String(value).trim();
+  if (!raw) return null;
+
+  // Date-only values should be valid through the end of that day.
+  const dateOnlyMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (dateOnlyMatch) {
+    const year = Number(dateOnlyMatch[1]);
+    const month = Number(dateOnlyMatch[2]);
+    const day = Number(dateOnlyMatch[3]);
+    return new Date(year, month - 1, day, 23, 59, 59, 999);
+  }
+
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return null;
+
+  // Backward compatibility for old promo docs saved at midnight UTC.
+  if (/^\d{4}-\d{2}-\d{2}T00:00:00(?:\.000)?Z$/i.test(raw)) {
+    const year = parsed.getUTCFullYear();
+    const month = parsed.getUTCMonth();
+    const day = parsed.getUTCDate();
+    return new Date(year, month, day, 23, 59, 59, 999);
+  }
+
+  return parsed;
+};
+
 const getEnrollmentStatusFromClassDates = (classData = {}) => {
   const start = parseDate(classData?.startDate);
   const end = parseDate(classData?.endDate);
@@ -590,7 +620,7 @@ const resolvePromo = async (promoCode, courseId, studentId = "") => {
   const promoData = promoDoc.data() || {};
   if (!promoData.isActive) throw new Error("PROMO_INACTIVE");
 
-  const expiresAt = parseDate(promoData.expiresAt);
+  const expiresAt = parsePromoExpiryDate(promoData.expiresAt);
   if (expiresAt && expiresAt < new Date()) throw new Error("PROMO_EXPIRED");
 
   const usageLimit = toNumber(promoData.usageLimit);

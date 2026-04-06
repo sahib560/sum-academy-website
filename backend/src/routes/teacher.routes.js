@@ -22,6 +22,7 @@ import {
   getTeacherDashboard,
   getTeacherCourses,
   getTeacherVideoLibrary,
+  createTeacherVideoLibraryItem,
   getTeacherCourseById,
   getChapters,
   addChapterToCourse,
@@ -68,6 +69,7 @@ router.get("/dashboard", getTeacherDashboard);
 
 router.get("/courses", getTeacherCourses);
 router.get("/videos", getTeacherVideoLibrary);
+router.post("/videos", createTeacherVideoLibraryItem);
 router.get("/courses/:courseId", getTeacherCourseById);
 
 router.get("/courses/:courseId/subjects/:subjectId/chapters", getChapters);

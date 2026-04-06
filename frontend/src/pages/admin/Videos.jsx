@@ -28,6 +28,7 @@ function AdminVideos() {
   const [courseId, setCourseId] = useState("");
   const [teacherId, setTeacherId] = useState("");
   const [uploadedVideo, setUploadedVideo] = useState(null);
+  const [isLiveSession, setIsLiveSession] = useState(false);
 
   const videosQuery = useQuery({
     queryKey: ["admin-videos"],
@@ -64,6 +65,7 @@ function AdminVideos() {
       toast.success("Video saved in library");
       setTitle("");
       setUploadedVideo(null);
+      setIsLiveSession(false);
     },
     onError: (error) =>
       toast.error(error?.response?.data?.message || "Failed to save video"),
@@ -82,6 +84,8 @@ function AdminVideos() {
       courseName: selectedCourse?.title || "",
       teacherId,
       teacherName: selectedTeacher?.fullName || "",
+      isLiveSession,
+      videoMode: isLiveSession ? "live_session" : "recorded",
     });
   };
 
@@ -141,6 +145,17 @@ function AdminVideos() {
               ))}
             </select>
           </div>
+          <div className="md:col-span-2">
+            <label className="inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
+              <input
+                type="checkbox"
+                checked={isLiveSession}
+                onChange={(event) => setIsLiveSession(event.target.checked)}
+                className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary"
+              />
+              Mark this gallery video as live session
+            </label>
+          </div>
         </div>
 
         <div className="mt-4">
@@ -148,7 +163,7 @@ function AdminVideos() {
             accept="video/mp4,video/avi,video/x-msvideo,video/quicktime,.mov"
             maxSize={2048}
             label="Upload Course Video"
-            hint="MP4, AVI, MOV — max 2GB"
+            hint="MP4, AVI, MOV - max 2GB"
             onUpload={async (file, { onProgress }) => {
               if (!courseId) throw new Error("Select course first");
               const path = `videos/library/${courseId}/${Date.now()}-${file.name}`;
@@ -191,9 +206,20 @@ function AdminVideos() {
               >
                 <p className="font-semibold text-slate-900">{row.title || "Video"}</p>
                 <p className="mt-1 text-xs text-slate-500">
-                  {row.courseName || "Course"} • {row.teacherName || "Teacher"} •{" "}
+                  {row.courseName || "Course"} - {row.teacherName || "Teacher"} -{" "}
                   {toDateText(row.createdAt)}
                 </p>
+                <div className="mt-2">
+                  <span
+                    className={`rounded-full px-2 py-1 text-[11px] font-semibold ${
+                      row.isLiveSession
+                        ? "bg-emerald-100 text-emerald-700"
+                        : "bg-slate-100 text-slate-700"
+                    }`}
+                  >
+                    {row.isLiveSession ? "Live Session" : "Recorded"}
+                  </span>
+                </div>
                 <p className="mt-2 truncate text-xs text-primary">{row.url}</p>
               </div>
             ))
