@@ -163,13 +163,30 @@ router.get("/available", async (req, res) => {
               price: originalPrice,
               originalPrice,
               discountPercent,
+              finalPrice: discountedPrice,
               discountedPrice,
+              subjectsCount: courseSubjects.length,
               subjects: subjectNames,
               teacherName: teacherNameFromSubject || trimText(course.teacherName) || "Teacher",
               courseName: trimText(course.title) || "Course",
             };
           })
           .filter((course) => trimText(course.courseId));
+
+        const computedTotalPrice = Math.round(
+          assignedCourses.reduce((sum, course) => {
+            return sum + toNumber(course.finalPrice, toNumber(course.price, 0));
+          }, 0)
+        );
+        const totalPrice = Math.max(
+          0,
+          Math.round(
+            toNumber(
+              classItem.totalPrice,
+              computedTotalPrice
+            )
+          )
+        );
 
         const shifts = (Array.isArray(classItem.shifts) ? classItem.shifts : [])
           .filter((shift) =>
@@ -218,6 +235,11 @@ router.get("/available", async (req, res) => {
           status,
           startDate: classItem.startDate || null,
           endDate: classItem.endDate || null,
+          totalPrice,
+          coursesCount: Math.max(
+            toNumber(classItem.coursesCount, 0),
+            assignedCourses.length
+          ),
           assignedCourses,
           course: selectedCourse
             ? {

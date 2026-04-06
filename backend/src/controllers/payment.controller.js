@@ -423,8 +423,17 @@ const fetchMergedPayments = async () => {
       studentId: item.studentId || null,
       studentName,
       studentEmail: user.email || "",
+      enrollmentType:
+        lowerText(item.enrollmentType || "") === "full_class"
+          ? "full_class"
+          : "single_course",
       courseId: item.courseId || null,
       courseName: item.courseName || course.title || "",
+      purchaseCourseIds: Array.isArray(item.purchaseCourseIds)
+        ? item.purchaseCourseIds
+        : item.courseId
+          ? [item.courseId]
+          : [],
       classId: item.classId || null,
       className,
       shiftId: item.shiftId || null,
@@ -696,15 +705,33 @@ export const initiatePayment = async (req, res) => {
       courseId,
       classId = "",
       shiftId = "",
+      enrollmentType = "single_course",
       method,
       promoCode = "",
       installments = 1,
     } = req.body || {};
 
-    if (!courseId || !method || !classId || !shiftId) {
+    const normalizedEnrollmentType = String(enrollmentType || "")
+      .trim()
+      .toLowerCase();
+    if (!["full_class", "single_course"].includes(normalizedEnrollmentType)) {
       return errorResponse(
         res,
-        "courseId, classId, shiftId and method are required",
+        "enrollmentType must be full_class or single_course",
+        400
+      );
+    }
+    if (!method || !classId || !shiftId) {
+      return errorResponse(
+        res,
+        "classId, shiftId and method are required",
+        400
+      );
+    }
+    if (normalizedEnrollmentType === "single_course" && !courseId) {
+      return errorResponse(
+        res,
+        "courseId is required for single_course enrollment",
         400
       );
     }
@@ -719,9 +746,8 @@ export const initiatePayment = async (req, res) => {
       return errorResponse(res, "Installments must be between 2 and 6", 400);
     }
 
-    const [student, course, classData] = await Promise.all([
+    const [student, classData] = await Promise.all([
       getStudentIdentity(studentId),
-      getCourseById(courseId),
       classId ? getClassById(classId) : Promise.resolve(null),
     ]);
 
@@ -738,7 +764,6 @@ export const initiatePayment = async (req, res) => {
         }
       );
     }
-    if (!course) return errorResponse(res, "Course not found", 404);
     if (!classData) return errorResponse(res, "Class not found", 404);
 
     const enrollmentStatus = getEnrollmentStatusFromClassDates(classData);
@@ -753,7 +778,7 @@ export const initiatePayment = async (req, res) => {
     const classShiftValidation = validateClassShiftSelection({
       classData,
       shiftId,
-      courseId,
+      courseId: normalizedEnrollmentType === "single_course" ? courseId : "",
     });
     if (classShiftValidation.error) {
       return errorResponse(res, classShiftValidation.error, classShiftValidation.status || 400);
@@ -805,22 +830,142 @@ export const initiatePayment = async (req, res) => {
       );
     }
 
-    const originalAmount = Math.max(toNumber(course.price), 0);
-    const courseDiscountPercent = Math.max(
-      0,
-      Math.min(100, toNumber(course.discountPercent, 0))
+    const classCourseIds = getClassAssignedCourseIds(classData);
+    if (!classCourseIds.length) {
+      return errorResponse(res, "This class has no assigned courses", 400);
+    }
+
+    const cleanCourseId = String(courseId || "").trim();
+    if (
+      normalizedEnrollmentType === "single_course" &&
+      !classCourseIds.includes(cleanCourseId)
+    ) {
+      return errorResponse(
+        res,
+        "Selected course is not assigned to this class",
+        400
+      );
+    }
+
+    const enrollmentCheckSnap = await db
+      .collection(COLLECTIONS.ENROLLMENTS)
+      .where("studentId", "==", studentId)
+      .where("classId", "==", classId)
+      .get();
+    const activeEnrollmentRows = enrollmentCheckSnap.docs
+      .map((doc) => doc.data() || {})
+      .filter((row) =>
+        ["", "active", "upcoming", "completed", "pending_review"].includes(
+          normalizePaymentStatus(row.status || "active")
+        )
+      );
+
+    if (normalizedEnrollmentType === "single_course") {
+      const hasCourseEnrollment = activeEnrollmentRows.some(
+        (row) => String(row.courseId || "").trim() === cleanCourseId
+      );
+      if (hasCourseEnrollment) {
+        return errorResponse(
+          res,
+          "Student already enrolled in this course for this class",
+          409,
+          { code: "ALREADY_ENROLLED" }
+        );
+      }
+    } else {
+      const paidCourseIds = new Set(
+        activeEnrollmentRows
+          .map((row) => String(row.courseId || "").trim())
+          .filter(Boolean)
+      );
+      const hasAllCourses = classCourseIds.every((row) => paidCourseIds.has(row));
+      if (hasAllCourses) {
+        return errorResponse(
+          res,
+          "Student already enrolled in full class",
+          409,
+          { code: "ALREADY_ENROLLED" }
+        );
+      }
+    }
+
+    const classCourses = await Promise.all(
+      classCourseIds.map(async (id) => {
+        const course = await getCourseById(id);
+        if (!course) return null;
+        const originalPrice = Math.max(toNumber(course.price), 0);
+        const discountPercent = Math.max(
+          0,
+          Math.min(100, toNumber(course.discountPercent, 0))
+        );
+        const courseDiscountAmount = calculateCourseDiscount(
+          originalPrice,
+          discountPercent
+        );
+        const finalPrice = Number(
+          Math.max(originalPrice - courseDiscountAmount, 0).toFixed(2)
+        );
+        return {
+          courseId: id,
+          title: course.title || "Course",
+          originalPrice,
+          discountPercent,
+          courseDiscountAmount,
+          finalPrice,
+        };
+      })
     );
-    const courseDiscountAmount = calculateCourseDiscount(
-      originalAmount,
-      courseDiscountPercent
-    );
+    const resolvedClassCourses = classCourses.filter(Boolean);
+    if (!resolvedClassCourses.length) {
+      return errorResponse(res, "No valid courses found for this class", 400);
+    }
+
+    let selectedCourse = null;
+    if (normalizedEnrollmentType === "single_course") {
+      selectedCourse = resolvedClassCourses.find((row) => row.courseId === cleanCourseId) || null;
+      if (!selectedCourse) {
+        return errorResponse(
+          res,
+          "Selected course not found",
+          404
+        );
+      }
+    }
+
+    const originalAmount =
+      normalizedEnrollmentType === "full_class"
+        ? Number(
+            resolvedClassCourses.reduce((sum, row) => sum + toNumber(row.originalPrice, 0), 0).toFixed(2)
+          )
+        : Number(toNumber(selectedCourse?.originalPrice, 0).toFixed(2));
+    const courseDiscountAmount =
+      normalizedEnrollmentType === "full_class"
+        ? Number(
+            resolvedClassCourses
+              .reduce((sum, row) => sum + toNumber(row.courseDiscountAmount, 0), 0)
+              .toFixed(2)
+          )
+        : Number(toNumber(selectedCourse?.courseDiscountAmount, 0).toFixed(2));
     const amountAfterCourseDiscount = Number(
       Math.max(originalAmount - courseDiscountAmount, 0).toFixed(2)
     );
+    const courseDiscountPercent =
+      normalizedEnrollmentType === "single_course"
+        ? Math.max(0, Math.min(100, toNumber(selectedCourse?.discountPercent, 0)))
+        : 0;
+
+    if (normalizedEnrollmentType === "full_class" && promoCode) {
+      return errorResponse(
+        res,
+        "Promo code can be applied only on individual course purchase",
+        400
+      );
+    }
+
     let promoDoc = null;
     let promoData = null;
-    if (promoCode) {
-      const promoResult = await resolvePromo(promoCode, courseId, studentId);
+    if (promoCode && normalizedEnrollmentType === "single_course") {
+      const promoResult = await resolvePromo(promoCode, cleanCourseId, studentId);
       promoDoc = promoResult.promoDoc || null;
       promoData = promoResult.promoData || null;
     }
@@ -858,12 +1003,23 @@ export const initiatePayment = async (req, res) => {
     const methodLabel = formatPaymentMethodLabel(paymentMethod);
     const paymentRef = db.collection(COLLECTIONS.PAYMENTS).doc();
     const reference = generateReference();
+    const fullClassDescription = `${classData?.name || "Class"} - Full Class`;
+    const singleCourseDescription = `${selectedCourse?.title || "Course"} - ${classData?.name || "Class"}`;
 
     const paymentPayload = {
       studentId,
       studentName: student.fullName,
-      courseId,
-      courseName: course.title || "",
+      enrollmentType: normalizedEnrollmentType,
+      courseId:
+        normalizedEnrollmentType === "single_course" ? cleanCourseId : null,
+      courseName:
+        normalizedEnrollmentType === "single_course"
+          ? selectedCourse?.title || ""
+          : fullClassDescription,
+      purchaseCourseIds:
+        normalizedEnrollmentType === "full_class"
+          ? resolvedClassCourses.map((row) => row.courseId)
+          : [cleanCourseId],
       classId: classId || null,
       className: classData?.name || "",
       shiftId: shiftId || null,
@@ -932,6 +1088,7 @@ export const initiatePayment = async (req, res) => {
       res,
       {
         paymentId: paymentRef.id,
+        enrollmentType: normalizedEnrollmentType,
         reference,
         amount: amountDueNow,
         totalAmount: finalAmount,
@@ -945,6 +1102,18 @@ export const initiatePayment = async (req, res) => {
         paymentDetails,
         bankDetails:
           paymentMethod === "bank_transfer" ? paymentDetails : undefined,
+        description:
+          normalizedEnrollmentType === "full_class"
+            ? fullClassDescription
+            : singleCourseDescription,
+        classCourses:
+          normalizedEnrollmentType === "full_class"
+            ? resolvedClassCourses.map((row) => ({
+                courseId: row.courseId,
+                title: row.title,
+                finalPrice: row.finalPrice,
+              }))
+            : undefined,
         installments: installmentSchedule,
         isInstallment: installmentCount > 1,
         numberOfInstallments: installmentCount,
@@ -1558,6 +1727,15 @@ export const verifyBankTransfer = async (req, res) => {
         freshPayment.studentId || freshPayment.uid || freshPayment.userId || ""
       ).trim();
       const freshCourseId = String(freshPayment.courseId || "").trim();
+      const freshEnrollmentType =
+        lowerText(freshPayment.enrollmentType || "") === "full_class"
+          ? "full_class"
+          : "single_course";
+      const freshPurchaseCourseIds = Array.isArray(freshPayment.purchaseCourseIds)
+        ? freshPayment.purchaseCourseIds
+            .map((row) => String(row || "").trim())
+            .filter(Boolean)
+        : [];
       const freshClassId = String(freshPayment.classId || "").trim();
       let effectiveShiftId = String(freshPayment.shiftId || "").trim();
 
@@ -1571,7 +1749,11 @@ export const verifyBankTransfer = async (req, res) => {
       if (!freshStudentId) {
         throw new Error("STUDENT_REQUIRED");
       }
-      if (!freshClassId && !freshCourseId) {
+      if (
+        !freshClassId &&
+        !freshCourseId &&
+        freshPurchaseCourseIds.length < 1
+      ) {
         throw new Error("COURSE_OR_CLASS_REQUIRED");
       }
       if (!String(freshPayment.receiptUrl || "").trim()) {
@@ -1600,7 +1782,7 @@ export const verifyBankTransfer = async (req, res) => {
         const classShiftValidation = validateClassShiftSelection({
           classData,
           shiftId: effectiveShiftId,
-          courseId: freshCourseId,
+          courseId: freshEnrollmentType === "single_course" ? freshCourseId : "",
         });
         if (!classShiftValidation.error) {
           selectedShift = classShiftValidation.shift || null;
@@ -1629,9 +1811,26 @@ export const verifyBankTransfer = async (req, res) => {
       }
 
       const classCourseIds = classData ? getClassAssignedCourseIds(classData) : [];
-      const enrollmentCourseIds = [
-        ...new Set([...classCourseIds, freshCourseId].filter(Boolean)),
-      ];
+      let enrollmentCourseIds = [];
+      if (freshEnrollmentType === "full_class") {
+        enrollmentCourseIds = [
+          ...new Set(
+            [
+              ...classCourseIds,
+              ...freshPurchaseCourseIds,
+            ].filter(Boolean)
+          ),
+        ];
+      } else {
+        enrollmentCourseIds = [...new Set([freshCourseId].filter(Boolean))];
+      }
+      if (
+        freshEnrollmentType === "single_course" &&
+        classCourseIds.length > 0 &&
+        enrollmentCourseIds.some((courseId) => !classCourseIds.includes(courseId))
+      ) {
+        throw new Error("COURSE_NOT_IN_CLASS");
+      }
       if (!enrollmentCourseIds.length) {
         throw new Error("CLASS_HAS_NO_COURSES");
       }
@@ -1664,6 +1863,7 @@ export const verifyBankTransfer = async (req, res) => {
         verifiedBy: req.user?.uid || null,
         verifiedAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
+        enrollmentType: freshEnrollmentType,
         classId: freshClassId || null,
         shiftId: effectiveShiftId || null,
       });
@@ -1686,6 +1886,7 @@ export const verifyBankTransfer = async (req, res) => {
             paymentId,
             classId: freshClassId || null,
             shiftId: effectiveShiftId || null,
+            enrollmentType: freshEnrollmentType,
             status: enrollmentStatus,
             progress: 0,
             completedAt: null,
@@ -1693,7 +1894,10 @@ export const verifyBankTransfer = async (req, res) => {
             classEndDate: classData?.endDate || null,
             createdAt: FieldValue.serverTimestamp(),
             updatedAt: FieldValue.serverTimestamp(),
-            source: "class_enrollment",
+            source:
+              freshEnrollmentType === "full_class"
+                ? "class_enrollment"
+                : "single_course_enrollment",
           });
           const courseRef = db.collection(COLLECTIONS.COURSES).doc(courseId);
           transaction.set(
@@ -1718,6 +1922,11 @@ export const verifyBankTransfer = async (req, res) => {
             classId: freshClassId || null,
             shiftId: effectiveShiftId || null,
             status: mergedStatus,
+            enrollmentType:
+              lowerText(existingEnrollmentData.enrollmentType || "") === "full_class" ||
+              freshEnrollmentType === "full_class"
+                ? "full_class"
+                : "single_course",
             classStartDate: classData?.startDate || null,
             classEndDate: classData?.endDate || null,
             paymentId,
@@ -1752,6 +1961,7 @@ export const verifyBankTransfer = async (req, res) => {
           courseId:
             String(selectedShift?.courseId || "").trim() ||
             freshCourseId ||
+            enrollmentCourseIds[0] ||
             classCourseIds[0] ||
             "",
           enrolledAt: new Date().toISOString(),
@@ -1841,6 +2051,13 @@ export const verifyBankTransfer = async (req, res) => {
       return errorResponse(
         res,
         "Selected class shift is invalid for this course. Please update class/shift selection.",
+        400
+      );
+    }
+    if (error?.message === "COURSE_NOT_IN_CLASS") {
+      return errorResponse(
+        res,
+        "Selected course is not assigned to this class.",
         400
       );
     }

@@ -142,8 +142,10 @@ const ensureStudentEnrolled = async (studentId, courseId) => {
   );
   if (!eligibleRows.length) return { enrolled: false, rows: [] };
   const enrichedRows = await enrichEnrollmentRowsWithClassWindow(eligibleRows);
+  const classLinkedRows = enrichedRows.filter((row) => Boolean(trimText(row.classId)));
+  const candidateRows = classLinkedRows.length > 0 ? classLinkedRows : enrichedRows;
 
-  const checks = enrichedRows.map((row) => {
+  const checks = candidateRows.map((row) => {
     const status = lowerText(row.status || "active");
     if (status === "upcoming" || row.classStatus === "upcoming") {
       return {
@@ -189,7 +191,7 @@ const ensureStudentEnrolled = async (studentId, courseId) => {
 
   return {
     enrolled: true,
-    rows: enrichedRows,
+    rows: candidateRows,
     accessDenied: true,
     error: preferredError?.message || "Learning access is not available for this class.",
     status: 403,

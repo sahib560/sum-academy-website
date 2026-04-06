@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { motion as Motion } from "framer-motion";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { SkeletonCard } from "../../components/Skeleton.jsx";
 import { getStudentDashboard } from "../../services/student.service.js";
 
@@ -18,6 +18,7 @@ const toNumber = (value, fallback = 0) => {
 };
 
 function StudentMyCourses() {
+  const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const [selectedClassId, setSelectedClassId] = useState("");
   const { data: dashboardData, isLoading } = useQuery({
@@ -44,7 +45,14 @@ function StudentMyCourses() {
       className: classRow.name || "Class",
       batchCode: classRow.batchCode || "No batch",
       teacherName: classRow.teacherName || "Teacher",
+      shiftId: classRow.shiftId || "",
       overallProgress: Math.max(0, Math.min(100, toNumber(classRow.overallProgress, 0))),
+      paidCoursesCount: toNumber(classRow.paidCoursesCount, 0),
+      totalCoursesCount: toNumber(
+        classRow.totalCoursesCount,
+        Array.isArray(classRow.courses) ? classRow.courses.length : 0
+      ),
+      lockedCoursesCount: toNumber(classRow.lockedCoursesCount, 0),
       isLockedAfterCompletion: Boolean(classRow.isLockedAfterCompletion),
       courses: (Array.isArray(classRow.courses) ? classRow.courses : []).map((course, index) => ({
         id: course.id || `${classRow.classId || classIndex}-${course.courseId || index}`,
@@ -54,6 +62,10 @@ function StudentMyCourses() {
         thumbnail: course.thumbnail || null,
         subjects: Array.isArray(course.subjects) ? course.subjects : [],
         progress: Math.max(0, Math.min(100, toNumber(course.progress, 0))),
+        finalPrice: toNumber(course.finalPrice ?? course.price, 0),
+        price: toNumber(course.price, 0),
+        discountPercent: toNumber(course.discountPercent, 0),
+        isPaymentLocked: Boolean(course.isPaymentLocked),
         classLocked: Boolean(course.classLocked),
       })),
     }));
@@ -157,8 +169,13 @@ function StudentMyCourses() {
                     <h3 className="mt-1 font-heading text-xl text-slate-900">{group.className}</h3>
                     <p className="mt-1 text-sm text-slate-500">{group.teacherName}</p>
                     <p className="mt-3 text-xs text-slate-600">
-                      {group.courses.length} course(s) in this class
+                      Paid courses: {group.paidCoursesCount}/{group.totalCoursesCount}
                     </p>
+                    {group.lockedCoursesCount > 0 ? (
+                      <p className="mt-1 text-[11px] font-semibold text-amber-700">
+                        {group.lockedCoursesCount} course(s) locked
+                      </p>
+                    ) : null}
                     <div className="mt-2 flex items-center gap-2 text-xs text-slate-500">
                       <div className="h-2 w-28 rounded-full bg-slate-100">
                         <div
@@ -187,6 +204,7 @@ function StudentMyCourses() {
               {activeCourses.map((course) => {
                 const isCompleted = course.progress >= 100;
                 const isLocked = Boolean(course.classLocked);
+                const isPaymentLocked = Boolean(course.isPaymentLocked);
                 return (
                   <div
                     key={course.id}
@@ -239,6 +257,11 @@ function StudentMyCourses() {
                       </div>
                       {Math.round(course.progress)}%
                     </div>
+                    {isPaymentLocked ? (
+                      <p className="mt-2 text-xs font-semibold text-rose-700">
+                        Not included in your enrollment - PKR {course.finalPrice.toLocaleString("en-PK")}
+                      </p>
+                    ) : null}
                     {isLocked ? (
                       <p className="mt-2 text-xs font-semibold text-amber-700">
                         Class completed. Rewatch locked until teacher/admin unlocks.
@@ -246,24 +269,57 @@ function StudentMyCourses() {
                     ) : null}
 
                     <div className="mt-4">
-                      <Link
-                        className={`w-full rounded-full px-4 py-2 text-center text-sm font-semibold ${
-                          isLocked
-                            ? "cursor-not-allowed bg-slate-200 text-slate-500"
-                            : "btn-primary"
-                        }`}
-                        to={
-                          isLocked
-                            ? "#"
-                            : `/student/courses/${course.courseId || course.id}/player`
-                        }
-                        onClick={(event) => {
-                          if (!isLocked) return;
-                          event.preventDefault();
-                        }}
-                      >
-                        {isLocked ? "Locked" : isCompleted ? "Review" : "Continue"}
-                      </Link>
+                      {isPaymentLocked ? (
+                        <button
+                          className="btn-primary w-full"
+                          onClick={() =>
+                            navigate("/student/checkout", {
+                              state: {
+                                enrollmentType: "single_course",
+                                classInfo: {
+                                  id: activeClass.classId,
+                                  name: activeClass.className,
+                                  batchCode: activeClass.batchCode,
+                                  totalPrice: 0,
+                                  assignedCourses: activeClass.courses,
+                                },
+                                course: {
+                                  id: course.courseId,
+                                  title: course.title,
+                                  price: course.price || course.finalPrice,
+                                  originalPrice: course.price || course.finalPrice,
+                                  discountPercent: course.discountPercent || 0,
+                                  discountedPrice: course.finalPrice,
+                                  finalPrice: course.finalPrice,
+                                },
+                                prefillClassId: activeClass.classId,
+                                prefillShiftId: activeClass.shiftId || "",
+                              },
+                            })
+                          }
+                        >
+                          Buy Now
+                        </button>
+                      ) : (
+                        <Link
+                          className={`w-full rounded-full px-4 py-2 text-center text-sm font-semibold ${
+                            isLocked
+                              ? "cursor-not-allowed bg-slate-200 text-slate-500"
+                              : "btn-primary"
+                          }`}
+                          to={
+                            isLocked
+                              ? "#"
+                              : `/student/courses/${course.courseId || course.id}/player`
+                          }
+                          onClick={(event) => {
+                            if (!isLocked) return;
+                            event.preventDefault();
+                          }}
+                        >
+                          {isLocked ? "Locked" : isCompleted ? "Review" : "Continue"}
+                        </Link>
+                      )}
                     </div>
                   </div>
                 );

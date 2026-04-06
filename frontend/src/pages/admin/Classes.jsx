@@ -118,6 +118,12 @@ const toLocalDateInput = (dateValue = new Date()) => {
 };
 
 const getTodayInputDate = () => toLocalDateInput(new Date());
+const getCurrentTimeInput = (dateValue = new Date()) => {
+  const date = new Date(dateValue);
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  return `${hours}:${minutes}`;
+};
 
 const normalizeStatus = (value = "upcoming") => {
   const normalized = String(value).trim().toLowerCase();
@@ -179,6 +185,8 @@ const normalizeClass = (row = {}) => {
     status: normalizeStatus(row.status),
     capacity: Number(row.capacity || 0),
     enrolledCount: Number(row.enrolledCount || 0),
+    totalPrice: Number(row.totalPrice || 0),
+    coursesCount: Number(row.coursesCount || assignedCourses.length || 0),
     students: Array.isArray(row.students) ? row.students : [],
     assignedCourses,
     shifts,
@@ -281,13 +289,10 @@ const validateShiftRow = (shift, index = 0, classStartDate = "") => {
   const todayInput = getTodayInputDate();
   if (classStartDate === todayInput && startMinutes !== null) {
     const now = new Date();
-    const minMinutes = now.getHours() * 60 + now.getMinutes() + 60;
-    if (minMinutes >= 24 * 60) {
+    const minMinutes = now.getHours() * 60 + now.getMinutes();
+    if (startMinutes < minMinutes) {
       errors[`${prefix}-startTime`] =
-        "Today is almost over. Please choose tomorrow as start date.";
-    } else if (startMinutes < minMinutes) {
-      errors[`${prefix}-startTime`] =
-        "For today, start time must be at least 1 hour from now.";
+        "For today, start time cannot be in the past.";
     }
   }
   if (!shift.courseId) {
@@ -466,6 +471,7 @@ function ShiftFormFields({
   index,
   courses,
   teacherOptions,
+  classStartDate = "",
   lockCourseSelection = false,
   onChange,
   onRemove,
@@ -473,6 +479,8 @@ function ShiftFormFields({
   removeDisabled = false,
 }) {
   const prefix = `shift-${index}`;
+  const startsToday = classStartDate === getTodayInputDate();
+  const minStartTime = startsToday ? getCurrentTimeInput() : undefined;
   const selectedCourseName =
     courses.find((course) => course.courseId === shift.courseId)?.courseName ||
     "Assigned Course";
@@ -513,6 +521,8 @@ function ShiftFormFields({
             type="time"
             value={shift.startTime}
             onChange={(event) => onChange(index, "startTime", event.target.value)}
+            min={minStartTime}
+            max={shift.endTime || undefined}
             className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
           />
           <FieldError message={errors[`${prefix}-startTime`]} />
@@ -526,6 +536,7 @@ function ShiftFormFields({
             type="time"
             value={shift.endTime}
             onChange={(event) => onChange(index, "endTime", event.target.value)}
+            min={shift.startTime || minStartTime || undefined}
             className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
           />
           <FieldError message={errors[`${prefix}-endTime`]} />
@@ -656,6 +667,8 @@ function Classes() {
   const [studentSearch, setStudentSearch] = useState("");
   const [enrollStudentId, setEnrollStudentId] = useState("");
   const [enrollShiftId, setEnrollShiftId] = useState("");
+  const [enrollEnrollmentType, setEnrollEnrollmentType] = useState("full_class");
+  const [enrollCourseId, setEnrollCourseId] = useState("");
 
   const [deleteClassTarget, setDeleteClassTarget] = useState(null);
   const [deleteShiftTarget, setDeleteShiftTarget] = useState(null);
@@ -922,6 +935,8 @@ function Classes() {
       await refreshClassStudents();
       setEnrollStudentId("");
       setEnrollShiftId("");
+      setEnrollCourseId("");
+      setEnrollEnrollmentType("full_class");
       const selectedClass = classes.find((row) => row.id === variables?.classId);
       const grantedCourses = Number(response?.data?.coursesEnrolled || 0);
       toast.success(
@@ -1230,6 +1245,8 @@ function Classes() {
     setStudentSearch("");
     setEnrollStudentId("");
     setEnrollShiftId("");
+    setEnrollEnrollmentType("full_class");
+    setEnrollCourseId("");
   };
 
   const closeDrawer = () => {
@@ -1271,11 +1288,7 @@ function Classes() {
   };
 
   const validateShiftModal = () => {
-    const errors = validateShiftRow(
-      shiftForm,
-      0,
-      activeClass?.startDate ? toDateInput(activeClass.startDate) : ""
-    );
+    const errors = validateShiftRow(shiftForm, 0, shiftModalClassStartDateInput);
     const normalizedErrors = {
       name: errors["shift-0-name"],
       days: errors["shift-0-days"],
@@ -1346,6 +1359,12 @@ function Classes() {
       activeClass?.shifts?.find((shift) => shift.id === enrollShiftId) || null,
     [activeClass?.shifts, enrollShiftId]
   );
+  const availableShiftsForEnrollment = useMemo(() => {
+    const shifts = Array.isArray(activeClass?.shifts) ? activeClass.shifts : [];
+    if (enrollEnrollmentType !== "single_course") return shifts;
+    if (!enrollCourseId) return shifts;
+    return shifts.filter((shift) => shift.courseId === enrollCourseId);
+  }, [activeClass?.shifts, enrollEnrollmentType, enrollCourseId]);
 
   const classCapacity = activeClass
     ? Math.max(1, Number(activeClass.capacity || 30))
@@ -1375,8 +1394,25 @@ function Classes() {
   const singleDrawerCourseName = isSingleDrawerCourse
     ? drawerAssignedCourses[0].courseName || "Assigned Course"
     : "";
+  const shiftModalClassStartDateInput = activeClass?.startDate
+    ? toDateInput(activeClass.startDate)
+    : "";
+  const shiftModalMinStartTime =
+    shiftModalClassStartDateInput === getTodayInputDate()
+      ? getCurrentTimeInput()
+      : undefined;
 
   const teacherOptionsForShiftModal = getTeacherOptionsForCourse(shiftForm.courseId);
+
+  useEffect(() => {
+    if (!enrollShiftId) return;
+    const stillValid = availableShiftsForEnrollment.some(
+      (shift) => shift.id === enrollShiftId
+    );
+    if (!stillValid) {
+      setEnrollShiftId("");
+    }
+  }, [availableShiftsForEnrollment, enrollShiftId]);
 
   useEffect(() => {
     if (!isShiftModalOpen || !singleDrawerCourseId) return;
@@ -1389,6 +1425,16 @@ function Classes() {
       };
     });
   }, [isShiftModalOpen, singleDrawerCourseId]);
+
+  useEffect(() => {
+    if (enrollEnrollmentType !== "single_course") return;
+    const assignedCourses = Array.isArray(activeClass?.assignedCourses)
+      ? activeClass.assignedCourses
+      : [];
+    if (assignedCourses.length === 1 && !enrollCourseId) {
+      setEnrollCourseId(assignedCourses[0].courseId || "");
+    }
+  }, [enrollEnrollmentType, activeClass?.assignedCourses, enrollCourseId]);
 
   const classCards = (
     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -1815,6 +1861,7 @@ function Classes() {
                   index={index}
                   courses={classForm.assignedCourses}
                   teacherOptions={getTeacherOptionsForCourse(shift.courseId)}
+                  classStartDate={classForm.startDate}
                   lockCourseSelection={classForm.assignedCourses.length === 1}
                   onChange={updateShiftInForm}
                   onRemove={removeShiftFromForm}
@@ -2156,6 +2203,7 @@ function Classes() {
                           <th className="px-4 py-3">Student</th>
                           <th className="px-4 py-3">Email</th>
                           <th className="px-4 py-3">Shift</th>
+                          <th className="px-4 py-3">Enrolled Courses</th>
                           <th className="px-4 py-3">Enrolled Date</th>
                           <th className="px-4 py-3 text-right">Action</th>
                         </tr>
@@ -2164,14 +2212,14 @@ function Classes() {
                         {classStudentsQuery.isLoading ? (
                           Array.from({ length: 5 }).map((_, index) => (
                             <tr key={`class-student-skeleton-${index}`}>
-                              <td colSpan={5} className="px-4 py-3">
+                              <td colSpan={6} className="px-4 py-3">
                                 <div className="skeleton h-10 rounded-xl" />
                               </td>
                             </tr>
                           ))
                         ) : filteredClassStudents.length < 1 ? (
                           <tr>
-                            <td colSpan={5} className="px-4 py-10 text-center text-slate-500">
+                            <td colSpan={6} className="px-4 py-10 text-center text-slate-500">
                               No students enrolled yet.
                             </td>
                           </tr>
@@ -2198,6 +2246,29 @@ function Classes() {
                               </td>
                               <td className="px-4 py-3 text-slate-600">
                                 {student.shiftName || "N/A"}
+                              </td>
+                              <td className="px-4 py-3 text-slate-600">
+                                <p className="text-xs font-semibold text-slate-700">
+                                  {Number(student.enrolledCoursesCount || 0)}/
+                                  {Number(student.totalCoursesCount || 0)}
+                                </p>
+                                <p className="mt-1 text-[11px] text-emerald-700">
+                                  {(Array.isArray(student.enrolledCourses)
+                                    ? student.enrolledCourses
+                                    : []
+                                  )
+                                    .map((row) => row.courseName || "Course")
+                                    .join(", ") || "None"}
+                                </p>
+                                {(Array.isArray(student.lockedCourses) ? student.lockedCourses : [])
+                                  .length > 0 ? (
+                                  <p className="mt-1 text-[11px] text-rose-700">
+                                    Locked:{" "}
+                                    {(student.lockedCourses || [])
+                                      .map((row) => row.courseName || "Course")
+                                      .join(", ")}
+                                  </p>
+                                ) : null}
                               </td>
                               <td className="px-4 py-3 text-slate-600">
                                 {student.enrolledAt ? formatDate(student.enrolledAt) : "N/A"}
@@ -2230,11 +2301,59 @@ function Classes() {
                   <p className="mt-1 text-sm text-slate-500">
                     Enrolled: {enrolledStudentsCount} / {classCapacity} (capacity)
                   </p>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Full class price: PKR {Number(activeClass?.totalPrice || 0).toLocaleString("en-PK")}
+                  </p>
                   {isClassFull ? (
                     <div className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">
                       Class is full ({enrolledStudentsCount}/{classCapacity} students)
                     </div>
                   ) : null}
+                  <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Enrollment Type
+                    </p>
+                    <div className="mt-2 flex flex-wrap gap-3 text-sm">
+                      <label className="inline-flex items-center gap-2">
+                        <input
+                          type="radio"
+                          name="enrollType"
+                          checked={enrollEnrollmentType === "full_class"}
+                          onChange={() => {
+                            setEnrollEnrollmentType("full_class");
+                            setEnrollCourseId("");
+                          }}
+                          disabled={isClassFull}
+                        />
+                        Full Class (PKR {Number(activeClass?.totalPrice || 0).toLocaleString("en-PK")})
+                      </label>
+                      <label className="inline-flex items-center gap-2">
+                        <input
+                          type="radio"
+                          name="enrollType"
+                          checked={enrollEnrollmentType === "single_course"}
+                          onChange={() => setEnrollEnrollmentType("single_course")}
+                          disabled={isClassFull}
+                        />
+                        Individual Course
+                      </label>
+                    </div>
+                    {enrollEnrollmentType === "single_course" ? (
+                      <select
+                        value={enrollCourseId}
+                        onChange={(event) => setEnrollCourseId(event.target.value)}
+                        className="mt-3 w-full rounded-2xl border border-slate-200 px-4 py-2 text-sm"
+                        disabled={isClassFull}
+                      >
+                        <option value="">Select course</option>
+                        {(activeClass?.assignedCourses || []).map((course) => (
+                          <option key={course.courseId} value={course.courseId}>
+                            {course.courseName || "Course"} (PKR {Number(course.finalPrice || course.price || 0).toLocaleString("en-PK")})
+                          </option>
+                        ))}
+                      </select>
+                    ) : null}
+                  </div>
                   <div className="mt-4 grid gap-3 md:grid-cols-3">
                     <select
                       value={enrollStudentId}
@@ -2257,7 +2376,7 @@ function Classes() {
                       disabled={isClassFull}
                     >
                       <option value="">Select shift</option>
-                      {activeClass.shifts.map((shift) => (
+                      {availableShiftsForEnrollment.map((shift) => (
                         <option key={shift.id} value={shift.id}>
                           {shift.name} - {(shift.days || []).map((day) => SHORT_DAYS[day]).join(", ")} -{" "}
                           {formatTime(shift.startTime)} to {formatTime(shift.endTime)}
@@ -2276,6 +2395,10 @@ function Classes() {
                           toast.error("Select a shift first.");
                           return;
                         }
+                        if (enrollEnrollmentType === "single_course" && !enrollCourseId) {
+                          toast.error("Select a course for single-course enrollment.");
+                          return;
+                        }
                         if (isClassFull) {
                           toast.error("Class is full. Cannot add more students.");
                           return;
@@ -2285,6 +2408,11 @@ function Classes() {
                           data: {
                             studentId: enrollStudentId,
                             shiftId: enrollShiftId,
+                            enrollmentType: enrollEnrollmentType,
+                            courseId:
+                              enrollEnrollmentType === "single_course"
+                                ? enrollCourseId
+                                : undefined,
                           },
                         });
                       }}
@@ -2450,6 +2578,8 @@ function Classes() {
                     startTime: event.target.value,
                   }))
                 }
+                min={shiftModalMinStartTime}
+                max={shiftForm.endTime || undefined}
                 className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm"
               />
               <FieldError message={shiftErrors.startTime} />
@@ -2465,6 +2595,7 @@ function Classes() {
                     endTime: event.target.value,
                   }))
                 }
+                min={shiftForm.startTime || shiftModalMinStartTime || undefined}
                 className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm"
               />
               <FieldError message={shiftErrors.endTime} />

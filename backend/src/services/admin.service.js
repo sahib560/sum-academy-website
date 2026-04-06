@@ -580,45 +580,61 @@ export const getAllStudents = async () => {
       classCourseIds.forEach((courseId) => {
         const cleanCourseId = trimText(courseId);
         if (!cleanCourseId) return;
-        const current = classCourseMap.get(cleanCourseId) || {
-          courseId: cleanCourseId,
-          classIds: [],
-        };
-        if (!current.classIds.includes(classId)) {
-          current.classIds.push(classId);
+        const key = `${classId}::${cleanCourseId}`;
+        if (!classCourseMap.has(key)) {
+          classCourseMap.set(key, {
+            classId,
+            courseId: cleanCourseId,
+          });
         }
-        classCourseMap.set(cleanCourseId, current);
       });
     });
 
-    const enrolledCourses = Array.from(classCourseMap.values()).map((row) => {
-      const matchingEnrollment = studentEnrollments.find((enrollment) => {
-        const rowCourseId = trimText(enrollment.courseId);
-        const rowClassId = trimText(enrollment.classId);
-        return (
-          rowCourseId === row.courseId &&
-          (!rowClassId || row.classIds.includes(rowClassId))
-        );
-      });
-      const classId = row.classIds[0] || "";
-      return {
-        id: `${studentId}_${row.courseId}_${classId || "class"}`,
-        courseId: row.courseId,
-        classId,
-        classIds: row.classIds,
-        courseName: courseNameById[row.courseId] || "Course",
-        enrolledAt:
-          matchingEnrollment?.createdAt ||
-          matchingEnrollment?.enrolledAt ||
-          null,
-        completedAt: matchingEnrollment?.completedAt || null,
-        progress: extractCourseProgress(
-          studentProgressRows,
-          row.courseId,
-          matchingEnrollment?.progress
-        ),
-      };
+    const paidEnrollmentRows = studentEnrollments.filter((enrollment) => {
+      const status = lowerText(enrollment.status || "active");
+      return ACTIVE_ENROLLMENT_STATUSES.has(status);
     });
+
+    const enrolledCourses = paidEnrollmentRows
+      .map((enrollment) => {
+        const courseId = trimText(enrollment.courseId);
+        const classId = trimText(enrollment.classId);
+        if (!courseId) return null;
+        return {
+          id: `${studentId}_${courseId}_${classId || "class"}`,
+          courseId,
+          classId,
+          classIds: classId ? [classId] : [],
+          enrollmentType:
+            lowerText(enrollment.enrollmentType) === "full_class"
+              ? "full_class"
+              : "single_course",
+          courseName: courseNameById[courseId] || "Course",
+          enrolledAt: enrollment.createdAt || enrollment.enrolledAt || null,
+          completedAt: enrollment.completedAt || null,
+          progress: extractCourseProgress(
+            studentProgressRows,
+            courseId,
+            enrollment.progress
+          ),
+        };
+      })
+      .filter(Boolean);
+
+    const paidCourseKeys = new Set(
+      enrolledCourses.map((course) => `${trimText(course.classId)}::${trimText(course.courseId)}`)
+    );
+    const lockedCourses = Array.from(classCourseMap.values())
+      .filter(
+        (row) =>
+          !paidCourseKeys.has(`${trimText(row.classId)}::${trimText(row.courseId)}`)
+      )
+      .map((row) => ({
+        id: `${studentId}_${row.courseId}_${row.classId || "class"}_locked`,
+        classId: row.classId,
+        courseId: row.courseId,
+        courseName: courseNameById[row.courseId] || "Course",
+      }));
     const avgProgress =
       enrolledCourses.length > 0
         ? Math.round(
@@ -662,6 +678,9 @@ export const getAllStudents = async () => {
       enrolledClasses,
       enrolledClassesCount: enrolledClasses.length,
       enrolledCourses,
+      lockedCourses,
+      enrolledCoursesCount: enrolledCourses.length,
+      lockedCoursesCount: lockedCourses.length,
       avgProgress,
       completedCourses: enrolledCourses.filter(
         (course) => clampPercent(course.progress) >= 100 || Boolean(course.completedAt)

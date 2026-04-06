@@ -42,6 +42,8 @@ function Checkout() {
   const location = useLocation();
   const navigate = useNavigate();
   const { userProfile } = useAuth();
+  const enrollmentType = String(location.state?.enrollmentType || "single_course");
+  const classInfoFromState = location.state?.classInfo || null;
   const course = location.state?.course || null;
   const courseId = course?.id || "";
   const prefillClassId = location.state?.prefillClassId || "";
@@ -65,9 +67,12 @@ function Checkout() {
   });
 
   const { data: classes = [], isLoading: classesLoading } = useQuery({
-    queryKey: ["checkout-classes", courseId],
-    queryFn: () => getAvailableClasses(courseId),
-    enabled: Boolean(courseId),
+    queryKey: ["checkout-classes", courseId, enrollmentType],
+    queryFn: () =>
+      enrollmentType === "single_course" && courseId
+        ? getAvailableClasses(courseId)
+        : getAvailableClasses(),
+    enabled: true,
   });
 
   const selectedClass = useMemo(
@@ -82,12 +87,18 @@ function Checkout() {
     [selectedClass, selectedShiftId]
   );
 
-  const originalAmount = Number(
-    course?.originalPrice ?? course?.price ?? 0
-  );
+  const fallbackClassTotal = Number(classInfoFromState?.totalPrice || 0);
+  const classTotalFromSelection = Number(selectedClass?.totalPrice || fallbackClassTotal || 0);
+  const originalAmount =
+    enrollmentType === "full_class"
+      ? classTotalFromSelection
+      : Number(course?.originalPrice ?? course?.price ?? 0);
   const courseDiscountPercent = Math.max(
     0,
-    Math.min(100, Number(course?.discountPercent || 0))
+    Math.min(
+      100,
+      enrollmentType === "full_class" ? 0 : Number(course?.discountPercent || 0)
+    )
   );
   const courseDiscountAmount = useMemo(
     () => Number(((originalAmount * courseDiscountPercent) / 100).toFixed(2)),
@@ -98,13 +109,14 @@ function Checkout() {
     [originalAmount, courseDiscountAmount]
   );
   const promoDiscountAmount = useMemo(() => {
+    if (enrollmentType === "full_class") return 0;
     if (!promoInfo) return 0;
     if (promoInfo.discountType === "fixed") {
       return Math.min(amountAfterCourseDiscount, Number(promoInfo.discountValue || 0));
     }
     const pct = Math.min(Number(promoInfo.discountValue || 0), 100);
     return Number(((amountAfterCourseDiscount * pct) / 100).toFixed(2));
-  }, [promoInfo, amountAfterCourseDiscount]);
+  }, [promoInfo, amountAfterCourseDiscount, enrollmentType]);
   const totalAmount = Math.max(
     Number((amountAfterCourseDiscount - promoDiscountAmount).toFixed(2)),
     0
@@ -221,11 +233,15 @@ function Checkout() {
   const initiateMutation = useMutation({
     mutationFn: () =>
       initiatePayment({
-        courseId,
+        enrollmentType,
+        courseId: enrollmentType === "single_course" ? courseId : undefined,
         classId: selectedClassId,
         shiftId: selectedShiftId,
         method: activePaymentMethod,
-        promoCode: promoCode ? promoCode.toUpperCase() : "",
+        promoCode:
+          enrollmentType === "single_course" && promoCode
+            ? promoCode.toUpperCase()
+            : "",
         installments: installmentMode === "installment" ? Number(installments) : 1,
       }),
     onSuccess: (data) => {
@@ -240,7 +256,7 @@ function Checkout() {
     },
   });
 
-  if (!courseId) {
+  if (enrollmentType === "single_course" && !courseId) {
     return (
       <div className="rounded-3xl border border-dashed border-slate-200 bg-white p-10 text-center">
         <p className="text-slate-600">No course selected for checkout.</p>
@@ -287,16 +303,36 @@ function Checkout() {
           <div className="space-y-4">
             <h2 className="font-heading text-xl text-slate-900">Order Summary</h2>
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-              <p className="font-semibold text-slate-900">{course.title || "Selected Course"}</p>
+              <p className="font-semibold text-slate-900">
+                {enrollmentType === "full_class"
+                  ? `Full Class Enrollment - ${selectedClass?.name || classInfoFromState?.name || "Class"}`
+                  : course.title || "Selected Course"}
+              </p>
+              {enrollmentType === "full_class" ? (
+                <div className="mt-1 text-sm text-slate-600">
+                  <p>
+                    Access to all {(selectedClass?.assignedCourses || classInfoFromState?.assignedCourses || []).length} course(s)
+                  </p>
+                  <ul className="mt-1 list-disc pl-5 text-xs">
+                    {(selectedClass?.assignedCourses || classInfoFromState?.assignedCourses || []).map((row) => (
+                      <li key={`inc-${row.courseId || row.title}`}>
+                        {row.title || row.courseName || "Course"}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
               <p className="mt-1 text-sm text-slate-600">
                 Original Price: {formatPKR(originalAmount)}
               </p>
               <p className="text-sm text-slate-600">
                 Course Discount ({courseDiscountPercent}%): -{formatPKR(courseDiscountAmount)}
               </p>
-              <p className="text-sm text-slate-600">
-                Promo Discount: -{formatPKR(promoDiscountAmount)}
-              </p>
+              {enrollmentType === "single_course" ? (
+                <p className="text-sm text-slate-600">
+                  Promo Discount: -{formatPKR(promoDiscountAmount)}
+                </p>
+              ) : null}
               <p className="mt-2 text-base font-semibold text-slate-900">
                 Total: {formatPKR(totalAmount)}
               </p>
@@ -341,7 +377,7 @@ function Checkout() {
                   <option value="">{selectedClass ? "Choose shift" : "Select class first"}</option>
                   {(selectedClass?.shifts || []).map((shift) => (
                     <option key={shift.id} value={shift.id}>
-                      {shift.name} · {(shift.days || []).map(shortDay).join(", ")} ·{" "}
+                      {shift.name} - {(shift.days || []).map(shortDay).join(", ")} -{" "}
                       {formatTime(shift.startTime)}-{formatTime(shift.endTime)}
                     </option>
                   ))}
@@ -349,30 +385,36 @@ function Checkout() {
               </div>
             </div>
 
-            <div>
-              <label className="text-sm font-semibold text-slate-700">Promo Code</label>
-              <div className="mt-2 flex flex-wrap gap-2">
-                <input
-                  value={promoCode}
-                  onChange={(event) => setPromoCode(event.target.value.toUpperCase())}
-                  placeholder="ENTER CODE"
-                  className="flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                />
-                <button
-                  className="btn-outline"
-                  disabled={!promoCode || applyPromoMutation.isPending}
-                  onClick={() => applyPromoMutation.mutate()}
-                >
-                  Validate
-                </button>
+            {enrollmentType === "single_course" ? (
+              <div>
+                <label className="text-sm font-semibold text-slate-700">Promo Code</label>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <input
+                    value={promoCode}
+                    onChange={(event) => setPromoCode(event.target.value.toUpperCase())}
+                    placeholder="ENTER CODE"
+                    className="flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                  />
+                  <button
+                    className="btn-outline"
+                    disabled={!promoCode || applyPromoMutation.isPending}
+                    onClick={() => applyPromoMutation.mutate()}
+                  >
+                    Validate
+                  </button>
+                </div>
+                {promoInfo ? (
+                  <p className="mt-2 text-xs text-emerald-600">
+                    Applied: {promoInfo.code} ({promoInfo.discountType}{" "}
+                    {promoInfo.discountValue})
+                  </p>
+                ) : null}
               </div>
-              {promoInfo ? (
-                <p className="mt-2 text-xs text-emerald-600">
-                  Applied: {promoInfo.code} ({promoInfo.discountType}{" "}
-                  {promoInfo.discountValue})
-                </p>
-              ) : null}
-            </div>
+            ) : (
+              <p className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700">
+                Promo codes are available on individual course purchases only.
+              </p>
+            )}
           </div>
         ) : null}
 
@@ -421,7 +463,7 @@ function Checkout() {
                   <div className="space-y-1 text-xs text-slate-600">
                     {installmentPreview.map((row) => (
                       <p key={row.number}>
-                        Installment {row.number}: {formatPKR(row.amount)} — Due:{" "}
+                        Installment {row.number}: {formatPKR(row.amount)} - Due:{" "}
                         {row.dueDate.toLocaleDateString()}
                       </p>
                     ))}
@@ -521,9 +563,13 @@ function Checkout() {
           <div className="space-y-4">
             <h2 className="font-heading text-xl text-slate-900">Confirm</h2>
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm">
-              <p className="font-semibold text-slate-900">{course.title}</p>
+              <p className="font-semibold text-slate-900">
+                {enrollmentType === "full_class"
+                  ? `Full Class: ${selectedClass?.name || classInfoFromState?.name || "Class"}`
+                  : course.title}
+              </p>
               <p className="mt-1 text-slate-600">
-                Class: {selectedClass?.name || "-"} · Shift: {selectedShift?.name || "-"}
+                Class: {selectedClass?.name || "-"} - Shift: {selectedShift?.name || "-"}
               </p>
               <p className="mt-1 text-slate-600">
                 Method: {formatMethodLabel(activePaymentMethod)}
@@ -534,7 +580,7 @@ function Checkout() {
                     Amount Due Now: {formatPKR(amountDueNow)}
                   </p>
                   <p className="text-sm text-slate-600">
-                    Total: {formatPKR(totalAmount)} · {installments} installments
+                    Total: {formatPKR(totalAmount)} - {installments} installments
                   </p>
                 </>
               ) : (
@@ -582,7 +628,7 @@ function Checkout() {
                   <p className="text-xs text-slate-600">
                     Amount Due Now: {formatPKR(initiatedPayment.amount)}
                     {initiatedPayment?.totalAmount
-                      ? ` · Total ${formatPKR(initiatedPayment.totalAmount)}`
+                      ? ` - Total ${formatPKR(initiatedPayment.totalAmount)}`
                       : ""}
                   </p>
                 ) : null}
@@ -593,7 +639,7 @@ function Checkout() {
                   accept="image/*,.pdf"
                   maxSize={10}
                   label="Upload Payment Receipt"
-                  hint="JPG, PNG, WEBP or PDF — max 10MB"
+                  hint="JPG, PNG, WEBP or PDF - max 10MB"
                   onUpload={async (file, { onProgress }) => {
                     if (!initiatedPayment?.paymentId) {
                       throw new Error("Payment session not found");

@@ -61,7 +61,18 @@ const normalizeDashboard = (raw = {}, fallbackName = "Student") => {
     },
     stats: {
       enrolledClassesCount: toNumber(stats.enrolledClassesCount, classes.length),
-      enrolledCoursesCount: toNumber(stats.enrolledCoursesCount, courses.length),
+      enrolledCoursesCount: toNumber(
+        stats.enrolledCoursesCount,
+        courses.filter((row) => !row.isPaymentLocked).length
+      ),
+      totalCoursesInClassesCount: toNumber(
+        stats.totalCoursesInClassesCount,
+        courses.length
+      ),
+      lockedCoursesCount: toNumber(
+        stats.lockedCoursesCount,
+        courses.filter((row) => row.isPaymentLocked).length
+      ),
       completedCount: toNumber(
         stats.completedCount,
         courses.filter((row) => toNumber(row.progress, 0) >= 100).length
@@ -103,7 +114,7 @@ function StudentDashboard() {
     },
     {
       label: "Courses In Classes",
-      value: dashboard.stats.enrolledCoursesCount,
+      value: `${dashboard.stats.enrolledCoursesCount}/${dashboard.stats.totalCoursesInClassesCount}`,
       color: "border-emerald-500",
       icon: <FiBookOpen className="h-5 w-5" />,
     },
@@ -294,6 +305,19 @@ function StudentDashboard() {
                         </span>
                       ))}
                     </div>
+                    <p className="mt-2 text-xs text-slate-500">
+                      Paid courses:{" "}
+                      {toNumber(classItem.paidCoursesCount, 0)}/
+                      {toNumber(
+                        classItem.totalCoursesCount,
+                        Array.isArray(classItem.courses) ? classItem.courses.length : 0
+                      )}
+                    </p>
+                    {toNumber(classItem.lockedCoursesCount, 0) > 0 ? (
+                      <p className="mt-1 text-[11px] font-semibold text-amber-700">
+                        {toNumber(classItem.lockedCoursesCount, 0)} courses locked - see pricing
+                      </p>
+                    ) : null}
 
                     <div className="mt-3 flex items-center gap-2 text-xs text-slate-500">
                       <div className="h-2 w-28 rounded-full bg-slate-100">

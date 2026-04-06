@@ -48,11 +48,25 @@ function StudentExploreCourses() {
     staleTime: 30000,
   });
 
-  const enrolledClassIds = useMemo(() => {
+  const enrollmentSnapshot = useMemo(() => {
     const classes = Array.isArray(studentDashboardQuery.data?.classes)
       ? studentDashboardQuery.data.classes
       : [];
-    return new Set(classes.map((row) => row.classId || row.id).filter(Boolean));
+    const enrolledClassIds = new Set(
+      classes.map((row) => row.classId || row.id).filter(Boolean)
+    );
+    const paidCourseKeySet = new Set();
+    classes.forEach((classRow) => {
+      const classId = classRow.classId || classRow.id || "";
+      const courses = Array.isArray(classRow.courses) ? classRow.courses : [];
+      courses.forEach((course) => {
+        const courseId = course.courseId || course.id || "";
+        if (!classId || !courseId) return;
+        if (course.isPaymentLocked) return;
+        paidCourseKeySet.add(`${classId}::${courseId}`);
+      });
+    });
+    return { enrolledClassIds, paidCourseKeySet };
   }, [studentDashboardQuery.data]);
 
   const classes = useMemo(() => {
@@ -65,18 +79,36 @@ function StudentExploreCourses() {
       const capacity = Math.max(1, toNumber(row.capacity, 30));
       const spotsLeft = Math.max(0, toNumber(row.spotsLeft, capacity - enrolledCount));
       const isFull = Boolean(row.isFull) || spotsLeft < 1;
-      const isEnrolled = enrolledClassIds.has(row.id);
+      const enrichedCourses = assignedCourses.map((course) => {
+        const courseId = course.courseId || "";
+        const price = toNumber(
+          course.finalPrice ?? course.discountedPrice ?? course.price,
+          0
+        );
+        const isPaid = enrollmentSnapshot.paidCourseKeySet.has(`${row.id}::${courseId}`);
+        return {
+          ...course,
+          finalPrice: price,
+          isPaid,
+        };
+      });
+      const paidCoursesCount = enrichedCourses.filter((course) => course.isPaid).length;
+      const isEnrolled = enrollmentSnapshot.enrolledClassIds.has(row.id);
+      const isFullyPaid =
+        enrichedCourses.length > 0 && paidCoursesCount >= enrichedCourses.length;
       return {
         ...row,
-        assignedCourses,
+        assignedCourses: enrichedCourses,
         enrolledCount,
         capacity,
         spotsLeft,
         isFull,
         isEnrolled,
+        paidCoursesCount,
+        isFullyPaid,
       };
     });
-  }, [data, enrolledClassIds]);
+  }, [data, enrollmentSnapshot]);
 
   const filteredClasses = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -94,29 +126,43 @@ function StudentExploreCourses() {
     });
   }, [classes, search]);
 
-  const handleEnroll = (classItem) => {
+  const goToCheckout = ({ classItem, enrollmentType, course = null }) => {
     if (authLoading) return;
     if (!isAuthenticated) {
       navigate("/login");
       return;
     }
-    if (classItem.isFull || classItem.isEnrolled) return;
-
-    const primaryCourse = classItem.assignedCourses[0] || {};
-    if (!primaryCourse.courseId) return;
+    if (classItem.isFull && !classItem.isEnrolled) return;
     navigate("/student/checkout", {
       state: {
-        course: {
-          id: primaryCourse.courseId || "",
-          title: primaryCourse.title || primaryCourse.courseName || classItem.name || "Class",
-          price: toNumber(primaryCourse.price, 0),
-          originalPrice: toNumber(primaryCourse.originalPrice, toNumber(primaryCourse.price, 0)),
-          discountPercent: toNumber(primaryCourse.discountPercent, 0),
-          discountedPrice: toNumber(
-            primaryCourse.discountedPrice,
-            toNumber(primaryCourse.price, 0)
-          ),
+        enrollmentType,
+        classInfo: {
+          id: classItem.id,
+          name: classItem.name,
+          batchCode: classItem.batchCode,
+          totalPrice: toNumber(classItem.totalPrice, 0),
+          assignedCourses: classItem.assignedCourses || [],
         },
+        course: course
+          ? {
+              id: course.courseId || "",
+              title: course.title || course.courseName || "Course",
+              price: toNumber(course.price, 0),
+              originalPrice: toNumber(
+                course.originalPrice,
+                toNumber(course.price, 0)
+              ),
+              discountPercent: toNumber(course.discountPercent, 0),
+              discountedPrice: toNumber(
+                course.finalPrice ?? course.discountedPrice ?? course.price,
+                toNumber(course.price, 0)
+              ),
+              finalPrice: toNumber(
+                course.finalPrice ?? course.discountedPrice ?? course.price,
+                toNumber(course.price, 0)
+              ),
+            }
+          : null,
         prefillClassId: classItem.id,
         prefillShiftId: classItem.shifts?.[0]?.id || "",
       },
@@ -159,10 +205,10 @@ function StudentExploreCourses() {
             ))
           : filteredClasses.map((classItem) => {
               const statusLabel = toStatusLabel(classItem);
-              const canEnroll =
-                !classItem.isEnrolled &&
-                !classItem.isFull &&
-                classItem.assignedCourses.length > 0;
+              const canEnrollFull =
+                (!classItem.isFull || classItem.isEnrolled) &&
+                classItem.assignedCourses.length > 0 &&
+                !classItem.isFullyPaid;
               const statusBadge =
                 statusLabel === "Full"
                   ? "bg-rose-50 text-rose-700 border-rose-200"
@@ -213,7 +259,8 @@ function StudentExploreCourses() {
                         key={`${classItem.id}-${course.courseId}`}
                         className="rounded-full bg-slate-100 px-3 py-1 text-[10px] font-semibold text-slate-600"
                       >
-                        {course.title || "Course"}
+                        {course.title || "Course"} - PKR{" "}
+                        {toNumber(course.finalPrice, toNumber(course.price, 0)).toLocaleString("en-PK")}
                       </span>
                     ))}
                     {classItem.assignedCourses.length > 3 ? (
@@ -222,31 +269,36 @@ function StudentExploreCourses() {
                       </span>
                     ) : null}
                   </div>
-
-                  <button
-                    className={`mt-4 w-full rounded-full px-4 py-2 text-sm font-semibold ${
-                      classItem.isEnrolled
-                        ? "bg-emerald-500 text-white"
-                        : classItem.isFull
-                        ? "cursor-not-allowed bg-slate-200 text-slate-500"
-                        : !canEnroll
-                        ? "cursor-not-allowed bg-slate-200 text-slate-500"
-                        : "bg-primary text-white"
-                    }`}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      handleEnroll(classItem);
-                    }}
-                    disabled={!canEnroll}
-                  >
-                    {classItem.isEnrolled
-                      ? "Enrolled"
-                      : classItem.isFull
-                      ? "Class Full"
-                      : !canEnroll
-                      ? "Not Available"
-                      : "Enroll Now"}
-                  </button>
+                  <div className="mt-4 space-y-2">
+                    <button
+                      className={`w-full rounded-full px-4 py-2 text-sm font-semibold ${
+                        classItem.isFull && !classItem.isEnrolled
+                          ? "cursor-not-allowed bg-slate-200 text-slate-500"
+                          : classItem.isFullyPaid
+                          ? "bg-emerald-500 text-white"
+                          : canEnrollFull
+                          ? "bg-primary text-white"
+                          : "cursor-not-allowed bg-slate-200 text-slate-500"
+                      }`}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        goToCheckout({
+                          classItem,
+                          enrollmentType: "full_class",
+                        });
+                      }}
+                      disabled={!canEnrollFull}
+                    >
+                      {classItem.isFull && !classItem.isEnrolled
+                        ? "Class Full"
+                        : classItem.isFullyPaid
+                        ? "Fully Enrolled"
+                        : `Enroll Full Class - PKR ${toNumber(classItem.totalPrice, 0).toLocaleString("en-PK")}`}
+                    </button>
+                    <p className="text-[11px] text-slate-500">
+                      Paid courses: {classItem.paidCoursesCount}/{classItem.assignedCourses.length}
+                    </p>
+                  </div>
                 </article>
               );
             })}
@@ -324,6 +376,32 @@ function StudentExploreCourses() {
                         <p className="text-xs text-slate-500">
                           {(course.subjects || []).join(", ") || "Subjects will be shared in class"}
                         </p>
+                        <p className="mt-1 text-xs font-semibold text-slate-700">
+                          PKR{" "}
+                          {toNumber(
+                            course.finalPrice ?? course.discountedPrice ?? course.price,
+                            0
+                          ).toLocaleString("en-PK")}
+                        </p>
+                        <button
+                          className={`mt-2 rounded-full px-3 py-1 text-xs font-semibold ${
+                            course.isPaid
+                              ? "bg-emerald-100 text-emerald-700"
+                              : "bg-primary text-white"
+                          }`}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            if (course.isPaid) return;
+                            goToCheckout({
+                              classItem: selectedClass,
+                              enrollmentType: "single_course",
+                              course,
+                            });
+                          }}
+                          disabled={course.isPaid}
+                        >
+                          {course.isPaid ? "Purchased" : "Buy Course"}
+                        </button>
                       </div>
                     ))}
                   </div>
@@ -352,35 +430,30 @@ function StudentExploreCourses() {
               </div>
 
               <div className="mt-6 flex justify-end">
-                {(() => {
-                  const canEnroll =
-                    !selectedClass.isEnrolled &&
-                    !selectedClass.isFull &&
-                    selectedClass.assignedCourses.length > 0;
-                  return (
                 <button
                   className={`rounded-full px-5 py-2 text-sm font-semibold ${
-                    selectedClass.isEnrolled
-                      ? "bg-emerald-500 text-white"
-                      : selectedClass.isFull
-                      ? "cursor-not-allowed bg-slate-200 text-slate-500"
-                      : !canEnroll
+                    (selectedClass.isFull && !selectedClass.isEnrolled) ||
+                    selectedClass.isFullyPaid
                       ? "cursor-not-allowed bg-slate-200 text-slate-500"
                       : "bg-primary text-white"
                   }`}
-                  onClick={() => handleEnroll(selectedClass)}
-                  disabled={!canEnroll}
+                  onClick={() =>
+                    goToCheckout({
+                      classItem: selectedClass,
+                      enrollmentType: "full_class",
+                    })
+                  }
+                  disabled={
+                    (selectedClass.isFull && !selectedClass.isEnrolled) ||
+                    selectedClass.isFullyPaid
+                  }
                 >
-                  {selectedClass.isEnrolled
-                    ? "Enrolled"
-                    : selectedClass.isFull
+                  {selectedClass.isFull && !selectedClass.isEnrolled
                     ? "Class Full"
-                    : !canEnroll
-                    ? "Not Available"
-                    : "Enroll in this Class"}
+                    : selectedClass.isFullyPaid
+                    ? "Fully Enrolled"
+                    : `Enroll Full Class - PKR ${toNumber(selectedClass.totalPrice, 0).toLocaleString("en-PK")}`}
                 </button>
-                  );
-                })()}
               </div>
             </Motion.div>
           </div>
