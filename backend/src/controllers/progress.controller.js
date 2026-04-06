@@ -56,20 +56,27 @@ const getCourseEnrollmentRows = async (studentId, courseId) => {
     .filter((row) => trimText(row.courseId) === courseId);
 };
 
-const startOfDay = (value) => {
+const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
+const PK_DATE_FORMATTER = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "Asia/Karachi",
+});
+const toPkDateKey = (value) => {
+  if (!value) return null;
+  if (typeof value === "string") {
+    const clean = trimText(value);
+    if (DATE_ONLY_RE.test(clean)) return clean;
+  }
   const parsed = toDate(value);
   if (!parsed) return null;
-  const clone = new Date(parsed);
-  clone.setHours(0, 0, 0, 0);
-  return clone;
+  return PK_DATE_FORMATTER.format(parsed);
 };
 
 const evaluateEnrollmentWindow = (row = {}) => {
-  const startDate = startOfDay(row.classStartDate);
-  const endDate = startOfDay(row.classEndDate);
-  const today = startOfDay(new Date());
+  const startDateKey = toPkDateKey(row.classStartDate);
+  const endDateKey = toPkDateKey(row.classEndDate);
+  const todayKey = toPkDateKey(new Date());
 
-  if (startDate && today && today.getTime() < startDate.getTime()) {
+  if (startDateKey && todayKey && todayKey < startDateKey) {
     return {
       allowed: false,
       code: "CLASS_NOT_STARTED",
@@ -81,7 +88,7 @@ const evaluateEnrollmentWindow = (row = {}) => {
     };
   }
 
-  if (endDate && today && today.getTime() > endDate.getTime()) {
+  if (endDateKey && todayKey && todayKey > endDateKey) {
     return {
       allowed: false,
       code: "CLASS_ENDED",
@@ -94,6 +101,20 @@ const evaluateEnrollmentWindow = (row = {}) => {
   }
 
   return { allowed: true, code: "", message: "", meta: {} };
+};
+
+const resolveClassStatusByWindow = (row = {}) => {
+  const explicitStatus = lowerText(row.classStatus || "");
+  const windowState = evaluateEnrollmentWindow(row);
+
+  if (windowState.code === "CLASS_NOT_STARTED") return "upcoming";
+  if (windowState.code === "CLASS_ENDED") return "completed";
+
+  if (["active", "completed", "upcoming"].includes(explicitStatus)) {
+    return explicitStatus === "upcoming" ? "active" : explicitStatus;
+  }
+
+  return "active";
 };
 
 const enrichEnrollmentRowsWithClassWindow = async (rows = []) => {
@@ -122,13 +143,21 @@ const enrichEnrollmentRowsWithClassWindow = async (rows = []) => {
   return rows.map((row) => {
     const classId = trimText(row.classId);
     const classData = classMap[classId] || {};
+    const classStartDate =
+      row.classStartDate || row.startDate || classData.startDate || classData.classStartDate || null;
+    const classEndDate =
+      row.classEndDate || row.endDate || classData.endDate || classData.classEndDate || null;
+    const classStatus = resolveClassStatusByWindow({
+      classStatus: lowerText(row.classStatus || classData.status || ""),
+      classStartDate,
+      classEndDate,
+    });
+
     return {
       ...row,
-      classStartDate:
-        row.classStartDate || row.startDate || classData.startDate || classData.classStartDate || null,
-      classEndDate:
-        row.classEndDate || row.endDate || classData.endDate || classData.classEndDate || null,
-      classStatus: lowerText(row.classStatus || classData.status || ""),
+      classStartDate,
+      classEndDate,
+      classStatus,
     };
   });
 };
@@ -147,7 +176,12 @@ const ensureStudentEnrolled = async (studentId, courseId) => {
 
   const checks = candidateRows.map((row) => {
     const status = lowerText(row.status || "active");
-    if (status === "upcoming" || row.classStatus === "upcoming") {
+    const windowState = evaluateEnrollmentWindow(row);
+
+    if (
+      (status === "upcoming" || row.classStatus === "upcoming") &&
+      windowState.code === "CLASS_NOT_STARTED"
+    ) {
       return {
         row,
         allowed: false,
@@ -174,7 +208,6 @@ const ensureStudentEnrolled = async (studentId, courseId) => {
       };
     }
 
-    const windowState = evaluateEnrollmentWindow(row);
     return { row, ...windowState };
   });
 
