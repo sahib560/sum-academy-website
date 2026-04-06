@@ -146,9 +146,17 @@ const enrichEnrollmentRowsWithClassWindow = async (rows = []) => {
     const classId = trimText(row.classId);
     const classData = classMap[classId] || {};
     const classStartDate =
-      row.classStartDate || row.startDate || classData.startDate || classData.classStartDate || null;
+      classData.startDate ||
+      classData.classStartDate ||
+      row.classStartDate ||
+      row.startDate ||
+      null;
     const classEndDate =
-      row.classEndDate || row.endDate || classData.endDate || classData.classEndDate || null;
+      classData.endDate ||
+      classData.classEndDate ||
+      row.classEndDate ||
+      row.endDate ||
+      null;
     const classStatus = resolveClassStatusByWindow({
       classStatus: lowerText(row.classStatus || classData.status || ""),
       classStartDate,
