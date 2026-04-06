@@ -1596,15 +1596,6 @@ export const verifyBankTransfer = async (req, res) => {
         throw new Error("CLASS_HAS_NO_COURSES");
       }
 
-      transaction.update(paymentRef, {
-        status: "paid",
-        verifiedBy: req.user?.uid || null,
-        verifiedAt: FieldValue.serverTimestamp(),
-        updatedAt: FieldValue.serverTimestamp(),
-        classId: freshClassId || null,
-        shiftId: effectiveShiftId || null,
-      });
-
       const enrollmentQuery = db
         .collection(COLLECTIONS.ENROLLMENTS)
         .where("studentId", "==", freshStudentId);
@@ -1614,6 +1605,28 @@ export const verifyBankTransfer = async (req, res) => {
         ref: doc.ref,
         data: doc.data() || {},
       }));
+      let promoRef = null;
+      if (freshPayment.promoCodeId) {
+        promoRef = db.collection(COLLECTIONS.PROMO_CODES).doc(freshPayment.promoCodeId);
+        const promoSnap = await transaction.get(promoRef);
+        if (promoSnap.exists) {
+          const promoData = promoSnap.data() || {};
+          const usageLimit = toNumber(promoData.usageLimit, 0);
+          const usageCount = toNumber(promoData.usageCount, 0);
+          if (usageLimit > 0 && usageCount >= usageLimit) {
+            throw new Error("PROMO_LIMIT_REACHED");
+          }
+        }
+      }
+
+      transaction.update(paymentRef, {
+        status: "paid",
+        verifiedBy: req.user?.uid || null,
+        verifiedAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+        classId: freshClassId || null,
+        shiftId: effectiveShiftId || null,
+      });
 
       enrollmentCourseIds.forEach((courseId) => {
         const existingEnrollment = existingEnrollmentRows.find((row) => {
@@ -1685,21 +1698,11 @@ export const verifyBankTransfer = async (req, res) => {
       }
       transaction.set(studentRef, studentUpdates, { merge: true });
 
-      if (freshPayment.promoCodeId) {
-        const promoRef = db.collection(COLLECTIONS.PROMO_CODES).doc(freshPayment.promoCodeId);
-        const promoSnap = await transaction.get(promoRef);
-        if (promoSnap.exists) {
-          const promoData = promoSnap.data() || {};
-          const usageLimit = toNumber(promoData.usageLimit, 0);
-          const usageCount = toNumber(promoData.usageCount, 0);
-          if (usageLimit > 0 && usageCount >= usageLimit) {
-            throw new Error("PROMO_LIMIT_REACHED");
-          }
-          transaction.update(promoRef, {
-            usageCount: FieldValue.increment(1),
-            updatedAt: FieldValue.serverTimestamp(),
-          });
-        }
+      if (promoRef) {
+        transaction.update(promoRef, {
+          usageCount: FieldValue.increment(1),
+          updatedAt: FieldValue.serverTimestamp(),
+        });
       }
 
       if (classRef && classData && !studentAlreadyInClass) {
