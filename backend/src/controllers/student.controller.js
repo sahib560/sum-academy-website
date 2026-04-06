@@ -10,6 +10,7 @@ import {
   isPakistanPhone,
   normalizePakistanPhone,
 } from "../utils/phone.utils.js";
+import { buildCourseContentForStudent } from "./progress.controller.js";
 
 const serverTimestamp = () => admin.firestore.FieldValue.serverTimestamp();
 const SETTINGS_DOC_ID = "siteSettings";
@@ -2437,6 +2438,65 @@ export const getStudentQuizzes = async (req, res) => {
   }
 };
 
+const ensureQuizUnlockedForStudent = async ({
+  studentId = "",
+  courseId = "",
+  quizId = "",
+}) => {
+  const built = await buildCourseContentForStudent(studentId, courseId);
+  if (built?.error) {
+    return {
+      allowed: false,
+      status: built.status || 403,
+      code: built.code || "QUIZ_LOCKED",
+      lockReason: "",
+      error: built.error || "Quiz is locked for your current progress",
+    };
+  }
+
+  const allQuizzes = [
+    ...(Array.isArray(built.chapters)
+      ? built.chapters.flatMap((chapter) =>
+          Array.isArray(chapter?.quizzes) ? chapter.quizzes : []
+        )
+      : []),
+    ...(Array.isArray(built.subjectQuizzes) ? built.subjectQuizzes : []),
+  ];
+  const matchedQuiz = allQuizzes.find(
+    (row) => trimText(row?.quizId || row?.id) === trimText(quizId)
+  );
+
+  if (!matchedQuiz) {
+    return {
+      allowed: false,
+      status: 403,
+      code: "QUIZ_NOT_AVAILABLE",
+      lockReason: "",
+      error: "Quiz is not available for your current progress",
+    };
+  }
+
+  if (matchedQuiz.isLocked) {
+    return {
+      allowed: false,
+      status: 403,
+      code: "QUIZ_LOCKED",
+      lockReason: trimText(matchedQuiz.lockReason),
+      error:
+        trimText(matchedQuiz.lockReason) ||
+        "Complete previous videos/quizzes to unlock this quiz",
+    };
+  }
+
+  return {
+    allowed: true,
+    status: 200,
+    code: "",
+    lockReason: "",
+    error: "",
+  };
+};
+
 export const getQuizById = async (req, res) => {
   try {
     const uid = trimText(req.user?.uid);
@@ -2460,6 +2520,23 @@ export const getQuizById = async (req, res) => {
     const dueAtDate = getQuizAssignmentDueAt(quizData);
     if (dueAtDate && dueAtDate.getTime() < Date.now()) {
       return errorResponse(res, "Quiz deadline has passed", 403);
+    }
+
+    const quizAccess = await ensureQuizUnlockedForStudent({
+      studentId: uid,
+      courseId,
+      quizId,
+    });
+    if (!quizAccess.allowed) {
+      return errorResponse(
+        res,
+        quizAccess.error,
+        quizAccess.status || 403,
+        {
+          ...(quizAccess.code ? { code: quizAccess.code } : {}),
+          ...(quizAccess.lockReason ? { lockReason: quizAccess.lockReason } : {}),
+        }
+      );
     }
 
     const questions = Array.isArray(quizData.questions) ? quizData.questions : [];
@@ -2530,6 +2607,23 @@ export const submitQuizAttempt = async (req, res) => {
     const dueAtDate = getQuizAssignmentDueAt(quizData);
     if (dueAtDate && dueAtDate.getTime() < Date.now()) {
       return errorResponse(res, "Quiz deadline has passed", 403);
+    }
+
+    const quizAccess = await ensureQuizUnlockedForStudent({
+      studentId: uid,
+      courseId,
+      quizId,
+    });
+    if (!quizAccess.allowed) {
+      return errorResponse(
+        res,
+        quizAccess.error,
+        quizAccess.status || 403,
+        {
+          ...(quizAccess.code ? { code: quizAccess.code } : {}),
+          ...(quizAccess.lockReason ? { lockReason: quizAccess.lockReason } : {}),
+        }
+      );
     }
 
     const questions = Array.isArray(quizData.questions) ? quizData.questions : [];

@@ -327,7 +327,7 @@ const toSubjectQuizList = (quizzes = []) =>
     return scope === "subject" || !hasChapter;
   });
 
-const buildCourseContentForStudent = async (
+export const buildCourseContentForStudent = async (
   studentId,
   courseId,
   options = {}
@@ -693,6 +693,10 @@ export const markLectureComplete = async (req, res) => {
     const courseId = trimText(req.params?.courseId);
     const lectureId = trimText(req.params?.lectureId);
     const studentId = trimText(req.user?.uid);
+    const requestedWatchedPercent = Math.max(
+      0,
+      Math.min(100, toNumber(req.body?.watchedPercent, 0))
+    );
 
     if (!courseId || !lectureId) {
       return errorResponse(res, "courseId and lectureId are required", 400);
@@ -726,14 +730,28 @@ export const markLectureComplete = async (req, res) => {
         { code: "LECTURE_LOCKED", lockReason: lectureRow.lockReason || "" }
       );
     }
-    if (!lectureRow.isCompleted && toNumber(lectureRow.watchedPercent, 0) < 80) {
+
+    const dbWatchedPercent = Math.max(0, Math.min(100, toNumber(lectureRow.watchedPercent, 0)));
+    const effectiveWatchedPercent = Math.max(dbWatchedPercent, requestedWatchedPercent);
+
+    if (!lectureRow.isCompleted && requestedWatchedPercent > dbWatchedPercent) {
+      await upsertStudentProgressRow({
+        studentId,
+        courseId,
+        lectureId,
+        markCompleted: false,
+        watchedPercent: requestedWatchedPercent,
+      });
+    }
+
+    if (!lectureRow.isCompleted && effectiveWatchedPercent < 80) {
       return errorResponse(
         res,
         "Watch at least 80% of the lecture before marking complete",
         400,
         {
           code: "WATCH_REQUIREMENT_NOT_MET",
-          watchedPercent: toNumber(lectureRow.watchedPercent, 0),
+          watchedPercent: effectiveWatchedPercent,
           requiredPercent: 80,
         }
       );

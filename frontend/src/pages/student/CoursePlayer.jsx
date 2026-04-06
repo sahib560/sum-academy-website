@@ -168,6 +168,7 @@ function StudentCoursePlayer() {
   const playerRef = useRef(null);
   const objectUrlRef = useRef("");
   const lastWatchSaveAtRef = useRef(0);
+  const autoCompletedLectureRef = useRef("");
 
   const [currentLectureId, setCurrentLectureId] = useState("");
   const [expandedChapters, setExpandedChapters] = useState({});
@@ -225,8 +226,11 @@ function StudentCoursePlayer() {
 
 
   const markCompleteMutation = useMutation({
-    mutationFn: ({ courseId: targetCourseId, lectureId: targetLectureId }) =>
-      markLectureComplete(targetCourseId, targetLectureId),
+    mutationFn: ({
+      courseId: targetCourseId,
+      lectureId: targetLectureId,
+      watchedPercent: targetWatchedPercent = 0,
+    }) => markLectureComplete(targetCourseId, targetLectureId, targetWatchedPercent),
     onSuccess: (result) => {
       const data = result || {};
       if (data?.courseCompleted) {
@@ -244,6 +248,7 @@ function StudentCoursePlayer() {
       }
     },
     onError: (mutationError) => {
+      autoCompletedLectureRef.current = "";
       toast.error(
         mutationError?.response?.data?.message || "Failed to mark lecture complete"
       );
@@ -544,8 +549,38 @@ function StudentCoursePlayer() {
     markCompleteMutation.mutate({
       courseId,
       lectureId: currentLecture.lectureId,
+      watchedPercent: Math.round(watchedPercent),
     });
   };
+
+  useEffect(() => {
+    if (!courseId || !currentLecture?.lectureId) return;
+    if (classCompletionLocked || securityLocked) return;
+    if (currentLecture.isLocked || currentLecture.isCompleted) return;
+    if (markCompleteMutation.isPending) return;
+
+    const roundedWatchedPercent = Math.round(watchedPercent);
+    if (roundedWatchedPercent < 100) return;
+
+    const autoKey = `${courseId}:${currentLecture.lectureId}`;
+    if (autoCompletedLectureRef.current === autoKey) return;
+
+    autoCompletedLectureRef.current = autoKey;
+    markCompleteMutation.mutate({
+      courseId,
+      lectureId: currentLecture.lectureId,
+      watchedPercent: roundedWatchedPercent,
+    });
+  }, [
+    courseId,
+    currentLecture?.lectureId,
+    currentLecture?.isCompleted,
+    currentLecture?.isLocked,
+    watchedPercent,
+    classCompletionLocked,
+    securityLocked,
+    markCompleteMutation.isPending,
+  ]);
 
   const canMarkComplete =
     Boolean(currentLecture) &&
