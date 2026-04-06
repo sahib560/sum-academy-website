@@ -54,6 +54,9 @@ const normalizeCertificates = (rows = []) =>
     id: certificate.id || `cert-${index}`,
     certId: sanitizeText(certificate.certId || certificate.id || `CERT-${index + 1}`),
     courseName: sanitizeText(certificate.courseName || certificate.course || "Course"),
+    className: sanitizeText(certificate.className || ""),
+    completionScope: sanitizeText(certificate.completionScope || ""),
+    completionTitle: sanitizeText(certificate.completionTitle || ""),
     studentName: sanitizeText(certificate.studentName || certificate.student || "Student"),
     issuedAt:
       certificate.issuedAt ||
@@ -67,10 +70,21 @@ const normalizeCertificates = (rows = []) =>
   }));
 
 const downloadCertificatePdf = async (certificate, logoUrl, fallbackStudentName) => {
+  const completionScope =
+    certificate.completionScope || (certificate.className ? "class" : "course");
+  const completionTitle =
+    certificate.completionTitle ||
+    (certificate.className
+      ? `${certificate.className}${certificate.courseName ? ` - ${certificate.courseName}` : ""}`
+      : certificate.courseName);
+
   await generateCertificatePDF({
     certId: certificate.certId,
     studentName: fallbackStudentName || certificate.studentName,
     courseName: certificate.courseName,
+    className: certificate.className,
+    completionScope,
+    completionTitle,
     issuedDate: certificate.issuedAt,
     instructorName: "SUM Academy",
     logoUrl,
@@ -236,7 +250,12 @@ function StudentCertificates() {
                   className="mt-3 text-base text-slate-900"
                   style={{ fontFamily: "\"Playfair Display\", serif" }}
                 >
-                  {certificate.courseName}
+                  {certificate.completionTitle ||
+                    (certificate.className
+                      ? `${certificate.className}${
+                          certificate.courseName ? ` - ${certificate.courseName}` : ""
+                        }`
+                      : certificate.courseName)}
                 </p>
                 {certificate.isRevoked ? (
                   <span className="mt-2 inline-flex rounded-full border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-rose-700">

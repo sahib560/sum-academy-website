@@ -428,6 +428,8 @@ const buildClassCompletionStateForStudent = ({
 
   return {
     classId,
+    className: trimText(classData.name) || "Class",
+    batchCode: trimText(classData.batchCode),
     status,
     completed,
     endedByDate,
@@ -472,6 +474,8 @@ const resolveCourseAccessStateFromClasses = ({
 
   const isLocked = contexts.every((row) => row.isLocked);
   const isCompletedWindow = contexts.some((row) => row.completed);
+  const firstCompletedContext =
+    contexts.find((row) => row.completed) || contexts[0] || null;
 
   return {
     hasClassContext: true,
@@ -479,6 +483,13 @@ const resolveCourseAccessStateFromClasses = ({
     isCompletedWindow,
     eligibleForCertificate: isCompletedWindow,
     classStates: contexts,
+    preferredClassContext: firstCompletedContext
+      ? {
+          classId: firstCompletedContext.classId,
+          className: firstCompletedContext.className,
+          batchCode: firstCompletedContext.batchCode,
+        }
+      : null,
   };
 };
 
@@ -955,6 +966,40 @@ const getLatestFinalQuizRequest = async (studentId = "", courseId = "") => {
   return rows[0] || null;
 };
 
+const getApprovedFinalQuizCourseIds = async (studentId = "") => {
+  const cleanStudentId = trimText(studentId);
+  if (!cleanStudentId) return new Set();
+
+  const snap = await db
+    .collection(COLLECTIONS.FINAL_QUIZ_REQUESTS)
+    .where("studentId", "==", cleanStudentId)
+    .get();
+
+  const allowedStatuses = new Set(["approved", "completed"]);
+  const courseIds = snap.docs
+    .map((doc) => doc.data() || {})
+    .filter((row) => allowedStatuses.has(lowerText(row.status || "")))
+    .map((row) => trimText(row.courseId))
+    .filter(Boolean);
+
+  return new Set(courseIds);
+};
+
+const canStudentAttemptQuiz = ({
+  quiz = {},
+  studentId = "",
+  approvedFinalQuizCourseIds = new Set(),
+}) => {
+  const uid = trimText(studentId);
+  if (!uid) return false;
+
+  if (isQuizAssignedToStudent(quiz, uid)) return true;
+  if (!isFinalQuizRow(quiz)) return false;
+
+  const courseId = trimText(quiz.courseId);
+  return Boolean(courseId && approvedFinalQuizCourseIds.has(courseId));
+};
+
 const resolveFinalQuizRequirementState = async ({
   studentId = "",
   courseId = "",
@@ -1017,6 +1062,7 @@ const ensureCertificateForCompletion = async ({
   userData,
   courseId,
   courseData,
+  classContext = null,
 }) => {
   const existingSnap = await db
     .collection(COLLECTIONS.CERTIFICATES)
@@ -1034,6 +1080,13 @@ const ensureCertificateForCompletion = async ({
     trimText(userData.fullName) ||
     getNameFromEmail(userData.email || "");
   const courseName = trimText(courseData.title) || "Course";
+  const className = trimText(classContext?.className);
+  const batchCode = trimText(classContext?.batchCode);
+  const classId = trimText(classContext?.classId);
+  const completionScope = className ? "class" : "course";
+  const completionTitle = className
+    ? [className, batchCode ? `(${batchCode})` : ""].filter(Boolean).join(" ")
+    : courseName;
   const verificationUrl = `${process.env.CLIENT_URL || ""}/verify/${certId}`;
 
   await certRef.set({
@@ -1041,6 +1094,11 @@ const ensureCertificateForCompletion = async ({
     studentName,
     courseId,
     courseName,
+    classId: classId || null,
+    className: className || null,
+    batchCode: batchCode || null,
+    completionScope,
+    completionTitle,
     certId,
     verificationUrl,
     issuedAt: serverTimestamp(),
@@ -1054,6 +1112,11 @@ const ensureCertificateForCompletion = async ({
         certId,
         courseId,
         courseName,
+        classId: classId || null,
+        className: className || null,
+        batchCode: batchCode || null,
+        completionScope,
+        completionTitle,
         issuedAt: new Date().toISOString(),
       }),
       updatedAt: serverTimestamp(),
@@ -1122,6 +1185,21 @@ const ensureCertificatesForFullyCompletedClasses = async ({
   }
 
   const courseMap = await getCourseDocsByIds(targetCourseIds);
+  const courseClassContextMap = completedClassStates.reduce((acc, classState) => {
+    const classContext = {
+      classId: classState.classId,
+      className: classState.className,
+      batchCode: classState.batchCode,
+    };
+    classState.courseCompletionRows
+      .filter((courseRow) => courseRow.completed)
+      .forEach((courseRow) => {
+        const cleanCourseId = trimText(courseRow.courseId);
+        if (!cleanCourseId || acc[cleanCourseId]) return;
+        acc[cleanCourseId] = classContext;
+      });
+    return acc;
+  }, {});
   let createdCertificates = 0;
   let blockedByFinalQuiz = 0;
 
@@ -1141,6 +1219,7 @@ const ensureCertificatesForFullyCompletedClasses = async ({
       userData,
       courseId,
       courseData: courseMap[courseId] || {},
+      classContext: courseClassContextMap[courseId] || null,
     });
     if (certResult?.created) createdCertificates += 1;
   }
@@ -1791,20 +1870,45 @@ export const requestFinalQuizForCourse = async (req, res) => {
       );
     }
 
-    const [courseLectures, progressRows] = await Promise.all([
+    const [courseLectures, progressRows, enrollmentSnap] = await Promise.all([
       getCourseLectures(courseId),
       getProgressRowsForStudent(uid, courseId),
+      db
+        .collection(COLLECTIONS.ENROLLMENTS)
+        .where("studentId", "==", uid)
+        .where("courseId", "==", courseId)
+        .get(),
     ]);
     const totalLectures = courseLectures.length;
     const progressMap = buildLectureProgressMap(progressRows, courseId);
     const completedLectures = courseLectures.filter(
       (lecture) => progressMap[lecture.id]?.isCompleted
     ).length;
-    const completionPercent =
+    const lectureCompletionPercent =
       totalLectures > 0
         ? Math.round((completedLectures / totalLectures) * 100)
         : 0;
-    const isCourseCompleted = totalLectures > 0 && completedLectures >= totalLectures;
+    const enrollmentRows = enrollmentSnap.docs.map((doc) => doc.data() || {});
+    const enrollmentProgress = enrollmentRows.length
+      ? Math.max(
+          ...enrollmentRows.map((row) =>
+            toNumber(
+              row.progress ?? row.progressPercent ?? row.completionPercent,
+              0
+            )
+          )
+        )
+      : 0;
+    const enrollmentMarkedCompleted = enrollmentRows.some((row) => {
+      const status = lowerText(row.status || "");
+      return status === "completed" || Boolean(row.completedAt);
+    });
+    const isCourseCompleted =
+      (totalLectures > 0 && completedLectures >= totalLectures) ||
+      enrollmentMarkedCompleted ||
+      enrollmentProgress >= 100;
+    const completionPercent =
+      totalLectures > 0 ? lectureCompletionPercent : clampPercent(enrollmentProgress);
     if (!isCourseCompleted) {
       return errorResponse(
         res,
@@ -1815,6 +1919,8 @@ export const requestFinalQuizForCourse = async (req, res) => {
           completedLectures,
           totalLectures,
           completionPercent: clampPercent(completionPercent),
+          enrollmentProgress: clampPercent(enrollmentProgress),
+          enrollmentMarkedCompleted,
         }
       );
     }
@@ -2036,6 +2142,7 @@ export const markLectureComplete = async (req, res) => {
           userData: profile.userData,
           courseId,
           courseData: courseSnap.data() || {},
+          classContext: certificateAccess.preferredClassContext || null,
         });
       } else {
         certificatePending = true;
@@ -2344,15 +2451,22 @@ export const getStudentQuizzes = async (req, res) => {
       return successResponse(res, [], "Student quizzes fetched");
     }
 
-    const [quizzes, latestAttemptMap, courseMap] = await Promise.all([
+    const [quizzes, latestAttemptMap, courseMap, approvedFinalQuizCourseIds] = await Promise.all([
       getActiveQuizzesForCourseIds(enrolledCourseIds),
       getLatestQuizAttemptMap(uid),
       getCourseDocsByIds(enrolledCourseIds),
+      getApprovedFinalQuizCourseIds(uid),
     ]);
 
     const nowTime = Date.now();
     const payload = quizzes
-      .filter((quiz) => isQuizAssignedToStudent(quiz, uid))
+      .filter((quiz) =>
+        canStudentAttemptQuiz({
+          quiz,
+          studentId: uid,
+          approvedFinalQuizCourseIds,
+        })
+      )
       .map((quiz) => {
         const courseId = trimText(quiz.courseId);
         const courseData = courseMap[courseId] || {};
@@ -2514,7 +2628,22 @@ export const getQuizById = async (req, res) => {
       return errorResponse(res, "You are not enrolled in this quiz course", 403);
     }
 
-    if (!isQuizAssignedToStudent(quizData, uid)) {
+    const approvedFinalQuizCourseIds = await getApprovedFinalQuizCourseIds(uid);
+    if (
+      !canStudentAttemptQuiz({
+        quiz: quizData,
+        studentId: uid,
+        approvedFinalQuizCourseIds,
+      })
+    ) {
+      if (isFinalQuizRow(quizData)) {
+        return errorResponse(
+          res,
+          "Final quiz is not approved for you yet. Request approval first.",
+          403,
+          { code: "FINAL_QUIZ_NOT_APPROVED" }
+        );
+      }
       return errorResponse(res, "This quiz is not assigned to you", 403);
     }
     const dueAtDate = getQuizAssignmentDueAt(quizData);
@@ -2601,7 +2730,22 @@ export const submitQuizAttempt = async (req, res) => {
       return errorResponse(res, "You are not enrolled in this quiz course", 403);
     }
 
-    if (!isQuizAssignedToStudent(quizData, uid)) {
+    const approvedFinalQuizCourseIds = await getApprovedFinalQuizCourseIds(uid);
+    if (
+      !canStudentAttemptQuiz({
+        quiz: quizData,
+        studentId: uid,
+        approvedFinalQuizCourseIds,
+      })
+    ) {
+      if (isFinalQuizRow(quizData)) {
+        return errorResponse(
+          res,
+          "Final quiz is not approved for you yet. Request approval first.",
+          403,
+          { code: "FINAL_QUIZ_NOT_APPROVED" }
+        );
+      }
       return errorResponse(res, "This quiz is not assigned to you", 403);
     }
     const dueAtDate = getQuizAssignmentDueAt(quizData);
@@ -2834,6 +2978,7 @@ export const submitQuizAttempt = async (req, res) => {
             userData: profile.userData,
             courseId,
             courseData: courseSnap.exists ? courseSnap.data() || {} : {},
+            classContext: certificateAccess.preferredClassContext || null,
           });
           certificateIssued = Boolean(certResult?.created);
         } else {

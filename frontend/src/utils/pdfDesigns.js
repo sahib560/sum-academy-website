@@ -494,6 +494,9 @@ export const generateCertificatePDF = async ({
   certId,
   studentName,
   courseName,
+  className,
+  completionScope,
+  completionTitle,
   issuedDate,
   instructorName,
   logoUrl,
@@ -587,15 +590,26 @@ export const generateCertificatePDF = async ({
   doc.setLineWidth(0.5);
   doc.line(nameX, 101, nameX + nameWidth, 101);
 
+  const normalizedScope = String(completionScope || "").toLowerCase();
+  const isClassScope = normalizedScope === "class";
+  const achievedTitle =
+    completionTitle ||
+    (isClassScope
+      ? className || courseName || "Class"
+      : courseName || className || "Course");
+  const scopeLabel = isClassScope ? "class" : "course";
+
   doc.setTextColor(148, 163, 184);
   doc.setFont("helvetica", "italic");
   doc.setFontSize(10);
-  doc.text("has successfully completed the course", W / 2, 112, { align: "center" });
+  doc.text(`has successfully completed the ${scopeLabel}`, W / 2, 112, {
+    align: "center",
+  });
 
   doc.setTextColor(...BRAND.blue);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(20);
-  doc.text(courseName || "Course Name", W / 2, 126, { align: "center" });
+  doc.text(achievedTitle || "Completion", W / 2, 126, { align: "center" });
 
   doc.setDrawColor(...BRAND.blue);
   doc.setLineWidth(0.3);

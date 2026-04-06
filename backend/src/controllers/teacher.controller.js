@@ -94,6 +94,20 @@ const getNameFromEmail = (email = "") =>
     .join(" ")
     .trim();
 
+const isFinalQuizEntry = (quiz = {}) => {
+  const tags = Array.isArray(quiz.tags) ? quiz.tags : [];
+  const toLower = (value) => String(value || "").trim().toLowerCase();
+  return (
+    quiz.isFinalQuiz === true ||
+    toLower(quiz.quizType) === "final" ||
+    toLower(quiz.assessmentType) === "final" ||
+    toLower(quiz.type) === "final" ||
+    toLower(quiz.category) === "final" ||
+    toLower(quiz.tag) === "final" ||
+    tags.some((tag) => toLower(tag) === "final")
+  );
+};
+
 const normalizeStudentCourseRefs = (rawCourses = [], enrolledAtMap = {}) => {
   const list = Array.isArray(rawCourses) ? rawCourses : [];
   const rows = [];
@@ -2600,6 +2614,71 @@ export const updateFinalQuizRequestStatus = async (req, res) => {
       },
       { merge: true }
     );
+
+    if (action === "approve") {
+      const courseId = trimText(requestData.courseId);
+      const studentId = trimText(requestData.studentId);
+      if (courseId && studentId) {
+        const quizzesSnap = await db
+          .collection(COLLECTIONS.QUIZZES)
+          .where("courseId", "==", courseId)
+          .get();
+
+        const finalQuizzes = quizzesSnap.docs.filter((doc) => {
+          const row = doc.data() || {};
+          const status = lowerText(row.status || "active");
+          return status === "active" && isFinalQuizEntry(row);
+        });
+
+        if (finalQuizzes.length > 0) {
+          const batch = db.batch();
+          finalQuizzes.forEach((quizDoc) => {
+            const quizData = quizDoc.data() || {};
+            const assignment = quizData.assignment || {};
+            const existingStudents = Array.isArray(assignment.students)
+              ? assignment.students
+              : [];
+            const alreadyAssigned = existingStudents.some((entry) => {
+              const assignedStudentId =
+                typeof entry === "string"
+                  ? trimText(entry)
+                  : trimText(entry?.studentId || entry?.id);
+              return assignedStudentId === studentId;
+            });
+            if (alreadyAssigned) return;
+
+            const updatedStudents = [
+              ...existingStudents,
+              {
+                studentId,
+                fullName: trimText(requestData.studentName) || "Student",
+                email: trimText(requestData.studentEmail),
+              },
+            ];
+
+            batch.set(
+              quizDoc.ref,
+              {
+                assignment: {
+                  ...assignment,
+                  targetType: "students",
+                  assignedBy: assignment.assignedBy || uid,
+                  assignedAt: assignment.assignedAt || serverTimestamp(),
+                  courseId: trimText(assignment.courseId || courseId),
+                  classId: trimText(assignment.classId || requestData.classId),
+                  dueAt: assignment.dueAt || null,
+                  students: updatedStudents,
+                  totalAssigned: updatedStudents.length,
+                },
+                updatedAt: serverTimestamp(),
+              },
+              { merge: true }
+            );
+          });
+          await batch.commit();
+        }
+      }
+    }
 
     const updatedSnap = await requestRef.get();
     const updatedData = updatedSnap.data() || {};

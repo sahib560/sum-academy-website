@@ -593,7 +593,12 @@ const upsertStudentProgressRow = async ({
   await existing.ref.set(updatePayload, { merge: true });
 };
 
-const ensureCertificateForCourse = async (studentId, courseId, courseData = {}) => {
+const ensureCertificateForCourse = async (
+  studentId,
+  courseId,
+  courseData = {},
+  classContext = null
+) => {
   const certSnap = await db
     .collection("certificates")
     .where("studentId", "==", studentId)
@@ -619,12 +624,26 @@ const ensureCertificateForCourse = async (studentId, courseId, courseData = {}) 
     trimText(userData.email).split("@")[0] ||
     "Student";
   const courseName = trimText(courseData.title) || "Course";
+  const className = trimText(classContext?.className);
+  const batchCode = trimText(classContext?.batchCode);
+  const classId = trimText(classContext?.classId);
+  const completionScope = className ? "class" : "course";
+  const completionTitle = className
+    ? [className, batchCode ? `(${batchCode})` : "", courseName ? `- ${courseName}` : ""]
+        .filter(Boolean)
+        .join(" ")
+    : courseName;
 
   await db.collection("certificates").add({
     studentId,
     studentName,
     courseId,
     courseName,
+    classId: classId || null,
+    className: className || null,
+    batchCode: batchCode || null,
+    completionScope,
+    completionTitle,
     certId,
     verificationUrl: `https://sumacademy.net/verify/${certId}`,
     isRevoked: false,
@@ -640,6 +659,11 @@ const ensureCertificateForCourse = async (studentId, courseId, courseData = {}) 
           certId,
           courseId,
           courseName,
+          classId: classId || null,
+          className: className || null,
+          batchCode: batchCode || null,
+          completionScope,
+          completionTitle,
           issuedAt: new Date().toISOString(),
         }),
         updatedAt: serverTimestamp(),
@@ -789,10 +813,25 @@ export const markLectureComplete = async (req, res) => {
     }
 
     if (courseCompleted) {
+      let classContext = null;
+      const preferredEnrollment = builtAfter.enrollmentRows.find((row) => trimText(row.classId));
+      const classId = trimText(preferredEnrollment?.classId);
+      if (classId) {
+        const classSnap = await db.collection("classes").doc(classId).get();
+        if (classSnap.exists) {
+          const classData = classSnap.data() || {};
+          classContext = {
+            classId,
+            className: trimText(classData.name),
+            batchCode: trimText(classData.batchCode),
+          };
+        }
+      }
       const certResult = await ensureCertificateForCourse(
         studentId,
         courseId,
-        builtAfter.course
+        builtAfter.course,
+        classContext
       );
       certificateGenerated = Boolean(certResult.created);
     }

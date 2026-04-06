@@ -247,6 +247,8 @@ const getClassCompletionStateForStudent = ({
 
   return {
     classId,
+    className: String(classData.name || "").trim() || "Class",
+    batchCode: String(classData.batchCode || "").trim(),
     courseIds,
     completed,
   };
@@ -284,11 +286,19 @@ const checkCertificateWindowOpen = async ({ studentId, courseId }) => {
     })
   );
   const eligible = contexts.some((row) => row.completed);
+  const preferredContext = contexts.find((row) => row.completed) || contexts[0] || null;
 
   return {
     eligible,
     hasClassContext: true,
     classCount: contexts.length,
+    preferredClassContext: preferredContext
+      ? {
+          classId: preferredContext.classId,
+          className: preferredContext.className,
+          batchCode: preferredContext.batchCode,
+        }
+      : null,
   };
 };
 
@@ -297,6 +307,11 @@ const syncCertificateRefToStudent = async ({
   certId,
   courseId,
   courseName,
+  classId,
+  className,
+  batchCode,
+  completionScope,
+  completionTitle,
   issuedAt,
 }) => {
   if (!studentId || !certId || !courseId) return;
@@ -306,6 +321,15 @@ const syncCertificateRefToStudent = async ({
         certId,
         courseId,
         courseName: courseName || "",
+        classId: classId || null,
+        className: className || null,
+        batchCode: batchCode || null,
+        completionScope: completionScope || (className ? "class" : "course"),
+        completionTitle:
+          completionTitle ||
+          (className
+            ? `${className}${courseName ? ` - ${courseName}` : ""}`
+            : courseName || ""),
         issuedAt: parseDate(issuedAt)?.toISOString() || new Date().toISOString(),
       }),
     },
@@ -462,6 +486,11 @@ export const generateCertificate = async (req, res) => {
         certId: existing.certId || existing.id,
         courseId,
         courseName: existing.courseName || courseSnap.data()?.title || "Course",
+        classId: existing.classId || null,
+        className: existing.className || null,
+        batchCode: existing.batchCode || null,
+        completionScope: existing.completionScope || null,
+        completionTitle: existing.completionTitle || null,
         issuedAt: existing.issuedAt || existing.createdAt || new Date().toISOString(),
       });
       return successResponse(res, existing, "Certificate already exists");
@@ -486,6 +515,16 @@ export const generateCertificate = async (req, res) => {
         ? String(userSnap.data().email).split("@")[0]
         : "Student");
     const courseName = courseSnap.data()?.title || "Course";
+    const classContext = classWindow.preferredClassContext || null;
+    const className = String(classContext?.className || "").trim();
+    const batchCode = String(classContext?.batchCode || "").trim();
+    const classId = String(classContext?.classId || "").trim();
+    const completionScope = className ? "class" : "course";
+    const completionTitle = className
+      ? [className, batchCode ? `(${batchCode})` : "", courseName ? `- ${courseName}` : ""]
+          .filter(Boolean)
+          .join(" ")
+      : courseName;
     const verificationUrl = `${process.env.CLIENT_URL}/verify/${certId}`;
     const issuedWithoutCompletion = !progress?.completed;
 
@@ -495,6 +534,11 @@ export const generateCertificate = async (req, res) => {
       studentName,
       courseId,
       courseName,
+      classId: classId || null,
+      className: className || null,
+      batchCode: batchCode || null,
+      completionScope,
+      completionTitle,
       certId,
       verificationUrl,
       issuedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -512,6 +556,11 @@ export const generateCertificate = async (req, res) => {
       certId,
       courseId,
       courseName,
+      classId: classId || null,
+      className: className || null,
+      batchCode: batchCode || null,
+      completionScope,
+      completionTitle,
       issuedAt: new Date().toISOString(),
     });
 

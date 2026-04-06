@@ -44,6 +44,15 @@ const statusClass = (s) =>
 const PUBLIC_VERIFY_BASE = "https://sum-academy-lms.web.app/verify";
 const verifyLinkFor = (cert) =>
   cert?.verificationUrl || `${PUBLIC_VERIFY_BASE}/${cert?.certId || cert?.id}`;
+const certScope = (cert = {}) =>
+  String(cert.completionScope || (cert.className ? "class" : "course"))
+    .trim()
+    .toLowerCase();
+const certTitle = (cert = {}) =>
+  cert.completionTitle ||
+  (cert.className
+    ? `${cert.className}${cert.courseName ? ` - ${cert.courseName}` : ""}`
+    : cert.courseName || "Course");
 
 const normalizeStudentEnrollments = (student) =>
   Array.isArray(student?.enrolledCourses)
@@ -72,6 +81,9 @@ async function downloadCertPdf(cert, logoUrl) {
     certId: cert.certId || cert.id,
     studentName: cert.studentName || "Student",
     courseName: cert.courseName || "Course",
+    className: cert.className || "",
+    completionScope: certScope(cert),
+    completionTitle: certTitle(cert),
     issuedDate: cert.issuedAt || cert.createdAt,
     instructorName: "SUM Academy",
     logoUrl,
@@ -133,10 +145,10 @@ function PreviewModal({ cert, onClose, certSettings, logoUrl }) {
                   {cert.studentName || "Student"}
                 </p>
                 <p className="text-sm italic" style={{ color: certSettings.bodyColor }}>
-                  has successfully completed
+                  has successfully completed the {certScope(cert) === "class" ? "class" : "course"}
                 </p>
                 <p className="text-3xl font-bold" style={{ color: certSettings.headingColor }}>
-                  {cert.courseName || "Course"}
+                  {certTitle(cert)}
                 </p>
                 <p className="text-sm italic" style={{ color: certSettings.bodyColor }}>
                   with distinction
@@ -520,7 +532,7 @@ export default function Certificates() {
             <tr>
               <th className="px-6 py-4">Cert ID</th>
               <th className="px-6 py-4">Student</th>
-              <th className="px-6 py-4">Course</th>
+              <th className="px-6 py-4">Completion</th>
               <th className="px-6 py-4">Issue Date</th>
               <th className="px-6 py-4">Verification URL</th>
               <th className="px-6 py-4">Status</th>
@@ -565,7 +577,7 @@ export default function Certificates() {
                           <span className="font-semibold text-slate-800">{cert.studentName || "Student"}</span>
                         </div>
                       </td>
-                      <td className="px-6 py-4 text-slate-700">{cert.courseName || "-"}</td>
+                      <td className="px-6 py-4 text-slate-700">{certTitle(cert)}</td>
                       <td className="px-6 py-4 text-slate-600">{dateLabel(cert.issuedAt || cert.createdAt)}</td>
                       <td className="px-6 py-4">
                         <div className="max-w-[240px] truncate text-xs text-slate-500">{link}</div>
