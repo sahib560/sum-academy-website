@@ -18,11 +18,13 @@ import {
 import { Skeleton } from "../../components/Skeleton.jsx";
 import { useAuth } from "../../hooks/useAuth.js";
 import {
-  getCourseProgress,
-  markLectureComplete,
-  requestFinalQuizForCourse,
   reportStudentSecurityViolation,
 } from "../../services/student.service.js";
+import {
+  getCourseContent,
+  markLectureComplete,
+  saveWatchProgress,
+} from "../../services/progress.service.js";
 import api from "../../api/axios.js";
 import { WatermarkOverlay } from "../../utils/security.js";
 import { getViolationCount, setupMaxProtection } from "../../utils/maxProtection.js";
@@ -60,20 +62,25 @@ const getLectureSource = (lecture = {}) =>
   "";
 
 const normalizeProgressPayload = (payload = {}) => {
-  const course = payload.course || {};
-  const progress = payload.progress || {};
-  const access = payload.access || {};
   const chapters = Array.isArray(payload.chapters) ? payload.chapters : [];
+  const subjectQuizzes = Array.isArray(payload.subjectQuizzes)
+    ? payload.subjectQuizzes
+    : [];
 
   const normalizedChapters = chapters.map((chapter, chapterIndex) => {
     const lectures = Array.isArray(chapter.lectures) ? chapter.lectures : [];
+    const quizzes = Array.isArray(chapter.quizzes) ? chapter.quizzes : [];
+
     const normalizedLectures = lectures.map((lecture, lectureIndex) => ({
       lectureId: lecture.lectureId || lecture.id || `${chapterIndex}-${lectureIndex}`,
       title: lecture.title || "Lecture",
       duration: lecture.duration || lecture.videoDuration || "--",
       isCompleted: Boolean(lecture.isCompleted),
       completedAt: lecture.completedAt || null,
-      hasAccess: lecture.hasAccess !== false,
+      watchedPercent: clamp(toNumber(lecture.watchedPercent, 0), 0, 100),
+      isLocked: Boolean(lecture.isLocked),
+      lockReason: lecture.lockReason || "",
+      manuallyUnlocked: Boolean(lecture.manuallyUnlocked),
       signedUrl: lecture.signedUrl || lecture.signedVideoUrl || lecture.videoSignedUrl || "",
       streamUrl: lecture.streamUrl || "",
       playbackUrl: lecture.playbackUrl || "",
@@ -87,6 +94,16 @@ const normalizeProgressPayload = (payload = {}) => {
       notes: lecture.notes || "",
     }));
 
+    const normalizedQuizzes = quizzes.map((quiz, quizIndex) => ({
+      quizId: quiz.quizId || quiz.id || `${chapterIndex}-quiz-${quizIndex}`,
+      title: quiz.title || "Chapter Quiz",
+      isLocked: Boolean(quiz.isLocked),
+      lockReason: quiz.lockReason || "",
+      isAttempted: Boolean(quiz.isAttempted),
+      isPassed: Boolean(quiz.isPassed),
+      result: quiz.result || null,
+    }));
+
     return {
       chapterId: chapter.chapterId || chapter.id || `chapter-${chapterIndex}`,
       title: chapter.title || "Chapter",
@@ -95,43 +112,48 @@ const normalizeProgressPayload = (payload = {}) => {
         chapter.completedLectures,
         normalizedLectures.filter((item) => item.isCompleted).length
       ),
+      isChapterComplete: Boolean(chapter.isChapterComplete),
+      allLecturesDone: Boolean(chapter.allLecturesDone),
       lectures: normalizedLectures,
+      quizzes: normalizedQuizzes,
     };
   });
 
+  const normalizedFinalQuizzes = subjectQuizzes.map((quiz, index) => ({
+    quizId: quiz.quizId || quiz.id || `final-${index}`,
+    title: quiz.title || "Final Quiz",
+    isLocked: Boolean(quiz.isLocked),
+    lockReason: quiz.lockReason || "",
+    isAttempted: Boolean(quiz.isAttempted),
+    isPassed: Boolean(quiz.isPassed),
+    result: quiz.result || null,
+  }));
+
   const allLectures = normalizedChapters.flatMap((chapter) => chapter.lectures);
+  const isCourseCompleted = Boolean(payload.isCourseCompleted);
+  const anyManualRewatch = allLectures.some((lecture) => lecture.manuallyUnlocked);
+
   return {
     course: {
-      id: course.id || "",
-      title: course.title || "Course",
-      description: course.description || "",
-      teacherName: course.teacherName || "Teacher",
+      id: payload.courseId || "",
+      title: payload.courseName || "Course",
+      description: payload.courseDescription || "",
+      teacherName: payload.teacherName || "Teacher",
     },
     progress: {
       completedLectures: toNumber(
-        progress.completedLectures,
+        payload.completedLectures,
         allLectures.filter((lecture) => lecture.isCompleted).length
       ),
-      totalLectures: toNumber(progress.totalLectures, allLectures.length),
-      completionPercent: clamp(toNumber(progress.completionPercent, 0), 0, 100),
+      totalLectures: toNumber(payload.totalLectures, allLectures.length),
+      completionPercent: clamp(toNumber(payload.overallProgress, 0), 0, 100),
     },
     access: {
-      hasClassContext: Boolean(access.hasClassContext),
-      isLockedAfterCompletion: Boolean(access.isLockedAfterCompletion),
-      isCompletedWindow: Boolean(access.isCompletedWindow),
-      certificateEligible: access.certificateEligible !== false,
-      finalQuiz: {
-        required: Boolean(access?.finalQuiz?.required),
-        total: toNumber(access?.finalQuiz?.total, 0),
-        passed: Boolean(access?.finalQuiz?.passed),
-        requestId: access?.finalQuiz?.requestId || "",
-        requestStatus: access?.finalQuiz?.requestStatus || "",
-        requestSubmittedAt: access?.finalQuiz?.requestSubmittedAt || null,
-        canRequest: Boolean(access?.finalQuiz?.canRequest),
-      },
-      classStates: Array.isArray(access.classStates) ? access.classStates : [],
+      isLockedAfterCompletion: isCourseCompleted,
+      canRewatchAny: anyManualRewatch,
     },
     chapters: normalizedChapters,
+    subjectQuizzes: normalizedFinalQuizzes,
     lectures: allLectures,
   };
 };
@@ -145,6 +167,7 @@ function StudentCoursePlayer() {
   const videoRef = useRef(null);
   const playerRef = useRef(null);
   const objectUrlRef = useRef("");
+  const lastWatchSaveAtRef = useRef(0);
 
   const [currentLectureId, setCurrentLectureId] = useState("");
   const [expandedChapters, setExpandedChapters] = useState({});
@@ -157,6 +180,7 @@ function StudentCoursePlayer() {
   const [videoLoadError, setVideoLoadError] = useState("");
   const [isLoadingVideo, setIsLoadingVideo] = useState(false);
   const [maxWatchedSeconds, setMaxWatchedSeconds] = useState(0);
+  const [lastSavedWatchPercent, setLastSavedWatchPercent] = useState(0);
   const [showCelebration, setShowCelebration] = useState(false);
   const [securityWarningCount, setSecurityWarningCount] = useState(0);
   const [securityLocked, setSecurityLocked] = useState(false);
@@ -173,8 +197,8 @@ function StudentCoursePlayer() {
     isError,
     error,
   } = useQuery({
-    queryKey: ["student-course-progress", courseId],
-    queryFn: () => getCourseProgress(courseId),
+    queryKey: ["student-course-content", courseId],
+    queryFn: () => getCourseContent(courseId),
     enabled: Boolean(courseId),
     staleTime: 30000,
     refetchInterval: 15000,
@@ -193,13 +217,6 @@ function StudentCoursePlayer() {
     [normalized.lectures, currentLectureId]
   );
   const classCompletionLocked = Boolean(normalized.access?.isLockedAfterCompletion);
-  const finalQuiz = normalized.access?.finalQuiz || {
-    required: false,
-    total: 0,
-    passed: true,
-    requestStatus: "",
-    canRequest: false,
-  };
 
   const watchedPercent = useMemo(() => {
     if (duration <= 0) return 0;
@@ -211,40 +228,24 @@ function StudentCoursePlayer() {
     mutationFn: ({ courseId: targetCourseId, lectureId: targetLectureId }) =>
       markLectureComplete(targetCourseId, targetLectureId),
     onSuccess: (result) => {
-      const data = result?.data || result?.data?.data || result || {};
-      if (data?.certificateBlockedByFinalQuiz) {
-        toast.success(
-          "Course completed. Final quiz request is required before certificate."
-        );
-      } else if (data?.certificatePending) {
-        toast.success("Lecture completed. Certificate will unlock after class completion.");
+      const data = result || {};
+      if (data?.courseCompleted) {
+        toast.success("Congratulations! Course completed!");
+      } else if (data?.chapterCompleted && data?.chapterQuizUnlocked) {
+        toast.success("Chapter complete! Quiz unlocked.");
       } else {
-        toast.success("Lecture marked as complete");
+        toast.success("Lecture completed! Keep going.");
       }
-      queryClient.invalidateQueries({ queryKey: ["student-course-progress", courseId] });
+      queryClient.invalidateQueries({ queryKey: ["student-course-content", courseId] });
       queryClient.invalidateQueries({ queryKey: ["student-courses"] });
       queryClient.invalidateQueries({ queryKey: ["student-dashboard"] });
-      if (data.courseCompleted) {
+      if (data?.certificateGenerated || data?.courseCompleted) {
         setShowCelebration(true);
       }
     },
     onError: (mutationError) => {
       toast.error(
         mutationError?.response?.data?.message || "Failed to mark lecture complete"
-      );
-    },
-  });
-
-  const finalQuizRequestMutation = useMutation({
-    mutationFn: () => requestFinalQuizForCourse(courseId),
-    onSuccess: () => {
-      toast.success("Final quiz request sent to admin/teacher.");
-      queryClient.invalidateQueries({ queryKey: ["student-course-progress", courseId] });
-      queryClient.invalidateQueries({ queryKey: ["student-quizzes"] });
-    },
-    onError: (mutationError) => {
-      toast.error(
-        mutationError?.response?.data?.message || "Failed to send final quiz request"
       );
     },
   });
@@ -280,7 +281,7 @@ function StudentCoursePlayer() {
     if (existing) return;
 
     const firstAccessible =
-      normalized.lectures.find((lecture) => lecture.hasAccess) || normalized.lectures[0];
+      normalized.lectures.find((lecture) => !lecture.isLocked) || normalized.lectures[0];
     setCurrentLectureId(firstAccessible.lectureId);
   }, [normalized.lectures, routeLectureId, currentLectureId]);
 
@@ -400,9 +401,11 @@ function StudentCoursePlayer() {
       setCurrentTime(0);
       setDuration(0);
       setMaxWatchedSeconds(0);
+      setLastSavedWatchPercent(clamp(toNumber(currentLecture?.watchedPercent, 0), 0, 100));
+      lastWatchSaveAtRef.current = 0;
       setIsPlaying(false);
 
-      if (!currentLecture || currentLecture.hasAccess === false || classCompletionLocked) return;
+      if (!currentLecture || currentLecture.isLocked) return;
 
       const secureUrl = getLectureSource(currentLecture);
       if (!secureUrl) return;
@@ -438,11 +441,39 @@ function StudentCoursePlayer() {
       cancelled = true;
       cleanupObjectUrl();
     };
-  }, [currentLecture, classCompletionLocked]);
+  }, [currentLecture]);
+
+  useEffect(() => {
+    if (!courseId || !currentLecture?.lectureId) return undefined;
+    if (classCompletionLocked || currentLecture.isLocked) return undefined;
+    if (watchedPercent <= 0) return undefined;
+
+    const now = Date.now();
+    if (now - lastWatchSaveAtRef.current < 10000) return undefined;
+    const shouldSave = watchedPercent >= lastSavedWatchPercent + 5 || watchedPercent === 100;
+    if (!shouldSave) return undefined;
+
+    lastWatchSaveAtRef.current = now;
+    saveWatchProgress(courseId, currentLecture.lectureId, Math.round(watchedPercent))
+      .then(() => {
+        setLastSavedWatchPercent((prev) =>
+          Math.max(prev, Math.round(watchedPercent))
+        );
+      })
+      .catch(() => {});
+    return undefined;
+  }, [
+    courseId,
+    currentLecture?.lectureId,
+    currentLecture?.isLocked,
+    watchedPercent,
+    lastSavedWatchPercent,
+    classCompletionLocked,
+  ]);
 
   const handlePlayPause = async () => {
     const video = videoRef.current;
-    if (!video || currentLecture?.hasAccess === false || !videoSrc || securityLocked) return;
+    if (!video || currentLecture?.isLocked || !videoSrc || securityLocked) return;
     try {
       if (video.paused) {
         await video.play();
@@ -499,12 +530,8 @@ function StudentCoursePlayer() {
       toast.error("Video is locked due to security violations.");
       return;
     }
-    if (classCompletionLocked) {
-      toast.error("Class is locked after completion. Contact teacher/admin for rewatch access.");
-      return;
-    }
-    if (lecture.hasAccess === false) {
-      toast.error("This video is locked");
+    if (lecture.isLocked) {
+      toast.error(lecture.lockReason || "This video is locked");
       return;
     }
     setCurrentLectureId(lecture.lectureId);
@@ -524,7 +551,7 @@ function StudentCoursePlayer() {
     Boolean(currentLecture) &&
     !securityLocked &&
     !classCompletionLocked &&
-    currentLecture.hasAccess !== false &&
+    currentLecture.isLocked !== true &&
     watchedPercent >= 80 &&
     !currentLecture.isCompleted &&
     !markCompleteMutation.isPending;
@@ -539,8 +566,7 @@ function StudentCoursePlayer() {
   const showLockedOverlay =
     securityLocked ||
     !currentLecture ||
-    currentLecture.hasAccess === false ||
-    classCompletionLocked;
+    currentLecture.isLocked;
   const showVideoErrorOverlay =
     !showLockedOverlay && !isLoadingVideo && lectureHasVideo && !videoSrc;
 
@@ -638,9 +664,18 @@ function StudentCoursePlayer() {
                   onContextMenu={(event) => event.preventDefault()}
                   onLoadedMetadata={(event) => {
                     const media = event.currentTarget;
-                    setDuration(toNumber(media.duration, 0));
+                    const loadedDuration = toNumber(media.duration, 0);
+                    setDuration(loadedDuration);
                     media.volume = volume;
                     media.playbackRate = playbackRate;
+                    const existingPercent = clamp(
+                      toNumber(currentLecture?.watchedPercent, 0),
+                      0,
+                      100
+                    );
+                    if (loadedDuration > 0 && existingPercent > 0) {
+                      setMaxWatchedSeconds((loadedDuration * existingPercent) / 100);
+                    }
                   }}
                   onTimeUpdate={(event) => {
                     const media = event.currentTarget;
@@ -677,7 +712,7 @@ function StudentCoursePlayer() {
                       ? "Locked due to security violations in this session."
                       : classCompletionLocked
                         ? "Class completed. Rewatch is locked until teacher/admin unlocks."
-                        : "Contact your teacher to unlock"}
+                        : currentLecture?.lockReason || "Complete previous content first."}
                   </p>
                 </div>
               )}
@@ -855,26 +890,12 @@ function StudentCoursePlayer() {
               <p className="mt-2 text-xs text-slate-500">
                 Mark as complete unlocks when watched over 80%.
               </p>
-              {normalized.progress.completionPercent >= 100 && finalQuiz.required && !finalQuiz.passed ? (
+              {normalized.subjectQuizzes.length > 0 ? (
                 <div className="mt-3 rounded-2xl border border-indigo-200 bg-indigo-50 p-3 text-xs text-indigo-800">
-                  <p className="font-semibold">
-                    Final quiz is required before certificate generation.
-                  </p>
+                  <p className="font-semibold">Final assessment unlocks after all chapters.</p>
                   <p className="mt-1">
-                    Status: {finalQuiz.requestStatus || "not_requested"}
+                    Complete chapter quizzes to unlock your final quiz and certificate.
                   </p>
-                  <button
-                    type="button"
-                    className="mt-2 rounded-full border border-indigo-300 bg-white px-3 py-1 font-semibold text-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
-                    onClick={() => finalQuizRequestMutation.mutate()}
-                    disabled={!finalQuiz.canRequest || finalQuizRequestMutation.isPending}
-                  >
-                    {finalQuizRequestMutation.isPending
-                      ? "Sending..."
-                      : finalQuiz.canRequest
-                        ? "Request Final Quiz"
-                        : "Request Already Sent"}
-                  </button>
                 </div>
               ) : null}
             </div>
@@ -907,11 +928,28 @@ function StudentCoursePlayer() {
                         className="flex w-full items-center justify-between text-left"
                         onClick={() => toggleChapter(chapter.chapterId)}
                       >
-                        <span className="text-sm font-semibold text-slate-700">
-                          {chapter.title}
-                        </span>
-                        <span className="text-xs text-slate-500">
-                          {chapter.completedLectures}/{chapter.totalLectures}
+                        <div>
+                          <span className="text-sm font-semibold text-slate-700">
+                            {chapter.title}
+                          </span>
+                          <p className="text-[11px] text-slate-500">
+                            {chapter.completedLectures}/{chapter.totalLectures} lectures
+                          </p>
+                        </div>
+                        <span
+                          className={`text-[11px] font-semibold ${
+                            chapter.isChapterComplete
+                              ? "text-emerald-600"
+                              : chapter.lectures[0]?.isLocked
+                                ? "text-slate-500"
+                                : "text-amber-600"
+                          }`}
+                        >
+                          {chapter.isChapterComplete
+                            ? "Complete"
+                            : chapter.lectures[0]?.isLocked
+                              ? "Locked"
+                              : "In Progress"}
                         </span>
                       </button>
 
@@ -928,31 +966,137 @@ function StudentCoursePlayer() {
                                     ? "border-cyan-300 bg-cyan-50"
                                     : "border-slate-200 bg-white hover:border-cyan-200 hover:bg-cyan-50/40"
                                 } ${
-                                  lecture.hasAccess === false ? "opacity-70" : ""
+                                  lecture.isLocked ? "opacity-70" : ""
                                 }`}
                                 onClick={() => selectLecture(lecture)}
+                                title={lecture.isLocked ? lecture.lockReason || "Locked" : ""}
                               >
                                 <div className="flex items-center gap-2">
                                   {lecture.isCompleted ? (
                                     <FiCheckCircle className="h-3.5 w-3.5 text-emerald-500" />
-                                  ) : lecture.hasAccess === false ? (
+                                  ) : lecture.isLocked ? (
                                     <FiLock className="h-3.5 w-3.5 text-slate-400" />
                                   ) : isCurrent ? (
                                     <span className="h-2 w-2 animate-pulse rounded-full bg-cyan-500" />
                                   ) : (
                                     <span className="h-2 w-2 rounded-full bg-slate-300" />
                                   )}
-                                  <span className="text-slate-700">{lecture.title}</span>
+                                  <span className="text-slate-700">
+                                    {lecture.title}
+                                    {lecture.manuallyUnlocked ? (
+                                      <span className="ml-1 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">
+                                        Rewatch
+                                      </span>
+                                    ) : null}
+                                  </span>
                                 </div>
                                 <span className="text-slate-500">{lecture.duration}</span>
                               </button>
                             );
                           })}
+                          {chapter.quizzes.map((quiz) => (
+                            <div
+                              key={quiz.quizId}
+                              className={`rounded-xl border px-3 py-2 text-xs ${
+                                quiz.isLocked
+                                  ? "border-slate-200 bg-slate-100 text-slate-500"
+                                  : quiz.isPassed
+                                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                                    : "border-indigo-200 bg-indigo-50 text-indigo-700"
+                              }`}
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <p className="font-semibold">Chapter Quiz: {quiz.title}</p>
+                                {quiz.isPassed ? (
+                                  <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                                    Passed
+                                  </span>
+                                ) : null}
+                              </div>
+                              {quiz.result ? (
+                                <p className="mt-1 text-[11px]">
+                                  Score: {Math.round(toNumber(quiz.result.percentage, 0))}%
+                                </p>
+                              ) : null}
+                              <button
+                                type="button"
+                                className={`mt-2 rounded-full px-3 py-1 text-[11px] font-semibold ${
+                                  quiz.isLocked
+                                    ? "cursor-not-allowed bg-slate-200 text-slate-500"
+                                    : "bg-indigo-600 text-white"
+                                }`}
+                                onClick={() => {
+                                  if (quiz.isLocked) {
+                                    toast.error(quiz.lockReason || "Complete chapter videos first");
+                                    return;
+                                  }
+                                  navigate(`/student/quizzes/${quiz.quizId}/attempt`);
+                                }}
+                                disabled={quiz.isLocked}
+                              >
+                                {quiz.isPassed
+                                  ? "Review Quiz"
+                                  : quiz.isAttempted
+                                    ? "Retry Quiz"
+                                    : "Start Quiz"}
+                              </button>
+                            </div>
+                          ))}
                         </div>
                       )}
                     </div>
                   );
                 })}
+                {normalized.subjectQuizzes.length > 0 ? (
+                  <div className="rounded-2xl border border-indigo-200 bg-indigo-50/80 p-3">
+                    <p className="text-xs font-semibold uppercase tracking-[0.12em] text-indigo-700">
+                      Final Assessment
+                    </p>
+                    <div className="mt-2 space-y-2">
+                      {normalized.subjectQuizzes.map((quiz) => (
+                        <div
+                          key={quiz.quizId}
+                          className={`rounded-xl border px-3 py-2 text-xs ${
+                            quiz.isLocked
+                              ? "border-slate-200 bg-slate-100 text-slate-500"
+                              : quiz.isPassed
+                                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                                : "border-indigo-200 bg-white text-indigo-700"
+                          }`}
+                        >
+                          <p className="font-semibold">{quiz.title}</p>
+                          {quiz.result ? (
+                            <p className="mt-1 text-[11px]">
+                              Score: {Math.round(toNumber(quiz.result.percentage, 0))}%
+                            </p>
+                          ) : null}
+                          <button
+                            type="button"
+                            className={`mt-2 rounded-full px-3 py-1 text-[11px] font-semibold ${
+                              quiz.isLocked
+                                ? "cursor-not-allowed bg-slate-200 text-slate-500"
+                                : "bg-indigo-600 text-white"
+                            }`}
+                            onClick={() => {
+                              if (quiz.isLocked) {
+                                toast.error(quiz.lockReason || "Complete all chapters first");
+                                return;
+                              }
+                              navigate(`/student/quizzes/${quiz.quizId}/attempt`);
+                            }}
+                            disabled={quiz.isLocked}
+                          >
+                            {quiz.isPassed
+                              ? "Review Final Quiz"
+                              : quiz.isAttempted
+                                ? "Retry Final Quiz"
+                                : "Start Final Quiz"}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
               </div>
             </div>
           </Motion.aside>

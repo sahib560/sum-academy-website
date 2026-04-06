@@ -2,28 +2,11 @@ import { admin, db, auth } from "./config/firebase.js";
 
 const users = [
   {
-    email: "admin@gmail.com",
+    email: "ihsanali02@gmail.com",
     password: "Admin123@",
     name: "SUM Admin",
     role: "admin",
     phone: "03001234567",
-  },
-  {
-    email: "teacher@gmail.com",
-    password: "Teacher123@",
-    name: "SUM Teacher",
-    role: "teacher",
-    phone: "03001234568",
-    subject: "Mathematics",
-    bio: "Experienced teacher at SUM Academy",
-    assignedSubjects: ["Mathematics"],
-  },
-  {
-    email: "student@gmail.com",
-    password: "Student123@",
-    name: "SUM Student",
-    role: "student",
-    phone: "03001234569",
   },
 ];
 

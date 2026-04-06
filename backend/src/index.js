@@ -20,6 +20,7 @@ import settingsRoutes, { publicSettingsRoutes } from "./routes/settings.routes.j
 import teacherRoutes  from "./routes/teacher.routes.js";
 import studentRoutes  from "./routes/student.routes.js";
 import uploadRoutes from "./routes/upload.routes.js";
+import progressRoutes from "./routes/progress.routes.js";
 import { verifyToken } from "./middlewares/auth.middleware.js";
 import { validatePromoCode } from "./controllers/admin.controller.js";
 import { exploreCourses }    from "./controllers/student.controller.js";
@@ -151,6 +152,7 @@ app.use("/api/admin",    certificateRoutes);
 app.use("/api/admin",    adminAnnouncementRoutes);
 app.use("/api/admin",    settingsRoutes);
 app.use("/api/teacher",  teacherRoutes);
+app.use("/api",          progressRoutes);
 app.use("/api/student",  studentRoutes);
 app.use("/api",          publicSettingsRoutes);
 app.use("/api",          uploadRoutes);

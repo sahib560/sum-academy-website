@@ -34,6 +34,11 @@ import {
   updateUser,
 } from "../../services/admin.service.js";
 import {
+  getStudentProgress as getStudentCourseProgress,
+  unlockAllVideos,
+  updateVideoAccess as updateStudentCourseVideoAccess,
+} from "../../services/progress.service.js";
+import {
   isPakistanPhone,
   normalizePakistanPhone,
   sanitizePhoneInput,
@@ -122,6 +127,7 @@ const normalizeEnrolledCourses = (courses) => {
     if (typeof entry === "string") {
       return {
         id: `course-${index}-${entry}`,
+        courseId: "",
         courseName: entry,
         enrolledAt: null,
         progress: 0,
@@ -129,6 +135,7 @@ const normalizeEnrolledCourses = (courses) => {
     }
     return {
       id: entry.id || entry.courseId || `course-${index}`,
+      courseId: entry.courseId || entry.id || "",
       courseName: entry.courseName || entry.name || "Untitled Course",
       enrolledAt: entry.enrolledAt || entry.createdAt || null,
       progress: Number(entry.progress || 0),
@@ -379,6 +386,14 @@ function Students() {
   const [profileStudent, setProfileStudent] = useState(null);
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [rejectReason, setRejectReason] = useState("");
+  const [videoAccessPanel, setVideoAccessPanel] = useState({
+    open: false,
+    studentId: "",
+    studentName: "",
+    courseId: "",
+    courseName: "",
+  });
+  const [videoAccessDraft, setVideoAccessDraft] = useState({});
 
   const [addForm, setAddForm] = useState(emptyAddForm);
   const [editForm, setEditForm] = useState(emptyEditForm);
@@ -393,6 +408,27 @@ function Students() {
     queryKey: ["admin", "students"],
     queryFn: getStudents,
     staleTime: 30000,
+  });
+
+  const videoAccessProgressQuery = useQuery({
+    queryKey: [
+      "admin",
+      "student-course-progress",
+      videoAccessPanel.studentId,
+      videoAccessPanel.courseId,
+    ],
+    queryFn: () =>
+      getStudentCourseProgress(videoAccessPanel.courseId, videoAccessPanel.studentId),
+    enabled: Boolean(videoAccessPanel.open && videoAccessPanel.studentId && videoAccessPanel.courseId),
+    staleTime: 10000,
+    onSuccess: (data) => {
+      const lectures = Array.isArray(data?.lectures) ? data.lectures : [];
+      const next = {};
+      lectures.forEach((lecture) => {
+        next[lecture.lectureId || lecture.id] = Boolean(lecture.hasManualAccess);
+      });
+      setVideoAccessDraft(next);
+    },
   });
 
   const students = useMemo(
@@ -604,6 +640,29 @@ function Students() {
     },
   });
 
+  const saveVideoAccessMutation = useMutation({
+    mutationFn: ({ courseId, studentId, lectureAccess }) =>
+      updateStudentCourseVideoAccess(courseId, studentId, lectureAccess),
+    onSuccess: async () => {
+      await videoAccessProgressQuery.refetch();
+      toast.success("Video access updated");
+    },
+    onError: (error) => {
+      toast.error(error?.response?.data?.message || "Failed to update video access");
+    },
+  });
+
+  const unlockAllVideosMutation = useMutation({
+    mutationFn: ({ courseId, studentId }) => unlockAllVideos(courseId, studentId),
+    onSuccess: async () => {
+      await videoAccessProgressQuery.refetch();
+      toast.success("All videos unlocked for rewatch");
+    },
+    onError: (error) => {
+      toast.error(error?.response?.data?.message || "Failed to unlock all videos");
+    },
+  });
+
   const openAdd = () => {
     setAddForm(emptyAddForm);
     setAddTouched({});
@@ -641,6 +700,22 @@ function Students() {
 
   const openProfile = (student) => {
     setProfileStudent(student);
+  };
+
+  const openVideoAccess = (student, course) => {
+    const courseId = course.courseId || course.id || "";
+    if (!courseId) {
+      toast.error("Course ID missing for this enrollment");
+      return;
+    }
+    setVideoAccessDraft({});
+    setVideoAccessPanel({
+      open: true,
+      studentId: student.uid,
+      studentName: student.fullName,
+      courseId,
+      courseName: course.courseName || "Course",
+    });
   };
 
   const openReset = (student) => {
@@ -1472,6 +1547,117 @@ function Students() {
         </div>
       </ModalShell>
 
+      <ModalShell
+        open={videoAccessPanel.open}
+        title={`Video Access - ${videoAccessPanel.studentName || "Student"}`}
+        onClose={() =>
+          {
+            setVideoAccessDraft({});
+            setVideoAccessPanel({
+              open: false,
+              studentId: "",
+              studentName: "",
+              courseId: "",
+              courseName: "",
+            });
+          }
+        }
+      >
+        <div className="mt-6 space-y-4">
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+            <p className="font-semibold text-slate-900">{videoAccessPanel.courseName}</p>
+            <p className="text-xs text-slate-500">
+              Unlock individual lectures or unlock all for rewatch.
+            </p>
+          </div>
+
+          {videoAccessProgressQuery.isLoading ? (
+            <p className="text-sm text-slate-500">Loading lecture progress...</p>
+          ) : videoAccessProgressQuery.data?.lectures?.length ? (
+            <div className="max-h-[420px] space-y-2 overflow-y-auto pr-1">
+              {videoAccessProgressQuery.data.lectures
+                .slice()
+                .sort((a, b) => Number(a.order || 0) - Number(b.order || 0))
+                .map((lecture) => {
+                  const lectureId = lecture.lectureId || lecture.id;
+                  return (
+                    <label
+                      key={lectureId}
+                      className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                    >
+                      <div>
+                        <p className="font-semibold text-slate-800">{lecture.title}</p>
+                        <p className="text-xs text-slate-500">
+                          {lecture.isCompleted ? "Completed" : "In progress"} | Watched{" "}
+                          {Math.max(0, Math.min(100, Number(lecture.watchedPercent || 0)))}%
+                        </p>
+                      </div>
+                      <span className="inline-flex items-center gap-2 text-xs font-semibold text-slate-600">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(videoAccessDraft[lectureId])}
+                          onChange={(event) =>
+                            setVideoAccessDraft((prev) => ({
+                              ...prev,
+                              [lectureId]: event.target.checked,
+                            }))
+                          }
+                        />
+                        {videoAccessDraft[lectureId] ? "Unlocked" : "Auto lock"}
+                      </span>
+                    </label>
+                  );
+                })}
+            </div>
+          ) : (
+            <p className="rounded-2xl border border-dashed border-slate-200 px-4 py-3 text-sm text-slate-500">
+              No lecture data found for this course.
+            </p>
+          )}
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              className="rounded-full bg-primary px-4 py-2 text-sm font-semibold text-white"
+              onClick={() => {
+                const lectureAccess = Object.entries(videoAccessDraft).map(
+                  ([lectureId, hasAccess]) => ({ lectureId, hasAccess: Boolean(hasAccess) })
+                );
+                saveVideoAccessMutation.mutate({
+                  courseId: videoAccessPanel.courseId,
+                  studentId: videoAccessPanel.studentId,
+                  lectureAccess,
+                });
+              }}
+              disabled={
+                saveVideoAccessMutation.isPending ||
+                !videoAccessPanel.courseId ||
+                !videoAccessPanel.studentId
+              }
+            >
+              {saveVideoAccessMutation.isPending ? "Saving..." : "Save Access"}
+            </button>
+            <button
+              type="button"
+              className="rounded-full border border-emerald-300 px-4 py-2 text-sm font-semibold text-emerald-700"
+              onClick={() =>
+                unlockAllVideosMutation.mutate({
+                  courseId: videoAccessPanel.courseId,
+                  studentId: videoAccessPanel.studentId,
+                })
+              }
+              disabled={
+                unlockAllVideosMutation.isPending ||
+                !videoAccessPanel.courseId ||
+                !videoAccessPanel.studentId
+              }
+            >
+              {unlockAllVideosMutation.isPending ? "Unlocking..." : "Unlock All For Rewatch"}
+            </button>
+          </div>
+        </div>
+      </ModalShell>
+
       <AnimatePresence>
         {profileStudent ? (
           <div className="fixed inset-0 z-[65] flex items-start justify-end">
@@ -1517,6 +1703,15 @@ function Students() {
                         <div className="flex items-center justify-between"><p className="font-semibold text-slate-900">{course.courseName}</p><p className="text-xs text-slate-500">{course.progress}%</p></div>
                         <p className="mt-1 text-xs text-slate-500">Enrollment date: {course.enrolledAt ? formatDate(course.enrolledAt) : "N/A"}</p>
                         <div className="mt-2 h-2 rounded-full bg-slate-100"><div className="h-2 rounded-full bg-primary" style={{ width: `${Math.max(0, Math.min(100, course.progress))}%` }} /></div>
+                        <div className="mt-3">
+                          <button
+                            type="button"
+                            className="rounded-full border border-slate-300 px-3 py-1 text-xs font-semibold text-slate-700 hover:border-primary hover:text-primary"
+                            onClick={() => openVideoAccess(profileStudent, course)}
+                          >
+                            Manage Video Access
+                          </button>
+                        </div>
                       </div>
                     ))
                   )}
