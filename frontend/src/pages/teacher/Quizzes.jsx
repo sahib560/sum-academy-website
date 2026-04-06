@@ -834,6 +834,58 @@ function TeacherQuizzes() {
     );
   });
 
+  const latestSubmissionByStudent = useMemo(() => {
+    const map = new Map();
+    submissions.forEach((row) => {
+      const studentId = String(row?.studentId || "").trim();
+      if (!studentId) return;
+      const submittedAtValue = row?.submittedAt ? new Date(row.submittedAt).getTime() : 0;
+      const existing = map.get(studentId);
+      const existingValue = existing?.submittedAt ? new Date(existing.submittedAt).getTime() : 0;
+      if (!existing || submittedAtValue >= existingValue) {
+        map.set(studentId, row);
+      }
+    });
+    return map;
+  }, [submissions]);
+
+  const assignedStudentRows = useMemo(() => {
+    const source =
+      Array.isArray(analyticsData?.assignedStudents) && analyticsData.assignedStudents.length > 0
+        ? analyticsData.assignedStudents
+        : Array.isArray(assignmentSummary?.students)
+          ? assignmentSummary.students
+          : [];
+    return source.map((student) => {
+      const studentId = String(student?.studentId || "").trim();
+      const latest = latestSubmissionByStudent.get(studentId) || null;
+      const statusRaw = latest
+        ? String(latest.status || student?.resultStatus || "attempted").trim().toLowerCase()
+        : String(student?.status || "not_attempted").trim().toLowerCase();
+      const status =
+        statusRaw === "not_attempted" || statusRaw === "notattempted"
+          ? "not_attempted"
+          : statusRaw || "attempted";
+      return {
+        studentId,
+        fullName: student?.fullName || student?.studentName || "Student",
+        email: student?.email || student?.studentEmail || "",
+        status,
+        attemptsCount: Number(
+          latest?.attemptsCount ?? student?.attemptsCount ?? (latest ? 1 : 0)
+        ),
+        scorePercent: Number(latest?.scorePercent ?? student?.scorePercent ?? 0),
+        totalScore: Number(latest?.totalScore ?? student?.totalScore ?? 0),
+        totalMarks: Number(latest?.totalMarks ?? student?.totalMarks ?? 0),
+        submittedAt: latest?.submittedAt || student?.submittedAt || null,
+      };
+    });
+  }, [
+    analyticsData?.assignedStudents,
+    assignmentSummary?.students,
+    latestSubmissionByStudent,
+  ]);
+
   const handleSaveSubmissionGrade = (resultId, shortAnswers = []) => {
     if (!selectedQuizId) return;
     const gradedAnswers = shortAnswers.map((row) => {
@@ -1762,6 +1814,69 @@ function TeacherQuizzes() {
                         </Motion.div>
                       ) : (
                         <p className="mt-3 text-xs text-slate-500">No analytics available yet.</p>
+                      )}
+                    </div>
+
+                    <div className="rounded-2xl border border-slate-200 p-4">
+                      <p className="text-sm font-semibold text-slate-800">
+                        Assigned Students And Results
+                      </p>
+                      {assignedStudentRows.length < 1 ? (
+                        <p className="mt-3 text-xs text-slate-500">
+                          No assigned students found for this quiz.
+                        </p>
+                      ) : (
+                        <div className="mt-3 overflow-x-auto">
+                          <table className="min-w-full text-left text-xs">
+                            <thead>
+                              <tr className="border-b border-slate-200 text-slate-500">
+                                <th className="px-2 py-2 font-semibold">Student</th>
+                                <th className="px-2 py-2 font-semibold">Email</th>
+                                <th className="px-2 py-2 font-semibold">Status</th>
+                                <th className="px-2 py-2 font-semibold">Attempts</th>
+                                <th className="px-2 py-2 font-semibold">Score</th>
+                                <th className="px-2 py-2 font-semibold">Submitted</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {assignedStudentRows.map((row) => (
+                                <tr
+                                  key={`${row.studentId}-${row.submittedAt || "none"}`}
+                                  className="border-b border-slate-100"
+                                >
+                                  <td className="px-2 py-2 text-slate-900">{row.fullName}</td>
+                                  <td className="px-2 py-2 text-slate-600">{row.email || "-"}</td>
+                                  <td className="px-2 py-2">
+                                    <span
+                                      className={`rounded-full px-2 py-1 text-[11px] font-semibold ${
+                                        row.status === "not_attempted"
+                                          ? "bg-slate-100 text-slate-600"
+                                          : row.status === "completed"
+                                            ? "bg-emerald-100 text-emerald-700"
+                                            : row.status === "pending_review"
+                                              ? "bg-amber-100 text-amber-700"
+                                              : "bg-indigo-100 text-indigo-700"
+                                      }`}
+                                    >
+                                      {row.status === "not_attempted"
+                                        ? "Not Attempted"
+                                        : row.status.replaceAll("_", " ")}
+                                    </span>
+                                  </td>
+                                  <td className="px-2 py-2 text-slate-700">{row.attemptsCount}</td>
+                                  <td className="px-2 py-2 text-slate-700">
+                                    {row.status === "not_attempted"
+                                      ? "-"
+                                      : `${Math.round(row.scorePercent)}% (${row.totalScore}/${row.totalMarks})`}
+                                  </td>
+                                  <td className="px-2 py-2 text-slate-600">
+                                    {formatDateTime(row.submittedAt)}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
                       )}
                     </div>
                   </Motion.div>

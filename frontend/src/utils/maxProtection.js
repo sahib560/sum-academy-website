@@ -249,12 +249,20 @@ export const blockPrintScreen = (event) => {
 export const setupVisibilityGuard = (onViolate) => {
   let blurTimer = null;
   let lastHiddenAt = 0;
+  let hiddenTimer = null;
 
   const onHidden = () => {
     if (document.hidden || document.visibilityState === "hidden") {
       lastHiddenAt = Date.now();
-      recordViolation("tab_switch");
-      if (typeof onViolate === "function") onViolate("tab_switch");
+      clearTimeout(hiddenTimer);
+      hiddenTimer = setTimeout(() => {
+        const stillHidden = document.hidden || document.visibilityState === "hidden";
+        if (!stillHidden) return;
+        recordViolation("tab_switch");
+        if (typeof onViolate === "function") onViolate("tab_switch");
+      }, 450);
+    } else {
+      clearTimeout(hiddenTimer);
     }
   };
 
@@ -272,6 +280,7 @@ export const setupVisibilityGuard = (onViolate) => {
 
   const onFocus = () => {
     clearTimeout(blurTimer);
+    clearTimeout(hiddenTimer);
     unblurContent();
   };
 
@@ -281,6 +290,7 @@ export const setupVisibilityGuard = (onViolate) => {
 
   return () => {
     clearTimeout(blurTimer);
+    clearTimeout(hiddenTimer);
     document.removeEventListener("visibilitychange", onHidden);
     window.removeEventListener("blur", onBlur);
     window.removeEventListener("focus", onFocus);
@@ -291,18 +301,34 @@ export const setupDevToolsDetection = () => {
   if (isLikelyMobileDevice()) return () => {};
 
   let devToolsOpen = false;
+  let openStreak = 0;
 
   const check = () => {
-    const threshold = 160;
-    const widthDiff = window.outerWidth - window.innerWidth;
-    const heightDiff = window.outerHeight - window.innerHeight;
+    const inFullscreen =
+      document.fullscreenElement ||
+      document.webkitFullscreenElement ||
+      document.mozFullScreenElement;
+    if (inFullscreen) {
+      openStreak = 0;
+      devToolsOpen = false;
+      return;
+    }
+
+    const threshold = 220;
+    const widthDiff = Math.max(0, window.outerWidth - window.innerWidth);
+    const heightDiff = Math.max(0, window.outerHeight - window.innerHeight);
     const isOpen = widthDiff > threshold || heightDiff > threshold;
 
-    if (isOpen && !devToolsOpen) {
+    if (isOpen) {
+      openStreak += 1;
+    } else {
+      openStreak = 0;
+      devToolsOpen = false;
+    }
+
+    if (openStreak >= 3 && !devToolsOpen) {
       devToolsOpen = true;
       recordViolation("devtools");
-    } else if (!isOpen) {
-      devToolsOpen = false;
     }
   };
 

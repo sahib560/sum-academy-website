@@ -87,6 +87,7 @@ function StudentQuizAttempt() {
   const questionsRef = useRef([]);
   const violationsRef = useRef(0);
   const cleanupRef = useRef(null);
+  const quizStartedAtRef = useRef(0);
 
   const [started, setStarted] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -288,6 +289,14 @@ function StudentQuizAttempt() {
           "screen_record",
         ]);
         if (!actionableReasons.has(reason)) return;
+        const elapsedSinceStart = Date.now() - Number(quizStartedAtRef.current || 0);
+        if (
+          elapsedSinceStart > 0 &&
+          elapsedSinceStart < 6000 &&
+          ["tab_switch", "window_blur", "devtools"].includes(reason)
+        ) {
+          return;
+        }
         violationsRef.current = count;
         setTabSwitchCount(count);
         void reportViolationToBackend(count, reason);
@@ -360,6 +369,7 @@ function StudentQuizAttempt() {
     if (shouldEnforceFullscreen) {
       await requestQuizFullscreen();
     }
+    quizStartedAtRef.current = Date.now();
     setTimeLeft(initialDurationSeconds);
     setStarted(true);
   };

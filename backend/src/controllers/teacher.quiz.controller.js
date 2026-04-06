@@ -368,7 +368,22 @@ const getStudentIdsForCourse = async (courseId = "") => {
     return getClassStudentIds(classData);
   });
 
-  return [...new Set([...fromEnrollments, ...fromClasses])];
+  const studentsSnap = await db.collection(COLLECTIONS.STUDENTS).get();
+  const fromStudentDocs = studentsSnap.docs.flatMap((doc) => {
+    const row = doc.data() || {};
+    const enrolledCourses = Array.isArray(row.enrolledCourses) ? row.enrolledCourses : [];
+    const hasCourse = enrolledCourses.some((entry) => {
+      if (typeof entry === "string") return trimText(entry) === cleanCourseId;
+      return (
+        trimText(entry?.courseId) === cleanCourseId ||
+        trimText(entry?.id) === cleanCourseId
+      );
+    });
+    if (!hasCourse) return [];
+    return [trimText(doc.id), trimText(row.uid), trimText(row.studentId)].filter(Boolean);
+  });
+
+  return [...new Set([...fromEnrollments, ...fromClasses, ...fromStudentDocs])];
 };
 
 const createCourseQuizAnnouncement = async ({
@@ -437,6 +452,39 @@ const normalizeAssignmentInfo = (assignment = {}) => {
     ),
     students: normalizedStudents,
   };
+};
+
+const resolveAssignmentStudents = async (
+  assignment = {},
+  fallbackCourseId = ""
+) => {
+  const normalized = normalizeAssignmentInfo(assignment);
+  if (normalized.students.length > 0) return normalized.students;
+
+  const targetType = lowerText(normalized.targetType || "students");
+  let studentIds = [];
+  if (targetType === "course") {
+    studentIds = await getStudentIdsForCourse(normalized.courseId || fallbackCourseId);
+  } else if (targetType === "class" && normalized.classId) {
+    const classSnap = await db.collection(COLLECTIONS.CLASSES).doc(normalized.classId).get();
+    if (classSnap.exists) {
+      studentIds = getClassStudentIds(classSnap.data() || {});
+    }
+  }
+
+  if (!Array.isArray(studentIds) || studentIds.length < 1) return [];
+  const uniqueIds = [...new Set(studentIds.map((id) => trimText(id)).filter(Boolean))];
+  const profiles = await Promise.all(
+    uniqueIds.map((studentId) => getStudentAssignmentProfile(studentId))
+  );
+  return profiles
+    .filter(Boolean)
+    .map((profile) => ({
+      studentId: trimText(profile.studentId),
+      fullName: trimText(profile.fullName) || "Student",
+      email: trimText(profile.email),
+    }))
+    .filter((student) => student.studentId);
 };
 
 const normalizeResultStatus = (value = "") => {
@@ -661,7 +709,13 @@ const getStudentAssignmentProfile = async (studentId) => {
     db.collection(COLLECTIONS.USERS).doc(studentId).get(),
   ]);
 
-  if (!studentSnap.exists && !userSnap.exists) return null;
+  if (!studentSnap.exists && !userSnap.exists) {
+    return {
+      studentId,
+      fullName: trimText(studentId) ? `Student (${trimText(studentId)})` : "Student",
+      email: "",
+    };
+  }
 
   const studentData = studentSnap.exists ? studentSnap.data() || {} : {};
   const userData = userSnap.exists ? userSnap.data() || {} : {};
@@ -949,6 +1003,12 @@ export const getQuizAnalytics = async (req, res) => {
     if (owned.error) return errorResponse(res, owned.error, owned.status);
 
     const assignment = normalizeAssignmentInfo(owned.quizData.assignment || {});
+    const resolvedAssignedStudents = await resolveAssignmentStudents(
+      owned.quizData.assignment || {},
+      trimText(owned.quizData.courseId)
+    );
+    const assignmentStudents =
+      resolvedAssignedStudents.length > 0 ? resolvedAssignedStudents : assignment.students;
 
     let resultRows = [];
     try {
@@ -973,6 +1033,7 @@ export const getQuizAnalytics = async (req, res) => {
     }
 
     const latestByStudent = new Map();
+    const attemptsByStudent = new Map();
     const timelineMap = {};
 
     resultRows.forEach((row) => {
@@ -984,12 +1045,19 @@ export const getQuizAnalytics = async (req, res) => {
         timelineMap[dayKey] = (timelineMap[dayKey] || 0) + 1;
       }
       if (!studentId) return;
+      attemptsByStudent.set(studentId, (attemptsByStudent.get(studentId) || 0) + 1);
       if (latestByStudent.has(studentId)) return;
       latestByStudent.set(studentId, {
+        resultId: row.id,
         studentId,
         studentName: trimText(data.studentName) || "Student",
         status: normalizeResultStatus(data.status),
         scorePercent: toPositiveNumber(data.scorePercent, 0),
+        objectiveScore: toPositiveNumber(data.objectiveScore, 0),
+        manualScore: toPositiveNumber(data.manualScore, 0),
+        totalScore: toPositiveNumber(data.totalScore, 0),
+        totalMarks: toPositiveNumber(data.totalMarks, 0),
+        pendingManualMarks: toPositiveNumber(data.pendingManualMarks, 0),
         submittedAt,
       });
     });
@@ -1037,15 +1105,27 @@ export const getQuizAnalytics = async (req, res) => {
         submissions: timelineMap[date],
       }));
 
-    const totalAssigned = Math.max(assignment.totalAssigned, attemptedCount);
+    const totalAssigned = Math.max(
+      Number(assignment.totalAssigned || 0),
+      assignmentStudents.length,
+      attemptedCount
+    );
     const notAttempted = Math.max(0, totalAssigned - attemptedCount);
 
-    const assignedStudents = assignment.students.map((student) => {
+    const assignedStudents = assignmentStudents.map((student) => {
       const latest = latestByStudent.get(student.studentId);
       return {
         ...student,
         status: latest ? "attempted" : "not_attempted",
+        attemptsCount: latest ? attemptsByStudent.get(student.studentId) || 1 : 0,
+        resultId: latest ? latest.resultId : null,
+        resultStatus: latest ? latest.status : "not_attempted",
         scorePercent: latest ? latest.scorePercent : null,
+        objectiveScore: latest ? latest.objectiveScore : null,
+        manualScore: latest ? latest.manualScore : null,
+        totalScore: latest ? latest.totalScore : null,
+        totalMarks: latest ? latest.totalMarks : null,
+        pendingManualMarks: latest ? latest.pendingManualMarks : null,
         submittedAt: latest ? latest.submittedAt : null,
       };
     });
@@ -1055,7 +1135,18 @@ export const getQuizAnalytics = async (req, res) => {
       {
         quizId,
         title: trimText(owned.quizData.title) || "Quiz",
-        assignment,
+        assignment: {
+          ...assignment,
+          students: assignedStudents.map((student) => ({
+            studentId: student.studentId,
+            fullName: student.fullName,
+            email: student.email,
+          })),
+          totalAssigned: Math.max(
+            Number(assignment.totalAssigned || 0),
+            assignedStudents.length
+          ),
+        },
         summary: {
           totalAssigned,
           attemptedCount,
@@ -1770,14 +1861,24 @@ export const getQuizSubmissions = async (req, res) => {
       return acc;
     }, {});
 
+    const attemptsCountByStudent = rows.reduce((acc, row) => {
+      const studentId = trimText(row?.data?.studentId);
+      if (!studentId) return acc;
+      acc[studentId] = (acc[studentId] || 0) + 1;
+      return acc;
+    }, {});
+
     const payload = rows.map((row) => {
       const data = row.data || {};
       const answerRows = Array.isArray(data.answers) ? data.answers : [];
+      const studentId = trimText(data.studentId);
       return {
         id: row.id,
-        studentId: trimText(data.studentId),
+        studentId,
         studentName: trimText(data.studentName) || "Student",
         status: normalizeResultStatus(data.status),
+        assignmentStatus: "attempted",
+        attemptsCount: attemptsCountByStudent[studentId] || 1,
         objectiveScore: toPositiveNumber(data.objectiveScore, 0),
         manualScore: toPositiveNumber(data.manualScore, 0),
         totalScore: toPositiveNumber(data.totalScore, 0),
@@ -1813,7 +1914,42 @@ export const getQuizSubmissions = async (req, res) => {
       };
     });
 
-    return successResponse(res, payload, "Quiz submissions fetched");
+    const assignment = normalizeAssignmentInfo(owned.quizData.assignment || {});
+    const resolvedAssignedStudents = await resolveAssignmentStudents(
+      owned.quizData.assignment || {},
+      trimText(owned.quizData.courseId)
+    );
+    const assignmentStudents =
+      resolvedAssignedStudents.length > 0 ? resolvedAssignedStudents : assignment.students;
+    const attemptedStudentIds = new Set(
+      payload.map((row) => trimText(row.studentId)).filter(Boolean)
+    );
+    const notAttemptedRows = assignmentStudents
+      .filter((student) => !attemptedStudentIds.has(trimText(student.studentId)))
+      .map((student) => ({
+        id: `not-attempted-${trimText(student.studentId)}`,
+        studentId: trimText(student.studentId),
+        studentName: trimText(student.fullName) || "Student",
+        studentEmail: trimText(student.email),
+        status: "not_attempted",
+        assignmentStatus: "not_attempted",
+        attemptsCount: 0,
+        objectiveScore: 0,
+        manualScore: 0,
+        totalScore: 0,
+        totalMarks: toPositiveNumber(owned.quizData.totalMarks, 0),
+        scorePercent: 0,
+        pendingManualMarks: 0,
+        submittedAt: null,
+        reviewedAt: null,
+        shortAnswers: [],
+      }));
+
+    return successResponse(
+      res,
+      [...payload, ...notAttemptedRows],
+      "Quiz submissions fetched"
+    );
   } catch (error) {
     console.error("getQuizSubmissions error:", error);
     return errorResponse(res, "Failed to fetch quiz submissions", 500);
