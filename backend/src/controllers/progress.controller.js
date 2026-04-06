@@ -84,6 +84,7 @@ const evaluateEnrollmentWindow = (row = {}) => {
       meta: {
         classStartDate: toIso(row.classStartDate),
         classEndDate: toIso(row.classEndDate),
+        todayDatePk: todayKey,
       },
     };
   }
@@ -96,6 +97,7 @@ const evaluateEnrollmentWindow = (row = {}) => {
       meta: {
         classStartDate: toIso(row.classStartDate),
         classEndDate: toIso(row.classEndDate),
+        todayDatePk: todayKey,
       },
     };
   }
@@ -190,6 +192,7 @@ const ensureStudentEnrolled = async (studentId, courseId) => {
         meta: {
           classStartDate: toIso(row.classStartDate),
           classEndDate: toIso(row.classEndDate),
+          todayDatePk: toPkDateKey(new Date()),
         },
       };
     }
