@@ -163,9 +163,10 @@ const registerWithGoogle = async (
 };
 
 const loginWithEmail = async (email, password) => {
+  const normalizedEmail = String(email || "").trim();
   const { user } = await signInWithEmailAndPassword(
     firebaseAuth,
-    email,
+    normalizedEmail,
     password
   );
 
@@ -331,11 +332,13 @@ const verifyRegistrationOtp = (email, otp) =>
     .then((response) => response.data?.data || {});
 
 const sendForgotPasswordOtp = (email) =>
-  api.post("/auth/forgot-password/send-otp", { email }).then((response) => response.data);
+  api
+    .post("/auth/forgot-password/send-otp", { email: String(email || "").trim() })
+    .then((response) => response.data);
 
 const verifyForgotPasswordOtp = (email, otp) =>
   api
-    .post("/auth/forgot-password/verify-otp", { email, otp })
+    .post("/auth/forgot-password/verify-otp", { email: String(email || "").trim(), otp })
     .then((response) => response.data?.data || {});
 
 const resetForgotPassword = (
@@ -346,7 +349,7 @@ const resetForgotPassword = (
 ) =>
   api
     .post("/auth/forgot-password/reset", {
-      email,
+      email: String(email || "").trim(),
       newPassword,
       confirmPassword,
       otpVerificationToken,

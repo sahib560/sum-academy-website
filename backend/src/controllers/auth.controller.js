@@ -168,11 +168,24 @@ const resolveRecoveryAccount = async (email = "") => {
   userDoc = await findUserDocByEmail(normalizedEmail);
 
   if (!authUser && userDoc?.id) {
-    try {
-      authUser = await admin.auth().getUser(userDoc.id);
-    } catch (authError) {
-      if (authError?.code !== "auth/user-not-found") {
-        throw authError;
+    const candidateUids = [
+      trimText(userDoc?.data?.uid),
+      trimText(userDoc?.id),
+    ].filter(Boolean);
+
+    for (const candidateUid of candidateUids) {
+      try {
+        const candidateUser = await admin.auth().getUser(candidateUid);
+        const candidateEmail = normalizeEmail(candidateUser?.email || "");
+        if (!candidateEmail || candidateEmail !== normalizedEmail) {
+          continue;
+        }
+        authUser = candidateUser;
+        break;
+      } catch (authError) {
+        if (authError?.code !== "auth/user-not-found") {
+          throw authError;
+        }
       }
     }
   }
@@ -465,6 +478,7 @@ const sendForgotPasswordOtp = async (req, res) => {
       {
         purpose: "forgot-password",
         email: recoveryEmail,
+        authUid: trimText(authUser?.uid),
         otpHash,
         attempts: 0,
         verified: false,
@@ -564,8 +578,8 @@ const verifyForgotPasswordOtp = async (req, res) => {
 const resetForgotPassword = async (req, res) => {
   try {
     const email = normalizeEmail(req.body?.email);
-    const newPassword = String(req.body?.newPassword || "");
-    const confirmPassword = String(req.body?.confirmPassword || "");
+    const newPassword = String(req.body?.newPassword || "").trim();
+    const confirmPassword = String(req.body?.confirmPassword || "").trim();
     const otpVerificationToken = trimText(req.body?.otpVerificationToken);
 
     if (!isValidEmail(email)) {
@@ -593,9 +607,19 @@ const resetForgotPassword = async (req, res) => {
       });
     }
 
-    const { authUser, userDoc } = await resolveRecoveryAccount(email);
-    const authUid = authUser?.uid || userDoc?.id || "";
+    const tokenAuthUid = trimText(tokenValidation?.data?.authUid);
+    let authUid = tokenAuthUid;
+    if (!authUid) {
+      const { authUser } = await resolveRecoveryAccount(email);
+      authUid = trimText(authUser?.uid);
+    }
     if (!authUid) return errorResponse(res, "User not found", 404);
+
+    const authUserRecord = await admin.auth().getUser(authUid);
+    const authEmail = normalizeEmail(authUserRecord?.email || "");
+    if (!authEmail || authEmail !== email) {
+      return errorResponse(res, "Email and account do not match", 400);
+    }
 
     await admin.auth().updateUser(authUid, { password: newPassword });
     await admin.auth().revokeRefreshTokens(authUid);
