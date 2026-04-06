@@ -149,6 +149,20 @@ export const uploadPaymentReceipt = async (req, res) => {
         400
       );
     }
+    const currentStatus = String(payData.status || "").trim().toLowerCase();
+    const allowedStatuses = new Set([
+      "awaiting_receipt",
+      "pending",
+      "pending_verification",
+      "rejected",
+    ]);
+    if (!allowedStatuses.has(currentStatus)) {
+      return errorResponse(
+        res,
+        "Receipt cannot be uploaded for this payment status",
+        400
+      );
+    }
 
     let result = null;
     const receiptUrlFromBody = String(req.body?.receiptUrl || "").trim();

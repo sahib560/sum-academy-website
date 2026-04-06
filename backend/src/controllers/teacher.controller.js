@@ -973,14 +973,24 @@ const getCourseWithAssignedSubjects = async (
     };
   }
 
+  const cleanCourseId = trimText(courseId);
   const assignedSubjects = getTeacherAssignedSubjects(courseData, uid);
   const isLegacyOwner = trimText(courseData.teacherId) === uid;
-  const mySubjects =
+  let mySubjects =
     assignedSubjects.length > 0
       ? assignedSubjects
       : isLegacyOwner
         ? getAllCourseSubjects(courseData)
         : [];
+  if (!mySubjects.length) {
+    const teacherClassDocs = await getTeacherAssignedClassDocs(uid);
+    const classDerivedCourseIds = new Set(
+      getTeacherClassDerivedCourseIds(teacherClassDocs, uid)
+    );
+    if (classDerivedCourseIds.has(cleanCourseId)) {
+      mySubjects = getAllCourseSubjects(courseData);
+    }
+  }
   if (!mySubjects.length) return { error: forbiddenMessage, status: 403 };
 
   return { courseRef, courseSnap, courseData, mySubjects };
@@ -1097,10 +1107,19 @@ const getLectureWithAssignedSubject = async (lectureId, uid, role = "") => {
   };
 };
 
+const resolveVideoLibraryUrl = (row = {}) =>
+  trimText(
+    row?.url ||
+      row?.videoUrl ||
+      row?.downloadUrl ||
+      row?.fileUrl ||
+      row?.storageUrl
+  );
+
 const normalizeVideoLibraryRow = (id, data = {}) => ({
   id,
   title: trimText(data.title) || "Untitled Video",
-  url: trimText(data.url),
+  url: resolveVideoLibraryUrl(data),
   courseId: trimText(data.courseId),
   courseName: trimText(data.courseName),
   teacherId: trimText(data.teacherId),
@@ -1147,7 +1166,7 @@ const resolveLectureVideoMeta = async ({
     if (!videoRow || videoRow.isActive === false) {
       return { error: "Video library item not found", status: 404 };
     }
-    sourceUrl = trimText(videoRow.url);
+    sourceUrl = resolveVideoLibraryUrl(videoRow);
     if (!sourceUrl) {
       return { error: "Selected video has no URL", status: 400 };
     }

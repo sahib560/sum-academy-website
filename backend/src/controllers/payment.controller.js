@@ -77,6 +77,7 @@ const normalizePaymentStatus = (value = "") =>
     .toLowerCase();
 
 const ACTIVE_PROMO_USAGE_STATUSES = new Set([
+  "awaiting_receipt",
   "pending",
   "pending_verification",
   "paid",
@@ -412,7 +413,9 @@ const fetchMergedPayments = async () => {
           normalizePaymentStatus(item.status)
         ) && Boolean(String(item.receiptUrl || "").trim()),
       isAwaitingReceipt:
-        normalizePaymentStatus(item.status) === "pending" &&
+        ["awaiting_receipt", "pending"].includes(
+          normalizePaymentStatus(item.status)
+        ) &&
         !String(item.receiptUrl || "").trim(),
       reference: item.reference || "",
       promoCode: item.promoCode || null,
@@ -749,6 +752,7 @@ export const initiatePayment = async (req, res) => {
           }
           const status = normalizePaymentStatus(row.status);
           return (
+            status === "awaiting_receipt" ||
             RESERVED_CLASS_SEAT_STATUSES.has(status) ||
             status === "paid"
           );
@@ -843,7 +847,7 @@ export const initiatePayment = async (req, res) => {
       promoCode: promoData?.code || null,
       promoCodeId: promoDoc?.id || null,
       method: paymentMethod,
-      status: "pending",
+      status: "awaiting_receipt",
       receiptUrl: null,
       reference,
       installments: installmentSchedule,
@@ -988,6 +992,20 @@ export const uploadPaymentReceipt = async (req, res) => {
     ]);
     if (!supportedReceiptMethods.has(paymentMethod)) {
       return errorResponse(res, "Unsupported payment method for receipt upload", 400);
+    }
+    const currentStatus = normalizePaymentStatus(payment.status);
+    const allowedStatuses = new Set([
+      "awaiting_receipt",
+      "pending",
+      "pending_verification",
+      "rejected",
+    ]);
+    if (!allowedStatuses.has(currentStatus)) {
+      return errorResponse(
+        res,
+        "Receipt cannot be uploaded for this payment status",
+        400
+      );
     }
 
     await paymentRef.update({
@@ -1317,7 +1335,13 @@ export const exportTransactionsCSV = async (req, res) => {
 
 export const getAdminPayments = async (req, res) => {
   try {
-    const rows = await fetchMergedPayments();
+    const includeAwaitingReceipt =
+      String(req.query?.includeAwaitingReceipt || "").trim().toLowerCase() ===
+      "true";
+    let rows = await fetchMergedPayments();
+    if (!includeAwaitingReceipt) {
+      rows = rows.filter((row) => !Boolean(row.isAwaitingReceipt));
+    }
     rows.sort(sortByCreatedAtDesc);
     return successResponse(res, rows, "Admin payments fetched");
   } catch (error) {

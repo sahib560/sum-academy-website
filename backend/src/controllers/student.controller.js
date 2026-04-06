@@ -268,7 +268,11 @@ const ACTIVE_ENROLLMENT_STATUSES = new Set([
   "pending_review",
   "",
 ]);
-const PENDING_PAYMENT_STATUSES = new Set(["pending", "pending_verification"]);
+const PENDING_PAYMENT_STATUSES = new Set([
+  "awaiting_receipt",
+  "pending",
+  "pending_verification",
+]);
 const FINAL_QUIZ_REQUEST_STATUSES = new Set([
   "pending",
   "approved",
