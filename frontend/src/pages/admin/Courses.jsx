@@ -1896,7 +1896,7 @@ function Courses() {
               ))}
             </select>
             <p className="mt-1 text-xs text-slate-500">
-              First video in a subject is always treated as live session.
+              First video in a subject is auto live for first watch, then replay is normal recorded.
             </p>
           </div>
           <div className="grid gap-2 sm:grid-cols-2">
@@ -1912,7 +1912,7 @@ function Courses() {
                 }
                 className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary"
               />
-              Mark as live session
+              Mark as live session (premiere first watch)
             </label>
             <label className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700">
               <input

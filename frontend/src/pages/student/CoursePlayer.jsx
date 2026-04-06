@@ -101,6 +101,18 @@ const normalizeProgressPayload = (payload = {}) => {
       videoId: lecture.videoId || "",
       videoMode: lecture.videoMode || "recorded",
       isLiveSession: Boolean(lecture.isLiveSession),
+      isPremiereLive:
+        lecture.isPremiereLive === true ||
+        ((Boolean(lecture.isLiveSession) ||
+          String(lecture.videoMode || "").toLowerCase() === "live_session") &&
+          !Boolean(lecture.isCompleted)),
+      livePlaybackMode: lecture.livePlaybackMode || "",
+      disableSeeking:
+        lecture.disableSeeking === true ||
+        lecture.isPremiereLive === true ||
+        ((Boolean(lecture.isLiveSession) ||
+          String(lecture.videoMode || "").toLowerCase() === "live_session") &&
+          !Boolean(lecture.isCompleted)),
       videoTitle: lecture.videoTitle || "",
       pdfNotes: Array.isArray(lecture.pdfNotes) ? lecture.pdfNotes : [],
       books: Array.isArray(lecture.books) ? lecture.books : [],
@@ -235,11 +247,20 @@ function StudentCoursePlayer() {
     [normalized.lectures, currentLectureId]
   );
   const classCompletionLocked = Boolean(normalized.access?.isLockedAfterCompletion);
+  const isLivePremiere = Boolean(currentLecture?.isPremiereLive);
 
   const watchedPercent = useMemo(() => {
     if (duration <= 0) return 0;
     return clamp((maxWatchedSeconds / duration) * 100, 0, 100);
   }, [duration, maxWatchedSeconds]);
+
+  useEffect(() => {
+    if (!isLivePremiere) return;
+    setPlaybackRate(1);
+    if (videoRef.current) {
+      videoRef.current.playbackRate = 1;
+    }
+  }, [isLivePremiere, currentLecture?.lectureId]);
 
   useEffect(() => {
     currentTimeRef.current = toNumber(currentTime, 0);
@@ -602,6 +623,10 @@ function StudentCoursePlayer() {
   const handleSeek = (event) => {
     const video = videoRef.current;
     if (!video || duration <= 0 || securityLocked) return;
+    if (isLivePremiere || currentLecture?.disableSeeking) {
+      toast.error("Seeking is disabled during live premiere.");
+      return;
+    }
     const nextTime = clamp(toNumber(event.target.value, 0), 0, duration);
     video.currentTime = nextTime;
     setCurrentTime(nextTime);
@@ -927,10 +952,14 @@ function StudentCoursePlayer() {
                     {currentLecture?.title || "Select a lecture"}
                   </h2>
                   <div className="mt-2 flex flex-wrap items-center gap-2">
-                    {(currentLecture?.isLiveSession ||
-                      String(currentLecture?.videoMode || "").toLowerCase() === "live_session") ? (
+                    {isLivePremiere ? (
                       <span className="inline-flex rounded-full bg-rose-100 px-3 py-1 text-[11px] font-semibold text-rose-700">
-                        Live Session Replay
+                        Live Premiere
+                      </span>
+                    ) : (currentLecture?.isLiveSession ||
+                      String(currentLecture?.videoMode || "").toLowerCase() === "live_session") ? (
+                      <span className="inline-flex rounded-full bg-cyan-100 px-3 py-1 text-[11px] font-semibold text-cyan-700">
+                        Premiere Replay
                       </span>
                     ) : null}
                     <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-3 py-1 text-[11px] font-semibold text-slate-600">
@@ -972,7 +1001,13 @@ function StudentCoursePlayer() {
                   value={currentTime}
                   onChange={handleSeek}
                   className="w-full accent-cyan-400"
-                  disabled={showLockedOverlay || !lectureHasVideo || !videoSrc}
+                  disabled={
+                    showLockedOverlay ||
+                    !lectureHasVideo ||
+                    !videoSrc ||
+                    isLivePremiere ||
+                    currentLecture?.disableSeeking
+                  }
                 />
 
                 <div className="mt-3 grid gap-3 md:grid-cols-3">
@@ -998,6 +1033,7 @@ function StudentCoursePlayer() {
                       value={playbackRate}
                       onChange={handleSpeed}
                       className="mt-1 w-full rounded-xl border border-slate-600 bg-slate-900 px-2 py-1 text-xs text-white"
+                      disabled={isLivePremiere}
                     >
                       {[0.5, 0.75, 1, 1.25, 1.5, 1.75, 2].map((speed) => (
                         <option key={speed} value={speed}>
@@ -1019,6 +1055,11 @@ function StudentCoursePlayer() {
                   </div>
                 </div>
               </div>
+              {isLivePremiere ? (
+                <p className="mt-2 text-[11px] text-rose-200">
+                  Live premiere mode: seeking and speed controls are disabled until this lecture completes.
+                </p>
+              ) : null}
 
               {(currentLecture?.notes || lectureResources.length > 0) && (
                 <div className="mt-4 space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">

@@ -445,6 +445,10 @@ export const buildCourseContentForStudent = async (
       const lectureId = trimText(lecture.id);
       const lectureProgress = progressMap[lectureId] || {};
       const isCompleted = Boolean(lectureProgress.isCompleted);
+      const configuredVideoMode = lowerText(lecture.videoMode || "recorded");
+      const isLiveConfigured =
+        Boolean(lecture.isLiveSession) || configuredVideoMode === "live_session";
+      const isPremiereLive = isLiveConfigured && !isCompleted;
       const watchedPercent = Math.max(
         0,
         Math.min(100, toNumber(lectureProgress.watchedPercent, 0))
@@ -485,6 +489,9 @@ export const buildCourseContentForStudent = async (
         watchedPercent,
         resumeAtSeconds: Math.max(0, toNumber(lectureProgress.resumeAtSeconds, 0)),
         durationSec: Math.max(0, toNumber(lectureProgress.durationSec, 0)),
+        isPremiereLive,
+        livePlaybackMode: isPremiereLive ? "live" : "recorded",
+        disableSeeking: isPremiereLive,
         isLocked,
         lockReason,
         manuallyUnlocked: manualAccess,
