@@ -1806,6 +1806,7 @@ export const updateUser = async (req, res) => {
       domicile,
       caste,
       password,
+      confirmPassword,
     } = req.body || {};
 
     const trim = (value = "") => String(value || "").trim();
@@ -1832,6 +1833,7 @@ export const updateUser = async (req, res) => {
     }
 
     const userData = userSnap.data();
+    const currentEmail = trim(userData.email).toLowerCase();
     const updates = {
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     };
@@ -1843,8 +1845,14 @@ export const updateUser = async (req, res) => {
       if (!nextPassword || !nextPassword.trim()) {
         return errorResponse(res, "Password cannot be empty", 400);
       }
-      if (nextPassword.length < 6) {
+      if (nextPassword.trim().length < 6) {
         return errorResponse(res, "Password must be at least 6 characters", 400);
+      }
+      if (
+        confirmPassword !== undefined &&
+        String(confirmPassword || "") !== String(nextPassword || "")
+      ) {
+        return errorResponse(res, "Passwords do not match", 400);
       }
     }
     if ((phone !== undefined || phoneNumber !== undefined) && nextPhoneRaw && !isPakistanPhone(nextPhone)) {
@@ -1908,16 +1916,67 @@ export const updateUser = async (req, res) => {
     }
 
     try {
+      let authUid = trim(userData.uid || uid);
+      let authUser = null;
+
+      const tryGetAuthByUid = async (candidateUid = "") => {
+        const cleanUid = trim(candidateUid);
+        if (!cleanUid) return null;
+        try {
+          return await admin.auth().getUser(cleanUid);
+        } catch (authError) {
+          if (authError?.code === "auth/user-not-found") return null;
+          throw authError;
+        }
+      };
+
+      const tryGetAuthByEmail = async (candidateEmail = "") => {
+        const cleanEmail = trim(candidateEmail).toLowerCase();
+        if (!cleanEmail) return null;
+        try {
+          return await admin.auth().getUserByEmail(cleanEmail);
+        } catch (authError) {
+          if (authError?.code === "auth/user-not-found") return null;
+          throw authError;
+        }
+      };
+
+      authUser = await tryGetAuthByUid(authUid);
+      if (!authUser && nextEmail) {
+        authUser = await tryGetAuthByEmail(nextEmail);
+      }
+      if (!authUser && currentEmail) {
+        authUser = await tryGetAuthByEmail(currentEmail);
+      }
+
+      if (!authUser) {
+        return errorResponse(
+          res,
+          "Linked Firebase Auth account not found for this user",
+          404
+        );
+      }
+
+      authUid = trim(authUser.uid);
+
       const authUpdates = {};
       if (nextName) authUpdates.displayName = nextName;
       if (nextEmail && nextEmail !== String(userData.email || "").toLowerCase()) {
         authUpdates.email = nextEmail;
       }
       if (hasPasswordField && nextPassword) {
-        authUpdates.password = nextPassword;
+        authUpdates.password = nextPassword.trim();
       }
       if (Object.keys(authUpdates).length > 0) {
-        await admin.auth().updateUser(uid, authUpdates);
+        await admin.auth().updateUser(authUid, authUpdates);
+      }
+
+      if (hasPasswordField && nextPassword) {
+        await admin.auth().revokeRefreshTokens(authUid);
+      }
+
+      if (authUid && authUid !== trim(userData.uid)) {
+        updates.uid = authUid;
       }
     } catch (authError) {
       if (authError?.code === "auth/email-already-exists") {

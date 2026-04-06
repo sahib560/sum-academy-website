@@ -523,6 +523,7 @@ function Users() {
         name: values.fullName.trim(),
         email: values.email.trim(),
         password: values.newPassword || undefined,
+        confirmPassword: values.newPassword ? values.confirmPassword : undefined,
         phone: values.phone.trim() ? normalizePakistanPhone(values.phone) : "",
         subject: values.role === "teacher" ? values.subject.trim() : undefined,
         bio: values.role === "teacher" ? values.bio.trim() : undefined,
