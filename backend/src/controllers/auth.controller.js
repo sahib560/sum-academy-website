@@ -693,10 +693,22 @@ const resetForgotPassword = async (req, res) => {
 
     let authUserRecord = null;
     try {
-      authUserRecord = await admin.auth().getUser(authUid);
+      // Prefer resolving by email to avoid stale UID mappings in legacy data.
+      authUserRecord = await admin.auth().getUserByEmail(email);
+      authUid = trimText(authUserRecord?.uid) || authUid;
     } catch (authError) {
       if (authError?.code !== "auth/user-not-found") {
         throw authError;
+      }
+    }
+
+    if (!authUserRecord) {
+      try {
+        authUserRecord = await admin.auth().getUser(authUid);
+      } catch (authError) {
+        if (authError?.code !== "auth/user-not-found") {
+          throw authError;
+        }
       }
     }
 
@@ -725,8 +737,8 @@ const resetForgotPassword = async (req, res) => {
     }
 
     const authEmail = normalizeEmail(authUserRecord?.email || "");
-    if (!authEmail || authEmail !== email) {
-      return errorResponse(res, "Email and account do not match", 400);
+    if (!authEmail) {
+      return errorResponse(res, "Unable to resolve account email", 400);
     }
 
     await admin.auth().updateUser(authUid, { password: newPassword });

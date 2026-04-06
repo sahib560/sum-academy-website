@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion as Motion } from "framer-motion";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -78,6 +78,19 @@ const normalizeProgressPayload = (payload = {}) => {
       isCompleted: Boolean(lecture.isCompleted),
       completedAt: lecture.completedAt || null,
       watchedPercent: clamp(toNumber(lecture.watchedPercent, 0), 0, 100),
+      resumeAtSeconds: Math.max(
+        0,
+        toNumber(
+          lecture.resumeAtSeconds ??
+            lecture.currentTimeSec ??
+            lecture.lastPositionSec,
+          0
+        )
+      ),
+      durationSec: Math.max(
+        0,
+        toNumber(lecture.durationSec ?? lecture.videoDurationSec, 0)
+      ),
       isLocked: Boolean(lecture.isLocked),
       lockReason: lecture.lockReason || "",
       manuallyUnlocked: Boolean(lecture.manuallyUnlocked),
@@ -169,6 +182,10 @@ function StudentCoursePlayer() {
   const objectUrlRef = useRef("");
   const lastWatchSaveAtRef = useRef(0);
   const autoCompletedLectureRef = useRef("");
+  const currentTimeRef = useRef(0);
+  const durationRef = useRef(0);
+  const watchedPercentRef = useRef(0);
+  const saveInFlightRef = useRef(false);
 
   const [currentLectureId, setCurrentLectureId] = useState("");
   const [expandedChapters, setExpandedChapters] = useState({});
@@ -224,13 +241,92 @@ function StudentCoursePlayer() {
     return clamp((maxWatchedSeconds / duration) * 100, 0, 100);
   }, [duration, maxWatchedSeconds]);
 
+  useEffect(() => {
+    currentTimeRef.current = toNumber(currentTime, 0);
+  }, [currentTime]);
+
+  useEffect(() => {
+    durationRef.current = toNumber(duration, 0);
+  }, [duration]);
+
+  useEffect(() => {
+    watchedPercentRef.current = toNumber(watchedPercent, 0);
+  }, [watchedPercent]);
+
+  const flushWatchProgress = useCallback(
+    ({ force = false } = {}) => {
+      if (!courseId || !currentLecture?.lectureId) return Promise.resolve();
+      if (classCompletionLocked || currentLecture.isLocked || securityLocked) {
+        return Promise.resolve();
+      }
+
+      const current = Math.max(0, toNumber(currentTimeRef.current, 0));
+      const totalDuration = Math.max(0, toNumber(durationRef.current, 0));
+      const percentFromTime =
+        totalDuration > 0 ? (current / totalDuration) * 100 : 0;
+      const computedPercent = clamp(
+        Math.max(toNumber(watchedPercentRef.current, 0), percentFromTime),
+        0,
+        100
+      );
+      const roundedPercent = Math.round(computedPercent);
+      const roundedTime = Math.round(current);
+      const roundedDuration = Math.round(totalDuration);
+
+      const now = Date.now();
+      if (!force && now - lastWatchSaveAtRef.current < 10000) {
+        return Promise.resolve();
+      }
+
+      const shouldSaveByPercent = roundedPercent >= Math.round(lastSavedWatchPercent) + 3;
+      const shouldSaveByTime = roundedTime >= 3;
+      const shouldSave = force ? shouldSaveByTime : shouldSaveByPercent || roundedPercent === 100;
+      if (!shouldSave) return Promise.resolve();
+      if (saveInFlightRef.current) return Promise.resolve();
+
+      saveInFlightRef.current = true;
+      lastWatchSaveAtRef.current = now;
+      return saveWatchProgress(
+        courseId,
+        currentLecture.lectureId,
+        roundedPercent,
+        roundedTime,
+        roundedDuration
+      )
+        .then(() => {
+          setLastSavedWatchPercent((prev) => Math.max(prev, roundedPercent));
+        })
+        .catch(() => {})
+        .finally(() => {
+          saveInFlightRef.current = false;
+        });
+    },
+    [
+      classCompletionLocked,
+      courseId,
+      currentLecture?.isLocked,
+      currentLecture?.lectureId,
+      lastSavedWatchPercent,
+      securityLocked,
+    ]
+  );
+
 
   const markCompleteMutation = useMutation({
     mutationFn: ({
       courseId: targetCourseId,
       lectureId: targetLectureId,
       watchedPercent: targetWatchedPercent = 0,
-    }) => markLectureComplete(targetCourseId, targetLectureId, targetWatchedPercent),
+      currentTimeSec: targetCurrentTimeSec = 0,
+      durationSec: targetDurationSec = 0,
+    }) =>
+      markLectureComplete(
+        targetCourseId,
+        targetLectureId,
+        targetWatchedPercent,
+        targetCurrentTimeSec,
+        targetDurationSec
+      ),
     onSuccess: (result) => {
       const data = result || {};
       if (data?.courseCompleted) {
@@ -383,12 +479,28 @@ function StudentCoursePlayer() {
   useEffect(() => {
     const onVisibilityChange = () => {
       if (!document.hidden || !videoRef.current) return;
+      void flushWatchProgress({ force: true });
       videoRef.current.pause();
       setIsPlaying(false);
     };
+    const onPageHide = () => {
+      void flushWatchProgress({ force: true });
+    };
+    const onBeforeLogout = () => {
+      void flushWatchProgress({ force: true });
+    };
+
     document.addEventListener("visibilitychange", onVisibilityChange);
-    return () => document.removeEventListener("visibilitychange", onVisibilityChange);
-  }, []);
+    window.addEventListener("pagehide", onPageHide);
+    window.addEventListener("beforeunload", onPageHide);
+    window.addEventListener("sumacademy:before-logout", onBeforeLogout);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("pagehide", onPageHide);
+      window.removeEventListener("beforeunload", onPageHide);
+      window.removeEventListener("sumacademy:before-logout", onBeforeLogout);
+    };
+  }, [flushWatchProgress]);
 
   useEffect(() => {
     let cancelled = false;
@@ -406,6 +518,9 @@ function StudentCoursePlayer() {
       setCurrentTime(0);
       setDuration(0);
       setMaxWatchedSeconds(0);
+      currentTimeRef.current = 0;
+      durationRef.current = 0;
+      watchedPercentRef.current = 0;
       setLastSavedWatchPercent(clamp(toNumber(currentLecture?.watchedPercent, 0), 0, 100));
       lastWatchSaveAtRef.current = 0;
       setIsPlaying(false);
@@ -449,32 +564,22 @@ function StudentCoursePlayer() {
   }, [currentLecture]);
 
   useEffect(() => {
-    if (!courseId || !currentLecture?.lectureId) return undefined;
-    if (classCompletionLocked || currentLecture.isLocked) return undefined;
+    if (!isPlaying) return undefined;
     if (watchedPercent <= 0) return undefined;
-
-    const now = Date.now();
-    if (now - lastWatchSaveAtRef.current < 10000) return undefined;
-    const shouldSave = watchedPercent >= lastSavedWatchPercent + 5 || watchedPercent === 100;
-    if (!shouldSave) return undefined;
-
-    lastWatchSaveAtRef.current = now;
-    saveWatchProgress(courseId, currentLecture.lectureId, Math.round(watchedPercent))
-      .then(() => {
-        setLastSavedWatchPercent((prev) =>
-          Math.max(prev, Math.round(watchedPercent))
-        );
-      })
-      .catch(() => {});
+    void flushWatchProgress();
     return undefined;
   }, [
-    courseId,
-    currentLecture?.lectureId,
-    currentLecture?.isLocked,
+    flushWatchProgress,
+    isPlaying,
     watchedPercent,
-    lastSavedWatchPercent,
-    classCompletionLocked,
   ]);
+
+  useEffect(
+    () => () => {
+      void flushWatchProgress({ force: true });
+    },
+    [flushWatchProgress]
+  );
 
   const handlePlayPause = async () => {
     const video = videoRef.current;
@@ -539,6 +644,7 @@ function StudentCoursePlayer() {
       toast.error(lecture.lockReason || "This video is locked");
       return;
     }
+    void flushWatchProgress({ force: true });
     setCurrentLectureId(lecture.lectureId);
     navigate(`/student/courses/${courseId}/player/${lecture.lectureId}`);
   };
@@ -550,6 +656,8 @@ function StudentCoursePlayer() {
       courseId,
       lectureId: currentLecture.lectureId,
       watchedPercent: Math.round(watchedPercent),
+      currentTimeSec: Math.round(toNumber(currentTimeRef.current, 0)),
+      durationSec: Math.round(toNumber(durationRef.current, 0)),
     });
   };
 
@@ -570,6 +678,8 @@ function StudentCoursePlayer() {
       courseId,
       lectureId: currentLecture.lectureId,
       watchedPercent: roundedWatchedPercent,
+      currentTimeSec: Math.round(toNumber(currentTimeRef.current, 0)),
+      durationSec: Math.round(toNumber(durationRef.current, 0)),
     });
   }, [
     courseId,
@@ -703,12 +813,27 @@ function StudentCoursePlayer() {
                     setDuration(loadedDuration);
                     media.volume = volume;
                     media.playbackRate = playbackRate;
+                    const savedResume = clamp(
+                      toNumber(currentLecture?.resumeAtSeconds, 0),
+                      0,
+                      Math.max(0, loadedDuration > 1 ? loadedDuration - 1 : loadedDuration)
+                    );
                     const existingPercent = clamp(
                       toNumber(currentLecture?.watchedPercent, 0),
                       0,
                       100
                     );
-                    if (loadedDuration > 0 && existingPercent > 0) {
+                    let initialSeek = 0;
+                    if (savedResume > 0) {
+                      initialSeek = savedResume;
+                    } else if (loadedDuration > 0 && existingPercent > 0) {
+                      initialSeek = (loadedDuration * existingPercent) / 100;
+                    }
+                    if (initialSeek > 0 && loadedDuration > 0) {
+                      media.currentTime = initialSeek;
+                      setCurrentTime(initialSeek);
+                      setMaxWatchedSeconds(initialSeek);
+                    } else if (loadedDuration > 0 && existingPercent > 0) {
                       setMaxWatchedSeconds((loadedDuration * existingPercent) / 100);
                     }
                   }}
@@ -719,7 +844,10 @@ function StudentCoursePlayer() {
                     setMaxWatchedSeconds((previous) => Math.max(previous, nextTime));
                   }}
                   onPlay={() => setIsPlaying(true)}
-                  onPause={() => setIsPlaying(false)}
+                  onPause={() => {
+                    setIsPlaying(false);
+                    void flushWatchProgress({ force: true });
+                  }}
                   onError={() => {
                     setVideoLoadError("Unable to play this video right now.");
                     setVideoSrc("");

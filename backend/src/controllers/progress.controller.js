@@ -242,18 +242,38 @@ const buildProgressMap = (progressRows = []) => {
   progressRows.forEach((row) => {
     const lectureId = trimText(row.lectureId);
     if (!lectureId) return;
+    const resumeAtSeconds = Math.max(
+      toNumber(map[lectureId]?.resumeAtSeconds, 0),
+      toNumber(
+        row.currentTimeSec ??
+          row.resumeAtSeconds ??
+          row.lastPositionSec ??
+          row.playbackPositionSec,
+        0
+      )
+    );
+    const durationSec = Math.max(
+      toNumber(map[lectureId]?.durationSec, 0),
+      toNumber(
+        row.durationSec ?? row.videoDurationSec ?? row.totalDurationSec,
+        0
+      )
+    );
     const watchedPercent = Math.max(
       toNumber(map[lectureId]?.watchedPercent, 0),
       toNumber(row.watchedPercent ?? row.progress ?? row.progressPercent, 0)
     );
+    const isCompleted =
+      Boolean(row.isCompleted || row.completed) ||
+      toNumber(row.progress, 0) >= 100 ||
+      toNumber(row.progressPercent, 0) >= 100 ||
+      toNumber(row.completionPercent, 0) >= 100;
     map[lectureId] = {
-      isCompleted:
-        Boolean(row.isCompleted || row.completed) ||
-        toNumber(row.progress, 0) >= 100 ||
-        toNumber(row.progressPercent, 0) >= 100 ||
-        toNumber(row.completionPercent, 0) >= 100,
+      isCompleted,
       completedAt: toIso(row.completedAt),
       watchedPercent,
+      resumeAtSeconds: isCompleted ? Math.max(resumeAtSeconds, durationSec) : resumeAtSeconds,
+      durationSec,
     };
   });
   return map;
@@ -425,6 +445,8 @@ export const buildCourseContentForStudent = async (
         isCompleted,
         completedAt: lectureProgress.completedAt || null,
         watchedPercent,
+        resumeAtSeconds: Math.max(0, toNumber(lectureProgress.resumeAtSeconds, 0)),
+        durationSec: Math.max(0, toNumber(lectureProgress.durationSec, 0)),
         isLocked,
         lockReason,
         manuallyUnlocked: manualAccess,
@@ -554,7 +576,15 @@ const upsertStudentProgressRow = async ({
   lectureId,
   markCompleted = false,
   watchedPercent = null,
+  currentTimeSec = null,
+  durationSec = null,
 }) => {
+  const normalizedDuration = Math.max(0, toNumber(durationSec, 0));
+  const normalizedCurrentTimeRaw = Math.max(0, toNumber(currentTimeSec, 0));
+  const normalizedCurrentTime =
+    normalizedDuration > 0
+      ? Math.min(normalizedCurrentTimeRaw, normalizedDuration)
+      : normalizedCurrentTimeRaw;
   const snap = await db.collection("progress").where("studentId", "==", studentId).get();
   const existing = snap.docs.find((doc) => {
     const row = doc.data() || {};
@@ -564,12 +594,20 @@ const upsertStudentProgressRow = async ({
   });
 
   if (!existing) {
+    const createdWatchedPercent = markCompleted
+      ? 100
+      : Math.max(0, toNumber(watchedPercent, 0));
+    const createdCurrentTime = markCompleted
+      ? normalizedDuration
+      : normalizedCurrentTime;
     const payload = {
       studentId,
       courseId,
       lectureId,
       isCompleted: Boolean(markCompleted),
-      watchedPercent: markCompleted ? 100 : Math.max(0, toNumber(watchedPercent, 0)),
+      watchedPercent: createdWatchedPercent,
+      currentTimeSec: Math.max(0, createdCurrentTime),
+      durationSec: normalizedDuration,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     };
@@ -579,16 +617,36 @@ const upsertStudentProgressRow = async ({
   }
 
   const existingRow = existing.data() || {};
+  const existingCurrentTime = Math.max(
+    0,
+    toNumber(
+      existingRow.currentTimeSec ??
+        existingRow.resumeAtSeconds ??
+        existingRow.lastPositionSec,
+      0
+    )
+  );
+  const existingDuration = Math.max(
+    0,
+    toNumber(existingRow.durationSec ?? existingRow.videoDurationSec, 0)
+  );
   const updatePayload = { updatedAt: serverTimestamp() };
   if (markCompleted) {
     updatePayload.isCompleted = true;
     updatePayload.watchedPercent = 100;
+    updatePayload.durationSec = Math.max(existingDuration, normalizedDuration);
+    updatePayload.currentTimeSec = Math.max(
+      existingCurrentTime,
+      updatePayload.durationSec
+    );
     updatePayload.completedAt = serverTimestamp();
   } else if (!existingRow.isCompleted) {
     updatePayload.watchedPercent = Math.max(
       toNumber(existingRow.watchedPercent ?? existingRow.progress ?? existingRow.progressPercent, 0),
       Math.max(0, toNumber(watchedPercent, 0))
     );
+    updatePayload.durationSec = Math.max(existingDuration, normalizedDuration);
+    updatePayload.currentTimeSec = Math.max(existingCurrentTime, normalizedCurrentTime);
   }
   await existing.ref.set(updatePayload, { merge: true });
 };
@@ -721,6 +779,14 @@ export const markLectureComplete = async (req, res) => {
       0,
       Math.min(100, toNumber(req.body?.watchedPercent, 0))
     );
+    const requestedCurrentTimeSec = Math.max(
+      0,
+      toNumber(req.body?.currentTimeSec, 0)
+    );
+    const requestedDurationSec = Math.max(
+      0,
+      toNumber(req.body?.durationSec ?? req.body?.duration, 0)
+    );
 
     if (!courseId || !lectureId) {
       return errorResponse(res, "courseId and lectureId are required", 400);
@@ -765,6 +831,8 @@ export const markLectureComplete = async (req, res) => {
         lectureId,
         markCompleted: false,
         watchedPercent: requestedWatchedPercent,
+        currentTimeSec: requestedCurrentTimeSec,
+        durationSec: requestedDurationSec,
       });
     }
 
@@ -786,6 +854,8 @@ export const markLectureComplete = async (req, res) => {
       courseId,
       lectureId,
       markCompleted: true,
+      currentTimeSec: requestedCurrentTimeSec,
+      durationSec: requestedDurationSec,
     });
 
     const builtAfter = await buildCourseContentForStudent(studentId, courseId);
@@ -875,6 +945,14 @@ export const saveWatchProgress = async (req, res) => {
     const lectureId = trimText(req.params?.lectureId);
     const studentId = trimText(req.user?.uid);
     const watchedPercent = Math.max(0, Math.min(100, toNumber(req.body?.watchedPercent, 0)));
+    const currentTimeSec = Math.max(0, toNumber(req.body?.currentTimeSec, 0));
+    const durationSec = Math.max(0, toNumber(req.body?.durationSec ?? req.body?.duration, 0));
+    const inferredPercent =
+      watchedPercent > 0
+        ? watchedPercent
+        : durationSec > 0
+          ? Math.max(0, Math.min(100, (currentTimeSec / durationSec) * 100))
+          : 0;
 
     if (!courseId || !lectureId) {
       return errorResponse(res, "courseId and lectureId are required", 400);
@@ -908,12 +986,19 @@ export const saveWatchProgress = async (req, res) => {
       courseId,
       lectureId,
       markCompleted: false,
-      watchedPercent,
+      watchedPercent: inferredPercent,
+      currentTimeSec,
+      durationSec,
     });
 
     return successResponse(
       res,
-      { lectureId, watchedPercent },
+      {
+        lectureId,
+        watchedPercent: Math.round(inferredPercent),
+        currentTimeSec: Math.round(currentTimeSec),
+        durationSec: Math.round(durationSec),
+      },
       "Progress saved"
     );
   } catch (error) {
@@ -1098,6 +1183,8 @@ export const getStudentCourseProgress = async (req, res) => {
         order: toNumber(lecture.order, 0),
         isCompleted: Boolean(lecture.isCompleted),
         watchedPercent: toNumber(lecture.watchedPercent, 0),
+        currentTimeSec: Math.max(0, toNumber(lecture.resumeAtSeconds, 0)),
+        durationSec: Math.max(0, toNumber(lecture.durationSec, 0)),
         hasManualAccess: Boolean(lecture.manuallyUnlocked),
         isLocked: Boolean(lecture.isLocked),
       }))

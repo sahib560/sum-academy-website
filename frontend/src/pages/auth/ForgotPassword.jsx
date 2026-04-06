@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { AnimatePresence, motion as Motion } from "framer-motion";
-import { FiLock, FiMail, FiShield } from "react-icons/fi";
+import { FiEye, FiEyeOff, FiLock, FiMail, FiShield } from "react-icons/fi";
 import {
   sendForgotPasswordOtp,
   verifyForgotPasswordOtp,
@@ -24,6 +24,8 @@ function ForgotPassword() {
   const [otpTimer, setOtpTimer] = useState(60);
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [otpVerificationToken, setOtpVerificationToken] = useState("");
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
@@ -46,6 +48,8 @@ function ForgotPassword() {
 
   const strengthLabel =
     strength <= 1 ? "Weak" : strength === 2 ? "Medium" : "Strong";
+  const passwordsMismatch =
+    confirmPassword.length > 0 && password !== confirmPassword;
 
   const validateEmail = () => {
     const nextErrors = {};
@@ -365,13 +369,23 @@ function ForgotPassword() {
                   <label className="text-sm font-semibold text-slate-700">
                     New Password
                   </label>
-                  <input
-                    type="password"
-                    value={password}
-                    onChange={(event) => setPassword(event.target.value)}
-                    className="mt-2 w-full rounded-full border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
-                    placeholder="Create a new password"
-                  />
+                  <div className="relative mt-2">
+                    <input
+                      type={showPassword ? "text" : "password"}
+                      value={password}
+                      onChange={(event) => setPassword(event.target.value)}
+                      className="w-full rounded-full border border-slate-200 bg-white px-4 py-3 pr-12 text-sm text-slate-700 shadow-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                      placeholder="Create a new password"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword((prev) => !prev)}
+                      className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500 transition hover:text-slate-700"
+                      aria-label={showPassword ? "Hide password" : "Show password"}
+                    >
+                      {showPassword ? <FiEyeOff size={18} /> : <FiEye size={18} />}
+                    </button>
+                  </div>
                   <div className="mt-2 flex items-center gap-2 text-xs text-slate-500">
                     <div className="flex-1 rounded-full bg-slate-100">
                       <div
@@ -394,20 +408,51 @@ function ForgotPassword() {
                   <label className="text-sm font-semibold text-slate-700">
                     Confirm Password
                   </label>
-                  <input
-                    type="password"
-                    value={confirmPassword}
-                    onChange={(event) => setConfirmPassword(event.target.value)}
-                    className="mt-2 w-full rounded-full border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
-                    placeholder="Confirm password"
-                  />
+                  <div className="relative mt-2">
+                    <input
+                      type={showConfirmPassword ? "text" : "password"}
+                      value={confirmPassword}
+                      onChange={(event) =>
+                        setConfirmPassword(event.target.value)
+                      }
+                      className={`w-full rounded-full border bg-white px-4 py-3 pr-12 text-sm text-slate-700 shadow-sm focus:outline-none focus:ring-2 ${
+                        passwordsMismatch
+                          ? "border-accent/60 focus:border-accent focus:ring-accent/20"
+                          : "border-slate-200 focus:border-primary focus:ring-primary/20"
+                      }`}
+                      placeholder="Confirm password"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowConfirmPassword((prev) => !prev)}
+                      className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500 transition hover:text-slate-700"
+                      aria-label={
+                        showConfirmPassword ? "Hide password" : "Show password"
+                      }
+                    >
+                      {showConfirmPassword ? (
+                        <FiEyeOff size={18} />
+                      ) : (
+                        <FiEye size={18} />
+                      )}
+                    </button>
+                  </div>
+                  {passwordsMismatch && !errors.confirmPassword && (
+                    <p className="mt-2 text-xs text-accent">
+                      Confirm password must match new password.
+                    </p>
+                  )}
                   {errors.confirmPassword && (
                     <p className="mt-2 text-xs text-accent">
                       {errors.confirmPassword}
                     </p>
                   )}
                 </div>
-                <button type="submit" className="btn-primary w-full">
+                <button
+                  type="submit"
+                  disabled={loading || passwordsMismatch}
+                  className="btn-primary w-full disabled:cursor-not-allowed disabled:opacity-60"
+                >
                   {loading ? "Resetting..." : "Reset Password"}
                 </button>
                 {success && (

@@ -294,6 +294,15 @@ const logout = async () => {
   const user = firebaseAuth.currentUser;
 
   try {
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent("sumacademy:before-logout", {
+          detail: { reason: "manual_logout" },
+        })
+      );
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+
     if (user) {
       const token = await user.getIdToken();
       await api.post(
