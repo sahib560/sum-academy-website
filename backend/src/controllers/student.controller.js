@@ -2589,6 +2589,8 @@ export const getStudentQuizzes = async (req, res) => {
           } else {
             status = "failed";
           }
+        } else if (isPastDue) {
+          status = "expired";
         }
 
         return {
@@ -2632,12 +2634,14 @@ export const getStudentQuizzes = async (req, res) => {
             : null,
         };
       })
-      .filter((row) => row.lastAttempt || !row.isPastDue)
-      .map(({ isPastDue, ...row }) => row)
       .sort(
         (a, b) =>
-          (parseDate(b.lastAttempt?.submittedAt)?.getTime() || 0) -
-          (parseDate(a.lastAttempt?.submittedAt)?.getTime() || 0)
+          (parseDate(b.lastAttempt?.submittedAt)?.getTime() ||
+            parseDate(b.dueAt)?.getTime() ||
+            0) -
+          (parseDate(a.lastAttempt?.submittedAt)?.getTime() ||
+            parseDate(a.dueAt)?.getTime() ||
+            0)
       );
 
     return successResponse(res, payload, "Student quizzes fetched");

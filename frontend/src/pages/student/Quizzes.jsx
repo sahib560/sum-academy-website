@@ -12,7 +12,7 @@ const fadeUp = {
   transition: { duration: 0.45 },
 };
 
-const tabs = ["Available", "Attempted"];
+const tabs = ["Available", "Attempted", "Expired"];
 
 const toNumber = (value, fallback = 0) => {
   const parsed = Number(value);
@@ -33,6 +33,7 @@ const toTitle = (value = "") => {
 
 const resolveDisplayStatus = (quiz = {}) => {
   const raw = normalizeStatus(quiz.status);
+  if (raw === "expired") return "expired";
   if (raw === "partial" || raw === "pending_review") return "partial";
   if (["attempted", "passed", "failed"].includes(raw)) return "attempted";
   if (raw === "available") return "available";
@@ -51,6 +52,10 @@ const statusStyles = {
   partial: {
     bar: "bg-amber-400",
     badge: "bg-amber-50 text-amber-700",
+  },
+  expired: {
+    bar: "bg-rose-400",
+    badge: "bg-rose-50 text-rose-700",
   },
 };
 
@@ -81,6 +86,7 @@ function StudentQuizzes() {
           totalMarks: Math.max(0, toNumber(quiz.totalMarks, 0)),
           passScore,
           displayStatus,
+          isPastDue: Boolean(quiz.isPastDue),
           lastAttempt: quiz.lastAttempt || null,
           scorePercent,
         };
@@ -94,6 +100,7 @@ function StudentQuizzes() {
       Attempted: quizzes.filter(
         (quiz) => quiz.displayStatus === "attempted" || quiz.displayStatus === "partial"
       ).length,
+      Expired: quizzes.filter((quiz) => quiz.displayStatus === "expired").length,
     }),
     [quizzes]
   );
@@ -101,6 +108,9 @@ function StudentQuizzes() {
   const filtered = useMemo(() => {
     if (activeTab === "Available") {
       return quizzes.filter((quiz) => quiz.displayStatus === "available");
+    }
+    if (activeTab === "Expired") {
+      return quizzes.filter((quiz) => quiz.displayStatus === "expired");
     }
     return quizzes.filter(
       (quiz) => quiz.displayStatus === "attempted" || quiz.displayStatus === "partial"
@@ -163,6 +173,7 @@ function StudentQuizzes() {
             const isPartial = quiz.displayStatus === "partial";
             const isAvailable = quiz.displayStatus === "available";
             const isAttempted = quiz.displayStatus === "attempted";
+            const isExpired = quiz.displayStatus === "expired";
             return (
               <article
                 key={quiz.id}
@@ -180,6 +191,8 @@ function StudentQuizzes() {
                       >
                         {isPartial
                           ? "Partial"
+                          : isExpired
+                            ? "Expired"
                           : quiz.displayStatus === "attempted"
                             ? "Attempted"
                             : toTitle(quiz.displayStatus)}
@@ -216,6 +229,13 @@ function StudentQuizzes() {
                         )}
                       </div>
                     )}
+                    {isExpired && !quiz.lastAttempt ? (
+                      <div className="mt-3">
+                        <span className="rounded-full bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-700">
+                          Quiz deadline has passed
+                        </span>
+                      </div>
+                    ) : null}
 
                     <div className="mt-4">
                       {isAvailable ? (
@@ -231,6 +251,13 @@ function StudentQuizzes() {
                           disabled
                         >
                           Pending Review
+                        </button>
+                      ) : isExpired ? (
+                        <button
+                          className="inline-flex cursor-not-allowed rounded-full bg-rose-100 px-4 py-2 text-xs font-semibold text-rose-700"
+                          disabled
+                        >
+                          Expired
                         </button>
                       ) : (
                         <button

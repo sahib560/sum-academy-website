@@ -46,6 +46,16 @@ const toNumber = (value, fallback = 0) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
 };
+const INVALID_DISPLAY_VALUES = new Set(["nan", "undefined", "null", "-", "--"]);
+const sanitizeDisplayText = (value, fallback = "") => {
+  const text = String(value || "").trim();
+  if (!text) return fallback;
+  return INVALID_DISPLAY_VALUES.has(text.toLowerCase()) ? fallback : text;
+};
+const normalizeVideoMode = (value) =>
+  String(value || "").trim().toLowerCase() === "live_session"
+    ? "live_session"
+    : "recorded";
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 
@@ -81,8 +91,13 @@ const parseDurationInputToSeconds = (value) => {
 const toDurationLabel = (value, fallback = "N/A") => {
   const seconds = parseDurationInputToSeconds(value);
   if (seconds > 0) return formatSeconds(seconds);
-  const raw = String(value || "").trim();
+  const raw = sanitizeDisplayText(value);
   return raw || fallback;
+};
+
+const toIsoIfValidDate = (value) => {
+  const parsed = new Date(value);
+  return Number.isFinite(parsed.getTime()) ? parsed.toISOString() : null;
 };
 
 const getLectureSource = (lecture = {}) =>
@@ -95,6 +110,7 @@ const getLectureSource = (lecture = {}) =>
   "";
 
 const normalizeProgressPayload = (payload = {}) => {
+  const nowMs = Date.now();
   const chapters = Array.isArray(payload.chapters) ? payload.chapters : [];
   const subjectQuizzes = Array.isArray(payload.subjectQuizzes)
     ? payload.subjectQuizzes
@@ -106,7 +122,10 @@ const normalizeProgressPayload = (payload = {}) => {
 
     const normalizedLectures = lectures.map((lecture, lectureIndex) => ({
       lectureId: lecture.lectureId || lecture.id || `${chapterIndex}-${lectureIndex}`,
-      title: lecture.title || lecture.videoTitle || "Lecture",
+      title:
+        sanitizeDisplayText(lecture.title) ||
+        sanitizeDisplayText(lecture.videoTitle) ||
+        "Lecture",
       duration: toDurationLabel(
         lecture.durationLabel || lecture.duration || lecture.videoDuration,
         "N/A"
@@ -142,7 +161,7 @@ const normalizeProgressPayload = (payload = {}) => {
       playbackUrl: lecture.playbackUrl || "",
       videoUrl: lecture.videoUrl || "",
       videoId: lecture.videoId || "",
-      videoMode: lecture.videoMode || "recorded",
+      videoMode: normalizeVideoMode(lecture.videoMode),
       isLiveSession: Boolean(lecture.isLiveSession),
       premiereEndedAt: lecture.premiereEndedAt || null,
       isPremiereLive:
@@ -159,25 +178,36 @@ const normalizeProgressPayload = (payload = {}) => {
         (((lecture.isLiveSession) ||
           String(lecture.videoMode || "").toLowerCase() === "live_session") &&
           !lecture.premiereEndedAt),
-      videoTitle: lecture.videoTitle || "",
+      videoTitle: sanitizeDisplayText(lecture.videoTitle),
       pdfNotes: Array.isArray(lecture.pdfNotes) ? lecture.pdfNotes : [],
       books: Array.isArray(lecture.books) ? lecture.books : [],
-      notes: lecture.notes || "",
+      notes: sanitizeDisplayText(lecture.notes),
     }));
 
-    const normalizedQuizzes = quizzes.map((quiz, quizIndex) => ({
-      quizId: quiz.quizId || quiz.id || `${chapterIndex}-quiz-${quizIndex}`,
-      title: quiz.title || "Chapter Quiz",
-      isLocked: Boolean(quiz.isLocked),
-      lockReason: quiz.lockReason || "",
-      isAttempted: Boolean(quiz.isAttempted),
-      isPassed: Boolean(quiz.isPassed),
-      result: quiz.result || null,
-    }));
+    const normalizedQuizzes = quizzes.map((quiz, quizIndex) => {
+      const dueAt = toIsoIfValidDate(quiz.dueAt);
+      const isExpired = Boolean(
+        quiz.isExpired === true ||
+          (dueAt && new Date(dueAt).getTime() < nowMs && !quiz.result)
+      );
+      return {
+        quizId: quiz.quizId || quiz.id || `${chapterIndex}-quiz-${quizIndex}`,
+        title: sanitizeDisplayText(quiz.title) || "Chapter Quiz",
+        isLocked: Boolean(quiz.isLocked || isExpired),
+        lockReason:
+          sanitizeDisplayText(quiz.lockReason) ||
+          (isExpired ? "Quiz deadline has passed." : ""),
+        isAttempted: Boolean(quiz.isAttempted),
+        isPassed: Boolean(quiz.isPassed),
+        isExpired,
+        dueAt,
+        result: quiz.result || null,
+      };
+    });
 
     return {
       chapterId: chapter.chapterId || chapter.id || `chapter-${chapterIndex}`,
-      title: chapter.title || "Chapter",
+      title: sanitizeDisplayText(chapter.title) || "Chapter",
       totalLectures: toNumber(chapter.totalLectures, normalizedLectures.length),
       completedLectures: toNumber(
         chapter.completedLectures,
@@ -190,15 +220,26 @@ const normalizeProgressPayload = (payload = {}) => {
     };
   });
 
-  const normalizedFinalQuizzes = subjectQuizzes.map((quiz, index) => ({
-    quizId: quiz.quizId || quiz.id || `final-${index}`,
-    title: quiz.title || "Final Quiz",
-    isLocked: Boolean(quiz.isLocked),
-    lockReason: quiz.lockReason || "",
-    isAttempted: Boolean(quiz.isAttempted),
-    isPassed: Boolean(quiz.isPassed),
-    result: quiz.result || null,
-  }));
+  const normalizedFinalQuizzes = subjectQuizzes.map((quiz, index) => {
+    const dueAt = toIsoIfValidDate(quiz.dueAt);
+    const isExpired = Boolean(
+      quiz.isExpired === true ||
+        (dueAt && new Date(dueAt).getTime() < nowMs && !quiz.result)
+    );
+    return {
+      quizId: quiz.quizId || quiz.id || `final-${index}`,
+      title: sanitizeDisplayText(quiz.title) || "Final Quiz",
+      isLocked: Boolean(quiz.isLocked || isExpired),
+      lockReason:
+        sanitizeDisplayText(quiz.lockReason) ||
+        (isExpired ? "Quiz deadline has passed." : ""),
+      isAttempted: Boolean(quiz.isAttempted),
+      isPassed: Boolean(quiz.isPassed),
+      isExpired,
+      dueAt,
+      result: quiz.result || null,
+    };
+  });
 
   const allLectures = normalizedChapters.flatMap((chapter) => chapter.lectures);
   const isCourseCompleted = Boolean(payload.isCourseCompleted);
@@ -207,9 +248,9 @@ const normalizeProgressPayload = (payload = {}) => {
   return {
     course: {
       id: payload.courseId || "",
-      title: payload.courseName || "Course",
-      description: payload.courseDescription || "",
-      teacherName: payload.teacherName || "Teacher",
+      title: sanitizeDisplayText(payload.courseName) || "Course",
+      description: sanitizeDisplayText(payload.courseDescription),
+      teacherName: sanitizeDisplayText(payload.teacherName) || "Teacher",
     },
     progress: {
       completedLectures: toNumber(
@@ -1006,6 +1047,10 @@ function StudentCoursePlayer() {
                       <span className="inline-flex rounded-full bg-cyan-100 px-3 py-1 text-[11px] font-semibold text-cyan-700">
                         Premiere Replay
                       </span>
+                    ) : currentLecture ? (
+                      <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-[11px] font-semibold text-slate-700">
+                        Recorded Video
+                      </span>
                     ) : null}
                     <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-3 py-1 text-[11px] font-semibold text-slate-600">
                       <FiClock className="h-3 w-3" />
@@ -1275,7 +1320,9 @@ function StudentCoursePlayer() {
                             <div
                               key={quiz.quizId}
                               className={`rounded-xl border px-3 py-2 text-xs ${
-                                quiz.isLocked
+                                quiz.isExpired
+                                  ? "border-rose-200 bg-rose-50 text-rose-700"
+                                  : quiz.isLocked
                                   ? "border-slate-200 bg-slate-100 text-slate-500"
                                   : quiz.isPassed
                                     ? "border-emerald-200 bg-emerald-50 text-emerald-700"
@@ -1284,7 +1331,11 @@ function StudentCoursePlayer() {
                             >
                               <div className="flex items-center justify-between gap-2">
                                 <p className="font-semibold">Chapter Quiz: {quiz.title}</p>
-                                {quiz.isPassed ? (
+                                {quiz.isExpired ? (
+                                  <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-semibold text-rose-700">
+                                    Expired
+                                  </span>
+                                ) : quiz.isPassed ? (
                                   <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
                                     Passed
                                   </span>
@@ -1298,20 +1349,22 @@ function StudentCoursePlayer() {
                               <button
                                 type="button"
                                 className={`mt-2 rounded-full px-3 py-1 text-[11px] font-semibold ${
-                                  quiz.isLocked
+                                  quiz.isLocked || quiz.isExpired
                                     ? "cursor-not-allowed bg-slate-200 text-slate-500"
                                     : "bg-indigo-600 text-white"
                                 }`}
                                 onClick={() => {
-                                  if (quiz.isLocked) {
+                                  if (quiz.isLocked || quiz.isExpired) {
                                     toast.error(quiz.lockReason || "Complete chapter videos first");
                                     return;
                                   }
                                   navigate(`/student/quizzes/${quiz.quizId}/attempt`);
                                 }}
-                                disabled={quiz.isLocked}
+                                disabled={quiz.isLocked || quiz.isExpired}
                               >
-                                {quiz.isPassed
+                                {quiz.isExpired
+                                  ? "Expired"
+                                  : quiz.isPassed
                                   ? "Review Quiz"
                                   : quiz.isAttempted
                                     ? "Retry Quiz"
@@ -1334,7 +1387,9 @@ function StudentCoursePlayer() {
                         <div
                           key={quiz.quizId}
                           className={`rounded-xl border px-3 py-2 text-xs ${
-                            quiz.isLocked
+                            quiz.isExpired
+                              ? "border-rose-200 bg-rose-50 text-rose-700"
+                              : quiz.isLocked
                               ? "border-slate-200 bg-slate-100 text-slate-500"
                               : quiz.isPassed
                                 ? "border-emerald-200 bg-emerald-50 text-emerald-700"
@@ -1350,20 +1405,22 @@ function StudentCoursePlayer() {
                           <button
                             type="button"
                             className={`mt-2 rounded-full px-3 py-1 text-[11px] font-semibold ${
-                              quiz.isLocked
+                              quiz.isLocked || quiz.isExpired
                                 ? "cursor-not-allowed bg-slate-200 text-slate-500"
                                 : "bg-indigo-600 text-white"
                             }`}
                             onClick={() => {
-                              if (quiz.isLocked) {
+                              if (quiz.isLocked || quiz.isExpired) {
                                 toast.error(quiz.lockReason || "Complete all chapters first");
                                 return;
                               }
                               navigate(`/student/quizzes/${quiz.quizId}/attempt`);
                             }}
-                            disabled={quiz.isLocked}
+                            disabled={quiz.isLocked || quiz.isExpired}
                           >
-                            {quiz.isPassed
+                            {quiz.isExpired
+                              ? "Expired"
+                              : quiz.isPassed
                               ? "Review Final Quiz"
                               : quiz.isAttempted
                                 ? "Retry Final Quiz"

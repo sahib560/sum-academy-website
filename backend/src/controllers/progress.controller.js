@@ -5,6 +5,14 @@ import { successResponse, errorResponse } from "../utils/response.utils.js";
 const serverTimestamp = () => admin.firestore.FieldValue.serverTimestamp();
 const trimText = (value = "") => String(value || "").trim();
 const lowerText = (value = "") => trimText(value).toLowerCase();
+const INVALID_DISPLAY_VALUES = new Set(["nan", "undefined", "null", "-", "--"]);
+const sanitizeDisplayText = (value, fallback = "") => {
+  const text = trimText(value);
+  if (!text) return fallback;
+  return INVALID_DISPLAY_VALUES.has(lowerText(text)) ? fallback : text;
+};
+const normalizeVideoMode = (value) =>
+  lowerText(value) === "live_session" ? "live_session" : "recorded";
 const toNumber = (value, fallback = 0) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
@@ -73,9 +81,9 @@ const normalizeLectureVideoMeta = (lecture = {}) => ({
     trimText(lecture.signedVideoUrl) ||
     trimText(lecture.videoSignedUrl) ||
     "",
-  videoMode: trimText(lecture.videoMode) || "recorded",
+  videoMode: normalizeVideoMode(lecture.videoMode),
   isLiveSession: Boolean(lecture.isLiveSession),
-  videoTitle: trimText(lecture.videoTitle),
+  videoTitle: sanitizeDisplayText(lecture.videoTitle),
   premiereEndedAt: toIso(lecture.premiereEndedAt),
   videoDuration:
     lecture.videoDuration === null || lecture.videoDuration === undefined
@@ -510,6 +518,7 @@ export const buildCourseContentForStudent = async (
   const enrollmentCompleted = enrollmentState.rows.some(
     (row) => lowerText(row.status || "active") === "completed"
   );
+  const nowMs = Date.now();
 
   const chapterRows = [];
   let previousChapterComplete = true;
@@ -525,7 +534,7 @@ export const buildCourseContentForStudent = async (
       const lectureId = trimText(lecture.id);
       const lectureProgress = progressMap[lectureId] || {};
       const isCompleted = Boolean(lectureProgress.isCompleted);
-      const configuredVideoMode = lowerText(lecture.videoMode || "recorded");
+      const configuredVideoMode = normalizeVideoMode(lecture.videoMode);
       const isLiveConfigured =
         Boolean(lecture.isLiveSession) || configuredVideoMode === "live_session";
       const premiereEndedAt = toIso(lecture.premiereEndedAt);
@@ -540,9 +549,9 @@ export const buildCourseContentForStudent = async (
         )
       );
       const explicitDurationLabel =
-        trimText(lecture.durationLabel) ||
-        trimText(typeof lecture.duration === "string" ? lecture.duration : "") ||
-        trimText(typeof lecture.videoDuration === "string" ? lecture.videoDuration : "");
+        sanitizeDisplayText(lecture.durationLabel) ||
+        sanitizeDisplayText(typeof lecture.duration === "string" ? lecture.duration : "") ||
+        sanitizeDisplayText(typeof lecture.videoDuration === "string" ? lecture.videoDuration : "");
       const durationLabel = isPremiereLive
         ? "Live"
         : explicitDurationLabel || formatDurationLabel(lectureDurationSec);
@@ -574,14 +583,17 @@ export const buildCourseContentForStudent = async (
         id: lectureId,
         lectureId,
         chapterId: trimText(lecture.chapterId),
-        title: trimText(lecture.title) || "Lecture",
+        title:
+          sanitizeDisplayText(lecture.title) ||
+          sanitizeDisplayText(lecture.videoTitle) ||
+          "Lecture",
         order: toNumber(lecture.order, 0),
         duration: durationLabel,
         durationLabel,
         ...normalizeLectureVideoMeta(lecture),
         pdfNotes: Array.isArray(lecture.pdfNotes) ? lecture.pdfNotes : [],
         books: Array.isArray(lecture.books) ? lecture.books : [],
-        notes: trimText(lecture.notes || lecture.description),
+        notes: sanitizeDisplayText(lecture.notes || lecture.description),
         isCompleted,
         completedAt: lectureProgress.completedAt || null,
         watchedPercent,
@@ -606,16 +618,25 @@ export const buildCourseContentForStudent = async (
     const quizzesWithStatus = chapterQuizzes.map((quiz) => {
       const quizId = trimText(quiz.id);
       const result = quizResultsMap[quizId] || null;
-      const quizLocked = !enrollmentCompleted && !allLecturesDone;
+      const dueAtDate = toDate(quiz.dueAt || quiz.assignmentDueAt || null);
+      const dueAt = dueAtDate ? dueAtDate.toISOString() : null;
+      const isExpired = Boolean(dueAtDate && dueAtDate.getTime() < nowMs && !result);
+      const quizLocked = isExpired || (!enrollmentCompleted && !allLecturesDone);
       return {
         id: quizId,
         quizId,
-        title: trimText(quiz.title) || "Chapter Quiz",
+        title: sanitizeDisplayText(quiz.title) || "Chapter Quiz",
         chapterId: trimText(quiz.chapterId),
         scope: lowerText(quiz.scope || "chapter"),
         passScore: toNumber(quiz.passScore, 50),
         isLocked: quizLocked,
-        lockReason: quizLocked ? "Complete all chapter videos to unlock quiz." : "",
+        lockReason: isExpired
+          ? "Quiz deadline has passed."
+          : quizLocked
+            ? "Complete all chapter videos to unlock quiz."
+            : "",
+        dueAt,
+        isExpired,
         result,
         isAttempted: Boolean(result),
         isPassed: Boolean(result?.isPassed),
@@ -632,7 +653,7 @@ export const buildCourseContentForStudent = async (
     chapterRows.push({
       id: trimText(chapter.id),
       chapterId: trimText(chapter.id),
-      title: trimText(chapter.title) || "Chapter",
+      title: sanitizeDisplayText(chapter.title) || "Chapter",
       order: toNumber(chapter.order, 0),
       lectures: lecturesWithStatus,
       quizzes: quizzesWithStatus,
@@ -648,14 +669,23 @@ export const buildCourseContentForStudent = async (
   const subjectQuizzes = toSubjectQuizList(quizzes).map((quiz) => {
     const quizId = trimText(quiz.id);
     const result = quizResultsMap[quizId] || null;
-    const quizLocked = !allChaptersComplete;
+    const dueAtDate = toDate(quiz.dueAt || quiz.assignmentDueAt || null);
+    const dueAt = dueAtDate ? dueAtDate.toISOString() : null;
+    const isExpired = Boolean(dueAtDate && dueAtDate.getTime() < nowMs && !result);
+    const quizLocked = isExpired || !allChaptersComplete;
     return {
       id: quizId,
       quizId,
-      title: trimText(quiz.title) || "Final Quiz",
+      title: sanitizeDisplayText(quiz.title) || "Final Quiz",
       scope: lowerText(quiz.scope || "subject"),
       isLocked: quizLocked,
-      lockReason: quizLocked ? "Complete all chapters to unlock final quiz." : "",
+      lockReason: isExpired
+        ? "Quiz deadline has passed."
+        : quizLocked
+          ? "Complete all chapters to unlock final quiz."
+          : "",
+      dueAt,
+      isExpired,
       result,
       isAttempted: Boolean(result),
       isPassed: Boolean(result?.isPassed),
