@@ -483,6 +483,29 @@ const toPositiveNumber = (value, fallback = 0) => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
+const parseLectureDurationToSeconds = (value) => {
+  if (value === null || value === undefined) return 0;
+  if (typeof value === "number") return value > 0 ? Math.round(value) : 0;
+  const raw = trimText(value);
+  if (!raw) return 0;
+  const numeric = Number(raw);
+  if (Number.isFinite(numeric) && numeric > 0) return Math.round(numeric);
+  const hhmmss = raw.match(/^(\d{1,2}):([0-5]?\d):([0-5]?\d)$/);
+  if (hhmmss) {
+    const h = Number(hhmmss[1]);
+    const m = Number(hhmmss[2]);
+    const s = Number(hhmmss[3]);
+    return h * 3600 + m * 60 + s;
+  }
+  const mmss = raw.match(/^([0-5]?\d):([0-5]?\d)$/);
+  if (mmss) {
+    const m = Number(mmss[1]);
+    const s = Number(mmss[2]);
+    return m * 60 + s;
+  }
+  return 0;
+};
+
 const ACTIVE_ENROLLMENT_STATUSES = new Set([
   "active",
   "upcoming",
@@ -843,6 +866,13 @@ const serializeLecture = (id, data = {}) => ({
     data.videoDuration === null || data.videoDuration === undefined
       ? null
       : data.videoDuration,
+  durationSec: Math.max(
+    parseLectureDurationToSeconds(
+      data.durationSec ?? data.videoDurationSec ?? data.videoDuration ?? data.duration
+    ),
+    0
+  ),
+  premiereEndedAt: toIso(data.premiereEndedAt),
   pdfNotes: Array.isArray(data.pdfNotes) ? data.pdfNotes : [],
   books: Array.isArray(data.books) ? data.books : [],
   isPublished: Boolean(data.isPublished),
@@ -1318,6 +1348,26 @@ const resolveLectureVideoMeta = async ({
   const existingLive = Boolean(currentLectureData.isLiveSession);
   let videoMode = existingMode || "recorded";
   let isLiveSession = existingLive;
+  const requestedLive = parseNullableBoolean(requestedIsLiveSession);
+  const requestedMode = trimText(requestedVideoMode).toLowerCase();
+  let preferredLive = null;
+
+  if (requestedLive !== null) {
+    preferredLive = requestedLive;
+  } else if (requestedMode === "live_session") {
+    preferredLive = true;
+  } else if (requestedMode === "recorded") {
+    preferredLive = false;
+  } else if (cleanVideoId) {
+    preferredLive =
+      trimText(selectedVideoRow?.videoMode).toLowerCase() === "live_session" ||
+      Boolean(selectedVideoRow?.isLiveSession);
+  }
+
+  if (hasExistingVideo && preferredLive !== null) {
+    isLiveSession = preferredLive;
+    videoMode = isLiveSession ? "live_session" : "recorded";
+  }
 
   if (!hasExistingVideo) {
     const existingSubjectVideoCount = await getSubjectVideoCount({
@@ -1326,21 +1376,6 @@ const resolveLectureVideoMeta = async ({
       ignoreLectureId: lectureId,
     });
     const isFirstSubjectVideo = existingSubjectVideoCount < 1;
-    const requestedLive = parseNullableBoolean(requestedIsLiveSession);
-    const requestedMode = trimText(requestedVideoMode).toLowerCase();
-    let preferredLive = null;
-
-    if (requestedLive !== null) {
-      preferredLive = requestedLive;
-    } else if (requestedMode === "live_session") {
-      preferredLive = true;
-    } else if (requestedMode === "recorded") {
-      preferredLive = false;
-    } else if (cleanVideoId) {
-      preferredLive =
-        trimText(selectedVideoRow?.videoMode).toLowerCase() === "live_session" ||
-        Boolean(selectedVideoRow?.isLiveSession);
-    }
 
     if (isFirstSubjectVideo) {
       videoMode = "live_session";
@@ -1960,6 +1995,8 @@ export const addLecture = async (req, res) => {
       videoUrl: null,
       videoTitle: null,
       videoDuration: null,
+      durationSec: 0,
+      premiereEndedAt: null,
       pdfNotes: [],
       books: [],
       isPublished: false,
@@ -2113,7 +2150,14 @@ export const saveLectureContent = async (req, res) => {
       updates.videoTitle = resolvedVideo.videoTitle;
       updates.videoMode = resolvedVideo.videoMode;
       updates.isLiveSession = resolvedVideo.isLiveSession;
-      updates.videoDuration = duration ?? "";
+      updates.videoDuration =
+        duration !== undefined && duration !== null ? duration : currentData.videoDuration ?? "";
+      updates.durationSec = Math.max(
+        parseLectureDurationToSeconds(duration),
+        parseLectureDurationToSeconds(currentData.durationSec ?? currentData.videoDurationSec),
+        parseLectureDurationToSeconds(currentData.videoDuration)
+      );
+      updates.premiereEndedAt = resolvedVideo.isLiveSession ? null : currentData.premiereEndedAt || null;
       firstLiveSession = Boolean(resolvedVideo.isFirstLiveSession);
     }
 
@@ -2212,6 +2256,8 @@ export const deleteLectureContent = async (req, res) => {
       updates.videoMode = "recorded";
       updates.isLiveSession = false;
       updates.videoDuration = null;
+      updates.durationSec = 0;
+      updates.premiereEndedAt = null;
     }
 
     if (normalizedType === "pdf") {

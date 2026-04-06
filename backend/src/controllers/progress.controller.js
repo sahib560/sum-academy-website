@@ -31,6 +31,39 @@ const sortByOrderThenCreated = (a = {}, b = {}) => {
   return toMillis(a.createdAt) - toMillis(b.createdAt);
 };
 
+const parseDurationToSeconds = (value) => {
+  if (value === null || value === undefined) return 0;
+  if (typeof value === "number") return value > 0 ? Math.round(value) : 0;
+  const raw = trimText(value);
+  if (!raw) return 0;
+  const numeric = Number(raw);
+  if (Number.isFinite(numeric) && numeric > 0) return Math.round(numeric);
+  const hhmmss = raw.match(/^(\d{1,2}):([0-5]?\d):([0-5]?\d)$/);
+  if (hhmmss) {
+    const h = Number(hhmmss[1]);
+    const m = Number(hhmmss[2]);
+    const s = Number(hhmmss[3]);
+    return h * 3600 + m * 60 + s;
+  }
+  const mmss = raw.match(/^([0-5]?\d):([0-5]?\d)$/);
+  if (mmss) {
+    const m = Number(mmss[1]);
+    const s = Number(mmss[2]);
+    return m * 60 + s;
+  }
+  return 0;
+};
+
+const formatDurationLabel = (seconds) => {
+  const safe = Math.max(0, Math.floor(toNumber(seconds, 0)));
+  if (safe <= 0) return "N/A";
+  const h = Math.floor(safe / 3600);
+  const m = Math.floor((safe % 3600) / 60);
+  const s = safe % 60;
+  if (h > 0) return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  return `${m}:${String(s).padStart(2, "0")}`;
+};
+
 const normalizeLectureVideoMeta = (lecture = {}) => ({
   videoUrl:
     trimText(lecture.videoUrl) ||
@@ -43,6 +76,7 @@ const normalizeLectureVideoMeta = (lecture = {}) => ({
   videoMode: trimText(lecture.videoMode) || "recorded",
   isLiveSession: Boolean(lecture.isLiveSession),
   videoTitle: trimText(lecture.videoTitle),
+  premiereEndedAt: toIso(lecture.premiereEndedAt),
   videoDuration:
     lecture.videoDuration === null || lecture.videoDuration === undefined
       ? null
@@ -494,7 +528,24 @@ export const buildCourseContentForStudent = async (
       const configuredVideoMode = lowerText(lecture.videoMode || "recorded");
       const isLiveConfigured =
         Boolean(lecture.isLiveSession) || configuredVideoMode === "live_session";
-      const isPremiereLive = isLiveConfigured && !isCompleted;
+      const premiereEndedAt = toIso(lecture.premiereEndedAt);
+      const isPremiereLive = isLiveConfigured && !premiereEndedAt;
+      const lectureDurationSec = Math.max(
+        0,
+        parseDurationToSeconds(
+          lecture.durationSec ??
+            lecture.videoDurationSec ??
+            lecture.videoDuration ??
+            lecture.duration
+        )
+      );
+      const explicitDurationLabel =
+        trimText(lecture.durationLabel) ||
+        trimText(typeof lecture.duration === "string" ? lecture.duration : "") ||
+        trimText(typeof lecture.videoDuration === "string" ? lecture.videoDuration : "");
+      const durationLabel = isPremiereLive
+        ? "Live"
+        : explicitDurationLabel || formatDurationLabel(lectureDurationSec);
       const watchedPercent = Math.max(
         0,
         Math.min(100, toNumber(lectureProgress.watchedPercent, 0))
@@ -525,7 +576,8 @@ export const buildCourseContentForStudent = async (
         chapterId: trimText(lecture.chapterId),
         title: trimText(lecture.title) || "Lecture",
         order: toNumber(lecture.order, 0),
-        duration: lecture.duration || lecture.videoDuration || "--",
+        duration: durationLabel,
+        durationLabel,
         ...normalizeLectureVideoMeta(lecture),
         pdfNotes: Array.isArray(lecture.pdfNotes) ? lecture.pdfNotes : [],
         books: Array.isArray(lecture.books) ? lecture.books : [],
@@ -534,7 +586,10 @@ export const buildCourseContentForStudent = async (
         completedAt: lectureProgress.completedAt || null,
         watchedPercent,
         resumeAtSeconds: Math.max(0, toNumber(lectureProgress.resumeAtSeconds, 0)),
-        durationSec: Math.max(0, toNumber(lectureProgress.durationSec, 0)),
+        durationSec: Math.max(
+          lectureDurationSec,
+          toNumber(lectureProgress.durationSec, 0)
+        ),
         isPremiereLive,
         livePlaybackMode: isPremiereLive ? "live" : "recorded",
         disableSeeking: isPremiereLive,
@@ -847,6 +902,11 @@ export const getCourseContent = async (req, res) => {
       {
         courseId,
         courseName: trimText(built.course.title) || "Course",
+        courseDescription:
+          trimText(built.course.shortDescription) ||
+          trimText(built.course.description) ||
+          "",
+        teacherName: trimText(built.course.teacherName) || "Teacher",
         isCourseCompleted: Boolean(built.isCourseCompleted),
         overallProgress: Math.max(0, Math.min(100, toNumber(built.overallProgress, 0))),
         totalLectures: built.totalLectures,
@@ -948,6 +1008,24 @@ export const markLectureComplete = async (req, res) => {
       currentTimeSec: requestedCurrentTimeSec,
       durationSec: requestedDurationSec,
     });
+
+    if (
+      Boolean(lectureRow.isLiveSession) &&
+      lowerText(lectureRow.videoMode || "") === "live_session" &&
+      !lectureRow.premiereEndedAt
+    ) {
+      try {
+        await db.collection("lectures").doc(lectureId).set(
+          {
+            premiereEndedAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true }
+        );
+      } catch (premiereError) {
+        console.error("markLectureComplete premiere update error:", premiereError);
+      }
+    }
 
     const builtAfter = await buildCourseContentForStudent(studentId, courseId);
     if (builtAfter.error) {

@@ -10,10 +10,14 @@ import {
   FiFileText,
   FiLock,
   FiMaximize2,
+  FiMic,
   FiPause,
   FiPlay,
+  FiRotateCcw,
+  FiRotateCw,
   FiShield,
   FiVolume2,
+  FiVolumeX,
 } from "react-icons/fi";
 import { Skeleton } from "../../components/Skeleton.jsx";
 import { useAuth } from "../../hooks/useAuth.js";
@@ -52,6 +56,35 @@ const formatSeconds = (value = 0) => {
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 };
 
+const parseDurationInputToSeconds = (value) => {
+  if (value === null || value === undefined) return 0;
+  const numeric = Number(value);
+  if (Number.isFinite(numeric) && numeric > 0) return Math.round(numeric);
+  const raw = String(value).trim();
+  if (!raw) return 0;
+  const hhmmss = raw.match(/^(\d{1,2}):([0-5]?\d):([0-5]?\d)$/);
+  if (hhmmss) {
+    const h = Number(hhmmss[1]);
+    const m = Number(hhmmss[2]);
+    const s = Number(hhmmss[3]);
+    return h * 3600 + m * 60 + s;
+  }
+  const mmss = raw.match(/^([0-5]?\d):([0-5]?\d)$/);
+  if (mmss) {
+    const m = Number(mmss[1]);
+    const s = Number(mmss[2]);
+    return m * 60 + s;
+  }
+  return 0;
+};
+
+const toDurationLabel = (value, fallback = "N/A") => {
+  const seconds = parseDurationInputToSeconds(value);
+  if (seconds > 0) return formatSeconds(seconds);
+  const raw = String(value || "").trim();
+  return raw || fallback;
+};
+
 const getLectureSource = (lecture = {}) =>
   lecture.signedUrl ||
   lecture.signedVideoUrl ||
@@ -73,8 +106,11 @@ const normalizeProgressPayload = (payload = {}) => {
 
     const normalizedLectures = lectures.map((lecture, lectureIndex) => ({
       lectureId: lecture.lectureId || lecture.id || `${chapterIndex}-${lectureIndex}`,
-      title: lecture.title || "Lecture",
-      duration: lecture.duration || lecture.videoDuration || "--",
+      title: lecture.title || lecture.videoTitle || "Lecture",
+      duration: toDurationLabel(
+        lecture.durationLabel || lecture.duration || lecture.videoDuration,
+        "N/A"
+      ),
       isCompleted: Boolean(lecture.isCompleted),
       completedAt: lecture.completedAt || null,
       watchedPercent: clamp(toNumber(lecture.watchedPercent, 0), 0, 100),
@@ -89,7 +125,14 @@ const normalizeProgressPayload = (payload = {}) => {
       ),
       durationSec: Math.max(
         0,
-        toNumber(lecture.durationSec ?? lecture.videoDurationSec, 0)
+        toNumber(
+          lecture.durationSec ??
+            lecture.videoDurationSec ??
+            parseDurationInputToSeconds(
+              lecture.durationLabel || lecture.duration || lecture.videoDuration
+            ),
+          0
+        )
       ),
       isLocked: Boolean(lecture.isLocked),
       lockReason: lecture.lockReason || "",
@@ -101,18 +144,21 @@ const normalizeProgressPayload = (payload = {}) => {
       videoId: lecture.videoId || "",
       videoMode: lecture.videoMode || "recorded",
       isLiveSession: Boolean(lecture.isLiveSession),
+      premiereEndedAt: lecture.premiereEndedAt || null,
       isPremiereLive:
         lecture.isPremiereLive === true ||
-        ((Boolean(lecture.isLiveSession) ||
+        String(lecture.livePlaybackMode || "").toLowerCase() === "live" ||
+        (((lecture.isLiveSession) ||
           String(lecture.videoMode || "").toLowerCase() === "live_session") &&
-          !Boolean(lecture.isCompleted)),
+          !lecture.premiereEndedAt),
       livePlaybackMode: lecture.livePlaybackMode || "",
       disableSeeking:
         lecture.disableSeeking === true ||
         lecture.isPremiereLive === true ||
-        ((Boolean(lecture.isLiveSession) ||
+        String(lecture.livePlaybackMode || "").toLowerCase() === "live" ||
+        (((lecture.isLiveSession) ||
           String(lecture.videoMode || "").toLowerCase() === "live_session") &&
-          !Boolean(lecture.isCompleted)),
+          !lecture.premiereEndedAt),
       videoTitle: lecture.videoTitle || "",
       pdfNotes: Array.isArray(lecture.pdfNotes) ? lecture.pdfNotes : [],
       books: Array.isArray(lecture.books) ? lecture.books : [],
@@ -620,30 +666,24 @@ function StudentCoursePlayer() {
     }
   };
 
-  const handleSeek = (event) => {
+  const handleToggleMute = () => {
+    const video = videoRef.current;
+    if (!video) return;
+    const nextVolume = volume > 0 ? 0 : 1;
+    setVolume(nextVolume);
+    video.volume = nextVolume;
+  };
+
+  const handleSkip = (deltaSeconds = 0) => {
     const video = videoRef.current;
     if (!video || duration <= 0 || securityLocked) return;
     if (isLivePremiere || currentLecture?.disableSeeking) {
       toast.error("Seeking is disabled during live premiere.");
       return;
     }
-    const nextTime = clamp(toNumber(event.target.value, 0), 0, duration);
+    const nextTime = clamp(toNumber(video.currentTime, 0) + deltaSeconds, 0, duration);
     video.currentTime = nextTime;
     setCurrentTime(nextTime);
-  };
-
-  const handleVolume = (event) => {
-    const video = videoRef.current;
-    const nextVolume = clamp(toNumber(event.target.value, 1), 0, 1);
-    setVolume(nextVolume);
-    if (video) video.volume = nextVolume;
-  };
-
-  const handleSpeed = (event) => {
-    const video = videoRef.current;
-    const nextRate = clamp(toNumber(event.target.value, 1), 0.5, 2);
-    setPlaybackRate(nextRate);
-    if (video) video.playbackRate = nextRate;
   };
 
   const handleFullscreen = () => {
@@ -717,6 +757,7 @@ function StudentCoursePlayer() {
     classCompletionLocked,
     securityLocked,
     markCompleteMutation.isPending,
+    markCompleteMutation,
   ]);
 
   const canMarkComplete =
@@ -739,6 +780,7 @@ function StudentCoursePlayer() {
     securityLocked ||
     !currentLecture ||
     currentLecture.isLocked;
+  const useNativeRecordedControls = !isLivePremiere;
   const showVideoErrorOverlay =
     !showLockedOverlay && !isLoadingVideo && lectureHasVideo && !videoSrc;
 
@@ -828,8 +870,11 @@ function StudentCoursePlayer() {
                   ref={videoRef}
                   src={videoSrc || undefined}
                   className="h-full w-full object-cover"
-                  style={{ pointerEvents: "none", filter: "contrast(1.05) saturate(1.12)" }}
-                  controls={false}
+                  style={{
+                    pointerEvents: showLockedOverlay ? "none" : "auto",
+                    filter: "contrast(1.05) saturate(1.12)",
+                  }}
+                  controls={useNativeRecordedControls}
                   controlsList="nodownload nofullscreen"
                   disablePictureInPicture
                   disableRemotePlayback
@@ -964,7 +1009,7 @@ function StudentCoursePlayer() {
                     ) : null}
                     <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-3 py-1 text-[11px] font-semibold text-slate-600">
                       <FiClock className="h-3 w-3" />
-                      {currentLecture?.duration || "--"}
+                      {currentLecture?.duration || "N/A"}
                     </span>
                   </div>
                   <p className="mt-1 text-sm text-slate-500">
@@ -973,79 +1018,57 @@ function StudentCoursePlayer() {
                 </div>
                 <div className="text-right text-xs text-slate-500">
                   <p>Watched: {Math.round(watchedPercent)}%</p>
-                  <p>Lecture: {currentLecture?.duration || "--"}</p>
+                  <p>Lecture: {currentLecture?.duration || "N/A"}</p>
                   <p>Security: {securityWarningCount}/{VIDEO_VIOLATION_LIMIT}</p>
                 </div>
               </div>
 
-              <div className="mt-4 rounded-2xl border border-slate-800 bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 p-4 text-white shadow-inner">
-                <div className="mb-3 flex flex-wrap items-center gap-3">
-                  <button
-                    className="inline-flex items-center gap-2 rounded-full bg-cyan-500 px-4 py-2 text-xs font-semibold text-slate-950 disabled:cursor-not-allowed disabled:opacity-50"
-                    onClick={handlePlayPause}
-                    disabled={showLockedOverlay || !lectureHasVideo || !videoSrc}
-                  >
-                    {isPlaying ? <FiPause className="h-3.5 w-3.5" /> : <FiPlay className="h-3.5 w-3.5" />}
-                    {isPlaying ? "Pause" : "Play"}
-                  </button>
-                  <span className="text-xs font-semibold text-slate-100">
-                    {formatSeconds(currentTime)} / {formatSeconds(duration)}
-                  </span>
-                </div>
-
-                <input
-                  type="range"
-                  min={0}
-                  max={duration || 0}
-                  step={0.1}
-                  value={currentTime}
-                  onChange={handleSeek}
-                  className="w-full accent-cyan-400"
-                  disabled={
-                    showLockedOverlay ||
-                    !lectureHasVideo ||
-                    !videoSrc ||
-                    isLivePremiere ||
-                    currentLecture?.disableSeeking
-                  }
-                />
-
-                <div className="mt-3 grid gap-3 md:grid-cols-3">
-                  <label className="text-xs text-slate-200">
-                    <span className="mb-1 inline-flex items-center gap-1">
-                      <FiVolume2 className="h-3.5 w-3.5" />
-                      Volume
+              {useNativeRecordedControls ? (
+                <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="inline-flex items-center gap-2 rounded-full bg-red-50 px-3 py-1 text-[11px] font-semibold text-red-700">
+                      <FiPlay className="h-3.5 w-3.5" />
+                      YouTube-style controls enabled
+                    </div>
+                    <span className="text-xs font-semibold text-slate-600">
+                      {formatSeconds(currentTime)} / {formatSeconds(duration)}
                     </span>
-                    <input
-                      type="range"
-                      min={0}
-                      max={1}
-                      step={0.01}
-                      value={volume}
-                      onChange={handleVolume}
-                      className="mt-1 w-full accent-cyan-400"
-                    />
-                  </label>
-
-                  <label className="text-xs text-slate-200">
-                    Speed
-                    <select
-                      value={playbackRate}
-                      onChange={handleSpeed}
-                      className="mt-1 w-full rounded-xl border border-slate-600 bg-slate-900 px-2 py-1 text-xs text-white"
-                      disabled={isLivePremiere}
-                    >
-                      {[0.5, 0.75, 1, 1.25, 1.5, 1.75, 2].map((speed) => (
-                        <option key={speed} value={speed}>
-                          {speed}x
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-
-                  <div className="flex items-end">
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
                     <button
-                      className="inline-flex w-full items-center justify-center gap-1 rounded-xl border border-slate-600 bg-slate-900 px-3 py-2 text-xs font-semibold text-white"
+                      className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700"
+                      onClick={handlePlayPause}
+                      disabled={showLockedOverlay || !lectureHasVideo || !videoSrc}
+                    >
+                      {isPlaying ? <FiPause className="h-3.5 w-3.5" /> : <FiPlay className="h-3.5 w-3.5" />}
+                      {isPlaying ? "Pause" : "Play"}
+                    </button>
+                    <button
+                      className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700"
+                      onClick={() => handleSkip(-10)}
+                      disabled={showLockedOverlay || !lectureHasVideo || !videoSrc}
+                    >
+                      <FiRotateCcw className="h-3.5 w-3.5" />
+                      -10s
+                    </button>
+                    <button
+                      className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700"
+                      onClick={() => handleSkip(10)}
+                      disabled={showLockedOverlay || !lectureHasVideo || !videoSrc}
+                    >
+                      <FiRotateCw className="h-3.5 w-3.5" />
+                      +10s
+                    </button>
+                    <button
+                      className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700"
+                      onClick={handleToggleMute}
+                      disabled={showLockedOverlay || !lectureHasVideo || !videoSrc}
+                    >
+                      {volume > 0 ? <FiVolume2 className="h-3.5 w-3.5" /> : <FiVolumeX className="h-3.5 w-3.5" />}
+                      {volume > 0 ? "Mute" : "Unmute"}
+                    </button>
+                    <button
+                      className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700"
                       onClick={handleFullscreen}
                       disabled={showLockedOverlay || !lectureHasVideo || !videoSrc}
                     >
@@ -1054,12 +1077,49 @@ function StudentCoursePlayer() {
                     </button>
                   </div>
                 </div>
-              </div>
-              {isLivePremiere ? (
-                <p className="mt-2 text-[11px] text-rose-200">
-                  Live premiere mode: seeking and speed controls are disabled until this lecture completes.
-                </p>
-              ) : null}
+              ) : (
+                <div className="mt-4 rounded-2xl border border-rose-700/30 bg-gradient-to-r from-slate-900 via-rose-950/60 to-slate-900 p-4 text-white shadow-inner">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="inline-flex items-center gap-2 rounded-full bg-rose-600/20 px-3 py-1 text-[11px] font-semibold text-rose-100">
+                      <span className="h-2 w-2 animate-pulse rounded-full bg-rose-400" />
+                      LIVE PREMIERE
+                    </span>
+                    <span className="text-xs font-semibold text-rose-100">
+                      {formatSeconds(currentTime)} / {formatSeconds(duration)}
+                    </span>
+                  </div>
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <button
+                      className="inline-flex items-center gap-1 rounded-full bg-rose-500 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+                      onClick={handlePlayPause}
+                      disabled={showLockedOverlay || !lectureHasVideo || !videoSrc}
+                    >
+                      {isPlaying ? <FiPause className="h-3.5 w-3.5" /> : <FiPlay className="h-3.5 w-3.5" />}
+                      {isPlaying ? "Pause" : "Play"}
+                    </button>
+                    <button
+                      className="inline-flex items-center gap-1 rounded-full border border-rose-300/30 bg-transparent px-3 py-1.5 text-xs font-semibold text-rose-100"
+                      onClick={handleToggleMute}
+                      disabled={showLockedOverlay || !lectureHasVideo || !videoSrc}
+                    >
+                      {volume > 0 ? <FiMic className="h-3.5 w-3.5" /> : <FiVolumeX className="h-3.5 w-3.5" />}
+                      {volume > 0 ? "Mute" : "Unmute"}
+                    </button>
+                    <button
+                      className="inline-flex items-center gap-1 rounded-full border border-rose-300/30 bg-transparent px-3 py-1.5 text-xs font-semibold text-rose-100"
+                      onClick={handleFullscreen}
+                      disabled={showLockedOverlay || !lectureHasVideo || !videoSrc}
+                    >
+                      <FiMaximize2 className="h-3.5 w-3.5" />
+                      Fullscreen
+                    </button>
+                  </div>
+                  <p className="mt-2 text-[11px] text-rose-100/90">
+                    Live mode: seeking and playback speed are disabled. When premiere ends, this
+                    lecture automatically becomes a normal recorded replay for all students.
+                  </p>
+                </div>
+              )}
 
               {(currentLecture?.notes || lectureResources.length > 0) && (
                 <div className="mt-4 space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
