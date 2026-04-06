@@ -274,15 +274,17 @@ function StudentCoursePlayer() {
       const roundedDuration = Math.round(totalDuration);
 
       const now = Date.now();
-      if (!force && now - lastWatchSaveAtRef.current < 10000) {
+      if (!force && now - lastWatchSaveAtRef.current < 2500) {
         return Promise.resolve();
       }
 
-      const shouldSaveByPercent = roundedPercent >= Math.round(lastSavedWatchPercent) + 3;
-      const shouldSaveByTime = roundedTime >= 3;
-      const shouldSave = force ? shouldSaveByTime : shouldSaveByPercent || roundedPercent === 100;
+      const shouldSaveByPercent = roundedPercent >= Math.round(lastSavedWatchPercent) + 2;
+      const shouldSaveByTime = roundedTime >= 1 && roundedDuration > 0;
+      const shouldSave = force
+        ? shouldSaveByTime || roundedPercent > 0
+        : shouldSaveByPercent || roundedPercent === 100;
       if (!shouldSave) return Promise.resolve();
-      if (saveInFlightRef.current) return Promise.resolve();
+      if (saveInFlightRef.current && !force) return Promise.resolve();
 
       saveInFlightRef.current = true;
       lastWatchSaveAtRef.current = now;
@@ -846,6 +848,17 @@ function StudentCoursePlayer() {
                   onPlay={() => setIsPlaying(true)}
                   onPause={() => {
                     setIsPlaying(false);
+                    void flushWatchProgress({ force: true });
+                  }}
+                  onEnded={(event) => {
+                    const media = event.currentTarget;
+                    const endTime = Math.max(0, toNumber(media.duration, 0));
+                    setIsPlaying(false);
+                    setCurrentTime(endTime);
+                    setMaxWatchedSeconds((previous) => Math.max(previous, endTime));
+                    currentTimeRef.current = endTime;
+                    durationRef.current = Math.max(durationRef.current, endTime);
+                    watchedPercentRef.current = 100;
                     void flushWatchProgress({ force: true });
                   }}
                   onError={() => {

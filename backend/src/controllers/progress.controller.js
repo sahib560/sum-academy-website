@@ -96,6 +96,43 @@ const evaluateEnrollmentWindow = (row = {}) => {
   return { allowed: true, code: "", message: "", meta: {} };
 };
 
+const enrichEnrollmentRowsWithClassWindow = async (rows = []) => {
+  const classIds = [...new Set(rows.map((row) => trimText(row.classId)).filter(Boolean))];
+  if (!classIds.length) return rows;
+
+  const classSnaps = await Promise.all(
+    classIds.map(async (classId) => {
+      try {
+        const snap = await db.collection("classes").doc(classId).get();
+        return {
+          classId,
+          classData: snap.exists ? snap.data() || {} : {},
+        };
+      } catch {
+        return { classId, classData: {} };
+      }
+    })
+  );
+
+  const classMap = classSnaps.reduce((acc, row) => {
+    acc[row.classId] = row.classData || {};
+    return acc;
+  }, {});
+
+  return rows.map((row) => {
+    const classId = trimText(row.classId);
+    const classData = classMap[classId] || {};
+    return {
+      ...row,
+      classStartDate:
+        row.classStartDate || row.startDate || classData.startDate || classData.classStartDate || null,
+      classEndDate:
+        row.classEndDate || row.endDate || classData.endDate || classData.classEndDate || null,
+      classStatus: lowerText(row.classStatus || classData.status || ""),
+    };
+  });
+};
+
 const ensureStudentEnrolled = async (studentId, courseId) => {
   const rows = await getCourseEnrollmentRows(studentId, courseId);
   const eligibleRows = rows.filter((row) =>
@@ -104,10 +141,11 @@ const ensureStudentEnrolled = async (studentId, courseId) => {
     )
   );
   if (!eligibleRows.length) return { enrolled: false, rows: [] };
+  const enrichedRows = await enrichEnrollmentRowsWithClassWindow(eligibleRows);
 
-  const checks = eligibleRows.map((row) => {
+  const checks = enrichedRows.map((row) => {
     const status = lowerText(row.status || "active");
-    if (status === "upcoming") {
+    if (status === "upcoming" || row.classStatus === "upcoming") {
       return {
         row,
         allowed: false,
@@ -151,7 +189,7 @@ const ensureStudentEnrolled = async (studentId, courseId) => {
 
   return {
     enrolled: true,
-    rows: eligibleRows,
+    rows: enrichedRows,
     accessDenied: true,
     error: preferredError?.message || "Learning access is not available for this class.",
     status: 403,
@@ -516,13 +554,15 @@ export const buildCourseContentForStudent = async (
     };
   });
 
-  const totalLectures = chapterRows.reduce((sum, chapter) => sum + chapter.totalLectures, 0);
-  const completedLectures = chapterRows.reduce(
-    (sum, chapter) => sum + chapter.completedLectures,
-    0
-  );
+  const allLecturesFlat = chapterRows.flatMap((chapter) => chapter.lectures || []);
+  const totalLectures = allLecturesFlat.length;
+  const completedLectures = allLecturesFlat.filter((lecture) => lecture.isCompleted).length;
+  const watchedScore = allLecturesFlat.reduce((sum, lecture) => {
+    if (lecture.isCompleted) return sum + 100;
+    return sum + Math.max(0, Math.min(100, toNumber(lecture.watchedPercent, 0)));
+  }, 0);
   const overallProgress =
-    totalLectures > 0 ? Math.round((completedLectures / totalLectures) * 100) : 0;
+    totalLectures > 0 ? Math.round(watchedScore / totalLectures) : 0;
 
   const allQuizzes = [
     ...chapterRows.flatMap((chapter) => chapter.quizzes),
@@ -741,9 +781,7 @@ export const getCourseContent = async (req, res) => {
     if (!courseId) return errorResponse(res, "courseId is required", 400);
     if (!studentId) return errorResponse(res, "Missing student uid", 400);
 
-    const built = await buildCourseContentForStudent(studentId, courseId, {
-      ignoreAccessWindow: true,
-    });
+    const built = await buildCourseContentForStudent(studentId, courseId);
     if (built.error) {
       return errorResponse(res, built.error, built.status || 400, {
         ...(built.meta || {}),

@@ -723,15 +723,46 @@ const normalizeProgressPercent = (progressRows = [], courseId = "", fallback = 0
       (!trimText(row.courseId) || trimText(row.courseId) === cleanCourseId)
   );
   if (lectureRows.length > 0) {
-    const completed = lectureRows.filter(
-      (row) =>
+    const byLectureId = lectureRows.reduce((acc, row) => {
+      const lectureId = trimText(row.lectureId);
+      if (!lectureId) return acc;
+      const isCompleted = Boolean(
         row.isCompleted ||
-        row.completed ||
-        toNumber(row.progress, 0) >= 100 ||
-        toNumber(row.progressPercent, 0) >= 100 ||
-        toNumber(row.completionPercent, 0) >= 100
-    ).length;
-    return clampPercent((completed / lectureRows.length) * 100);
+          row.completed ||
+          toNumber(row.progress, 0) >= 100 ||
+          toNumber(row.progressPercent, 0) >= 100 ||
+          toNumber(row.completionPercent, 0) >= 100
+      );
+      const rawPercent = Number(
+        row.watchedPercent ?? row.progress ?? row.progressPercent ?? row.completionPercent
+      );
+      const durationSec = Math.max(
+        0,
+        toNumber(row.durationSec ?? row.videoDurationSec ?? row.totalDurationSec, 0)
+      );
+      const currentTimeSec = Math.max(
+        0,
+        toNumber(row.currentTimeSec ?? row.resumeAtSeconds ?? row.lastPositionSec, 0)
+      );
+      const inferredPercent =
+        durationSec > 0 ? (Math.min(currentTimeSec, durationSec) / durationSec) * 100 : 0;
+      const weightedPercent = isCompleted
+        ? 100
+        : clampPercent(Number.isFinite(rawPercent) ? rawPercent : inferredPercent);
+
+      if (!acc[lectureId]) {
+        acc[lectureId] = weightedPercent;
+        return acc;
+      }
+      acc[lectureId] = Math.max(acc[lectureId], weightedPercent);
+      return acc;
+    }, {});
+
+    const scores = Object.values(byLectureId);
+    if (scores.length > 0) {
+      const total = scores.reduce((sum, score) => sum + toNumber(score, 0), 0);
+      return clampPercent(total / scores.length);
+    }
   }
 
   return clampPercent(fallback);
