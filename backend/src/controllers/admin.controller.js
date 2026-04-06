@@ -881,6 +881,33 @@ const collectTeachersFromShifts = (shifts = []) => {
     });
 };
 
+const getMissingShiftCourseNames = (assignedCourses = [], shifts = []) => {
+  const normalizedCourses = (Array.isArray(assignedCourses) ? assignedCourses : [])
+    .map((entry) => {
+      if (typeof entry === "string") {
+        const courseId = String(entry || "").trim();
+        return courseId ? { courseId, courseName: courseId } : null;
+      }
+      const courseId = String(entry?.courseId || entry?.id || "").trim();
+      if (!courseId) return null;
+      return {
+        courseId,
+        courseName: String(entry?.courseName || entry?.title || "").trim() || courseId,
+      };
+    })
+    .filter(Boolean);
+
+  const shiftCourseIds = new Set(
+    (Array.isArray(shifts) ? shifts : [])
+      .map((shift) => String(shift?.courseId || "").trim())
+      .filter(Boolean)
+  );
+
+  return normalizedCourses
+    .filter((course) => !shiftCourseIds.has(course.courseId))
+    .map((course) => course.courseName);
+};
+
 export const getDashboardStats = async (req, res) => {
   try {
     const stats = await adminService.getDashboardStats();
@@ -3080,6 +3107,20 @@ export const createClass = async (req, res) => {
       normalizedShifts.push(resolved.data);
     }
 
+    const missingShiftCourses = getMissingShiftCourseNames(
+      resolvedCourses,
+      normalizedShifts
+    );
+    if (missingShiftCourses.length > 0) {
+      return errorResponse(
+        res,
+        `Add at least one shift for each assigned course. Missing schedule for: ${missingShiftCourses.join(
+          ", "
+        )}`,
+        400
+      );
+    }
+
     const classPricing = await calculateClassPriceFromCourseIds(
       resolvedCourses.map((course) => course.courseId).filter(Boolean)
     );
@@ -3223,6 +3264,20 @@ export const updateClass = async (req, res) => {
       .find(Boolean);
     if (todayShiftError) {
       return errorResponse(res, todayShiftError, 400);
+    }
+
+    const missingShiftCourses = getMissingShiftCourseNames(
+      nextAssignedCourses,
+      nextShifts
+    );
+    if (missingShiftCourses.length > 0) {
+      return errorResponse(
+        res,
+        `Add at least one shift for each assigned course. Missing schedule for: ${missingShiftCourses.join(
+          ", "
+        )}`,
+        400
+      );
     }
 
     if (req.body.batchCode !== undefined) {

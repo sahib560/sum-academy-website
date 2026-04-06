@@ -265,6 +265,39 @@ const validateCoursesStep = (values) => {
   return {};
 };
 
+const getAssignedCourseId = (course = {}) =>
+  String(
+    typeof course === "string" ? course : course?.courseId || course?.id || ""
+  ).trim();
+
+const getAssignedCourseName = (course = {}) => {
+  if (typeof course === "string") return course;
+  return String(course?.courseName || course?.title || course?.name || "").trim();
+};
+
+const getMissingScheduledCourses = (assignedCourses = [], shifts = []) => {
+  const normalizedCourses = (Array.isArray(assignedCourses) ? assignedCourses : [])
+    .map((course) => {
+      const courseId = getAssignedCourseId(course);
+      if (!courseId) return null;
+      return {
+        courseId,
+        courseName: getAssignedCourseName(course) || courseId,
+      };
+    })
+    .filter(Boolean);
+
+  if (normalizedCourses.length < 1) return [];
+
+  const shiftCourseIds = new Set(
+    (Array.isArray(shifts) ? shifts : [])
+      .map((shift) => String(shift?.courseId || "").trim())
+      .filter(Boolean)
+  );
+
+  return normalizedCourses.filter((course) => !shiftCourseIds.has(course.courseId));
+};
+
 const validateShiftRow = (shift, index = 0, classStartDate = "") => {
   const errors = {};
   const prefix = `shift-${index}`;
@@ -314,6 +347,15 @@ const validateShiftsStep = (values) => {
   values.shifts.forEach((shift, index) => {
     Object.assign(errors, validateShiftRow(shift, index, values.startDate));
   });
+  const missingCourses = getMissingScheduledCourses(
+    values.assignedCourses,
+    values.shifts
+  );
+  if (missingCourses.length > 0) {
+    errors.shiftsCoverage = `Add at least one shift for: ${missingCourses
+      .map((course) => course.courseName)
+      .join(", ")}`;
+  }
   return errors;
 };
 
@@ -861,10 +903,13 @@ function Classes() {
 
   const addClassCourseMutation = useMutation({
     mutationFn: ({ classId, courseId }) => addClassCourse(classId, courseId),
-    onSuccess: async () => {
+    onSuccess: async (_, variables) => {
       await refreshClasses();
       setDrawerCourseId("");
-      toast.success("Course assigned to class.");
+      toast.success("Course assigned. Add shift days/time for this course.");
+      if (variables?.courseId) {
+        openCreateShiftModal(variables.courseId);
+      }
     },
     onError: (error) => {
       toast.error(error?.response?.data?.error || "Failed to assign course.");
@@ -1179,10 +1224,16 @@ function Classes() {
     });
   };
 
-  const addShiftToForm = () => {
+  const addShiftToForm = (preferredCourseId = "") => {
     setClassForm((prev) => ({
       ...prev,
-      shifts: [...prev.shifts, emptyShift()],
+      shifts: [
+        ...prev.shifts,
+        {
+          ...emptyShift(),
+          courseId: String(preferredCourseId || "").trim(),
+        },
+      ],
     }));
   };
 
@@ -1255,11 +1306,18 @@ function Classes() {
     setDrawerTab("overview");
   };
 
-  const openCreateShiftModal = () => {
+  const openCreateShiftModal = (preferredCourseId = "") => {
     if (!activeClass) return;
     const assignedCourses = activeClass.assignedCourses || [];
-    const defaultCourseId =
-      assignedCourses.length === 1 ? assignedCourses[0].courseId || "" : "";
+    const preferredId = String(preferredCourseId || "").trim();
+    const hasPreferred = assignedCourses.some(
+      (course) => course.courseId === preferredId
+    );
+    const defaultCourseId = hasPreferred
+      ? preferredId
+      : assignedCourses.length === 1
+      ? assignedCourses[0].courseId || ""
+      : "";
     setShiftModalMode("create");
     setEditingShiftId("");
     setShiftForm({
@@ -1386,6 +1444,18 @@ function Classes() {
       : classFillPercent >= 80
       ? "bg-amber-500"
       : "bg-emerald-500";
+  const missingShiftCoursesInForm = useMemo(
+    () => getMissingScheduledCourses(classForm.assignedCourses, classForm.shifts),
+    [classForm.assignedCourses, classForm.shifts]
+  );
+  const missingShiftCoursesInActiveClass = useMemo(
+    () =>
+      getMissingScheduledCourses(
+        activeClass?.assignedCourses || [],
+        activeClass?.shifts || []
+      ),
+    [activeClass?.assignedCourses, activeClass?.shifts]
+  );
   const drawerAssignedCourses = activeClass?.assignedCourses || [];
   const isSingleDrawerCourse = drawerAssignedCourses.length === 1;
   const singleDrawerCourseId = isSingleDrawerCourse
@@ -1845,14 +1915,43 @@ function Classes() {
 
           {classModalStep === 3 ? (
             <div className="space-y-4">
-              <button
-                type="button"
-                onClick={addShiftToForm}
-                className="rounded-full border border-primary/20 bg-primary px-4 py-2 text-xs font-semibold text-white"
-              >
-                Add Shift
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => addShiftToForm()}
+                  className="rounded-full border border-primary/20 bg-primary px-4 py-2 text-xs font-semibold text-white"
+                >
+                  Add Shift
+                </button>
+                {missingShiftCoursesInForm.length > 0 ? (
+                  <span className="text-xs font-semibold text-amber-700">
+                    Missing schedule for {missingShiftCoursesInForm.length} course
+                    {missingShiftCoursesInForm.length > 1 ? "s" : ""}
+                  </span>
+                ) : null}
+              </div>
               <FieldError message={classErrors.shifts} />
+              <FieldError message={classErrors.shiftsCoverage} />
+
+              {missingShiftCoursesInForm.length > 0 ? (
+                <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">
+                    Unscheduled Courses
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {missingShiftCoursesInForm.map((course) => (
+                      <button
+                        key={`missing-form-course-${course.courseId}`}
+                        type="button"
+                        onClick={() => addShiftToForm(course.courseId)}
+                        className="rounded-full border border-amber-300 bg-white px-3 py-1 text-xs font-semibold text-amber-700"
+                      >
+                        Add shift: {course.courseName}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
 
               {classForm.shifts.map((shift, index) => (
                 <ShiftFormFields
@@ -2012,6 +2111,20 @@ function Classes() {
               <div className="space-y-5">
                 <div className="rounded-3xl border border-slate-200 bg-white p-5">
                   <h4 className="font-heading text-2xl text-slate-900">Assigned Courses</h4>
+                  {missingShiftCoursesInActiveClass.length > 0 ? (
+                    <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
+                      <p className="text-sm font-semibold text-amber-800">
+                        Schedule missing for{" "}
+                        {missingShiftCoursesInActiveClass
+                          .map((course) => course.courseName)
+                          .join(", ")}
+                      </p>
+                      <p className="mt-1 text-xs text-amber-700">
+                        Add days and timings for each course so timetable and teacher dashboard
+                        stay accurate.
+                      </p>
+                    </div>
+                  ) : null}
                   <div className="mt-4 space-y-2">
                     {activeClass.assignedCourses.length < 1 ? (
                       <p className="text-sm text-slate-500">No courses assigned yet.</p>
@@ -2096,6 +2209,20 @@ function Classes() {
                       Add Shift
                     </button>
                   </div>
+                  {missingShiftCoursesInActiveClass.length > 0 ? (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {missingShiftCoursesInActiveClass.map((course) => (
+                        <button
+                          key={`missing-shift-${course.courseId}`}
+                          type="button"
+                          onClick={() => openCreateShiftModal(course.courseId)}
+                          className="rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700"
+                        >
+                          Add shift for {course.courseName}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
 
                   <div className="mt-4 space-y-3">
                     {activeClass.shifts.length < 1 ? (
@@ -2443,6 +2570,35 @@ function Classes() {
             {drawerTab === "schedule" ? (
               <div className="space-y-4 rounded-3xl border border-slate-200 bg-white p-5">
                 <h4 className="font-heading text-2xl text-slate-900">Weekly Timetable</h4>
+                {missingShiftCoursesInActiveClass.length > 0 ? (
+                  <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
+                    <p className="text-sm font-semibold text-amber-800">
+                      Timetable is incomplete.
+                    </p>
+                    <p className="mt-1 text-xs text-amber-700">
+                      Missing schedule for{" "}
+                      {missingShiftCoursesInActiveClass
+                        .map((course) => course.courseName)
+                        .join(", ")}
+                      .
+                    </p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {missingShiftCoursesInActiveClass.map((course) => (
+                        <button
+                          key={`schedule-missing-${course.courseId}`}
+                          type="button"
+                          onClick={() => {
+                            setDrawerTab("courses");
+                            openCreateShiftModal(course.courseId);
+                          }}
+                          className="rounded-full border border-amber-300 bg-white px-3 py-1 text-xs font-semibold text-amber-700"
+                        >
+                          Add shift for {course.courseName}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
                 <div className="overflow-x-auto">
                   <table className="min-w-[980px] border-collapse text-xs">
                     <thead>

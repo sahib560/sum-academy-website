@@ -207,12 +207,21 @@ export const getTeacherDashboard = async (req, res) => {
       data: doc.data() || {},
     }));
 
+    const teacherOwnedCourseIds = new Set(
+      normalizeTeacherCourseIds(allCourses, teacherId)
+    );
     const teacherClassDocs = classesSnap.docs
       .map((doc) => ({ id: doc.id, data: doc.data() || {} }))
-      .filter((row) => isTeacherAssignedToClass(row.data, teacherId));
+      .filter((row) => {
+        if (isTeacherAssignedToClass(row.data, teacherId)) return true;
+        const classCourseIds = getClassAssignedCourseIds(row.data);
+        return classCourseIds.some((courseId) =>
+          teacherOwnedCourseIds.has(trimText(courseId))
+        );
+      });
 
     const teacherCourseIds = new Set([
-      ...normalizeTeacherCourseIds(allCourses, teacherId),
+      ...teacherOwnedCourseIds,
       ...getTeacherClassDerivedCourseIds(teacherClassDocs, teacherId),
     ]);
 
@@ -532,7 +541,11 @@ const isTeacherListedInClassTeachers = (classData = {}, uid = "") => {
   });
 };
 
-const getTeacherCourseIdsFromClassData = (classData = {}, uid = "") => {
+const getTeacherCourseIdsFromClassData = (
+  classData = {},
+  uid = "",
+  teacherOwnedCourseIds = []
+) => {
   const cleanUid = trimText(uid);
   if (!cleanUid) return [];
 
@@ -549,13 +562,32 @@ const getTeacherCourseIdsFromClassData = (classData = {}, uid = "") => {
     return getClassAssignedCourseIds(classData);
   }
 
+  const ownedSet = new Set(
+    (Array.isArray(teacherOwnedCourseIds) ? teacherOwnedCourseIds : [])
+      .map((id) => trimText(id))
+      .filter(Boolean)
+  );
+  if (ownedSet.size > 0) {
+    const classCourseIds = getClassAssignedCourseIds(classData);
+    const linkedOwned = classCourseIds.filter((courseId) => ownedSet.has(trimText(courseId)));
+    if (linkedOwned.length > 0) return [...new Set(linkedOwned)];
+  }
+
   return [];
 };
 
-const getTeacherClassDerivedCourseIds = (classDocs = [], uid = "") => {
+const getTeacherClassDerivedCourseIds = (
+  classDocs = [],
+  uid = "",
+  teacherOwnedCourseIds = []
+) => {
   const courseIds = new Set();
   classDocs.forEach((row) => {
-    getTeacherCourseIdsFromClassData(row?.data || {}, uid).forEach((courseId) => {
+    getTeacherCourseIdsFromClassData(
+      row?.data || {},
+      uid,
+      teacherOwnedCourseIds
+    ).forEach((courseId) => {
       const cleanCourseId = trimText(courseId);
       if (cleanCourseId) courseIds.add(cleanCourseId);
     });
@@ -563,13 +595,21 @@ const getTeacherClassDerivedCourseIds = (classDocs = [], uid = "") => {
   return Array.from(courseIds);
 };
 
-const getTeacherClassesByCourseId = (classDocs = [], uid = "") => {
+const getTeacherClassesByCourseId = (
+  classDocs = [],
+  uid = "",
+  teacherOwnedCourseIds = []
+) => {
   const map = {};
   classDocs.forEach((row) => {
     const classId = trimText(row?.id);
     const classData = row?.data || {};
     if (!classId) return;
-    const linkedCourseIds = getTeacherCourseIdsFromClassData(classData, uid);
+    const linkedCourseIds = getTeacherCourseIdsFromClassData(
+      classData,
+      uid,
+      teacherOwnedCourseIds
+    );
     linkedCourseIds.forEach((courseId) => {
       const cleanCourseId = trimText(courseId);
       if (!cleanCourseId) return;
@@ -1395,13 +1435,27 @@ export const getTeacherCourses = async (req, res) => {
       return successResponse(res, courses, "Courses fetched");
     }
 
-    const classDocs = await getTeacherAssignedClassDocs(uid);
+    const [classDocs, coursesSnap] = await Promise.all([
+      getTeacherAssignedClassDocs(uid),
+      db.collection(COLLECTIONS.COURSES).get(),
+    ]);
+    const courseRows = coursesSnap.docs.map((doc) => ({ id: doc.id, data: doc.data() || {} }));
+    const teacherOwnedCourseIds = courseRows
+      .filter((row) => {
+        const assignedSubjects = getTeacherAssignedSubjects(row.data, uid);
+        const isLegacyOwner = trimText(row.data?.teacherId) === trimText(uid);
+        return assignedSubjects.length > 0 || isLegacyOwner;
+      })
+      .map((row) => row.id);
     const classDerivedCourseIds = new Set(
-      getTeacherClassDerivedCourseIds(classDocs, uid)
+      getTeacherClassDerivedCourseIds(classDocs, uid, teacherOwnedCourseIds)
     );
-    const classesByCourseId = getTeacherClassesByCourseId(classDocs, uid);
+    const classesByCourseId = getTeacherClassesByCourseId(
+      classDocs,
+      uid,
+      teacherOwnedCourseIds
+    );
 
-    const coursesSnap = await db.collection(COLLECTIONS.COURSES).get();
     const mappedCourses = coursesSnap.docs
       .map((doc) => ({ id: doc.id, data: doc.data() || {} }))
       .map((row) => {
@@ -2711,12 +2765,22 @@ const chunkArray = (rows = [], size = 10) => {
 };
 
 const getTeacherAssignedCourses = async (uid) => {
-  const classDocs = await getTeacherAssignedClassDocs(uid);
+  const [classDocs, coursesSnap] = await Promise.all([
+    getTeacherAssignedClassDocs(uid),
+    db.collection(COLLECTIONS.COURSES).get(),
+  ]);
+  const courseRows = coursesSnap.docs.map((doc) => ({ id: doc.id, data: doc.data() || {} }));
+  const teacherOwnedCourseIds = courseRows
+    .filter((row) => {
+      const assignedSubjects = getTeacherAssignedSubjects(row.data, uid);
+      const legacyOwner = trimText(row.data?.teacherId) === trimText(uid);
+      return assignedSubjects.length > 0 || legacyOwner;
+    })
+    .map((row) => row.id);
   const classDerivedCourseIds = new Set(
-    getTeacherClassDerivedCourseIds(classDocs, uid)
+    getTeacherClassDerivedCourseIds(classDocs, uid, teacherOwnedCourseIds)
   );
 
-  const coursesSnap = await db.collection(COLLECTIONS.COURSES).get();
   const courses = coursesSnap.docs
     .map((doc) => ({ id: doc.id, data: doc.data() || {} }))
     .map((row) => {
@@ -3723,7 +3787,7 @@ const getTeacherAssignedClassDocs = async (uid) => {
     });
   };
 
-  const [teacherIdSnap, teachersArraySnap, allClassesSnap] = await Promise.all([
+  const [teacherIdSnap, teachersArraySnap, allClassesSnap, coursesSnap] = await Promise.all([
     db.collection(COLLECTIONS.CLASSES).where("teacherId", "==", uid).get(),
     db
       .collection(COLLECTIONS.CLASSES)
@@ -3731,14 +3795,26 @@ const getTeacherAssignedClassDocs = async (uid) => {
       .get()
       .catch(() => null),
     db.collection(COLLECTIONS.CLASSES).get(),
+    db.collection(COLLECTIONS.COURSES).get(),
   ]);
 
   attachDocs(teacherIdSnap.docs);
   if (teachersArraySnap) attachDocs(teachersArraySnap.docs);
 
+  const teacherOwnedCourseIds = new Set(
+    coursesSnap.docs
+      .filter((doc) => isCourseOwner(doc.data() || {}, uid))
+      .map((doc) => trimText(doc.id))
+      .filter(Boolean)
+  );
+
   allClassesSnap.docs.forEach((doc) => {
     const data = doc.data() || {};
-    if (isTeacherAssignedToClass(data, uid)) {
+    const classCourseIds = getClassAssignedCourseIds(data);
+    const hasOwnedCourse = classCourseIds.some((courseId) =>
+      teacherOwnedCourseIds.has(trimText(courseId))
+    );
+    if (isTeacherAssignedToClass(data, uid) || hasOwnedCourse) {
       byId.set(doc.id, { id: doc.id, data });
     }
   });
