@@ -26,6 +26,7 @@ const methodBadgeClass = {
 const statusBadgeClass = {
   paid: "bg-emerald-50 text-emerald-600",
   pending: "bg-amber-50 text-amber-700",
+  awaiting_receipt: "bg-yellow-50 text-yellow-700",
   pending_verification: "bg-orange-50 text-orange-600",
   rejected: "bg-rose-50 text-rose-600",
   overdue: "bg-red-100 text-red-700",
@@ -116,7 +117,11 @@ function Payments() {
       .filter((item) => item.status === "paid" && monthKey(item.createdAt) === currentMonth)
       .reduce((sum, item) => sum + Number(item.amount || 0), 0);
 
-    const pendingRequests = normalized.filter((item) => canReviewPayment(item));
+    const pendingRequests = normalized.filter((item) =>
+      ["awaiting_receipt", "pending", "pending_verification"].includes(
+        String(item.status || "").toLowerCase()
+      )
+    );
 
     const overdueInstallments = installments.filter((plan) => {
       if (String(plan.status || "").toLowerCase() === "overdue") return true;

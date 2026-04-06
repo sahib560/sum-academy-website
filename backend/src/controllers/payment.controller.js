@@ -1365,9 +1365,19 @@ export const exportTransactionsCSV = async (req, res) => {
 
 export const getAdminPayments = async (req, res) => {
   try {
+    const includeAwaitingReceiptParam = String(
+      req.query?.includeAwaitingReceipt || ""
+    )
+      .trim()
+      .toLowerCase();
+
+    // Default: show all payment requests to admin, including awaiting receipt.
+    // Pass includeAwaitingReceipt=false only when caller explicitly wants to hide them.
     const includeAwaitingReceipt =
-      String(req.query?.includeAwaitingReceipt || "").trim().toLowerCase() ===
-      "true";
+      includeAwaitingReceiptParam === ""
+        ? true
+        : includeAwaitingReceiptParam === "true";
+
     let rows = await fetchMergedPayments();
     if (!includeAwaitingReceipt) {
       rows = rows.filter((row) => !Boolean(row.isAwaitingReceipt));
