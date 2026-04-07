@@ -157,7 +157,34 @@ Base URL: `https://sumacademy.net/api`
 {
   "success": true,
   "message": "Explore courses fetched",
-  "data": {}
+  "data": [
+    {
+      "id": "SUBJECT_DOC_ID",
+      "courseId": "SUBJECT_DOC_ID",
+      "subjectId": "SUBJECT_DOC_ID",
+      "sourceType": "subject",
+      "title": "Biology XI",
+      "description": "Core concepts for pre-medical students",
+      "thumbnail": "https://storage.googleapis.com/.../bio.jpg",
+      "category": "Science",
+      "level": "Intermediate",
+      "originalPrice": 10000,
+      "price": 10000,
+      "discountPercent": 10,
+      "discountAmount": 1000,
+      "discountedPrice": 9000,
+      "teacherId": "TEACHER_UID",
+      "teacherName": "Ahsan Ali",
+      "enrollmentCount": 24,
+      "rating": 4.8,
+      "subjects": [
+        "Biology XI"
+      ],
+      "hasCertificate": true,
+      "isEnrolled": false,
+      "createdAt": "2026-04-07T10:00:00.000Z"
+    }
+  ]
 }
 ```
 
@@ -168,6 +195,55 @@ Base URL: `https://sumacademy.net/api`
   "success": false,
   "message": "Failed to fetch courses",
   "error": "Failed to fetch courses"
+}
+```
+
+### GET `/api/teachers/public`
+- Auth: Public
+- Path Params: None
+- Query Params: None
+- Body Keys: None
+- Success Messages: `Public teachers fetched`
+- Error Messages: `Failed to fetch teachers`
+- Sample Success Response:
+
+```json
+{
+  "success": true,
+  "message": "Public teachers fetched",
+  "data": [
+    {
+      "id": "TEACHER_UID",
+      "uid": "TEACHER_UID",
+      "fullName": "Ahsan Ali",
+      "name": "Ahsan Ali",
+      "email": "teacher@example.com",
+      "title": "Senior Instructor",
+      "role": "Teacher",
+      "subject": "Biology XI",
+      "subjects": [
+        "Biology XI",
+        "Chemistry XI"
+      ],
+      "subjectsCount": 2,
+      "coursesCount": 2,
+      "classesCount": 1,
+      "courses": "2 Subjects",
+      "bio": "Teaching Biology and Chemistry for XI pre-medical.",
+      "rating": 4.9,
+      "profileImage": null
+    }
+  ]
+}
+```
+
+- Sample Error Response:
+
+```json
+{
+  "success": false,
+  "message": "Failed to fetch teachers",
+  "error": "Failed to fetch teachers"
 }
 ```
 

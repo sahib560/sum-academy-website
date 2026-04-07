@@ -24,7 +24,10 @@ import uploadRoutes from "./routes/upload.routes.js";
 import progressRoutes from "./routes/progress.routes.js";
 import { verifyToken } from "./middlewares/auth.middleware.js";
 import { validatePromoCode } from "./controllers/admin.controller.js";
-import { exploreCourses }    from "./controllers/student.controller.js";
+import {
+  exploreCourses,
+  getPublicTeachers,
+} from "./controllers/student.controller.js";
 import { submitPublicContactMessage } from "./controllers/support.controller.js";
 
 if (process.env.NODE_ENV !== "production") {
@@ -161,6 +164,7 @@ app.use("/api/payments", paymentRoutes);
 app.use("/api/admin",    adminPaymentRoutes);
 app.use("/api/classes",  classesPublicRoutes);
 app.get("/api/courses/explore", exploreCourses);
+app.get("/api/teachers/public", getPublicTeachers);
 app.post("/api/contact/messages", submitPublicContactMessage);
 app.use("/api",          publicCertRoutes);
 app.use("/api",          userAnnouncementsRoutes);

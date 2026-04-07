@@ -2484,63 +2484,255 @@ export const exploreCourses = async (req, res) => {
       }
     }
 
-    const [coursesSnap, enrolledCourseIds] = await Promise.all([
-      db.collection(COLLECTIONS.COURSES).where("status", "==", "published").get(),
-      uid ? getStudentEnrolledCourseIds(uid) : Promise.resolve([]),
-    ]);
+    const [subjectsSnap, coursesSnap, teachersSnap, teacherUsersSnap, enrolledCourseIds] =
+      await Promise.all([
+        db.collection(COLLECTIONS.SUBJECTS).get(),
+        db.collection(COLLECTIONS.COURSES).get(),
+        db.collection(COLLECTIONS.TEACHERS).get(),
+        db.collection(COLLECTIONS.USERS).where("role", "==", "teacher").get(),
+        uid ? getStudentEnrolledCourseIds(uid) : Promise.resolve([]),
+      ]);
     const enrolledSet = new Set(enrolledCourseIds);
 
-    let courses = coursesSnap.docs.map((doc) => ({ id: doc.id, ...(doc.data() || {}) }));
+    const teacherNameMap = {};
+    teachersSnap.docs.forEach((doc) => {
+      const data = doc.data() || {};
+      const name =
+        trimText(data.fullName) ||
+        trimText(data.name) ||
+        trimText(data.displayName) ||
+        "";
+      if (name) teacherNameMap[doc.id] = name;
+    });
+    teacherUsersSnap.docs.forEach((doc) => {
+      const data = doc.data() || {};
+      if (teacherNameMap[doc.id]) return;
+      const name =
+        trimText(data.fullName) ||
+        trimText(data.name) ||
+        trimText(data.displayName) ||
+        getNameFromEmail(data.email);
+      if (name) teacherNameMap[doc.id] = name;
+    });
+
+    const merged = {};
+    const addRow = (id, data = {}, sourceType = "subject") => {
+      const status = lowerText(data.status || data.publishStatus || "");
+      if (["draft", "unpublished", "archived", "deleted", "inactive"].includes(status)) {
+        return;
+      }
+      if (merged[id]?.sourceType === "subject" && sourceType === "course") return;
+      merged[id] = { id, ...(data || {}), sourceType };
+    };
+
+    subjectsSnap.docs.forEach((doc) => addRow(doc.id, doc.data() || {}, "subject"));
+    coursesSnap.docs.forEach((doc) => addRow(doc.id, doc.data() || {}, "course"));
+
+    let courses = Object.values(merged);
     if (category) {
-      courses = courses.filter((row) => lowerText(row.category) === category);
+      courses = courses.filter((row) =>
+        lowerText(row.category || row.stream || row.track) === category
+      );
     }
     if (level) {
-      courses = courses.filter((row) => lowerText(row.level) === level);
+      courses = courses.filter((row) =>
+        lowerText(row.level || row.difficulty || row.classLevel) === level
+      );
     }
     if (search) {
-      courses = courses.filter((row) => lowerText(row.title).includes(search));
+      courses = courses.filter((row) => {
+        const teacherId = trimText(row.teacherId || row.teacher?.id);
+        return (
+          lowerText(row.title || row.name || row.courseName || row.subjectName).includes(search) ||
+          lowerText(row.description || row.shortDescription).includes(search) ||
+          lowerText(row.category || row.stream || row.track).includes(search) ||
+          lowerText(
+            row.teacherName ||
+              row.teacher?.name ||
+              teacherNameMap[teacherId] ||
+              row.instructorName
+          ).includes(search)
+        );
+      });
     }
 
-    const payload = courses.map((course) => ({
-      originalPrice: toNumber(course.price, 0),
-      discountPercent: toNumber(course.discountPercent, 0),
-      discountAmount: Number(
-        (
-          (toNumber(course.price, 0) *
-            Math.max(0, Math.min(100, toNumber(course.discountPercent, 0)))) /
-          100
-        ).toFixed(2)
-      ),
-      id: course.id,
-      title: trimText(course.title),
-      description: trimText(course.description || course.shortDescription),
-      thumbnail: course.thumbnail || null,
-      category: trimText(course.category),
-      level: trimText(course.level),
-      price: toNumber(course.price, 0),
-      discountedPrice: Number(
-        Math.max(
-          toNumber(course.price, 0) -
-            (
-              (toNumber(course.price, 0) *
-                Math.max(0, Math.min(100, toNumber(course.discountPercent, 0)))) /
-              100
-            ),
-          0
-        ).toFixed(2)
-      ),
-      teacherName: trimText(course.teacherName) || "Teacher",
-      enrollmentCount: toNumber(course.enrollmentCount, 0),
-      rating: toNumber(course.rating, 0),
-      subjects: Array.isArray(course.subjects) ? course.subjects : [],
-      hasCertificate: course.hasCertificate !== false,
-      isEnrolled: enrolledSet.has(course.id),
-    }));
+    const payload = courses
+      .map((course) => {
+        const teacherId = trimText(course.teacherId || course.teacher?.id);
+        const originalPrice = toNumber(course.price, 0);
+        const discountPercent = Math.max(
+          0,
+          Math.min(100, toNumber(course.discountPercent ?? course.discount, 0))
+        );
+        const discountAmount = Number(((originalPrice * discountPercent) / 100).toFixed(2));
+        const discountedPrice = Number(Math.max(originalPrice - discountAmount, 0).toFixed(2));
+        const title =
+          trimText(course.title || course.courseName || course.name || course.subjectName) ||
+          "Untitled Subject";
+
+        return {
+          id: course.id,
+          courseId: course.id,
+          subjectId: course.id,
+          sourceType: course.sourceType || "subject",
+          title,
+          description: trimText(course.description || course.shortDescription),
+          thumbnail: course.thumbnail || null,
+          category: trimText(course.category || course.stream || "Subject"),
+          level: trimText(course.level || course.difficulty || "General"),
+          originalPrice,
+          price: originalPrice,
+          discountPercent,
+          discountAmount,
+          discountedPrice,
+          teacherId,
+          teacherName:
+            trimText(course.teacherName || course.teacher?.name || course.instructorName) ||
+            teacherNameMap[teacherId] ||
+            "Teacher",
+          enrollmentCount: toNumber(course.enrollmentCount, 0),
+          rating: toNumber(course.rating, 0),
+          subjects: Array.isArray(course.subjects)
+            ? course.subjects
+            : course.sourceType === "subject"
+              ? [title]
+              : [],
+          hasCertificate: course.hasCertificate !== false,
+          isEnrolled: enrolledSet.has(course.id),
+          createdAt: toIso(course.createdAt),
+        };
+      })
+      .sort((a, b) => {
+        const aTime = parseDate(a.createdAt)?.getTime() || 0;
+        const bTime = parseDate(b.createdAt)?.getTime() || 0;
+        if (aTime !== bTime) return bTime - aTime;
+        return String(a.title || "").localeCompare(String(b.title || ""));
+      });
 
     return successResponse(res, payload, "Explore courses fetched");
   } catch (error) {
     console.error("exploreCourses error:", error);
     return errorResponse(res, "Failed to fetch courses", 500);
+  }
+};
+
+export const getPublicTeachers = async (_req, res) => {
+  try {
+    const [teacherUsersSnap, teacherProfilesSnap, subjectsSnap, coursesSnap, classesSnap] =
+      await Promise.all([
+        db.collection(COLLECTIONS.USERS).where("role", "==", "teacher").get(),
+        db.collection(COLLECTIONS.TEACHERS).get(),
+        db.collection(COLLECTIONS.SUBJECTS).get(),
+        db.collection(COLLECTIONS.COURSES).get(),
+        db.collection(COLLECTIONS.CLASSES).get(),
+      ]);
+
+    const teacherProfiles = {};
+    teacherProfilesSnap.docs.forEach((doc) => {
+      teacherProfiles[doc.id] = doc.data() || {};
+    });
+
+    const teacherSubjectMap = {};
+    const addTeacherSubject = (teacherId, row = {}) => {
+      const cleanTeacherId = trimText(teacherId);
+      if (!cleanTeacherId) return;
+      const status = lowerText(row.status || row.publishStatus || "");
+      if (["draft", "unpublished", "archived", "deleted", "inactive"].includes(status)) return;
+      const title = trimText(row.title || row.courseName || row.name);
+      if (!title) return;
+      if (!teacherSubjectMap[cleanTeacherId]) teacherSubjectMap[cleanTeacherId] = [];
+      if (teacherSubjectMap[cleanTeacherId].some((item) => item.title === title)) return;
+      teacherSubjectMap[cleanTeacherId].push({ id: row.id, title });
+    };
+
+    const subjectIds = new Set();
+    subjectsSnap.docs.forEach((doc) => {
+      const data = doc.data() || {};
+      subjectIds.add(doc.id);
+      addTeacherSubject(trimText(data.teacherId || data.teacher?.id), { id: doc.id, ...data });
+    });
+    coursesSnap.docs.forEach((doc) => {
+      if (subjectIds.has(doc.id)) return;
+      const data = doc.data() || {};
+      addTeacherSubject(trimText(data.teacherId || data.teacher?.id), { id: doc.id, ...data });
+    });
+
+    const teacherClassMap = {};
+    classesSnap.docs.forEach((doc) => {
+      const data = doc.data() || {};
+      const classId = trimText(doc.id);
+      const teacherIds = new Set();
+
+      const directTeacherId = trimText(data.teacherId);
+      if (directTeacherId) teacherIds.add(directTeacherId);
+
+      const teachers = Array.isArray(data.teachers) ? data.teachers : [];
+      teachers.forEach((entry) => {
+        const teacherId = trimText(
+          typeof entry === "string" ? entry : entry?.teacherId || entry?.id
+        );
+        if (teacherId) teacherIds.add(teacherId);
+      });
+
+      const shifts = Array.isArray(data.shifts) ? data.shifts : [];
+      shifts.forEach((shift) => {
+        const teacherId = trimText(shift?.teacherId);
+        if (teacherId) teacherIds.add(teacherId);
+      });
+
+      const assignedSubjects = Array.isArray(data.assignedSubjects) ? data.assignedSubjects : [];
+      assignedSubjects.forEach((entry) => {
+        const teacherId = trimText(entry?.teacherId);
+        if (teacherId) teacherIds.add(teacherId);
+      });
+
+      teacherIds.forEach((teacherId) => {
+        if (!teacherClassMap[teacherId]) teacherClassMap[teacherId] = new Set();
+        teacherClassMap[teacherId].add(classId);
+      });
+    });
+
+    const payload = teacherUsersSnap.docs
+      .map((doc) => {
+        const userData = doc.data() || {};
+        const profileData = teacherProfiles[doc.id] || {};
+        const isActive = userData.isActive !== false && profileData.isActive !== false;
+        if (!isActive) return null;
+
+        const fullName =
+          trimText(profileData.fullName || profileData.name) ||
+          trimText(userData.fullName || userData.name || userData.displayName) ||
+          getNameFromEmail(userData.email);
+        const subjects = teacherSubjectMap[doc.id] || [];
+        const classesCount = teacherClassMap[doc.id]?.size || 0;
+
+        return {
+          id: doc.id,
+          uid: doc.id,
+          fullName: fullName || "Teacher",
+          name: fullName || "Teacher",
+          email: trimText(userData.email || profileData.email),
+          title: trimText(profileData.title || profileData.role || "Instructor"),
+          role: trimText(profileData.role || "Teacher"),
+          subject: subjects[0]?.title || "Subject",
+          subjects: subjects.map((row) => row.title),
+          subjectsCount: subjects.length,
+          coursesCount: subjects.length,
+          classesCount,
+          courses: `${subjects.length} ${subjects.length === 1 ? "Subject" : "Subjects"}`,
+          bio: trimText(profileData.bio || profileData.description || profileData.about),
+          rating: toNumber(profileData.rating, 0),
+          profileImage:
+            profileData.profileImage || profileData.avatar || profileData.photoURL || null,
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => String(a.fullName || "").localeCompare(String(b.fullName || "")));
+
+    return successResponse(res, payload, "Public teachers fetched");
+  } catch (error) {
+    console.error("getPublicTeachers error:", error);
+    return errorResponse(res, "Failed to fetch teachers", 500);
   }
 };
 

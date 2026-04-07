@@ -9,7 +9,7 @@ import {
   SkeletonTeacherCard,
 } from "../components/Skeleton.jsx";
 import { useSettings } from "../hooks/useSettings.js";
-import { exploreCourses } from "../services/student.service.js";
+import { exploreCourses, getPublicTeachers } from "../services/student.service.js";
 
 const fadeUp = {
   hidden: { opacity: 0, y: 24 },
@@ -189,6 +189,11 @@ function Home() {
     queryFn: () => exploreCourses({}),
     staleTime: 60000,
   });
+  const teachersQuery = useQuery({
+    queryKey: ["public-home-teachers"],
+    queryFn: getPublicTeachers,
+    staleTime: 60000,
+  });
 
   const featuredCourses = useMemo(() => {
     const rows = Array.isArray(coursesQuery.data) ? coursesQuery.data : [];
@@ -235,6 +240,20 @@ function Home() {
   }, [coursesQuery.data]);
 
   const featuredTeachers = useMemo(() => {
+    const apiRows = Array.isArray(teachersQuery.data) ? teachersQuery.data : [];
+    if (apiRows.length > 0) {
+      return apiRows.map((teacher, index) => ({
+        id: teacher.id || teacher.uid || `teacher-${index}`,
+        name: textOrNotAdded(teacher.fullName || teacher.name),
+        role: textOrNotAdded(teacher.title || teacher.role || "Teacher"),
+        courses: textOrNotAdded(
+          Number.isFinite(Number(teacher.subjectsCount ?? teacher.coursesCount))
+            ? `${Number(teacher.subjectsCount ?? teacher.coursesCount)} Subjects`
+            : teacher.courses
+        ),
+      }));
+    }
+
     const rows = Array.isArray(about.team) ? about.team : [];
     return rows
       .filter((teacher) => {
@@ -249,7 +268,9 @@ function Home() {
         role: textOrNotAdded(teacher.role),
         courses: textOrNotAdded(teacher.subject || teacher.courses),
       }));
-  }, [about.team]);
+  }, [about.team, teachersQuery.data]);
+
+  const teachersLoading = teachersQuery.isLoading;
 
   useEffect(() => {
     if (!selectedCourse) return;
@@ -267,7 +288,7 @@ function Home() {
   }, [selectedCourse]);
 
   useEffect(() => {
-    if (settingsLoading) return;
+    if (settingsLoading || teachersLoading) return;
     const track = teacherTrackRef.current;
     if (!track) return;
 
@@ -291,7 +312,7 @@ function Home() {
 
     const autoSlide = setInterval(step, 2400);
     return () => clearInterval(autoSlide);
-  }, [settingsLoading, featuredTeachers.length]);
+  }, [settingsLoading, teachersLoading, featuredTeachers.length]);
 
   return (
     <main className="pt-24">
@@ -541,7 +562,7 @@ function Home() {
               ref={teacherTrackRef}
               className="no-scrollbar flex gap-6 overflow-x-auto pb-4 pt-1 scroll-smooth snap-x snap-mandatory"
             >
-              {settingsLoading
+              {settingsLoading || teachersLoading
                 ? Array.from({ length: 4 }).map((_, index) => (
                     <SkeletonTeacherCard
                       key={`teacher-skeleton-${index}`}

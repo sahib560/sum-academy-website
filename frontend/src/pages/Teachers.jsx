@@ -1,8 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { SkeletonTeacherCard } from "../components/Skeleton.jsx";
 import { FaRegUserCircle, FaStar } from "react-icons/fa";
 import { IoClose } from "react-icons/io5";
 import { useSiteSettings } from "../context/SiteSettingsContext.jsx";
+import { getPublicTeachers } from "../services/student.service.js";
 const NOT_ADDED = "Not added yet";
 const textOrNotAdded = (value) => {
   const cleaned = String(value || "").trim();
@@ -93,23 +95,55 @@ function Teachers() {
   const { settings, loading } = useSiteSettings();
   const siteName = textOrNotAdded(settings.general?.siteName);
   const [selectedTeacher, setSelectedTeacher] = useState(null);
-  const rows = (Array.isArray(settings.about?.team) ? settings.about.team : []).filter(
+  const teachersQuery = useQuery({
+    queryKey: ["public-teachers-page"],
+    queryFn: getPublicTeachers,
+    staleTime: 60000,
+  });
+
+  const fallbackRows = (Array.isArray(settings.about?.team) ? settings.about.team : []).filter(
     (teacher) => !isDefaultFounderPlaceholder(teacher)
   );
-  const teachers = rows.map((teacher, index) => ({
-    id: teacher.id || `teacher-${index}`,
-    name: textOrNotAdded(teacher.name),
-    subject: textOrNotAdded(teacher.subject),
-    title: textOrNotAdded(teacher.title || teacher.role),
-    role: textOrNotAdded(teacher.role),
-    bio: textOrNotAdded(teacher.bio || teacher.description),
-    courses: textOrNotAdded(
-      Number.isFinite(Number(teacher.courses))
-        ? `${Number(teacher.courses)} Courses`
-        : teacher.courses
-    ),
-    rating: Number(teacher.rating) || 0,
-  }));
+
+  const teachers = useMemo(() => {
+    const apiRows = Array.isArray(teachersQuery.data) ? teachersQuery.data : [];
+    if (apiRows.length > 0) {
+      return apiRows.map((teacher, index) => ({
+        id: teacher.id || teacher.uid || `teacher-${index}`,
+        name: textOrNotAdded(teacher.fullName || teacher.name),
+        subject: textOrNotAdded(
+          teacher.subject ||
+            (Array.isArray(teacher.subjects) ? teacher.subjects[0] : "")
+        ),
+        title: textOrNotAdded(teacher.title || teacher.role),
+        role: textOrNotAdded(teacher.role || "Teacher"),
+        bio: textOrNotAdded(teacher.bio || teacher.description),
+        courses: textOrNotAdded(
+          Number.isFinite(Number(teacher.subjectsCount ?? teacher.coursesCount))
+            ? `${Number(teacher.subjectsCount ?? teacher.coursesCount)} Subjects`
+            : teacher.courses
+        ),
+        rating: Number(teacher.rating) || 0,
+      }));
+    }
+
+    return fallbackRows.map((teacher, index) => ({
+      id: teacher.id || `teacher-${index}`,
+      name: textOrNotAdded(teacher.name),
+      subject: textOrNotAdded(teacher.subject),
+      title: textOrNotAdded(teacher.title || teacher.role),
+      role: textOrNotAdded(teacher.role),
+      bio: textOrNotAdded(teacher.bio || teacher.description),
+      courses: textOrNotAdded(
+        Number.isFinite(Number(teacher.courses))
+          ? `${Number(teacher.courses)} Courses`
+          : teacher.courses
+      ),
+      rating: Number(teacher.rating) || 0,
+    }));
+  }, [fallbackRows, teachersQuery.data]);
+
+  const isLoading = loading || teachersQuery.isLoading;
 
   useEffect(() => {
     if (!selectedTeacher) return;
@@ -146,7 +180,7 @@ function Teachers() {
 
       <section className="section pt-0">
         <div className="mx-auto max-w-7xl">
-          {loading ? (
+          {isLoading ? (
             <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
               {Array.from({ length: 6 }).map((_, index) => (
                 <SkeletonTeacherCard
