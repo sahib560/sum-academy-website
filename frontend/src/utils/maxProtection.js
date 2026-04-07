@@ -35,6 +35,8 @@ const getReasonText = (reason) => {
     devtools: "Developer tools were opened. This is not allowed.",
     printscreen: "Print Screen key was detected. Screenshots are not allowed.",
     screen_record: "Screen recording was blocked.",
+    address_bar:
+      "Address bar access is not allowed during protected sessions.",
     default:
       "A security violation was detected. This has been logged with your account.",
   };
@@ -209,6 +211,9 @@ export const blockKeys = (event) => {
   const blocked = [
     { check: key === "PrintScreen", reason: "printscreen" },
     { check: key === "F12", reason: "devtools" },
+    { check: event.ctrlKey && lower === "l", reason: "address_bar" },
+    { check: event.altKey && lower === "d", reason: "address_bar" },
+    { check: key === "F6", reason: "address_bar" },
     { check: event.ctrlKey && event.shiftKey && lower === "i", reason: "devtools" },
     { check: event.ctrlKey && event.shiftKey && lower === "j", reason: "devtools" },
     { check: event.ctrlKey && event.shiftKey && lower === "c", reason: "devtools" },

@@ -1112,7 +1112,22 @@ export const markLectureComplete = async (req, res) => {
       });
     }
 
-    const courseCompleted = Boolean(builtAfter.fullyCompleted);
+    const chaptersAfter = Array.isArray(builtAfter.chapters) ? builtAfter.chapters : [];
+    const lecturesAfter = chaptersAfter.flatMap((chapter) =>
+      Array.isArray(chapter.lectures) ? chapter.lectures : []
+    );
+    const totalLecturesAfter = lecturesAfter.length;
+    const allLecturesCompleted =
+      totalLecturesAfter > 0 && lecturesAfter.every((lecture) => Boolean(lecture.isCompleted));
+    const allChaptersCompleted =
+      chaptersAfter.length > 0 && chaptersAfter.every((chapter) => Boolean(chapter.isChapterComplete));
+    const finalQuizzesAfter = Array.isArray(builtAfter.subjectQuizzes)
+      ? builtAfter.subjectQuizzes
+      : [];
+    const requiresFinalQuiz = finalQuizzesAfter.length > 0;
+    const finalQuizPassed =
+      !requiresFinalQuiz || finalQuizzesAfter.every((quiz) => Boolean(quiz.isPassed));
+    const courseCompleted = allLecturesCompleted && allChaptersCompleted && finalQuizPassed;
     let certificateGenerated = false;
 
     if (builtAfter.enrollmentRows.length > 0) {

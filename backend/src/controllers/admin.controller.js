@@ -2542,10 +2542,13 @@ export const resetUserDevice = async (req, res) => {
 
 export const getCourses = async (req, res) => {
   try {
-    const subjectsSnap = await db
-      .collection(COLLECTIONS.SUBJECTS)
-      .orderBy("createdAt", "desc")
-      .get();
+    const [subjectsSnap, enrollmentsSnap] = await Promise.all([
+      db
+        .collection(COLLECTIONS.SUBJECTS)
+        .orderBy("createdAt", "desc")
+        .get(),
+      db.collection(COLLECTIONS.ENROLLMENTS).get(),
+    ]);
     const rowsById = {};
     subjectsSnap.docs.forEach((doc) => {
       const row = doc.data() || {};
@@ -2568,6 +2571,34 @@ export const getCourses = async (req, res) => {
         createdAt: row.createdAt || null,
         updatedAt: row.updatedAt || null,
       };
+    });
+
+    const countableStatuses = new Set([
+      "",
+      "active",
+      "completed",
+      "upcoming",
+      "pending_review",
+    ]);
+    const enrollmentSetBySubject = {};
+    enrollmentsSnap.docs.forEach((doc) => {
+      const row = doc.data() || {};
+      const subjectId = String(row.subjectId || row.courseId || "").trim();
+      const studentId = String(row.studentId || "").trim();
+      const status = String(row.status || "").trim().toLowerCase();
+      if (!subjectId || !studentId) return;
+      if (!countableStatuses.has(status)) return;
+      if (!enrollmentSetBySubject[subjectId]) {
+        enrollmentSetBySubject[subjectId] = new Set();
+      }
+      enrollmentSetBySubject[subjectId].add(studentId);
+    });
+
+    Object.keys(rowsById).forEach((subjectId) => {
+      const enrolledStudentSet = enrollmentSetBySubject[subjectId];
+      rowsById[subjectId].enrollmentCount = enrolledStudentSet
+        ? enrolledStudentSet.size
+        : 0;
     });
 
     const data = Object.values(rowsById).sort((a, b) => {

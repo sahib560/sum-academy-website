@@ -22,6 +22,8 @@ import {
 import { Skeleton } from "../../components/Skeleton.jsx";
 import { useAuth } from "../../hooks/useAuth.js";
 import {
+  getFinalQuizRequestStatus,
+  requestFinalQuizForCourse,
   reportStudentSecurityViolation,
 } from "../../services/student.service.js";
 import {
@@ -321,10 +323,32 @@ function StudentCoursePlayer() {
     refetchInterval: 15000,
   });
 
+  const finalQuizStatusQuery = useQuery({
+    queryKey: ["student-final-quiz-status", courseId],
+    queryFn: () => getFinalQuizRequestStatus(courseId),
+    enabled: Boolean(courseId),
+    staleTime: 30000,
+    refetchInterval: 15000,
+  });
+
   const normalized = useMemo(
     () => normalizeProgressPayload(progressPayload || {}),
     [progressPayload]
   );
+
+  const requestFinalQuizMutation = useMutation({
+    mutationFn: () => requestFinalQuizForCourse(courseId, {}),
+    onSuccess: () => {
+      toast.success("Final quiz request sent. Please wait for approval.");
+      queryClient.invalidateQueries({ queryKey: ["student-final-quiz-status", courseId] });
+      queryClient.invalidateQueries({ queryKey: ["student-course-content", courseId] });
+    },
+    onError: (mutationError) => {
+      toast.error(
+        mutationError?.response?.data?.message || "Failed to request final quiz"
+      );
+    },
+  });
 
   const currentLecture = useMemo(
     () =>
@@ -505,6 +529,7 @@ function StudentCoursePlayer() {
         printscreen: "Screenshots are not allowed",
         devtools: "Developer tools are not allowed",
         screen_record: "Screen recording is blocked",
+        address_bar: "Address bar actions are not allowed during protected session",
       };
       return messages[reason] || "Security violation detected";
     };
@@ -809,6 +834,28 @@ function StudentCoursePlayer() {
     watchedPercent >= 80 &&
     !currentLecture.isCompleted &&
     !markCompleteMutation.isPending;
+  const finalQuizStatus = finalQuizStatusQuery.data || null;
+  const totalLectureCount = Math.max(0, toNumber(normalized.progress.totalLectures, 0));
+  const completedLectureCount = Math.max(
+    0,
+    toNumber(normalized.progress.completedLectures, 0)
+  );
+  const allLecturesCompleted =
+    totalLectureCount > 0 && completedLectureCount >= totalLectureCount;
+  const finalQuizRequired = Boolean(finalQuizStatus?.required);
+  const finalQuizPassed = Boolean(finalQuizStatus?.passed);
+  const finalQuizRequestStatus = String(finalQuizStatus?.requestStatus || "").toLowerCase();
+  const backendCanRequest =
+    typeof finalQuizStatus?.canRequest === "boolean"
+      ? finalQuizStatus.canRequest
+      : true;
+  const canRequestFinalQuiz =
+    backendCanRequest &&
+    finalQuizRequired &&
+    !finalQuizPassed &&
+    !["pending", "approved"].includes(finalQuizRequestStatus) &&
+    allLecturesCompleted &&
+    !requestFinalQuizMutation.isPending;
   const lectureHasVideo = Boolean(getLectureSource(currentLecture || {}));
   const lectureResources = useMemo(() => {
     if (!currentLecture) return [];
@@ -816,6 +863,22 @@ function StudentCoursePlayer() {
     const books = Array.isArray(currentLecture.books) ? currentLecture.books : [];
     return [...pdfs, ...books].filter((row) => row?.url);
   }, [currentLecture]);
+  const handleOpenResourceInline = useCallback((url) => {
+    const cleanUrl = String(url || "").trim();
+    if (!cleanUrl) return;
+    window.location.assign(cleanUrl);
+  }, []);
+  const handleDownloadResource = useCallback((url, title = "resource") => {
+    const cleanUrl = String(url || "").trim();
+    if (!cleanUrl) return;
+    const link = document.createElement("a");
+    link.href = cleanUrl;
+    link.setAttribute("download", String(title || "resource"));
+    link.rel = "noreferrer";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  }, []);
 
   const showLockedOverlay =
     securityLocked ||
@@ -1224,16 +1287,28 @@ function StudentCoursePlayer() {
                   {lectureResources.length > 0 ? (
                     <div className="space-y-2">
                       {lectureResources.map((item, index) => (
-                        <a
+                        <div
                           key={`${item.id || "resource"}-${index}`}
-                          href={item.url}
-                          target="_blank"
-                          rel="noreferrer"
                           className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-cyan-300 hover:bg-cyan-50"
                         >
                           <span>{item.title || "Resource"}</span>
-                          <span className="text-cyan-700">Open</span>
-                        </a>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => handleOpenResourceInline(item.url)}
+                              className="rounded-full border border-cyan-200 px-2 py-1 text-[11px] font-semibold text-cyan-700"
+                            >
+                              Open Here
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDownloadResource(item.url, item.title || "resource")}
+                              className="rounded-full border border-slate-200 px-2 py-1 text-[11px] font-semibold text-slate-700"
+                            >
+                              Download
+                            </button>
+                          </div>
+                        </div>
                       ))}
                     </div>
                   ) : null}
@@ -1264,6 +1339,40 @@ function StudentCoursePlayer() {
                   <p className="mt-1">
                     Complete chapter quizzes to unlock your final quiz and certificate.
                   </p>
+                </div>
+              ) : null}
+
+              {finalQuizStatusQuery.isSuccess && finalQuizRequired ? (
+                <div className="mt-3 rounded-2xl border border-cyan-200 bg-cyan-50 p-3 text-xs text-cyan-900">
+                  <p className="font-semibold">Final Quiz Request</p>
+                  <p className="mt-1">
+                    Video completion: {completedLectureCount}/{totalLectureCount}
+                  </p>
+                  <p className="mt-1">
+                    Status:{" "}
+                    {finalQuizPassed
+                      ? "Passed"
+                      : finalQuizRequestStatus
+                        ? finalQuizRequestStatus
+                        : "Not requested"}
+                  </p>
+                  {!allLecturesCompleted ? (
+                    <p className="mt-1 text-cyan-800">
+                      Complete all videos first, then request final quiz.
+                    </p>
+                  ) : null}
+                  {canRequestFinalQuiz ? (
+                    <button
+                      type="button"
+                      className="mt-2 rounded-full bg-cyan-600 px-3 py-1.5 text-xs font-semibold text-white"
+                      onClick={() => requestFinalQuizMutation.mutate()}
+                      disabled={requestFinalQuizMutation.isPending}
+                    >
+                      {requestFinalQuizMutation.isPending
+                        ? "Requesting..."
+                        : "Request Final Quiz"}
+                    </button>
+                  ) : null}
                 </div>
               ) : null}
             </div>

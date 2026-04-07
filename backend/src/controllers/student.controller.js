@@ -827,7 +827,11 @@ const getCourseLectures = async (courseId) => {
 
 const normalizeProgressPercent = (progressRows = [], courseId = "", fallback = 0) => {
   const cleanCourseId = trimText(courseId);
-  const direct = progressRows.find((row) => trimText(row.subjectId || row.courseId) === cleanCourseId);
+  const direct = progressRows.find(
+    (row) =>
+      trimText(row.subjectId || row.courseId) === cleanCourseId &&
+      !trimText(row.lectureId)
+  );
   const directPercent = Number(
     direct?.progress ?? direct?.progressPercent ?? direct?.completionPercent
   );
@@ -877,7 +881,12 @@ const normalizeProgressPercent = (progressRows = [], courseId = "", fallback = 0
     const scores = Object.values(byLectureId);
     if (scores.length > 0) {
       const total = scores.reduce((sum, score) => sum + toNumber(score, 0), 0);
-      return clampPercent(total / scores.length);
+      const computedPercent = clampPercent(total / scores.length);
+      const fallbackPercent = Number(fallback);
+      if (Number.isFinite(fallbackPercent) && fallbackPercent > 0) {
+        return clampPercent(Math.min(computedPercent, fallbackPercent));
+      }
+      return computedPercent;
     }
   }
 
@@ -1020,13 +1029,23 @@ const getCourseFinalQuizzes = async (courseId = "") => {
   const cleanCourseId = trimText(courseId);
   if (!cleanCourseId) return [];
 
-  const snap = await db
-    .collection(COLLECTIONS.QUIZZES)
-    .where("courseId", "==", cleanCourseId)
-    .get();
+  const [byCourseSnap, bySubjectSnap] = await Promise.all([
+    db
+      .collection(COLLECTIONS.QUIZZES)
+      .where("courseId", "==", cleanCourseId)
+      .get(),
+    db
+      .collection(COLLECTIONS.QUIZZES)
+      .where("subjectId", "==", cleanCourseId)
+      .get(),
+  ]);
 
-  return snap.docs
+  return [...byCourseSnap.docs, ...bySubjectSnap.docs]
     .map((doc) => ({ id: doc.id, ...(doc.data() || {}) }))
+    .filter(
+      (row, index, arr) =>
+        arr.findIndex((entry) => trimText(entry.id) === trimText(row.id)) === index
+    )
     .filter((row) => lowerText(row.status || "active") === "active")
     .filter((row) => isFinalQuizRow(row));
 };
@@ -1045,7 +1064,6 @@ const getLatestFinalQuizResultForStudent = async ({
   const snap = await db
     .collection(COLLECTIONS.QUIZ_RESULTS)
     .where("studentId", "==", cleanStudentId)
-    .where("courseId", "==", cleanCourseId)
     .get();
 
   const finalQuizIds = new Set(Object.keys(finalQuizMap));
@@ -1053,6 +1071,7 @@ const getLatestFinalQuizResultForStudent = async ({
 
   const rows = snap.docs
     .map((doc) => ({ id: doc.id, ...(doc.data() || {}) }))
+    .filter((row) => trimText(row.subjectId || row.courseId) === cleanCourseId)
     .filter((row) => finalQuizIds.has(trimText(row.quizId)))
     .sort(
       (a, b) =>
@@ -1094,11 +1113,11 @@ const getLatestFinalQuizRequest = async (studentId = "", courseId = "") => {
   const snap = await db
     .collection(COLLECTIONS.FINAL_QUIZ_REQUESTS)
     .where("studentId", "==", cleanStudentId)
-    .where("courseId", "==", cleanCourseId)
     .get();
 
   const rows = snap.docs
     .map((doc) => ({ id: doc.id, ...(doc.data() || {}) }))
+    .filter((row) => trimText(row.subjectId || row.courseId) === cleanCourseId)
     .filter((row) => FINAL_QUIZ_REQUEST_STATUSES.has(lowerText(row.status || "pending")))
     .sort(
       (a, b) =>
@@ -1143,7 +1162,7 @@ const canStudentAttemptQuiz = ({
   if (isQuizAssignedToStudent(quiz, uid)) return true;
   if (!isFinalQuizRow(quiz)) return false;
 
-  const courseId = trimText(quiz.courseId);
+  const courseId = trimText(quiz.subjectId || quiz.courseId);
   return Boolean(courseId && approvedFinalQuizCourseIds.has(courseId));
 };
 
@@ -2066,9 +2085,9 @@ export const requestFinalQuizForCourse = async (req, res) => {
       return status === "completed" || Boolean(row.completedAt);
     });
     const isCourseCompleted =
-      (totalLectures > 0 && completedLectures >= totalLectures) ||
-      enrollmentMarkedCompleted ||
-      enrollmentProgress >= 100;
+      totalLectures > 0
+        ? completedLectures >= totalLectures
+        : enrollmentMarkedCompleted || enrollmentProgress >= 100;
     const completionPercent =
       totalLectures > 0 ? lectureCompletionPercent : clampPercent(enrollmentProgress);
     if (!isCourseCompleted) {
