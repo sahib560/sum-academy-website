@@ -2540,11 +2540,10 @@ export const resetUserDevice = async (req, res) => {
 
 export const getCourses = async (req, res) => {
   try {
-    const [subjectsSnap, coursesSnap] = await Promise.all([
-      db.collection(COLLECTIONS.SUBJECTS).orderBy("createdAt", "desc").get(),
-      db.collection(COLLECTIONS.COURSES).orderBy("createdAt", "desc").get(),
-    ]);
-
+    const subjectsSnap = await db
+      .collection(COLLECTIONS.SUBJECTS)
+      .orderBy("createdAt", "desc")
+      .get();
     const rowsById = {};
     subjectsSnap.docs.forEach((doc) => {
       const row = doc.data() || {};
@@ -2564,31 +2563,6 @@ export const getCourses = async (req, res) => {
         status: String(row.status || "published").trim().toLowerCase(),
         enrollmentCount: toSafeNumber(row.enrollmentCount, 0),
         source: "subjects",
-        createdAt: row.createdAt || null,
-        updatedAt: row.updatedAt || null,
-      };
-    });
-
-    coursesSnap.docs.forEach((doc) => {
-      if (rowsById[doc.id]) return;
-      const row = doc.data() || {};
-      const firstSubject = Array.isArray(row.subjects) ? row.subjects[0] || {} : {};
-      rowsById[doc.id] = {
-        id: doc.id,
-        title: String(row.title || "").trim(),
-        description: String(row.description || row.shortDescription || "").trim(),
-        price: toSafeNumber(row.price, 0),
-        discountPercent: Math.max(
-          0,
-          toSafeNumber(row.discountPercent ?? row.discount, 0)
-        ),
-        discount: Math.max(0, toSafeNumber(row.discount, 0)),
-        thumbnail: row.thumbnail || null,
-        teacherId: String(row.teacherId || firstSubject?.teacherId || "").trim(),
-        teacherName: String(row.teacherName || firstSubject?.teacherName || "").trim(),
-        status: String(row.status || "published").trim().toLowerCase(),
-        enrollmentCount: toSafeNumber(row.enrollmentCount, 0),
-        source: "courses",
         createdAt: row.createdAt || null,
         updatedAt: row.updatedAt || null,
       };
@@ -2658,39 +2632,7 @@ export const createCourse = async (req, res) => {
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     };
 
-    const legacyPayload = {
-      title: String(title).trim(),
-      description: description || "",
-      shortDescription: description || "",
-      category: "general",
-      level: "beginner",
-      price: toSafeNumber(price, 0),
-      discountPercent: cleanDiscountPercent,
-      status: status || "published",
-      thumbnail: thumbnail || null,
-      teacherId: cleanTeacherId,
-      teacherName: resolvedTeacherName,
-      subjects: [
-        {
-          id: "main",
-          name: String(title).trim(),
-          teacherId: cleanTeacherId,
-          teacherName: resolvedTeacherName,
-          order: 1,
-        },
-      ],
-      enrollmentCount: 0,
-      completionCount: 0,
-      rating: 0,
-      hasCertificate: true,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    };
-
-    await Promise.all([
-      ref.set(subjectPayload),
-      db.collection(COLLECTIONS.COURSES).doc(ref.id).set(legacyPayload, { merge: true }),
-    ]);
+    await ref.set(subjectPayload);
 
     return successResponse(
       res,
@@ -2750,23 +2692,7 @@ export const updateCourse = async (req, res) => {
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     };
 
-    const legacyCourseUpdates = { ...updates };
-    if (updates.title || updates.teacherId || updates.teacherName) {
-      legacyCourseUpdates.subjects = [
-        {
-          id: "main",
-          name: String(updates.title || "").trim() || undefined,
-          teacherId: String(updates.teacherId || "").trim() || undefined,
-          teacherName: String(updates.teacherName || "").trim() || undefined,
-          order: 1,
-        },
-      ].filter((row) => row.name || row.teacherId || row.teacherName);
-    }
-
-    await Promise.all([
-      db.collection(COLLECTIONS.SUBJECTS).doc(courseId).set(updates, { merge: true }),
-      db.collection(COLLECTIONS.COURSES).doc(courseId).set(legacyCourseUpdates, { merge: true }),
-    ]);
+    await db.collection(COLLECTIONS.SUBJECTS).doc(courseId).set(updates, { merge: true });
     if (shouldRecalculateClassPricing) {
       await recalculateClassPricesByCourse(courseId);
     }

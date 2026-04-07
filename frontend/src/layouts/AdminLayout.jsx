@@ -44,7 +44,7 @@ const navSections = [
       { label: "Users", to: "/admin/users", icon: "users" },
       { label: "Teachers", to: "/admin/teachers", icon: "teacher" },
       { label: "Students", to: "/admin/students", icon: "student" },
-      { label: "Courses", to: "/admin/courses", icon: "book" },
+      { label: "Subjects", to: "/admin/courses", icon: "book" },
       { label: "Classes", to: "/admin/classes", icon: "calendar" },
       { label: "Payments", to: "/admin/payments", icon: "card" },
     ],
@@ -60,7 +60,7 @@ const navSections = [
     title: "Content",
     items: [
       { label: "Videos", to: "/admin/videos", icon: "film" },
-      { label: "Course Content", to: "/admin/course-content", icon: "book" },
+      { label: "Subject Content", to: "/admin/course-content", icon: "book" },
       { label: "Quizzes", to: "/admin/quizzes", icon: "clipboard" },
       { label: "Certificates", to: "/admin/certificates", icon: "award" },
       { label: "Announcements", to: "/admin/announcements", icon: "bell" },

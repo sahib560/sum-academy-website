@@ -6,18 +6,16 @@ import { Toaster, toast } from "react-hot-toast";
 import { FiX } from "react-icons/fi";
 import {
   addCourseContent,
-  addCourseSubject,
   createAdminVideo,
-  createCourse,
-  deleteCourse,
+  createSubject,
+  deleteSubject,
   deleteCourseContent,
   getAdminVideos,
   getCourseContent,
-  getCourses,
+  getSubjects,
   getTeachers,
-  patchCourse,
-  removeCourseSubject,
-  updateCourse,
+  patchSubject,
+  updateSubject,
 } from "../../services/admin.service.js";
 import {
   deleteFile,
@@ -83,14 +81,15 @@ const defaultForm = () => ({
   title: "",
   shortDescription: "",
   description: "",
-  category: CATEGORIES[0],
+  category: "General",
   level: "beginner",
   price: "",
   discountPercent: "",
-  status: "draft",
+  status: "published",
   hasCertificate: true,
   thumbnail: "",
-  subjects: [{ id: makeId(), name: "", teacherId: "", order: 1 }],
+  teacherId: "",
+  teacherName: "",
 });
 
 const statusCls = {
@@ -100,31 +99,39 @@ const statusCls = {
 };
 
 const normalizeCourse = (course = {}) => {
-  const subjects = Array.isArray(course.subjects)
+  const subjects = Array.isArray(course.subjects) && course.subjects.length > 0
     ? [...course.subjects]
         .map((s, i) => ({
           id: s.id || makeId(),
-          name: s.name || "",
-          teacherId: s.teacherId || "",
-          teacherName: s.teacherName || "",
+          name: s.name || course.title || "Subject",
+          teacherId: s.teacherId || course.teacherId || "",
+          teacherName: s.teacherName || course.teacherName || "",
           order: Number(s.order || i + 1),
         }))
         .sort((a, b) => a.order - b.order)
-    : [];
+    : [
+        {
+          id: course.id || makeId(),
+          name: course.title || "Subject",
+          teacherId: course.teacherId || "",
+          teacherName: course.teacherName || "",
+          order: 1,
+        },
+      ];
 
   return {
     ...course,
     id: course.id || course.uid,
-    title: course.title || "Untitled Course",
-    shortDescription: course.shortDescription || "",
+    title: course.title || "Untitled Subject",
     description: course.description || "",
-    category: course.category || "",
+    category: course.category || "General",
     level: course.level || "beginner",
     price: Number(course.price || 0),
     discountPercent: Number(course.discountPercent || 0),
-    status: String(course.status || "draft").toLowerCase(),
+    status: String(course.status || "published").toLowerCase(),
     thumbnail: course.thumbnail || "",
-    hasCertificate: course.hasCertificate !== false,
+    teacherId: course.teacherId || subjects[0]?.teacherId || "",
+    teacherName: course.teacherName || subjects[0]?.teacherName || "",
     enrollmentCount: Number(course.enrollmentCount || 0),
     subjects,
   };
@@ -265,7 +272,6 @@ function Courses() {
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState(defaultForm);
   const [touched, setTouched] = useState({});
-  const [subjectTouched, setSubjectTouched] = useState(false);
   const [thumbState, setThumbState] = useState({
     uploading: false,
     progress: 0,
@@ -280,8 +286,6 @@ function Courses() {
   const [drawerCourseId, setDrawerCourseId] = useState(null);
   const [activeSubjectId, setActiveSubjectId] = useState("");
   const [subjectEditor, setSubjectEditor] = useState({ name: "", teacherId: "" });
-  const [newSubject, setNewSubject] = useState({ name: "", teacherId: "" });
-  const [newSubjectError, setNewSubjectError] = useState("");
 
   const [showVideoModal, setShowVideoModal] = useState(false);
   const [videoState, setVideoState] = useState({
@@ -307,8 +311,8 @@ function Courses() {
   });
 
   const coursesQuery = useQuery({
-    queryKey: ["admin", "courses"],
-    queryFn: getCourses,
+    queryKey: ["admin", "subjects"],
+    queryFn: getSubjects,
     staleTime: 30000,
   });
   const teachersQuery = useQuery({
@@ -413,46 +417,29 @@ function Courses() {
   const basicErrors = useMemo(() => {
     const errors = {};
     if (!form.title.trim()) errors.title = "Title is required.";
-    else if (form.title.trim().length < 5) {
-      errors.title = "Title must be at least 5 characters.";
+    else if (form.title.trim().length < 3) {
+      errors.title = "Title must be at least 3 characters.";
     }
 
     if (!form.description.trim()) errors.description = "Description is required.";
-    else if (form.description.trim().length < 20) {
-      errors.description = "Description must be at least 20 characters.";
+    else if (form.description.trim().length < 10) {
+      errors.description = "Description must be at least 10 characters.";
     }
 
     const p = Number(form.price);
     if (!form.price && form.price !== 0) errors.price = "Price is required.";
     else if (!Number.isFinite(p) || p <= 0) errors.price = "Price must be positive.";
 
-    if (form.shortDescription.length > 150) {
-      errors.shortDescription = "Short description max length is 150.";
-    }
-
     const d = Number(form.discountPercent || 0);
     if (d < 0 || d > 100) {
       errors.discountPercent = "Discount must be between 0 and 100.";
     }
+    if (!form.teacherId) {
+      errors.teacherId = "Teacher is required.";
+    }
 
     return errors;
   }, [form]);
-
-  const subjectErrors = useMemo(() => {
-    const errors = {};
-    if (!form.subjects.length) {
-      errors._form = "At least one subject is required.";
-      return errors;
-    }
-    form.subjects.forEach((s) => {
-      const row = {};
-      if (!s.name.trim()) row.name = "Subject name required.";
-      else if (s.name.trim().length < 2) row.name = "Minimum 2 characters.";
-      if (!s.teacherId) row.teacherId = "Teacher is required.";
-      if (Object.keys(row).length) errors[s.id] = row;
-    });
-    return errors;
-  }, [form.subjects]);
 
   useEffect(() => {
     if (!drawerCourse) return;
@@ -473,43 +460,43 @@ function Courses() {
   }, [activeSubject]);
 
   const invalidateCourses = async () =>
-    queryClient.invalidateQueries({ queryKey: ["admin", "courses"] });
+    queryClient.invalidateQueries({ queryKey: ["admin", "subjects"] });
   const invalidateContent = async (courseId) =>
     queryClient.invalidateQueries({
       queryKey: ["admin", "course-content", courseId],
     });
 
   const createMutation = useMutation({
-    mutationFn: createCourse,
+    mutationFn: createSubject,
     onSuccess: async () => {
       await invalidateCourses();
-      toast.success("Course created.");
+      toast.success("Subject created.");
       closeCourseModal();
     },
     onError: (err) =>
-      toast.error(err?.response?.data?.error || "Failed to create course."),
+      toast.error(err?.response?.data?.error || "Failed to create subject."),
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, data }) => updateCourse(id, data),
+    mutationFn: ({ id, data }) => updateSubject(id, data),
     onSuccess: async () => {
       await invalidateCourses();
-      toast.success(showCourseModal ? "Course updated." : "Saved.");
+      toast.success(showCourseModal ? "Subject updated." : "Saved.");
       if (showCourseModal) closeCourseModal();
     },
     onError: (err) =>
-      toast.error(err?.response?.data?.error || "Failed to update course."),
+      toast.error(err?.response?.data?.error || "Failed to update subject."),
   });
 
   const archiveMutation = useMutation({
-    mutationFn: ({ id, status }) => patchCourse(id, { status }),
+    mutationFn: ({ id, status }) => patchSubject(id, { status }),
     onMutate: ({ id }) => {
       setPendingArchiveId(id);
     },
     onSuccess: async (_res, vars) => {
       await invalidateCourses();
       toast.success(
-        vars.status === "archived" ? "Course archived." : "Course published."
+        vars.status === "archived" ? "Subject archived." : "Subject published."
       );
     },
     onSettled: () => {
@@ -520,42 +507,15 @@ function Courses() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: deleteCourse,
+    mutationFn: deleteSubject,
     onSuccess: async () => {
       await invalidateCourses();
       if (drawerCourseId === deleteTarget?.id) setDrawerCourseId(null);
       setDeleteTarget(null);
-      toast.success("Course deleted.");
+      toast.success("Subject deleted.");
     },
     onError: (err) =>
-      toast.error(err?.response?.data?.error || "Failed to delete course."),
-  });
-
-  const addSubjectMutation = useMutation({
-    mutationFn: ({ courseId, data }) => addCourseSubject(courseId, data),
-    onSuccess: async (res) => {
-      await invalidateCourses();
-      await invalidateContent(drawerCourseId);
-      const payload = res?.data || {};
-      if (payload.id) setActiveSubjectId(payload.id);
-      setNewSubject({ name: "", teacherId: "" });
-      setNewSubjectError("");
-      toast.success("Subject added.");
-    },
-    onError: (err) =>
-      toast.error(err?.response?.data?.error || "Failed to add subject."),
-  });
-
-  const removeSubjectMutation = useMutation({
-    mutationFn: ({ courseId, subjectId }) =>
-      removeCourseSubject(courseId, subjectId),
-    onSuccess: async () => {
-      await invalidateCourses();
-      await invalidateContent(drawerCourseId);
-      toast.success("Subject removed.");
-    },
-    onError: (err) =>
-      toast.error(err?.response?.data?.error || "Failed to remove subject."),
+      toast.error(err?.response?.data?.error || "Failed to delete subject."),
   });
 
   const addContentMutation = useMutation({
@@ -605,7 +565,6 @@ function Courses() {
     setEditingId(null);
     setForm(defaultForm());
     setTouched({});
-    setSubjectTouched(false);
     setThumbState({ uploading: false, progress: 0, error: "" });
     setUploadRootId(makeId());
   };
@@ -621,52 +580,22 @@ function Courses() {
       title: course.title,
       shortDescription: course.shortDescription || "",
       description: course.description || "",
-      category: course.category || CATEGORIES[0],
+      category: course.category || "General",
       level: course.level || "beginner",
       price: String(course.price || ""),
       discountPercent: String(course.discountPercent || ""),
-      status: course.status || "draft",
-      hasCertificate: course.hasCertificate !== false,
+      status: course.status || "published",
+      hasCertificate:
+        typeof course.hasCertificate === "boolean" ? course.hasCertificate : true,
       thumbnail: course.thumbnail || "",
-      subjects: course.subjects.length
-        ? course.subjects.map((s, i) => ({ ...s, order: i + 1 }))
-        : [{ id: makeId(), name: "", teacherId: "", order: 1 }],
+      teacherId: course.teacherId || course.subjects?.[0]?.teacherId || "",
+      teacherName: course.teacherName || course.subjects?.[0]?.teacherName || "",
     });
     setStep(1);
     setTouched({});
-    setSubjectTouched(false);
     setThumbState({ uploading: false, progress: 0, error: "" });
     setUploadRootId(course.id || makeId());
     setShowCourseModal(true);
-  };
-
-  const setSubject = (id, field, value) => {
-    setForm((prev) => ({
-      ...prev,
-      subjects: prev.subjects.map((s) =>
-        s.id === id ? { ...s, [field]: value } : s
-      ),
-    }));
-  };
-
-  const addSubjectRow = () => {
-    setForm((prev) => ({
-      ...prev,
-      subjects: [
-        ...prev.subjects,
-        { id: makeId(), name: "", teacherId: "", order: prev.subjects.length + 1 },
-      ],
-    }));
-  };
-
-  const removeSubjectRow = (id) => {
-    setForm((prev) => {
-      if (prev.subjects.length <= 1) return prev;
-      const next = prev.subjects
-        .filter((s) => s.id !== id)
-        .map((s, i) => ({ ...s, order: i + 1 }));
-      return { ...prev, subjects: next };
-    });
   };
 
   const discounted = useMemo(() => {
@@ -677,34 +606,29 @@ function Courses() {
 
   const coursePayload = () => ({
     title: form.title.trim(),
-    shortDescription: form.shortDescription.trim(),
+    shortDescription: form.shortDescription?.trim() || "",
     description: form.description.trim(),
-    category: form.category,
-    level: form.level,
+    category: form.category || "General",
+    level: form.level || "beginner",
     price: Number(form.price),
     discountPercent: Number(form.discountPercent || 0),
+    discount: Number(form.discountPercent || 0),
     status: form.status,
-    hasCertificate: form.hasCertificate,
+    hasCertificate: Boolean(form.hasCertificate),
     thumbnail: form.thumbnail || null,
-    subjects: form.subjects.map((s, i) => ({
-      id: s.id,
-      name: s.name.trim(),
-      teacherId: s.teacherId,
-      teacherName: teachersMap[s.teacherId]?.fullName || "",
-      order: i + 1,
-    })),
+    teacherId: form.teacherId,
+    teacherName: teachersMap[form.teacherId]?.fullName || form.teacherName || "",
   });
 
   const saveCourse = () => {
     setTouched({
       title: true,
-      shortDescription: true,
       description: true,
       price: true,
       discountPercent: true,
+      teacherId: true,
     });
-    setSubjectTouched(true);
-    if (Object.keys(basicErrors).length || Object.keys(subjectErrors).length) {
+    if (Object.keys(basicErrors).length) {
       toast.error("Please fix validation errors.");
       return;
     }
@@ -733,41 +657,19 @@ function Courses() {
   const updateActiveSubject = () => {
     if (!drawerCourse || !activeSubject) return;
     if (!subjectEditor.name.trim()) {
-      toast.error("Subject name is required.");
+      toast.error("Title is required.");
       return;
     }
     if (!subjectEditor.teacherId) {
       toast.error("Teacher is required.");
       return;
     }
-
-    const subjects = drawerCourse.subjects.map((s) =>
-      s.id === activeSubject.id
-        ? {
-            ...s,
-            name: subjectEditor.name.trim(),
-            teacherId: subjectEditor.teacherId,
-            teacherName: teachersMap[subjectEditor.teacherId]?.fullName || "",
-          }
-        : s
-    );
-
-    updateMutation.mutate({ id: drawerCourse.id, data: { subjects } });
-  };
-
-  const submitNewSubject = () => {
-    if (!drawerCourse) return;
-    if (!newSubject.name.trim()) {
-      setNewSubjectError("Subject name is required.");
-      return;
-    }
-    if (!newSubject.teacherId) {
-      setNewSubjectError("Teacher is required.");
-      return;
-    }
-    addSubjectMutation.mutate({
-      courseId: drawerCourse.id,
-      data: { name: newSubject.name.trim(), teacherId: newSubject.teacherId },
+    updateMutation.mutate({
+      id: drawerCourse.id,
+      data: {
+        title: subjectEditor.name.trim(),
+        teacherId: subjectEditor.teacherId,
+      },
     });
   };
 
@@ -981,9 +883,9 @@ function Courses() {
 
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h2 className="font-heading text-3xl text-slate-900">Courses</h2>
+          <h2 className="font-heading text-3xl text-slate-900">Subjects</h2>
           <p className="text-sm text-slate-500">
-            Manage courses, subjects, and content.
+            Manage subjects and content.
           </p>
         </div>
         <button
@@ -992,23 +894,23 @@ function Courses() {
           disabled={pageActionBusy}
           className="btn-primary disabled:cursor-not-allowed disabled:opacity-60"
         >
-          Add Course
+          Add Subject
         </button>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <div className="glass-card">
-          <p className="text-sm text-slate-500">Total Courses</p>
+          <p className="text-sm text-slate-500">Total Subjects</p>
           <p className="mt-2 text-2xl font-semibold text-slate-900">{stats.total}</p>
         </div>
         <div className="glass-card">
-          <p className="text-sm text-slate-500">Published Courses</p>
+          <p className="text-sm text-slate-500">Published Subjects</p>
           <p className="mt-2 text-2xl font-semibold text-emerald-600">
             {stats.published}
           </p>
         </div>
         <div className="glass-card">
-          <p className="text-sm text-slate-500">Draft Courses</p>
+          <p className="text-sm text-slate-500">Draft Subjects</p>
           <p className="mt-2 text-2xl font-semibold text-amber-600">{stats.draft}</p>
         </div>
         <div className="glass-card">
@@ -1064,14 +966,14 @@ function Courses() {
         </div>
       ) : filtered.length === 0 ? (
         <div className="rounded-3xl border border-dashed border-slate-200 bg-white py-16 text-center">
-          <p className="text-lg font-semibold text-slate-900">No courses yet</p>
+          <p className="text-lg font-semibold text-slate-900">No subjects yet</p>
           <button
             type="button"
             onClick={openAdd}
             disabled={pageActionBusy}
             className="btn-primary mt-4 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            Add Course
+            Add Subject
           </button>
         </div>
       ) : (
@@ -1199,7 +1101,7 @@ function Courses() {
           if (createMutation.isPending || updateMutation.isPending) return;
           closeCourseModal();
         }}
-        title={editingId ? "Edit Course" : "Add Course"}
+        title={editingId ? "Edit Subject" : "Add Subject"}
         maxWidth="max-w-5xl"
       >
         <div className="flex items-center gap-2 text-xs font-semibold text-slate-500">
@@ -1445,78 +1347,29 @@ function Courses() {
 
         {step === 3 ? (
           <div className="mt-5 space-y-4">
-            <div className="flex items-center justify-between">
-              <h4 className="font-heading text-xl text-slate-900">Subjects</h4>
-              <button
-                type="button"
-                onClick={addSubjectRow}
-                className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700"
-              >
-                Add Subject
-              </button>
-            </div>
-            <FieldError message={subjectTouched ? subjectErrors._form : ""} />
-
-            <div className="space-y-3">
-              {form.subjects.map((s, i) => (
-                <div
-                  key={s.id}
-                  className="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-3 md:grid-cols-[1fr_1fr_80px_40px]"
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <h4 className="font-heading text-xl text-slate-900">Assign Teacher</h4>
+              <p className="mt-1 text-xs text-slate-500">
+                Select the teacher for this subject.
+              </p>
+              <div className="mt-3">
+                <label className="text-xs font-semibold text-slate-500">Teacher</label>
+                <select
+                  value={form.teacherId}
+                  onChange={(e) =>
+                    setForm((prev) => ({ ...prev, teacherId: e.target.value }))
+                  }
+                  className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
                 >
-                  <div>
-                    <label className="text-xs font-semibold text-slate-500">
-                      Subject Name
-                    </label>
-                    <input
-                      type="text"
-                      value={s.name}
-                      onChange={(e) => setSubject(s.id, "name", e.target.value)}
-                      className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
-                    />
-                    <FieldError
-                      message={subjectTouched ? subjectErrors[s.id]?.name : ""}
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs font-semibold text-slate-500">
-                      Teacher
-                    </label>
-                    <select
-                      value={s.teacherId}
-                      onChange={(e) => setSubject(s.id, "teacherId", e.target.value)}
-                      className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
-                    >
-                      <option value="">Select teacher</option>
-                      {teachers.map((t) => (
-                        <option key={t.id} value={t.id}>
-                          {t.fullName}
-                        </option>
-                      ))}
-                    </select>
-                    <FieldError
-                      message={subjectTouched ? subjectErrors[s.id]?.teacherId : ""}
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs font-semibold text-slate-500">Order</label>
-                    <input
-                      type="number"
-                      readOnly
-                      value={i + 1}
-                      className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-500"
-                    />
-                  </div>
-                  <div className="flex items-end">
-                    <button
-                      type="button"
-                      onClick={() => removeSubjectRow(s.id)}
-                      className="w-full rounded-xl border border-rose-200 bg-white py-2 text-sm font-semibold text-rose-500"
-                    >
-                      X
-                    </button>
-                  </div>
-                </div>
-              ))}
+                  <option value="">Select teacher</option>
+                  {teachers.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.fullName}
+                    </option>
+                  ))}
+                </select>
+                <FieldError message={touched.teacherId ? basicErrors.teacherId : ""} />
+              </div>
             </div>
 
             <div className="flex justify-between border-t border-slate-100 pt-4">
@@ -1536,8 +1389,8 @@ function Courses() {
                 {createMutation.isPending || updateMutation.isPending
                   ? "Saving..."
                   : editingId
-                  ? "Update Course"
-                  : "Save Course"}
+                  ? "Update Subject"
+                  : "Save Subject"}
               </button>
             </div>
           </div>
@@ -1550,7 +1403,7 @@ function Courses() {
           if (deleteMutation.isPending) return;
           setDeleteTarget(null);
         }}
-        title="Delete Course"
+        title="Delete Subject"
         maxWidth="max-w-lg"
       >
         <div className="space-y-5">
@@ -1635,41 +1488,12 @@ function Courses() {
                   </div>
 
                   <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-3">
-                    <p className="text-xs font-semibold text-slate-500">Add Subject</p>
-                    <input
-                      type="text"
-                      value={newSubject.name}
-                      onChange={(e) => {
-                        setNewSubject((p) => ({ ...p, name: e.target.value }));
-                        setNewSubjectError("");
-                      }}
-                      className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
-                      placeholder="Subject name"
-                    />
-                    <select
-                      value={newSubject.teacherId}
-                      onChange={(e) => {
-                        setNewSubject((p) => ({ ...p, teacherId: e.target.value }));
-                        setNewSubjectError("");
-                      }}
-                      className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                    >
-                      <option value="">Select teacher</option>
-                      {teachers.map((t) => (
-                        <option key={t.id} value={t.id}>
-                          {t.fullName}
-                        </option>
-                      ))}
-                    </select>
-                    <FieldError message={newSubjectError} />
-                    <button
-                      type="button"
-                      onClick={submitNewSubject}
-                      disabled={addSubjectMutation.isPending}
-                      className="btn-primary mt-2 w-full disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {addSubjectMutation.isPending ? "Adding..." : "Add Subject"}
-                    </button>
+                    <p className="text-xs font-semibold text-slate-500">
+                      Subject flow is now single-subject based.
+                    </p>
+                    <p className="mt-1 text-xs text-slate-400">
+                      Use Edit to update subject title, teacher, and content.
+                    </p>
                   </div>
                 </aside>
 
@@ -1709,22 +1533,6 @@ function Courses() {
                             className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
                           >
                             {updateMutation.isPending ? "Saving..." : "Save Subject"}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              removeSubjectMutation.mutate({
-                                courseId: drawerCourse.id,
-                                subjectId: activeSubject.id,
-                              })
-                            }
-                            disabled={
-                              drawerCourse.subjects.length <= 1 ||
-                              removeSubjectMutation.isPending
-                            }
-                            className="rounded-xl border border-rose-200 px-4 py-2 text-sm font-semibold text-rose-600 disabled:cursor-not-allowed disabled:opacity-50"
-                          >
-                            {removeSubjectMutation.isPending ? "Removing..." : "Remove"}
                           </button>
                         </div>
                       </div>
@@ -2063,3 +1871,4 @@ function Courses() {
 }
 
 export default Courses;
+
