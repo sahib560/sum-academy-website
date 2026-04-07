@@ -1,5 +1,17 @@
 import api from "../api/axios.js";
 
+const requestWithFallback = async (primary, fallback) => {
+  try {
+    return await primary();
+  } catch (error) {
+    const status = Number(error?.response?.status || 0);
+    if (status === 404 && typeof fallback === "function") {
+      return fallback();
+    }
+    throw error;
+  }
+};
+
 export const getDashboardStats = () =>
   api.get("/admin/stats").then((r) => r.data.data);
 
@@ -83,36 +95,96 @@ export const bulkUploadStudents = (file) => {
     .then((r) => r.data);
 };
 
-export const getCourses = () =>
-  api.get("/admin/subjects").then((r) => r.data.data);
-export const getSubjects = () =>
-  api.get("/admin/subjects").then((r) => r.data.data);
+export const getCourses = async () => {
+  const response = await requestWithFallback(
+    () => api.get("/admin/subjects"),
+    () => api.get("/admin/courses")
+  );
+  return response.data.data;
+};
+export const getSubjects = async () => {
+  const response = await requestWithFallback(
+    () => api.get("/admin/subjects"),
+    () => api.get("/admin/courses")
+  );
+  return response.data.data;
+};
 
-export const getAdminVideos = () =>
-  api.get("/admin/videos").then((r) => r.data.data || []);
+export const getAdminVideos = async () => {
+  const response = await requestWithFallback(
+    () => api.get("/admin/videos"),
+    () => api.get("/teacher/videos")
+  );
+  return response.data.data || [];
+};
 
-export const createAdminVideo = (data) =>
-  api.post("/admin/videos", data).then((r) => r.data);
+export const createAdminVideo = async (data) => {
+  const response = await requestWithFallback(
+    () => api.post("/admin/videos", data),
+    () => api.post("/teacher/videos", data)
+  );
+  return response.data;
+};
 
-export const createCourse = (data) =>
-  api.post("/admin/subjects", data).then((r) => r.data);
-export const createSubject = (data) =>
-  api.post("/admin/subjects", data).then((r) => r.data);
+export const createCourse = async (data) => {
+  const response = await requestWithFallback(
+    () => api.post("/admin/subjects", data),
+    () => api.post("/admin/courses", data)
+  );
+  return response.data;
+};
+export const createSubject = async (data) => {
+  const response = await requestWithFallback(
+    () => api.post("/admin/subjects", data),
+    () => api.post("/admin/courses", data)
+  );
+  return response.data;
+};
 
-export const updateCourse = (id, data) =>
-  api.put(`/admin/subjects/${id}`, data).then((r) => r.data);
-export const updateSubject = (id, data) =>
-  api.put(`/admin/subjects/${id}`, data).then((r) => r.data);
+export const updateCourse = async (id, data) => {
+  const response = await requestWithFallback(
+    () => api.put(`/admin/subjects/${id}`, data),
+    () => api.put(`/admin/courses/${id}`, data)
+  );
+  return response.data;
+};
+export const updateSubject = async (id, data) => {
+  const response = await requestWithFallback(
+    () => api.put(`/admin/subjects/${id}`, data),
+    () => api.put(`/admin/courses/${id}`, data)
+  );
+  return response.data;
+};
 
-export const patchCourse = (id, data) =>
-  api.patch(`/admin/subjects/${id}`, data).then((r) => r.data);
-export const patchSubject = (id, data) =>
-  api.patch(`/admin/subjects/${id}`, data).then((r) => r.data);
+export const patchCourse = async (id, data) => {
+  const response = await requestWithFallback(
+    () => api.patch(`/admin/subjects/${id}`, data),
+    () => api.patch(`/admin/courses/${id}`, data)
+  );
+  return response.data;
+};
+export const patchSubject = async (id, data) => {
+  const response = await requestWithFallback(
+    () => api.patch(`/admin/subjects/${id}`, data),
+    () => api.patch(`/admin/courses/${id}`, data)
+  );
+  return response.data;
+};
 
-export const deleteCourse = (id) =>
-  api.delete(`/admin/subjects/${id}`).then((r) => r.data);
-export const deleteSubject = (id) =>
-  api.delete(`/admin/subjects/${id}`).then((r) => r.data);
+export const deleteCourse = async (id) => {
+  const response = await requestWithFallback(
+    () => api.delete(`/admin/subjects/${id}`),
+    () => api.delete(`/admin/courses/${id}`)
+  );
+  return response.data;
+};
+export const deleteSubject = async (id) => {
+  const response = await requestWithFallback(
+    () => api.delete(`/admin/subjects/${id}`),
+    () => api.delete(`/admin/courses/${id}`)
+  );
+  return response.data;
+};
 
 export const addCourseSubject = (courseId, data) =>
   api.post(`/admin/courses/${courseId}/subjects`, data).then((r) => r.data);

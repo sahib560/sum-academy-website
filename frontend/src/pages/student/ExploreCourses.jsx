@@ -345,6 +345,15 @@ function StudentExploreCourses() {
                           ).toLocaleString("en-PK")}`
                         : `Enroll Full Class - PKR ${toNumber(classItem.totalPrice, 0).toLocaleString("en-PK")}`}
                     </button>
+                    <button
+                      className="w-full rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setSelectedClass(classItem);
+                      }}
+                    >
+                      Choose Individual Subject
+                    </button>
                     <p className="text-[11px] text-slate-500">
                       Paid subjects: {classItem.paidCoursesCount}/{classItem.assignedSubjects.length}
                     </p>

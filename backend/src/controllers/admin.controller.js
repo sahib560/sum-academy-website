@@ -1041,7 +1041,9 @@ const normalizeVideoLibraryRow = (id, row = {}) => ({
   title: String(row.title || "").trim() || "Untitled Video",
   url: String(row.url || "").trim(),
   courseId: String(row.courseId || "").trim(),
-  courseName: String(row.courseName || "").trim(),
+  subjectId: String(row.subjectId || row.courseId || "").trim(),
+  courseName: String(row.courseName || row.subjectName || "").trim(),
+  subjectName: String(row.subjectName || row.courseName || "").trim(),
   teacherId: String(row.teacherId || "").trim(),
   teacherName: String(row.teacherName || "").trim() || "Teacher",
   videoMode:
@@ -2584,6 +2586,9 @@ export const createCourse = async (req, res) => {
     const {
       title,
       description,
+      shortDescription,
+      category,
+      level,
       price,
       discount,
       discountPercent,
@@ -2591,6 +2596,7 @@ export const createCourse = async (req, res) => {
       thumbnail,
       teacherId,
       teacherName,
+      hasCertificate,
     } = req.body;
 
     if (!title || String(title).trim().length < 3) {
@@ -2620,6 +2626,9 @@ export const createCourse = async (req, res) => {
     const subjectPayload = {
       title: String(title).trim(),
       description: description || "",
+      shortDescription: shortDescription || "",
+      category: category || "",
+      level: level || "beginner",
       price: toSafeNumber(price, 0),
       discountPercent: cleanDiscountPercent,
       discount: cleanDiscountPercent,
@@ -2627,12 +2636,28 @@ export const createCourse = async (req, res) => {
       teacherId: cleanTeacherId,
       teacherName: resolvedTeacherName,
       status: status || "published",
+      hasCertificate: hasCertificate !== false,
       enrollmentCount: 0,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     };
+    const courseMirrorPayload = {
+      ...subjectPayload,
+      subjects: [
+        {
+          id: ref.id,
+          name: String(title).trim(),
+          teacherId: cleanTeacherId,
+          teacherName: resolvedTeacherName,
+          order: 1,
+        },
+      ],
+    };
 
-    await ref.set(subjectPayload);
+    await Promise.all([
+      ref.set(subjectPayload),
+      db.collection(COLLECTIONS.COURSES).doc(ref.id).set(courseMirrorPayload, { merge: true }),
+    ]);
 
     return successResponse(
       res,
@@ -2692,7 +2717,33 @@ export const updateCourse = async (req, res) => {
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     };
 
-    await db.collection(COLLECTIONS.SUBJECTS).doc(courseId).set(updates, { merge: true });
+    const subjectRef = db.collection(COLLECTIONS.SUBJECTS).doc(courseId);
+    await subjectRef.set(updates, { merge: true });
+    const latestSubjectSnap = await subjectRef.get();
+    const latestSubjectData = latestSubjectSnap.exists
+      ? latestSubjectSnap.data() || {}
+      : {};
+    const mirrorTitle = String(latestSubjectData.title || incoming.title || "").trim() || "Subject";
+    const mirrorTeacherId = String(
+      latestSubjectData.teacherId || incoming.teacherId || ""
+    ).trim();
+    const mirrorTeacherName = String(
+      latestSubjectData.teacherName || incoming.teacherName || "Teacher"
+    ).trim() || "Teacher";
+    const courseMirrorPayload = {
+      ...latestSubjectData,
+      subjects: [
+        {
+          id: courseId,
+          name: mirrorTitle,
+          teacherId: mirrorTeacherId,
+          teacherName: mirrorTeacherName,
+          order: 1,
+        },
+      ],
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+    await db.collection(COLLECTIONS.COURSES).doc(courseId).set(courseMirrorPayload, { merge: true });
     if (shouldRecalculateClassPricing) {
       await recalculateClassPricesByCourse(courseId);
     }
@@ -2860,6 +2911,7 @@ export const createVideoLibraryItem = async (req, res) => {
       title = "",
       url = "",
       courseId = "",
+      subjectId = "",
       courseName = "",
       teacherId = "",
       teacherName = "",
@@ -2874,28 +2926,30 @@ export const createVideoLibraryItem = async (req, res) => {
     if (!String(url).trim()) {
       return errorResponse(res, "url is required", 400);
     }
-    if (!String(courseId).trim()) {
-      return errorResponse(res, "courseId is required", 400);
+    const cleanCourseId = String(courseId || subjectId || "").trim();
+    if (!cleanCourseId) {
+      return errorResponse(res, "subjectId/courseId is required", 400);
     }
 
-    const [courseSnap, teacherSnap] = await Promise.all([
-      db.collection(COLLECTIONS.COURSES).doc(String(courseId).trim()).get(),
+    const [subjectMeta, teacherSnap] = await Promise.all([
+      getCourseMeta(cleanCourseId),
       String(teacherId).trim()
         ? db.collection(COLLECTIONS.TEACHERS).doc(String(teacherId).trim()).get()
         : Promise.resolve(null),
     ]);
 
-    if (!courseSnap.exists) {
-      return errorResponse(res, "Course not found", 404);
+    if (!subjectMeta) {
+      return errorResponse(res, "Subject not found", 404);
     }
 
-    const courseData = courseSnap.data() || {};
     const resolvedCourseName =
-      String(courseName).trim() || String(courseData.title || "").trim() || "Course";
+      String(courseName).trim() ||
+      String(subjectMeta.courseName || subjectMeta.subjectName || "").trim() ||
+      "Subject";
     const resolvedTeacherName =
       String(teacherName).trim() ||
       String(teacherSnap?.data?.()?.fullName || "").trim() ||
-      String(courseData.teacherName || "").trim() ||
+      String(subjectMeta.teacherName || "").trim() ||
       "Teacher";
     const requestedLive = parseNullableBoolean(isLiveSession);
     const isLiveFlag =
@@ -2906,8 +2960,10 @@ export const createVideoLibraryItem = async (req, res) => {
     const payload = {
       title: String(title).trim(),
       url: String(url).trim(),
-      courseId: String(courseId).trim(),
+      courseId: cleanCourseId,
+      subjectId: cleanCourseId,
       courseName: resolvedCourseName,
+      subjectName: resolvedCourseName,
       teacherId: String(teacherId).trim(),
       teacherName: resolvedTeacherName,
       videoMode: isLiveFlag ? "live_session" : "recorded",
@@ -2960,20 +3016,51 @@ export const addCourseContent = async (req, res) => {
       return errorResponse(res, "Invalid content type", 400);
     }
 
-    const courseSnap = await db
-      .collection(COLLECTIONS.COURSES)
-      .doc(courseId)
-      .get();
-    if (!courseSnap.exists) {
-      return errorResponse(res, "Course not found", 404);
-    }
+    const cleanCourseId = String(courseId || "").trim();
+    const cleanSubjectId = String(subjectId || "").trim();
 
-    const subjects = Array.isArray(courseSnap.data().subjects)
-      ? courseSnap.data().subjects
-      : [];
-    const subject = subjects.find((item) => item.id === subjectId);
-    if (!subject) {
-      return errorResponse(res, "Subject not found", 404);
+    const [subjectSnap, courseSnap] = await Promise.all([
+      db.collection(COLLECTIONS.SUBJECTS).doc(cleanCourseId).get(),
+      db.collection(COLLECTIONS.COURSES).doc(cleanCourseId).get(),
+    ]);
+
+    let contentCollectionRef = null;
+    let parentDocRef = null;
+    let subject = null;
+    let courseData = {};
+    let resolvedSubjectId = cleanSubjectId || cleanCourseId;
+
+    if (subjectSnap.exists) {
+      const subjectData = subjectSnap.data() || {};
+      contentCollectionRef = subjectSnap.ref.collection("content");
+      parentDocRef = subjectSnap.ref;
+      subject = {
+        id: resolvedSubjectId || cleanCourseId,
+        name:
+          String(subjectData.title || subjectData.subjectName || "").trim() || "Subject",
+        teacherId: String(subjectData.teacherId || "").trim(),
+        teacherName: String(subjectData.teacherName || "").trim() || "Teacher",
+      };
+      courseData = {
+        title:
+          String(subjectData.title || subjectData.subjectName || "").trim() || "Subject",
+      };
+      resolvedSubjectId = subject.id;
+    } else if (courseSnap.exists) {
+      const legacyCourseData = courseSnap.data() || {};
+      const subjects = Array.isArray(legacyCourseData.subjects)
+        ? legacyCourseData.subjects
+        : [];
+      subject = subjects.find((item) => item.id === cleanSubjectId);
+      if (!subject) {
+        return errorResponse(res, "Subject not found", 404);
+      }
+      contentCollectionRef = courseSnap.ref.collection("content");
+      parentDocRef = courseSnap.ref;
+      courseData = legacyCourseData;
+      resolvedSubjectId = cleanSubjectId;
+    } else {
+      return errorResponse(res, "Subject/Course not found", 404);
     }
 
     let resolvedTitle = String(title || "").trim();
@@ -3028,10 +3115,10 @@ export const addCourseContent = async (req, res) => {
       }
 
       const existingContentSnap = await db
-        .collection(COLLECTIONS.COURSES)
-        .doc(courseId)
+        .collection(parentDocRef.parent.id)
+        .doc(parentDocRef.id)
         .collection("content")
-        .where("subjectId", "==", subjectId)
+        .where("subjectId", "==", resolvedSubjectId)
         .where("type", "==", "video")
         .limit(1)
         .get();
@@ -3048,7 +3135,7 @@ export const addCourseContent = async (req, res) => {
 
     const contentData = {
       id: uuidv4(),
-      subjectId,
+      subjectId: resolvedSubjectId,
       type,
       title: resolvedTitle,
       url: resolvedUrl,
@@ -3062,14 +3149,9 @@ export const addCourseContent = async (req, res) => {
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     };
 
-    await db
-      .collection(COLLECTIONS.COURSES)
-      .doc(courseId)
-      .collection("content")
-      .doc(contentData.id)
-      .set(contentData);
+    await contentCollectionRef.doc(contentData.id).set(contentData);
 
-    await db.collection(COLLECTIONS.COURSES).doc(courseId).update({
+    await parentDocRef.update({
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
@@ -3084,7 +3166,7 @@ export const addCourseContent = async (req, res) => {
           message: `${resolvedTitle} was added to ${
             String(subject?.name || "a subject").trim() || "your subject"
           } in ${String(courseData?.title || "your course").trim()}.`,
-          courseId,
+          courseId: cleanCourseId,
           courseName: String(courseData?.title || "").trim(),
           postedBy: req.user?.uid || "",
           postedByName: actorName,
@@ -3104,25 +3186,34 @@ export const addCourseContent = async (req, res) => {
 export const getCourseContent = async (req, res) => {
   try {
     const { courseId } = req.params;
+    const cleanCourseId = String(courseId || "").trim();
+    const [subjectSnap, courseSnap] = await Promise.all([
+      db.collection(COLLECTIONS.SUBJECTS).doc(cleanCourseId).get(),
+      db.collection(COLLECTIONS.COURSES).doc(cleanCourseId).get(),
+    ]);
 
-    const courseSnap = await db
-      .collection(COLLECTIONS.COURSES)
-      .doc(courseId)
-      .get();
-    if (!courseSnap.exists) {
-      return errorResponse(res, "Course not found", 404);
+    let subjects = [];
+    let contentSnap = null;
+    if (subjectSnap.exists) {
+      const subjectData = subjectSnap.data() || {};
+      subjects = [
+        {
+          id: cleanCourseId,
+          name:
+            String(subjectData.title || subjectData.subjectName || "").trim() || "Subject",
+          teacherId: String(subjectData.teacherId || "").trim(),
+          teacherName: String(subjectData.teacherName || "").trim() || "Teacher",
+          order: 1,
+        },
+      ];
+      contentSnap = await subjectSnap.ref.collection("content").get();
+    } else if (courseSnap.exists) {
+      const courseData = courseSnap.data() || {};
+      subjects = Array.isArray(courseData.subjects) ? courseData.subjects : [];
+      contentSnap = await courseSnap.ref.collection("content").get();
+    } else {
+      return errorResponse(res, "Subject/Course not found", 404);
     }
-
-    const courseData = courseSnap.data();
-    const subjects = Array.isArray(courseData.subjects)
-      ? courseData.subjects
-      : [];
-
-    const contentSnap = await db
-      .collection(COLLECTIONS.COURSES)
-      .doc(courseId)
-      .collection("content")
-      .get();
 
     const grouped = {};
     subjects.forEach((subject) => {
@@ -3155,7 +3246,7 @@ export const getCourseContent = async (req, res) => {
       (a, b) => Number(a.order || 0) - Number(b.order || 0)
     );
 
-    return successResponse(res, result, "Course content fetched");
+    return successResponse(res, result, "Subject content fetched");
   } catch (e) {
     return errorResponse(res, "Failed to fetch course content", 500);
   }
@@ -3164,19 +3255,44 @@ export const getCourseContent = async (req, res) => {
 export const deleteCourseContent = async (req, res) => {
   try {
     const { courseId, contentId } = req.params;
+    const cleanCourseId = String(courseId || "").trim();
+    const cleanContentId = String(contentId || "").trim();
 
-    await db
-      .collection(COLLECTIONS.COURSES)
-      .doc(courseId)
-      .collection("content")
-      .doc(contentId)
-      .delete();
+    const [subjectSnap, courseSnap] = await Promise.all([
+      db.collection(COLLECTIONS.SUBJECTS).doc(cleanCourseId).get(),
+      db.collection(COLLECTIONS.COURSES).doc(cleanCourseId).get(),
+    ]);
 
-    await db.collection(COLLECTIONS.COURSES).doc(courseId).update({
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
+    let deleted = false;
+    if (subjectSnap.exists) {
+      const subjectContentRef = subjectSnap.ref.collection("content").doc(cleanContentId);
+      const subjectContentSnap = await subjectContentRef.get();
+      if (subjectContentSnap.exists) {
+        await subjectContentRef.delete();
+        await subjectSnap.ref.update({
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        deleted = true;
+      }
+    }
 
-    return successResponse(res, { contentId }, "Content deleted");
+    if (!deleted && courseSnap.exists) {
+      const courseContentRef = courseSnap.ref.collection("content").doc(cleanContentId);
+      const courseContentSnap = await courseContentRef.get();
+      if (courseContentSnap.exists) {
+        await courseContentRef.delete();
+        await courseSnap.ref.update({
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        deleted = true;
+      }
+    }
+
+    if (!deleted) {
+      return errorResponse(res, "Content not found", 404);
+    }
+
+    return successResponse(res, { contentId: cleanContentId }, "Content deleted");
   } catch (e) {
     return errorResponse(res, "Failed to delete content", 500);
   }

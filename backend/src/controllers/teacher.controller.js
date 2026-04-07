@@ -824,6 +824,72 @@ const getLiveEnrollmentCountByCourse = async (courseIds = []) => {
   }, {});
 };
 
+const buildCourseLikeDataFromSubject = (id, data = {}) => {
+  const title = trimText(data.title || data.subjectName || data.courseName) || "Untitled Subject";
+  const teacherId = trimText(data.teacherId);
+  const teacherName = trimText(data.teacherName) || "Teacher";
+  return {
+    title,
+    description: trimText(data.description),
+    shortDescription: trimText(data.shortDescription),
+    category: trimText(data.category),
+    level: trimText(data.level) || "beginner",
+    status: lowerText(data.status || "published") || "published",
+    thumbnail: data.thumbnail || null,
+    price: toPositiveNumber(data.price, 0),
+    discountPercent: toPositiveNumber(data.discountPercent ?? data.discount, 0),
+    subjects: [
+      {
+        id,
+        name: title,
+        teacherId,
+        teacherName,
+        order: 1,
+      },
+    ],
+    enrollmentCount: toPositiveNumber(data.enrollmentCount, 0),
+    completionCount: toPositiveNumber(data.completionCount, 0),
+    rating: toPositiveNumber(data.rating, 0),
+    ratingCount: toPositiveNumber(data.ratingCount, 0),
+    hasCertificate: data.hasCertificate !== false,
+    createdAt: data.createdAt || null,
+    updatedAt: data.updatedAt || null,
+    teacherId,
+    teacherName,
+    __docId: id,
+    __source: "subjects",
+  };
+};
+
+const getUnifiedCourseRows = async () => {
+  const [coursesSnap, subjectsSnap] = await Promise.all([
+    db.collection(COLLECTIONS.COURSES).get(),
+    db.collection(COLLECTIONS.SUBJECTS).get(),
+  ]);
+
+  const rowsById = {};
+  coursesSnap.docs.forEach((doc) => {
+    rowsById[doc.id] = {
+      id: doc.id,
+      data: {
+        ...(doc.data() || {}),
+        __docId: doc.id,
+        __source: "courses",
+      },
+    };
+  });
+
+  subjectsSnap.docs.forEach((doc) => {
+    if (rowsById[doc.id]) return;
+    rowsById[doc.id] = {
+      id: doc.id,
+      data: buildCourseLikeDataFromSubject(doc.id, doc.data() || {}),
+    };
+  });
+
+  return Object.values(rowsById);
+};
+
 const serializeCourse = (id, data = {}) => {
   const subjects = Array.isArray(data.subjects) ? data.subjects : [];
   return {
@@ -923,19 +989,27 @@ const isCourseOwner = (courseData = {}, uid = "") => {
 
 const getCourseIfOwned = async (courseId, uid) => {
   const courseRef = db.collection(COLLECTIONS.COURSES).doc(courseId);
-  const courseSnap = await courseRef.get();
-  if (!courseSnap.exists) {
-    return { error: "Course not found", status: 404 };
+  const subjectRef = db.collection(COLLECTIONS.SUBJECTS).doc(courseId);
+  const [courseSnap, subjectSnap] = await Promise.all([
+    courseRef.get(),
+    subjectRef.get(),
+  ]);
+  if (!courseSnap.exists && !subjectSnap.exists) {
+    return { error: "Subject/Course not found", status: 404 };
   }
 
-  const courseData = courseSnap.data() || {};
+  const resolvedRef = courseSnap.exists ? courseRef : subjectRef;
+  const resolvedSnap = courseSnap.exists ? courseSnap : subjectSnap;
+  const courseData = courseSnap.exists
+    ? { ...(courseSnap.data() || {}), __docId: courseId, __source: "courses" }
+    : buildCourseLikeDataFromSubject(courseId, subjectSnap.data() || {});
   if (!isCourseOwner(courseData, uid)) {
     return { error: "Forbidden", status: 403 };
   }
 
   return {
-    courseRef,
-    courseSnap,
+    courseRef: resolvedRef,
+    courseSnap: resolvedSnap,
     courseData,
   };
 };
@@ -1045,10 +1119,26 @@ const normalizeSubjectAssignment = (subject = {}, index = 0) => ({
 
 const getAllCourseSubjects = (courseData = {}) => {
   const subjects = Array.isArray(courseData.subjects) ? courseData.subjects : [];
-  return subjects
+  const normalized = subjects
     .map((subject, index) => normalizeSubjectAssignment(subject, index))
     .filter((subject) => Boolean(subject.subjectId))
     .sort((a, b) => toPositiveNumber(a.order, 0) - toPositiveNumber(b.order, 0));
+  if (normalized.length > 0) return normalized;
+
+  const fallbackId = trimText(courseData.__docId || courseData.id || courseData.subjectId);
+  const fallbackName =
+    trimText(courseData.subjectName || courseData.title || courseData.courseName) ||
+    "Subject";
+  if (!fallbackId) return [];
+  return [
+    {
+      subjectId: fallbackId,
+      subjectName: fallbackName,
+      teacherId: trimText(courseData.teacherId),
+      teacherName: trimText(courseData.teacherName) || "Teacher",
+      order: 1,
+    },
+  ];
 };
 
 const getTeacherAssignedSubjects = (courseData = {}, uid = "") => {
@@ -1064,15 +1154,25 @@ const getCourseWithAssignedSubjects = async (
   role = ""
 ) => {
   const courseRef = db.collection(COLLECTIONS.COURSES).doc(courseId);
-  const courseSnap = await courseRef.get();
-  if (!courseSnap.exists) return { error: "Course not found", status: 404 };
+  const subjectRef = db.collection(COLLECTIONS.SUBJECTS).doc(courseId);
+  const [courseSnap, subjectSnap] = await Promise.all([
+    courseRef.get(),
+    subjectRef.get(),
+  ]);
+  if (!courseSnap.exists && !subjectSnap.exists) {
+    return { error: "Subject/Course not found", status: 404 };
+  }
 
-  const courseData = courseSnap.data() || {};
+  const resolvedRef = courseSnap.exists ? courseRef : subjectRef;
+  const resolvedSnap = courseSnap.exists ? courseSnap : subjectSnap;
+  const courseData = courseSnap.exists
+    ? { ...(courseSnap.data() || {}), __docId: courseId, __source: "courses" }
+    : buildCourseLikeDataFromSubject(courseId, subjectSnap.data() || {});
   const normalizedRole = lowerText(role);
   if (normalizedRole === "admin") {
     return {
-      courseRef,
-      courseSnap,
+      courseRef: resolvedRef,
+      courseSnap: resolvedSnap,
       courseData,
       mySubjects: getAllCourseSubjects(courseData),
     };
@@ -1098,7 +1198,7 @@ const getCourseWithAssignedSubjects = async (
   }
   if (!mySubjects.length) return { error: forbiddenMessage, status: 403 };
 
-  return { courseRef, courseSnap, courseData, mySubjects };
+  return { courseRef: resolvedRef, courseSnap: resolvedSnap, courseData, mySubjects };
 };
 
 const getOrderedDocsWhere = async (collectionName, filters = []) => {
@@ -1226,7 +1326,9 @@ const normalizeVideoLibraryRow = (id, data = {}) => ({
   title: trimText(data.title) || "Untitled Video",
   url: resolveVideoLibraryUrl(data),
   courseId: trimText(data.courseId),
-  courseName: trimText(data.courseName),
+  subjectId: trimText(data.subjectId) || trimText(data.courseId),
+  courseName: trimText(data.courseName) || trimText(data.subjectName),
+  subjectName: trimText(data.subjectName) || trimText(data.courseName),
   teacherId: trimText(data.teacherId),
   teacherName: trimText(data.teacherName) || "Teacher",
   videoMode:
@@ -1414,8 +1516,8 @@ export const getTeacherCourses = async (req, res) => {
     if (!uid) return errorResponse(res, "Missing teacher uid", 400);
 
     if (role === "admin") {
-      const [coursesSnap, classesSnap] = await Promise.all([
-        db.collection(COLLECTIONS.COURSES).get(),
+      const [courseRows, classesSnap] = await Promise.all([
+        getUnifiedCourseRows(),
         db.collection(COLLECTIONS.CLASSES).get(),
       ]);
 
@@ -1440,8 +1542,7 @@ export const getTeacherCourses = async (req, res) => {
         });
       });
 
-      const mappedCourses = coursesSnap.docs
-        .map((doc) => ({ id: doc.id, data: doc.data() || {} }))
+      const mappedCourses = courseRows
         .map((row) => {
           const course = serializeCourse(row.id, row.data);
           return {
@@ -1481,11 +1582,10 @@ export const getTeacherCourses = async (req, res) => {
       return successResponse(res, courses, "Courses fetched");
     }
 
-    const [classDocs, coursesSnap] = await Promise.all([
+    const [classDocs, courseRows] = await Promise.all([
       getTeacherAssignedClassDocs(uid),
-      db.collection(COLLECTIONS.COURSES).get(),
+      getUnifiedCourseRows(),
     ]);
-    const courseRows = coursesSnap.docs.map((doc) => ({ id: doc.id, data: doc.data() || {} }));
     const teacherOwnedCourseIds = courseRows
       .filter((row) => {
         const assignedSubjects = getTeacherAssignedSubjects(row.data, uid);
@@ -1502,8 +1602,7 @@ export const getTeacherCourses = async (req, res) => {
       teacherOwnedCourseIds
     );
 
-    const mappedCourses = coursesSnap.docs
-      .map((doc) => ({ id: doc.id, data: doc.data() || {} }))
+    const mappedCourses = courseRows
       .map((row) => {
         const course = serializeCourse(row.id, row.data);
         const assignedSubjects = getTeacherAssignedSubjects(row.data, uid);
@@ -1612,6 +1711,7 @@ export const createTeacherVideoLibraryItem = async (req, res) => {
       title = "",
       url = "",
       courseId = "",
+      subjectId = "",
       courseName = "",
       teacherId = "",
       teacherName = "",
@@ -1622,18 +1722,23 @@ export const createTeacherVideoLibraryItem = async (req, res) => {
 
     const cleanTitle = trimText(title);
     const cleanUrl = trimText(url);
-    const cleanCourseId = trimText(courseId);
+    const cleanCourseId = trimText(courseId || subjectId);
     if (cleanTitle.length < 3) {
       return errorResponse(res, "title must be at least 3 characters", 400);
     }
     if (!cleanUrl) return errorResponse(res, "url is required", 400);
     if (!cleanCourseId) return errorResponse(res, "courseId is required", 400);
 
-    const courseSnap = await db.collection(COLLECTIONS.COURSES).doc(cleanCourseId).get();
-    if (!courseSnap.exists) {
-      return errorResponse(res, "Course not found", 404);
+    const [subjectSnap, courseSnap] = await Promise.all([
+      db.collection(COLLECTIONS.SUBJECTS).doc(cleanCourseId).get(),
+      db.collection(COLLECTIONS.COURSES).doc(cleanCourseId).get(),
+    ]);
+    if (!subjectSnap.exists && !courseSnap.exists) {
+      return errorResponse(res, "Subject/Course not found", 404);
     }
-    const courseData = courseSnap.data() || {};
+    const courseData = subjectSnap.exists
+      ? subjectSnap.data() || {}
+      : courseSnap.data() || {};
 
     if (role === "teacher" && !isCourseOwner(courseData, uid)) {
       return errorResponse(res, "You are not assigned to this course", 403);
@@ -1652,7 +1757,9 @@ export const createTeacherVideoLibraryItem = async (req, res) => {
       title: cleanTitle,
       url: cleanUrl,
       courseId: cleanCourseId,
-      courseName: trimText(courseName) || trimText(courseData.title) || "Course",
+      subjectId: cleanCourseId,
+      courseName: trimText(courseName) || trimText(courseData.title) || "Subject",
+      subjectName: trimText(courseName) || trimText(courseData.title) || "Subject",
       teacherId: resolvedTeacherId,
       teacherName: resolvedTeacherName,
       videoMode: liveFlag ? "live_session" : "recorded",
@@ -2822,11 +2929,10 @@ const chunkArray = (rows = [], size = 10) => {
 };
 
 const getTeacherAssignedCourses = async (uid) => {
-  const [classDocs, coursesSnap] = await Promise.all([
+  const [classDocs, courseRows] = await Promise.all([
     getTeacherAssignedClassDocs(uid),
-    db.collection(COLLECTIONS.COURSES).get(),
+    getUnifiedCourseRows(),
   ]);
-  const courseRows = coursesSnap.docs.map((doc) => ({ id: doc.id, data: doc.data() || {} }));
   const teacherOwnedCourseIds = courseRows
     .filter((row) => {
       const assignedSubjects = getTeacherAssignedSubjects(row.data, uid);
@@ -2838,8 +2944,7 @@ const getTeacherAssignedCourses = async (uid) => {
     getTeacherClassDerivedCourseIds(classDocs, uid, teacherOwnedCourseIds)
   );
 
-  const courses = coursesSnap.docs
-    .map((doc) => ({ id: doc.id, data: doc.data() || {} }))
+  const courses = courseRows
     .map((row) => {
       const assignedSubjects = getTeacherAssignedSubjects(row.data, uid);
       const legacyOwner = trimText(row.data?.teacherId) === uid;

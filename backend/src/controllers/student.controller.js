@@ -210,18 +210,27 @@ const getStudentCourseIdsFromClassRow = (classData = {}, uid = "") => {
   const shifts = Array.isArray(classData.shifts) ? classData.shifts : [];
   const shiftCourseMap = shifts.reduce((acc, shift) => {
     const shiftId = trimText(shift?.id);
-    const shiftCourseId = trimText(shift?.courseId);
+    const shiftCourseId = trimText(shift?.subjectId || shift?.courseId);
     if (shiftId && shiftCourseId) acc[shiftId] = shiftCourseId;
     return acc;
   }, {});
 
+  const assignedSubjectIds = (Array.isArray(classData.assignedSubjects)
+    ? classData.assignedSubjects
+    : []
+  )
+    .map((entry) => {
+      if (typeof entry === "string") return trimText(entry);
+      return trimText(entry?.subjectId || entry?.courseId || entry?.id);
+    })
+    .filter(Boolean);
   const assignedCourseIds = (Array.isArray(classData.assignedCourses)
     ? classData.assignedCourses
     : []
   )
     .map((entry) => {
       if (typeof entry === "string") return trimText(entry);
-      return trimText(entry?.courseId || entry?.id);
+      return trimText(entry?.subjectId || entry?.courseId || entry?.id);
     })
     .filter(Boolean);
 
@@ -232,13 +241,16 @@ const getStudentCourseIdsFromClassRow = (classData = {}, uid = "") => {
         : {
             studentId: trimText(entry?.studentId || entry?.id || entry?.uid),
             shiftId: trimText(entry?.shiftId),
-            courseId: trimText(entry?.courseId),
+            courseId: trimText(entry?.subjectId || entry?.courseId),
           }
     )
     .filter((entry) => entry.studentId === uid);
 
   if (matchingEntries.length < 1) return [];
 
+  assignedSubjectIds.forEach((courseId) => {
+    if (courseId) courseIds.add(courseId);
+  });
   assignedCourseIds.forEach((courseId) => {
     if (courseId) courseIds.add(courseId);
   });

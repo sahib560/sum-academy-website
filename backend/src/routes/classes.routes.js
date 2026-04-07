@@ -43,7 +43,7 @@ const getClassSubjectIds = (classData = {}) => {
     const subjectId =
       typeof entry === "string"
         ? trimText(entry)
-        : trimText(entry?.subjectId || entry?.id);
+        : trimText(entry?.subjectId || entry?.courseId || entry?.id);
     if (subjectId) ids.push(subjectId);
   });
 
