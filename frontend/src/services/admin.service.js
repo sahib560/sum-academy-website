@@ -85,6 +85,8 @@ export const bulkUploadStudents = (file) => {
 
 export const getCourses = () =>
   api.get("/admin/courses").then((r) => r.data.data);
+export const getSubjects = () =>
+  api.get("/admin/subjects").then((r) => r.data.data);
 
 export const getAdminVideos = () =>
   api.get("/admin/videos").then((r) => r.data.data || []);
@@ -94,15 +96,23 @@ export const createAdminVideo = (data) =>
 
 export const createCourse = (data) =>
   api.post("/admin/courses", data).then((r) => r.data);
+export const createSubject = (data) =>
+  api.post("/admin/subjects", data).then((r) => r.data);
 
 export const updateCourse = (id, data) =>
   api.put(`/admin/courses/${id}`, data).then((r) => r.data);
+export const updateSubject = (id, data) =>
+  api.put(`/admin/subjects/${id}`, data).then((r) => r.data);
 
 export const patchCourse = (id, data) =>
   api.patch(`/admin/courses/${id}`, data).then((r) => r.data);
+export const patchSubject = (id, data) =>
+  api.patch(`/admin/subjects/${id}`, data).then((r) => r.data);
 
 export const deleteCourse = (id) =>
   api.delete(`/admin/courses/${id}`).then((r) => r.data);
+export const deleteSubject = (id) =>
+  api.delete(`/admin/subjects/${id}`).then((r) => r.data);
 
 export const addCourseSubject = (courseId, data) =>
   api.post(`/admin/courses/${courseId}/subjects`, data).then((r) => r.data);
@@ -133,6 +143,8 @@ export const createClass = (data) =>
 
 export const updateClass = (id, data) =>
   api.put(`/admin/classes/${id}`, data).then((r) => r.data);
+export const reopenClass = (id) =>
+  api.patch(`/admin/classes/${id}/reopen`).then((r) => r.data);
 
 export const deleteClass = (id) =>
   api.delete(`/admin/classes/${id}`).then((r) => r.data);
@@ -141,10 +153,18 @@ export const addClassCourse = (classId, courseId) =>
   api
     .post(`/admin/classes/${classId}/courses`, { courseId })
     .then((r) => r.data);
+export const addClassSubject = (classId, subjectId) =>
+  api
+    .post(`/admin/classes/${classId}/subjects`, { subjectId })
+    .then((r) => r.data);
 
 export const removeClassCourse = (classId, courseId) =>
   api
     .delete(`/admin/classes/${classId}/courses/${courseId}`)
+    .then((r) => r.data);
+export const removeClassSubject = (classId, subjectId) =>
+  api
+    .delete(`/admin/classes/${classId}/subjects/${subjectId}`)
     .then((r) => r.data);
 
 export const addClassShift = (classId, data) =>

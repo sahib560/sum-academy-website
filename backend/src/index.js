@@ -8,6 +8,7 @@ import dotenv       from "dotenv";
 import { fileURLToPath } from "url";
 import path         from "path";
 import { db }       from "./config/firebase.js";
+import { COLLECTIONS } from "./config/collections.js";
 import authRoutes   from "./routes/auth.routes.js";
 import adminRoutes  from "./routes/admin.routes.js";
 import classesPublicRoutes from "./routes/classes.routes.js";
@@ -210,12 +211,85 @@ app.use((err, req, res, next) => {
   });
 });
 
+const parseClassDate = (value) => {
+  if (!value) return null;
+  if (typeof value?.toDate === "function") return value.toDate();
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const toClassDay = (value) => {
+  const parsed = parseClassDate(value);
+  if (!parsed) return null;
+  const copy = new Date(parsed);
+  copy.setHours(0, 0, 0, 0);
+  return copy;
+};
+
+const syncClassStatusLifecycle = async () => {
+  const classesSnap = await db.collection(COLLECTIONS.CLASSES).get();
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const batch = db.batch();
+  let updateCount = 0;
+
+  classesSnap.docs.forEach((doc) => {
+    const data = doc.data() || {};
+    const start = toClassDay(data.startDate);
+    const end = toClassDay(data.endDate);
+    const capacity = Math.max(1, Number(data.capacity || 30));
+    const enrolledCount = Math.max(
+      Number(data.enrolledCount || 0),
+      Array.isArray(data.students) ? data.students.length : 0
+    );
+    const isFull = enrolledCount >= capacity;
+
+    let status = "active";
+    if (end && today.getTime() > end.getTime()) status = "expired";
+    else if (start && today.getTime() < start.getTime()) status = "upcoming";
+    else if (isFull) status = "full";
+
+    if (String(data.status || "").toLowerCase() !== status) {
+      batch.set(
+        doc.ref,
+        {
+          status,
+          updatedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+      updateCount += 1;
+    }
+  });
+
+  if (updateCount > 0) {
+    await batch.commit();
+  }
+  return updateCount;
+};
+
+const startClassStatusCron = () => {
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const run = async () => {
+    try {
+      const updated = await syncClassStatusLifecycle();
+      console.log(`[cron] class status lifecycle synced. updated=${updated}`);
+    } catch (error) {
+      console.error("[cron] class status lifecycle failed:", error?.message || error);
+    }
+  };
+  run();
+  setInterval(run, DAY_MS);
+};
+
 // â”€â”€ Start Server â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.listen(PORT, () => {
   console.log(`âœ… SUM Academy API running on port ${PORT}`);
   console.log(`ðŸŒ Domain: https://sumacademy.net`);
   console.log(`ðŸ”§ Environment: ${process.env.NODE_ENV}`);
 });
+
+startClassStatusCron();
 
 
 console.log("ðŸš€ Starting server...");

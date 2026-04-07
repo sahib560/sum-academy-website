@@ -23,10 +23,11 @@ const toNumber = (value, fallback = 0) => {
 };
 
 const toStatusLabel = (classItem = {}) => {
-  if (classItem.isFull) return "Full";
-  const status = String(classItem.status || "").toLowerCase();
+  const status = String(classItem.classStatus || classItem.status || "").toLowerCase();
+  if (status === "expired") return "Expired";
+  if (status === "full" || classItem.isFull) return "Full";
   if (status === "upcoming") return "Upcoming";
-  return "Open";
+  return "Active";
 };
 
 function StudentExploreCourses() {
@@ -72,40 +73,71 @@ function StudentExploreCourses() {
   const classes = useMemo(() => {
     const rows = Array.isArray(data) ? data : [];
     return rows.map((row) => {
-      const assignedCourses = Array.isArray(row.assignedCourses)
-        ? row.assignedCourses
+      const assignedSubjects = Array.isArray(row.assignedSubjects)
+        ? row.assignedSubjects
+        : Array.isArray(row.assignedCourses)
+          ? row.assignedCourses
         : [];
       const enrolledCount = Math.max(0, toNumber(row.enrolledCount, 0));
       const capacity = Math.max(1, toNumber(row.capacity, 30));
       const spotsLeft = Math.max(0, toNumber(row.spotsLeft, capacity - enrolledCount));
       const isFull = Boolean(row.isFull) || spotsLeft < 1;
-      const enrichedCourses = assignedCourses.map((course) => {
-        const courseId = course.courseId || "";
+      const enrichedSubjects = assignedSubjects.map((subject) => {
+        const subjectId = subject.subjectId || subject.courseId || "";
         const price = toNumber(
-          course.finalPrice ?? course.discountedPrice ?? course.price,
+          subject.finalPrice ?? subject.discountedPrice ?? subject.price,
           0
         );
-        const isPaid = enrollmentSnapshot.paidCourseKeySet.has(`${row.id}::${courseId}`);
+        const isPaid =
+          Boolean(subject.alreadyPurchased) ||
+          enrollmentSnapshot.paidCourseKeySet.has(`${row.id}::${subjectId}`);
         return {
-          ...course,
+          ...subject,
+          subjectId,
+          courseId: subjectId,
           finalPrice: price,
-          isPaid,
+          alreadyPurchased: isPaid,
         };
       });
-      const paidCoursesCount = enrichedCourses.filter((course) => course.isPaid).length;
+      const paidCoursesCount = enrichedSubjects.filter((subject) => subject.alreadyPurchased).length;
       const isEnrolled = enrollmentSnapshot.enrolledClassIds.has(row.id);
+      const totalSubjectsCount = enrichedSubjects.length;
       const isFullyPaid =
-        enrichedCourses.length > 0 && paidCoursesCount >= enrichedCourses.length;
+        Boolean(row.isFullyEnrolled) ||
+        (totalSubjectsCount > 0 && paidCoursesCount >= totalSubjectsCount);
+      const isPartiallyEnrolled =
+        Boolean(row.isPartiallyEnrolled) || (paidCoursesCount > 0 && !isFullyPaid);
+      const totalPrice = Math.max(
+        0,
+        toNumber(
+          row.totalPrice,
+          enrichedSubjects.reduce((sum, subject) => sum + toNumber(subject.finalPrice, subject.price), 0)
+        )
+      );
+      const remainingPrice = Math.max(
+        0,
+        toNumber(
+          row.remainingPrice,
+          enrichedSubjects
+            .filter((subject) => !subject.alreadyPurchased)
+            .reduce((sum, subject) => sum + toNumber(subject.finalPrice, subject.price), 0)
+        )
+      );
       return {
         ...row,
-        assignedCourses: enrichedCourses,
+        assignedSubjects: enrichedSubjects,
+        assignedCourses: enrichedSubjects,
         enrolledCount,
         capacity,
         spotsLeft,
         isFull,
         isEnrolled,
         paidCoursesCount,
+        totalSubjectsCount,
         isFullyPaid,
+        isPartiallyEnrolled,
+        totalPrice,
+        remainingPrice,
       };
     });
   }, [data, enrollmentSnapshot]);
@@ -114,14 +146,14 @@ function StudentExploreCourses() {
     const query = search.trim().toLowerCase();
     if (!query) return classes;
     return classes.filter((row) => {
-      const courseText = row.assignedCourses
-        .map((course) => String(course?.title || course?.courseName || "").toLowerCase())
+      const subjectText = row.assignedSubjects
+        .map((subject) => String(subject?.title || subject?.courseName || "").toLowerCase())
         .join(" ");
       return (
         String(row.name || "").toLowerCase().includes(query) ||
         String(row.batchCode || "").toLowerCase().includes(query) ||
         String(row.teacherName || "").toLowerCase().includes(query) ||
-        courseText.includes(query)
+        subjectText.includes(query)
       );
     });
   }, [classes, search]);
@@ -136,13 +168,15 @@ function StudentExploreCourses() {
     navigate("/student/checkout", {
       state: {
         enrollmentType,
-        classInfo: {
-          id: classItem.id,
-          name: classItem.name,
-          batchCode: classItem.batchCode,
-          totalPrice: toNumber(classItem.totalPrice, 0),
-          assignedCourses: classItem.assignedCourses || [],
-        },
+          classInfo: {
+            id: classItem.id,
+            name: classItem.name,
+            batchCode: classItem.batchCode,
+            totalPrice: toNumber(classItem.totalPrice, 0),
+            remainingPrice: toNumber(classItem.remainingPrice, toNumber(classItem.totalPrice, 0)),
+            assignedSubjects: classItem.assignedSubjects || [],
+            assignedCourses: classItem.assignedSubjects || [],
+          },
         course: course
           ? {
               id: course.courseId || "",
@@ -207,11 +241,13 @@ function StudentExploreCourses() {
               const statusLabel = toStatusLabel(classItem);
               const canEnrollFull =
                 (!classItem.isFull || classItem.isEnrolled) &&
-                classItem.assignedCourses.length > 0 &&
+                classItem.assignedSubjects.length > 0 &&
                 !classItem.isFullyPaid;
               const statusBadge =
                 statusLabel === "Full"
                   ? "bg-rose-50 text-rose-700 border-rose-200"
+                  : statusLabel === "Expired"
+                  ? "bg-slate-100 text-slate-600 border-slate-300"
                   : statusLabel === "Upcoming"
                   ? "bg-amber-50 text-amber-700 border-amber-200"
                   : "bg-emerald-50 text-emerald-700 border-emerald-200";
@@ -248,27 +284,36 @@ function StudentExploreCourses() {
                         ? `${classItem.spotsLeft} spots left`
                         : `${classItem.enrolledCount}/${classItem.capacity} students enrolled`}
                     </p>
-                    <p>
-                      {classItem.shifts?.length || 0} shift(s)
-                    </p>
+                    <p>{classItem.shifts?.length || 0} shift(s)</p>
+                    {statusLabel === "Upcoming" && classItem.daysUntilStart != null ? (
+                      <p>{classItem.daysUntilStart} day(s) to start</p>
+                    ) : null}
                   </div>
 
                   <div className="mt-3 flex flex-wrap gap-2">
-                    {classItem.assignedCourses.slice(0, 3).map((course) => (
+                    {classItem.assignedSubjects.slice(0, 3).map((subject) => (
                       <span
-                        key={`${classItem.id}-${course.courseId}`}
+                        key={`${classItem.id}-${subject.subjectId}`}
                         className="rounded-full bg-slate-100 px-3 py-1 text-[10px] font-semibold text-slate-600"
                       >
-                        {course.title || "Course"} - PKR{" "}
-                        {toNumber(course.finalPrice, toNumber(course.price, 0)).toLocaleString("en-PK")}
+                        {subject.title || "Subject"} - PKR{" "}
+                        {toNumber(subject.finalPrice, toNumber(subject.price, 0)).toLocaleString("en-PK")}
                       </span>
                     ))}
-                    {classItem.assignedCourses.length > 3 ? (
+                    {classItem.assignedSubjects.length > 3 ? (
                       <span className="rounded-full bg-slate-100 px-3 py-1 text-[10px] font-semibold text-slate-600">
-                        +{classItem.assignedCourses.length - 3} more
+                        +{classItem.assignedSubjects.length - 3} more
                       </span>
                     ) : null}
                   </div>
+                  {classItem.isPartiallyEnrolled ? (
+                    <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
+                      You already paid for {classItem.paidCoursesCount} subject(s). Remaining:
+                      <span className="ml-1 font-semibold">
+                        PKR {toNumber(classItem.remainingPrice, 0).toLocaleString("en-PK")}
+                      </span>
+                    </div>
+                  ) : null}
                   <div className="mt-4 space-y-2">
                     <button
                       className={`w-full rounded-full px-4 py-2 text-sm font-semibold ${
@@ -293,11 +338,23 @@ function StudentExploreCourses() {
                         ? "Class Full"
                         : classItem.isFullyPaid
                         ? "Fully Enrolled"
+                        : classItem.isPartiallyEnrolled
+                        ? `Complete Enrollment — PKR ${toNumber(
+                            classItem.remainingPrice,
+                            0
+                          ).toLocaleString("en-PK")}`
                         : `Enroll Full Class - PKR ${toNumber(classItem.totalPrice, 0).toLocaleString("en-PK")}`}
                     </button>
                     <p className="text-[11px] text-slate-500">
-                      Paid courses: {classItem.paidCoursesCount}/{classItem.assignedCourses.length}
+                      Paid subjects: {classItem.paidCoursesCount}/{classItem.assignedSubjects.length}
                     </p>
+                    {classItem.isPartiallyEnrolled ? (
+                      <p className="text-[11px] text-slate-500">
+                        <span className="line-through">
+                          PKR {toNumber(classItem.totalPrice, 0).toLocaleString("en-PK")}
+                        </span>
+                      </p>
+                    ) : null}
                   </div>
                 </article>
               );
@@ -364,17 +421,17 @@ function StudentExploreCourses() {
               </div>
 
               <div className="mt-4">
-                <p className="text-sm font-semibold text-slate-900">Assigned Courses</p>
-                {selectedClass.assignedCourses.length > 0 ? (
+                  <p className="text-sm font-semibold text-slate-900">Assigned Subjects</p>
+                {selectedClass.assignedSubjects.length > 0 ? (
                   <div className="mt-2 space-y-2">
-                    {selectedClass.assignedCourses.map((course) => (
+                    {selectedClass.assignedSubjects.map((course) => (
                       <div
-                        key={`${selectedClass.id}-${course.courseId}`}
+                        key={`${selectedClass.id}-${course.subjectId}`}
                         className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700"
                       >
-                        <p className="font-semibold">{course.title || "Course"}</p>
+                        <p className="font-semibold">{course.title || "Subject"}</p>
                         <p className="text-xs text-slate-500">
-                          {(course.subjects || []).join(", ") || "Subjects will be shared in class"}
+                          {course.teacherName || "Teacher"}
                         </p>
                         <p className="mt-1 text-xs font-semibold text-slate-700">
                           PKR{" "}
@@ -385,28 +442,33 @@ function StudentExploreCourses() {
                         </p>
                         <button
                           className={`mt-2 rounded-full px-3 py-1 text-xs font-semibold ${
-                            course.isPaid
+                            course.alreadyPurchased
                               ? "bg-emerald-100 text-emerald-700"
                               : "bg-primary text-white"
                           }`}
                           onClick={(event) => {
                             event.stopPropagation();
-                            if (course.isPaid) return;
+                            if (course.alreadyPurchased) return;
                             goToCheckout({
                               classItem: selectedClass,
                               enrollmentType: "single_course",
                               course,
                             });
                           }}
-                          disabled={course.isPaid}
+                          disabled={course.alreadyPurchased}
                         >
-                          {course.isPaid ? "Purchased" : "Buy Course"}
+                          {course.alreadyPurchased
+                            ? "Purchased"
+                            : `Buy Now — PKR ${toNumber(
+                                course.finalPrice ?? course.price,
+                                0
+                              ).toLocaleString("en-PK")}`}
                         </button>
                       </div>
                     ))}
                   </div>
                 ) : (
-                  <p className="mt-2 text-sm text-slate-500">No courses assigned yet.</p>
+                  <p className="mt-2 text-sm text-slate-500">No subjects assigned yet.</p>
                 )}
               </div>
 
@@ -452,6 +514,11 @@ function StudentExploreCourses() {
                     ? "Class Full"
                     : selectedClass.isFullyPaid
                     ? "Fully Enrolled"
+                    : selectedClass.isPartiallyEnrolled
+                    ? `Complete Enrollment — PKR ${toNumber(
+                        selectedClass.remainingPrice,
+                        0
+                      ).toLocaleString("en-PK")}`
                     : `Enroll Full Class - PKR ${toNumber(selectedClass.totalPrice, 0).toLocaleString("en-PK")}`}
                 </button>
               </div>

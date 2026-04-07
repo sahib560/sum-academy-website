@@ -24,6 +24,61 @@ const toNumber = (value, fallback = 0) => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
+const getFullscreenElement = () => {
+  if (typeof document === "undefined") return null;
+  return (
+    document.fullscreenElement ||
+    document.webkitFullscreenElement ||
+    document.mozFullScreenElement ||
+    document.msFullscreenElement ||
+    null
+  );
+};
+
+const canUseFullscreenApi = () => {
+  if (typeof document === "undefined") return false;
+  const target = document.documentElement || document.body;
+  if (!target) return false;
+  return Boolean(
+    target.requestFullscreen ||
+      target.webkitRequestFullscreen ||
+      target.mozRequestFullScreen ||
+      target.msRequestFullscreen
+  );
+};
+
+const requestAnyFullscreen = async () => {
+  if (typeof document === "undefined") return false;
+  const target = document.documentElement || document.body;
+  if (!target) return false;
+  const request =
+    target.requestFullscreen ||
+    target.webkitRequestFullscreen ||
+    target.mozRequestFullScreen ||
+    target.msRequestFullscreen;
+  if (typeof request !== "function") return false;
+  const result = request.call(target);
+  if (result && typeof result.then === "function") {
+    await result;
+  }
+  return Boolean(getFullscreenElement());
+};
+
+const exitAnyFullscreen = async () => {
+  if (typeof document === "undefined") return false;
+  const exit =
+    document.exitFullscreen ||
+    document.webkitExitFullscreen ||
+    document.mozCancelFullScreen ||
+    document.msExitFullscreen;
+  if (typeof exit !== "function") return false;
+  const result = exit.call(document);
+  if (result && typeof result.then === "function") {
+    await result;
+  }
+  return true;
+};
+
 const formatSeconds = (seconds = 0) => {
   const safe = Math.max(0, Math.floor(toNumber(seconds, 0)));
   const minutes = Math.floor(safe / 60);
@@ -115,8 +170,7 @@ function StudentQuizAttempt() {
     );
   }, []);
   const shouldEnforceFullscreen = useMemo(() => {
-    if (typeof document === "undefined") return false;
-    return !isMobileClient && Boolean(document.documentElement?.requestFullscreen);
+    return !isMobileClient && canUseFullscreenApi();
   }, [isMobileClient]);
   const lastReportedViolationRef = useRef({
     reason: "",
@@ -167,7 +221,7 @@ function StudentQuizAttempt() {
       setAnimatedPercent(0);
       setSubmittedResult(result);
       setShowSubmitModal(false);
-      document.exitFullscreen?.().catch(() => {});
+      void exitAnyFullscreen();
     },
     onError: (mutationError) => {
       submitLockRef.current = false;
@@ -342,32 +396,49 @@ function StudentQuizAttempt() {
     if (!shouldEnforceFullscreen) return undefined;
     const onFullscreenChange = () => {
       if (!started || submittedResult) return;
-      if (!document.fullscreenElement) {
+      if (!getFullscreenElement()) {
         setShowFullscreenWarning(true);
       } else {
         setShowFullscreenWarning(false);
       }
     };
-    document.addEventListener("fullscreenchange", onFullscreenChange);
+    const events = [
+      "fullscreenchange",
+      "webkitfullscreenchange",
+      "mozfullscreenchange",
+      "MSFullscreenChange",
+    ];
+    events.forEach((eventName) => {
+      document.addEventListener(eventName, onFullscreenChange);
+    });
     return () => {
-      document.removeEventListener("fullscreenchange", onFullscreenChange);
+      events.forEach((eventName) => {
+        document.removeEventListener(eventName, onFullscreenChange);
+      });
     };
   }, [started, submittedResult, shouldEnforceFullscreen]);
 
   const requestQuizFullscreen = async () => {
-    if (!shouldEnforceFullscreen) return;
+    if (!shouldEnforceFullscreen) return true;
     try {
-      await document.documentElement.requestFullscreen();
-      setShowFullscreenWarning(false);
+      const entered = await requestAnyFullscreen();
+      setShowFullscreenWarning(!entered);
+      if (!entered) {
+        toast.error("Please allow fullscreen to continue the quiz");
+      }
+      return entered;
     } catch {
       toast.error("Fullscreen permission was denied");
+      setShowFullscreenWarning(true);
+      return false;
     }
   };
 
   const startQuiz = async () => {
     if (started) return;
     if (shouldEnforceFullscreen) {
-      await requestQuizFullscreen();
+      const entered = await requestQuizFullscreen();
+      if (!entered) return;
     }
     quizStartedAtRef.current = Date.now();
     setTimeLeft(initialDurationSeconds);
@@ -893,7 +964,7 @@ function StudentQuizAttempt() {
                 <button
                   className="flex-1 rounded-full bg-rose-500 px-4 py-2 text-sm font-semibold text-white"
                   onClick={() => {
-                    document.exitFullscreen?.().catch(() => {});
+                    void exitAnyFullscreen();
                     navigate("/student/quizzes");
                   }}
                 >

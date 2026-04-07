@@ -95,12 +95,15 @@ const getCourseEnrollmentRows = async (studentId, courseId) => {
   const snap = await db.collection("enrollments").where("studentId", "==", studentId).get();
   return snap.docs
     .map((doc) => ({ id: doc.id, ref: doc.ref, ...(doc.data() || {}) }))
-    .filter((row) => trimText(row.courseId) === courseId);
+    .filter((row) => trimText(row.subjectId || row.courseId) === courseId);
 };
 
 const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
-const PK_DATE_FORMATTER = new Intl.DateTimeFormat("en-CA", {
+const PK_DATE_PARTS_FORMATTER = new Intl.DateTimeFormat("en-US", {
   timeZone: "Asia/Karachi",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
 });
 const toPkDateKey = (value) => {
   if (!value) return null;
@@ -110,7 +113,12 @@ const toPkDateKey = (value) => {
   }
   const parsed = toDate(value);
   if (!parsed) return null;
-  return PK_DATE_FORMATTER.format(parsed);
+  const parts = PK_DATE_PARTS_FORMATTER.formatToParts(parsed);
+  const year = parts.find((part) => part.type === "year")?.value;
+  const month = parts.find((part) => part.type === "month")?.value;
+  const day = parts.find((part) => part.type === "day")?.value;
+  if (!year || !month || !day) return null;
+  return `${year}-${month}-${day}`;
 };
 
 const evaluateEnrollmentWindow = (row = {}) => {
@@ -134,7 +142,7 @@ const evaluateEnrollmentWindow = (row = {}) => {
   if (endDateKey && todayKey && todayKey > endDateKey) {
     return {
       allowed: false,
-      code: "CLASS_ENDED",
+      code: "CLASS_EXPIRED",
       message: "Class has ended. Learning access is closed.",
       meta: {
         classStartDate: toIso(row.classStartDate),
@@ -152,10 +160,10 @@ const resolveClassStatusByWindow = (row = {}) => {
   const windowState = evaluateEnrollmentWindow(row);
 
   if (windowState.code === "CLASS_NOT_STARTED") return "upcoming";
-  if (windowState.code === "CLASS_ENDED") return "completed";
+  if (windowState.code === "CLASS_EXPIRED") return "expired";
 
-  if (["active", "completed", "upcoming"].includes(explicitStatus)) {
-    return explicitStatus === "upcoming" ? "active" : explicitStatus;
+  if (["active", "expired", "upcoming", "full"].includes(explicitStatus)) {
+    return explicitStatus;
   }
 
   return "active";
@@ -272,7 +280,7 @@ const ensureStudentEnrolled = async (studentId, courseId) => {
   const preferredError =
     checks.find((item) => item.code === "PAYMENT_PENDING") ||
     checks.find((item) => item.code === "CLASS_NOT_STARTED") ||
-    checks.find((item) => item.code === "CLASS_ENDED") ||
+    checks.find((item) => item.code === "CLASS_EXPIRED") ||
     checks[0];
 
   return {
@@ -287,15 +295,26 @@ const ensureStudentEnrolled = async (studentId, courseId) => {
 };
 
 const getCourseChapters = async (courseId) => {
-  const chaptersSnap = await db.collection("chapters").where("courseId", "==", courseId).get();
-  return chaptersSnap.docs
+  const byCourseSnap = await db.collection("chapters").where("courseId", "==", courseId).get();
+  const bySubjectSnap = await db.collection("chapters").where("subjectId", "==", courseId).get();
+  return [...byCourseSnap.docs, ...bySubjectSnap.docs]
     .map((doc) => ({ id: doc.id, ...(doc.data() || {}) }))
+    .filter(
+      (row, index, arr) => arr.findIndex((entry) => trimText(entry.id) === trimText(row.id)) === index
+    )
     .sort(sortByOrderThenCreated);
 };
 
 const getCourseLectures = async (courseId, chapterIds = []) => {
-  const byCourseSnap = await db.collection("lectures").where("courseId", "==", courseId).get();
-  const byCourseRows = byCourseSnap.docs.map((doc) => ({ id: doc.id, ...(doc.data() || {}) }));
+  const [byCourseSnap, bySubjectSnap] = await Promise.all([
+    db.collection("lectures").where("courseId", "==", courseId).get(),
+    db.collection("lectures").where("subjectId", "==", courseId).get(),
+  ]);
+  const byCourseRows = [...byCourseSnap.docs, ...bySubjectSnap.docs]
+    .map((doc) => ({ id: doc.id, ...(doc.data() || {}) }))
+    .filter(
+      (row, index, arr) => arr.findIndex((entry) => trimText(entry.id) === trimText(row.id)) === index
+    );
   if (byCourseRows.length > 0) return byCourseRows;
 
   if (!chapterIds.length) return [];
@@ -312,9 +331,15 @@ const getCourseLectures = async (courseId, chapterIds = []) => {
 };
 
 const getCourseQuizzes = async (courseId) => {
-  const snap = await db.collection("quizzes").where("courseId", "==", courseId).get();
-  return snap.docs
+  const [byCourseSnap, bySubjectSnap] = await Promise.all([
+    db.collection("quizzes").where("courseId", "==", courseId).get(),
+    db.collection("quizzes").where("subjectId", "==", courseId).get(),
+  ]);
+  return [...byCourseSnap.docs, ...bySubjectSnap.docs]
     .map((doc) => ({ id: doc.id, ...(doc.data() || {}) }))
+    .filter(
+      (row, index, arr) => arr.findIndex((entry) => trimText(entry.id) === trimText(row.id)) === index
+    )
     .filter((row) => !["draft", "inactive", "deleted", "archived"].includes(lowerText(row.status)))
     .sort(sortByOrderThenCreated);
 };
@@ -327,8 +352,8 @@ const getStudentProgressRows = async (studentId, lectureIdSet = new Set(), cours
     const rowLectureId = trimText(row.lectureId);
     if (!rowLectureId) return false;
     if (lectureIdSet.size && !lectureIdSet.has(rowLectureId)) return false;
-    const rowCourseId = trimText(row.courseId);
-    if (!rowCourseId) return true;
+    const rowCourseId = trimText(row.subjectId || row.courseId);
+    if (!rowCourseId) return false;
     return rowCourseId === cleanCourseId;
   });
 };
@@ -342,8 +367,8 @@ const getStudentQuizResultRows = async (studentId, courseId = "", quizIdSet = ne
       const rowQuizId = trimText(row.quizId);
       if (!rowQuizId) return false;
       if (quizIdSet.size && !quizIdSet.has(rowQuizId)) return false;
-      const rowCourseId = trimText(row.courseId);
-      if (!rowCourseId) return true;
+      const rowCourseId = trimText(row.subjectId || row.courseId);
+      if (!rowCourseId) return false;
       return rowCourseId === cleanCourseId;
     });
 };
@@ -357,8 +382,8 @@ const getStudentVideoAccessRows = async (studentId, courseId = "", lectureIdSet 
       const lectureId = trimText(row.lectureId);
       if (!lectureId) return false;
       if (lectureIdSet.size && !lectureIdSet.has(lectureId)) return false;
-      const rowCourseId = trimText(row.courseId);
-      if (!rowCourseId) return true;
+      const rowCourseId = trimText(row.subjectId || row.courseId);
+      if (!rowCourseId) return false;
       return rowCourseId === cleanCourseId;
     });
 };
@@ -480,9 +505,13 @@ export const buildCourseContentForStudent = async (
 ) => {
   const { ignoreAccessWindow = false } = options;
   const cleanCourseId = trimText(courseId);
-  const courseSnap = await db.collection("courses").doc(cleanCourseId).get();
-  if (!courseSnap.exists) {
-    return { error: "Course not found", status: 404 };
+  const [subjectSnap, courseSnap] = await Promise.all([
+    db.collection("subjects").doc(cleanCourseId).get(),
+    db.collection("courses").doc(cleanCourseId).get(),
+  ]);
+  const contentSnap = subjectSnap.exists ? subjectSnap : courseSnap;
+  if (!contentSnap.exists) {
+    return { error: "Subject not found", status: 404 };
   }
 
   const enrollmentState = await ensureStudentEnrolled(studentId, cleanCourseId);
@@ -711,7 +740,8 @@ export const buildCourseContentForStudent = async (
     (totalLectures === 0 ? false : completedLectures >= totalLectures) && allQuizzesPassed;
 
   return {
-    course: { id: cleanCourseId, ...(courseSnap.data() || {}) },
+    course: { id: cleanCourseId, ...(contentSnap.data() || {}) },
+    subject: { id: cleanCourseId, ...(contentSnap.data() || {}) },
     enrollmentRows: enrollmentState.rows,
     isCourseCompleted: enrollmentCompleted,
     fullyCompleted,
@@ -726,9 +756,15 @@ export const buildCourseContentForStudent = async (
 
 const ensureTeacherCanManageCourse = async (requesterRole, requesterId, courseId) => {
   if (requesterRole === "admin") return { allowed: true };
-  const courseSnap = await db.collection("courses").doc(courseId).get();
-  if (!courseSnap.exists) return { allowed: false, status: 404, error: "Course not found" };
-  const courseData = courseSnap.data() || {};
+  const [subjectSnap, courseSnap] = await Promise.all([
+    db.collection("subjects").doc(courseId).get(),
+    db.collection("courses").doc(courseId).get(),
+  ]);
+  const contentSnap = subjectSnap.exists ? subjectSnap : courseSnap;
+  if (!contentSnap.exists) {
+    return { allowed: false, status: 404, error: "Subject not found" };
+  }
+  const courseData = contentSnap.data() || {};
 
   const directMatch = trimText(courseData.teacherId) === requesterId;
   const subjectMatch = Array.isArray(courseData.subjects)
@@ -767,7 +803,7 @@ const upsertStudentProgressRow = async ({
   const existing = snap.docs.find((doc) => {
     const row = doc.data() || {};
     if (trimText(row.lectureId) !== lectureId) return false;
-    const rowCourseId = trimText(row.courseId);
+    const rowCourseId = trimText(row.subjectId || row.courseId);
     return !rowCourseId || rowCourseId === courseId;
   });
 
@@ -780,6 +816,7 @@ const upsertStudentProgressRow = async ({
       : normalizedCurrentTime;
     const payload = {
       studentId,
+      subjectId: courseId,
       courseId,
       lectureId,
       isCompleted: Boolean(markCompleted),
@@ -838,11 +875,17 @@ const ensureCertificateForCourse = async (
   const certSnap = await db
     .collection("certificates")
     .where("studentId", "==", studentId)
-    .where("courseId", "==", courseId)
-    .limit(1)
     .get();
-
-  if (!certSnap.empty) return { created: false, certId: trimText(certSnap.docs[0].data()?.certId) };
+  const existing = certSnap.docs.find((doc) => {
+    const row = doc.data() || {};
+    return (
+      trimText(row.subjectId || row.courseId) === courseId ||
+      trimText(row.courseId) === courseId
+    );
+  });
+  if (existing) {
+    return { created: false, certId: trimText(existing.data()?.certId) };
+  }
 
   const [studentSnap, userSnap] = await Promise.all([
     db.collection("students").doc(studentId).get(),
@@ -859,7 +902,7 @@ const ensureCertificateForCourse = async (
     trimText(userData.name) ||
     trimText(userData.email).split("@")[0] ||
     "Student";
-  const courseName = trimText(courseData.title) || "Course";
+  const courseName = trimText(courseData.title) || "Subject";
   const className = trimText(classContext?.className);
   const batchCode = trimText(classContext?.batchCode);
   const classId = trimText(classContext?.classId);
@@ -873,6 +916,7 @@ const ensureCertificateForCourse = async (
   await db.collection("certificates").add({
     studentId,
     studentName,
+    subjectId: courseId,
     courseId,
     courseName,
     classId: classId || null,
@@ -893,6 +937,7 @@ const ensureCertificateForCourse = async (
       {
         certificates: admin.firestore.FieldValue.arrayUnion({
           certId,
+          subjectId: courseId,
           courseId,
           courseName,
           classId: classId || null,
@@ -913,10 +958,10 @@ const ensureCertificateForCourse = async (
 
 export const getCourseContent = async (req, res) => {
   try {
-    const courseId = trimText(req.params?.courseId);
+    const courseId = trimText(req.params?.courseId || req.params?.subjectId);
     const studentId = trimText(req.user?.uid);
 
-    if (!courseId) return errorResponse(res, "courseId is required", 400);
+    if (!courseId) return errorResponse(res, "subjectId/courseId is required", 400);
     if (!studentId) return errorResponse(res, "Missing student uid", 400);
 
     const built = await buildCourseContentForStudent(studentId, courseId);
@@ -930,6 +975,8 @@ export const getCourseContent = async (req, res) => {
     return successResponse(
       res,
       {
+        subjectId: courseId,
+        subjectName: trimText(built.course.title) || "Subject",
         courseId,
         courseName: trimText(built.course.title) || "Course",
         courseDescription:
@@ -944,7 +991,7 @@ export const getCourseContent = async (req, res) => {
         chapters: built.chapters,
         subjectQuizzes: built.subjectQuizzes,
       },
-      "Course content fetched"
+      "Subject content fetched"
     );
   } catch (error) {
     console.error("getCourseContent error:", error);
@@ -953,7 +1000,7 @@ export const getCourseContent = async (req, res) => {
 };
 export const markLectureComplete = async (req, res) => {
   try {
-    const courseId = trimText(req.params?.courseId);
+    const courseId = trimText(req.params?.courseId || req.params?.subjectId);
     const lectureId = trimText(req.params?.lectureId);
     const studentId = trimText(req.user?.uid);
     const requestedWatchedPercent = Math.max(
@@ -970,7 +1017,7 @@ export const markLectureComplete = async (req, res) => {
     );
 
     if (!courseId || !lectureId) {
-      return errorResponse(res, "courseId and lectureId are required", 400);
+      return errorResponse(res, "subjectId/courseId and lectureId are required", 400);
     }
     if (!studentId) return errorResponse(res, "Missing student uid", 400);
 
@@ -1140,7 +1187,7 @@ export const markLectureComplete = async (req, res) => {
 };
 export const saveWatchProgress = async (req, res) => {
   try {
-    const courseId = trimText(req.params?.courseId);
+    const courseId = trimText(req.params?.courseId || req.params?.subjectId);
     const lectureId = trimText(req.params?.lectureId);
     const studentId = trimText(req.user?.uid);
     const watchedPercent = Math.max(0, Math.min(100, toNumber(req.body?.watchedPercent, 0)));
@@ -1154,7 +1201,7 @@ export const saveWatchProgress = async (req, res) => {
           : 0;
 
     if (!courseId || !lectureId) {
-      return errorResponse(res, "courseId and lectureId are required", 400);
+      return errorResponse(res, "subjectId/courseId and lectureId are required", 400);
     }
     if (!studentId) return errorResponse(res, "Missing student uid", 400);
 
@@ -1207,14 +1254,14 @@ export const saveWatchProgress = async (req, res) => {
 };
 export const updateVideoAccess = async (req, res) => {
   try {
-    const courseId = trimText(req.params?.courseId);
+    const courseId = trimText(req.params?.courseId || req.params?.subjectId);
     const studentId = trimText(req.params?.studentId);
     const lectureAccess = Array.isArray(req.body?.lectureAccess) ? req.body.lectureAccess : [];
     const requesterId = trimText(req.user?.uid);
     const requesterRole = lowerText(req.user?.role);
 
     if (!courseId || !studentId) {
-      return errorResponse(res, "courseId and studentId are required", 400);
+      return errorResponse(res, "subjectId/courseId and studentId are required", 400);
     }
     if (!requesterId) return errorResponse(res, "Missing requester uid", 400);
     if (!["teacher", "admin"].includes(requesterRole)) {
@@ -1284,13 +1331,13 @@ export const updateVideoAccess = async (req, res) => {
 };
 export const unlockAllVideosForStudent = async (req, res) => {
   try {
-    const courseId = trimText(req.params?.courseId);
+    const courseId = trimText(req.params?.courseId || req.params?.subjectId);
     const studentId = trimText(req.params?.studentId);
     const requesterId = trimText(req.user?.uid);
     const requesterRole = lowerText(req.user?.role);
 
     if (!courseId || !studentId) {
-      return errorResponse(res, "courseId and studentId are required", 400);
+      return errorResponse(res, "subjectId/courseId and studentId are required", 400);
     }
     if (!requesterId) return errorResponse(res, "Missing requester uid", 400);
     if (!["teacher", "admin"].includes(requesterRole)) {
@@ -1347,13 +1394,13 @@ export const unlockAllVideosForStudent = async (req, res) => {
 };
 export const getStudentCourseProgress = async (req, res) => {
   try {
-    const courseId = trimText(req.params?.courseId);
+    const courseId = trimText(req.params?.courseId || req.params?.subjectId);
     const studentId = trimText(req.params?.studentId);
     const requesterId = trimText(req.user?.uid);
     const requesterRole = lowerText(req.user?.role);
 
     if (!courseId || !studentId) {
-      return errorResponse(res, "courseId and studentId are required", 400);
+      return errorResponse(res, "subjectId/courseId and studentId are required", 400);
     }
     if (!requesterId) return errorResponse(res, "Missing requester uid", 400);
     if (!["teacher", "admin"].includes(requesterRole)) {
@@ -1415,6 +1462,7 @@ export const getStudentCourseProgress = async (req, res) => {
     return successResponse(
       res,
       {
+        subjectId: courseId,
         courseId,
         studentId,
         progressPercent: toNumber(built.overallProgress, 0),

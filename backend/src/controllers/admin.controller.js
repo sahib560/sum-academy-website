@@ -295,7 +295,7 @@ const subjectIdMatches = (item, subjectId) =>
   item === subjectId || item?.subjectId === subjectId;
 
 const hasCourseLinks = async (courseId) => {
-  const [classesSnap, teachersSnap, studentsSnap, quizzesSnap] =
+  const [classesSnap, teachersSnap, studentsByCourseSnap, studentsBySubjectSnap, quizzesByCourseSnap, quizzesBySubjectSnap] =
     await Promise.all([
       db.collection(COLLECTIONS.CLASSES).get(),
       db.collection(COLLECTIONS.TEACHERS).get(),
@@ -304,18 +304,32 @@ const hasCourseLinks = async (courseId) => {
         .where("enrolledCourses", "array-contains", courseId)
         .limit(1)
         .get(),
+      db
+        .collection(COLLECTIONS.STUDENTS)
+        .where("enrolledSubjects", "array-contains", courseId)
+        .limit(1)
+        .get(),
       db.collection("quizzes").where("courseId", "==", courseId).limit(1).get(),
+      db.collection("quizzes").where("subjectId", "==", courseId).limit(1).get(),
     ]);
 
   const classLinked = classesSnap.docs.some((doc) => {
     const data = doc.data() || {};
+    const assignedSubjects = Array.isArray(data.assignedSubjects)
+      ? data.assignedSubjects
+      : [];
     const assignedCourses = Array.isArray(data.assignedCourses)
       ? data.assignedCourses
       : [];
     const shifts = Array.isArray(data.shifts) ? data.shifts : [];
     return (
+      assignedSubjects.some((subject) => subjectIdMatches(subject, courseId)) ||
       assignedCourses.some((course) => courseIdMatches(course, courseId)) ||
-      shifts.some((shift) => courseIdMatches(shift?.courseId, courseId))
+      shifts.some(
+        (shift) =>
+          courseIdMatches(shift?.courseId, courseId) ||
+          subjectIdMatches(shift?.subjectId, courseId)
+      )
     );
   });
 
@@ -327,8 +341,8 @@ const hasCourseLinks = async (courseId) => {
     return assignedCourses.some((course) => courseIdMatches(course, courseId));
   });
 
-  const studentLinked = !studentsSnap.empty;
-  const quizLinked = !quizzesSnap.empty;
+  const studentLinked = !studentsByCourseSnap.empty || !studentsBySubjectSnap.empty;
+  const quizLinked = !quizzesByCourseSnap.empty || !quizzesBySubjectSnap.empty;
 
   return classLinked || teacherLinked || studentLinked || quizLinked;
 };
@@ -456,7 +470,7 @@ const hasTeacherLinks = async (teacherId) => {
   return courseLinked;
 };
 
-const CLASS_STATUSES = new Set(["upcoming", "active", "completed"]);
+const CLASS_STATUSES = new Set(["upcoming", "active", "completed", "expired", "full"]);
 const VIDEO_LIBRARY_COLLECTION = COLLECTIONS.VIDEOS || "videos";
 const SHIFT_NAME_OPTIONS = new Set([
   "Morning",
@@ -501,11 +515,20 @@ const normalizeDateValue = (value) => {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 };
 
-const getEnrollmentStatusFromClassDates = (classData = {}) => {
+const getClassLifecycleStatus = (classData = {}, enrolledCount = 0, capacity = 30) => {
+  const cappedCapacity = Math.max(1, Number(capacity || classData?.capacity || 30));
   const start = normalizeDateValue(classData?.startDate);
   const end = normalizeDateValue(classData?.endDate);
   const today = new Date();
   today.setHours(0, 0, 0, 0);
+
+  if (end) {
+    const endDay = new Date(end);
+    endDay.setHours(0, 0, 0, 0);
+    if (today.getTime() > endDay.getTime()) return "expired";
+  }
+
+  if (Number(enrolledCount || 0) >= cappedCapacity) return "full";
 
   if (start) {
     const startDay = new Date(start);
@@ -513,13 +536,18 @@ const getEnrollmentStatusFromClassDates = (classData = {}) => {
     if (today.getTime() < startDay.getTime()) return "upcoming";
   }
 
-  if (end) {
-    const endDay = new Date(end);
-    endDay.setHours(0, 0, 0, 0);
-    if (today.getTime() > endDay.getTime()) return "completed";
-  }
-
   return "active";
+};
+
+const getEnrollmentStatusFromClassDates = (classData = {}) => {
+  const status = getClassLifecycleStatus(
+    classData,
+    Array.isArray(classData?.students) ? classData.students.length : Number(classData?.enrolledCount || 0),
+    Number(classData?.capacity || 30)
+  );
+  if (status === "upcoming") return "upcoming";
+  if (status === "active" || status === "full") return "active";
+  return "completed";
 };
 
 const mergeEnrollmentStatus = (currentStatus = "", nextStatus = "") => {
@@ -533,7 +561,9 @@ const mergeEnrollmentStatus = (currentStatus = "", nextStatus = "") => {
 
 const normalizeStatus = (value) => {
   const normalized = String(value || "").trim().toLowerCase();
-  return CLASS_STATUSES.has(normalized) ? normalized : "upcoming";
+  if (!CLASS_STATUSES.has(normalized)) return "upcoming";
+  if (normalized === "expired" || normalized === "full") return "active";
+  return normalized;
 };
 
 const normalizeShiftName = (value = "") => {
@@ -630,34 +660,52 @@ const validateClassDates = (startDate, endDate, checkFutureStart = true) => {
 };
 
 const getCourseMeta = async (courseId) => {
-  const courseSnap = await db.collection(COLLECTIONS.COURSES).doc(courseId).get();
-  if (!courseSnap.exists) return null;
-  const courseData = courseSnap.data() || {};
-  const subjectName = Array.isArray(courseData.subjects)
-    ? courseData.subjects?.[0]?.name || ""
-    : "";
-  const subjects = Array.isArray(courseData.subjects) ? courseData.subjects : [];
-  const price = Math.max(0, toSafeNumber(courseData.price, 0));
+  const cleanCourseId = String(courseId || "").trim();
+  if (!cleanCourseId) return null;
+
+  const [subjectSnap, courseSnap] = await Promise.all([
+    db.collection(COLLECTIONS.SUBJECTS).doc(cleanCourseId).get(),
+    db.collection(COLLECTIONS.COURSES).doc(cleanCourseId).get(),
+  ]);
+  const snap = subjectSnap.exists ? subjectSnap : courseSnap;
+  if (!snap.exists) return null;
+
+  const row = snap.data() || {};
+  const legacySubjects = Array.isArray(row.subjects) ? row.subjects : [];
+  const subjectName =
+    String(row.subjectName || "").trim() ||
+    String(legacySubjects?.[0]?.name || "").trim() ||
+    String(row.title || row.courseName || "").trim();
+  const teacherId =
+    String(row.teacherId || "").trim() ||
+    String(legacySubjects?.[0]?.teacherId || "").trim();
+  const teacherName =
+    String(row.teacherName || "").trim() ||
+    String(legacySubjects?.[0]?.teacherName || "").trim() ||
+    "Teacher";
+  const price = Math.max(0, toSafeNumber(row.price, 0));
   const discountPercent = Math.max(
     0,
-    Math.min(100, toSafeNumber(courseData.discountPercent, 0))
+    Math.min(100, toSafeNumber(row.discountPercent ?? row.discount, 0))
   );
   const finalPrice = Math.max(
     Number((price - (price * discountPercent) / 100).toFixed(2)),
     0
   );
+
   return {
-    courseId,
-    courseName: courseData.title || "",
-    subjectName,
-    teacherName:
-      String(courseData.teacherName || "").trim() ||
-      String(subjects?.[0]?.teacherName || "").trim() ||
-      "Teacher",
-    subjectsCount: subjects.length,
+    subjectId: cleanCourseId,
+    subjectName: subjectName || "Subject",
+    courseId: cleanCourseId,
+    courseName:
+      String(row.title || row.courseName || row.name || "").trim() || "Subject",
+    teacherId,
+    teacherName,
+    subjectsCount: 1,
     price,
     discountPercent,
     finalPrice,
+    thumbnail: row.thumbnail || null,
   };
 };
 
@@ -670,7 +718,7 @@ const buildAssignedCourses = async (input = []) => {
     const courseId =
       typeof item === "string"
         ? item
-        : String(item?.courseId || "").trim();
+        : String(item?.courseId || item?.subjectId || item?.id || "").trim();
     if (courseId && !seen.has(courseId)) {
       seen.add(courseId);
       uniqueIds.push(courseId);
@@ -696,9 +744,14 @@ const calculateClassPriceFromCourseIds = async (courseIds = []) => {
   }
 
   const courseSnaps = await Promise.all(
-    uniqueCourseIds.map((courseId) =>
-      db.collection(COLLECTIONS.COURSES).doc(String(courseId).trim()).get()
-    )
+    uniqueCourseIds.map(async (courseId) => {
+      const cleanCourseId = String(courseId).trim();
+      const [subjectSnap, courseSnap] = await Promise.all([
+        db.collection(COLLECTIONS.SUBJECTS).doc(cleanCourseId).get(),
+        db.collection(COLLECTIONS.COURSES).doc(cleanCourseId).get(),
+      ]);
+      return subjectSnap.exists ? subjectSnap : courseSnap;
+    })
   );
 
   let totalPrice = 0;
@@ -732,14 +785,17 @@ export const calculateClassPrice = async (classId) => {
   if (!classSnap.exists) return 0;
 
   const classData = classSnap.data() || {};
+  const assignedSubjects = Array.isArray(classData.assignedSubjects)
+    ? classData.assignedSubjects
+    : [];
   const assignedCourses = Array.isArray(classData.assignedCourses)
     ? classData.assignedCourses
     : [];
-  const courseIds = assignedCourses
+  const courseIds = [...assignedSubjects, ...assignedCourses]
     .map((course) =>
       typeof course === "string"
         ? String(course || "").trim()
-        : String(course?.courseId || course?.id || "").trim()
+        : String(course?.subjectId || course?.courseId || course?.id || "").trim()
     )
     .filter(Boolean);
   const pricing = await calculateClassPriceFromCourseIds(courseIds);
@@ -748,6 +804,7 @@ export const calculateClassPrice = async (classId) => {
     {
       totalPrice: pricing.totalPrice,
       coursesCount: pricing.coursesCount,
+      subjectsCount: pricing.coursesCount,
       priceCalculatedAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     },
@@ -765,15 +822,18 @@ const recalculateClassPricesByCourse = async (courseId) => {
   const impactedClassIds = classSnap.docs
     .filter((doc) => {
       const classData = doc.data() || {};
+      const assignedSubjects = Array.isArray(classData.assignedSubjects)
+        ? classData.assignedSubjects
+        : [];
       const assignedCourses = Array.isArray(classData.assignedCourses)
         ? classData.assignedCourses
         : [];
-      return assignedCourses.some((entry) => {
-        const assignedCourseId =
+      return [...assignedSubjects, ...assignedCourses].some((entry) => {
+        const assignedId =
           typeof entry === "string"
             ? String(entry || "").trim()
-            : String(entry?.courseId || entry?.id || "").trim();
-        return assignedCourseId === cleanCourseId;
+            : String(entry?.subjectId || entry?.courseId || entry?.id || "").trim();
+        return assignedId === cleanCourseId;
       });
     })
     .map((doc) => doc.id);
@@ -812,8 +872,8 @@ const buildShiftPayload = async (shiftInput, assignedCourses, classStartDate = n
   const days = normalizeDays(shiftInput?.days || []);
   const startTime = String(shiftInput?.startTime || "").trim();
   const endTime = String(shiftInput?.endTime || "").trim();
-  const courseId = String(shiftInput?.courseId || "").trim();
-  const teacherId = String(shiftInput?.teacherId || "").trim();
+  const courseId = String(shiftInput?.subjectId || shiftInput?.courseId || "").trim();
+  const inputTeacherId = String(shiftInput?.teacherId || "").trim();
   const room = String(shiftInput?.room || "").trim();
 
   if (!name) {
@@ -841,6 +901,7 @@ const buildShiftPayload = async (shiftInput, assignedCourses, classStartDate = n
     return { error: "Shift course must be assigned to class first" };
   }
 
+  const teacherId = String(courseMeta?.teacherId || inputTeacherId).trim();
   if (!teacherId) {
     return { error: "Shift teacher is required" };
   }
@@ -859,7 +920,9 @@ const buildShiftPayload = async (shiftInput, assignedCourses, classStartDate = n
       endTime,
       teacherId: teacherMeta.teacherId,
       teacherName: teacherMeta.teacherName,
+      subjectId: courseMeta.courseId,
       courseId: courseMeta.courseId,
+      subjectName: courseMeta.courseName || "",
       courseName: courseMeta.courseName || "",
       room,
     },
@@ -899,7 +962,7 @@ const getMissingShiftCourseNames = (assignedCourses = [], shifts = []) => {
 
   const shiftCourseIds = new Set(
     (Array.isArray(shifts) ? shifts : [])
-      .map((shift) => String(shift?.courseId || "").trim())
+      .map((shift) => String(shift?.subjectId || shift?.courseId || "").trim())
       .filter(Boolean)
   );
 
@@ -2477,10 +2540,68 @@ export const resetUserDevice = async (req, res) => {
 
 export const getCourses = async (req, res) => {
   try {
-    const data = await adminService.getAllCourses();
-    return successResponse(res, data, "Courses fetched");
+    const [subjectsSnap, coursesSnap] = await Promise.all([
+      db.collection(COLLECTIONS.SUBJECTS).orderBy("createdAt", "desc").get(),
+      db.collection(COLLECTIONS.COURSES).orderBy("createdAt", "desc").get(),
+    ]);
+
+    const rowsById = {};
+    subjectsSnap.docs.forEach((doc) => {
+      const row = doc.data() || {};
+      rowsById[doc.id] = {
+        id: doc.id,
+        title: String(row.title || "").trim(),
+        description: String(row.description || "").trim(),
+        price: toSafeNumber(row.price, 0),
+        discountPercent: Math.max(
+          0,
+          toSafeNumber(row.discountPercent ?? row.discount, 0)
+        ),
+        discount: Math.max(0, toSafeNumber(row.discount, 0)),
+        thumbnail: row.thumbnail || null,
+        teacherId: String(row.teacherId || "").trim(),
+        teacherName: String(row.teacherName || "").trim(),
+        status: String(row.status || "published").trim().toLowerCase(),
+        enrollmentCount: toSafeNumber(row.enrollmentCount, 0),
+        source: "subjects",
+        createdAt: row.createdAt || null,
+        updatedAt: row.updatedAt || null,
+      };
+    });
+
+    coursesSnap.docs.forEach((doc) => {
+      if (rowsById[doc.id]) return;
+      const row = doc.data() || {};
+      const firstSubject = Array.isArray(row.subjects) ? row.subjects[0] || {} : {};
+      rowsById[doc.id] = {
+        id: doc.id,
+        title: String(row.title || "").trim(),
+        description: String(row.description || row.shortDescription || "").trim(),
+        price: toSafeNumber(row.price, 0),
+        discountPercent: Math.max(
+          0,
+          toSafeNumber(row.discountPercent ?? row.discount, 0)
+        ),
+        discount: Math.max(0, toSafeNumber(row.discount, 0)),
+        thumbnail: row.thumbnail || null,
+        teacherId: String(row.teacherId || firstSubject?.teacherId || "").trim(),
+        teacherName: String(row.teacherName || firstSubject?.teacherName || "").trim(),
+        status: String(row.status || "published").trim().toLowerCase(),
+        enrollmentCount: toSafeNumber(row.enrollmentCount, 0),
+        source: "courses",
+        createdAt: row.createdAt || null,
+        updatedAt: row.updatedAt || null,
+      };
+    });
+
+    const data = Object.values(rowsById).sort((a, b) => {
+      const aTitle = String(a.title || "").toLowerCase();
+      const bTitle = String(b.title || "").toLowerCase();
+      return aTitle.localeCompare(bTitle);
+    });
+    return successResponse(res, data, "Subjects fetched");
   } catch (e) {
-    return errorResponse(res, "Failed to fetch courses", 500);
+    return errorResponse(res, "Failed to fetch subjects", 500);
   }
 };
 
@@ -2489,48 +2610,96 @@ export const createCourse = async (req, res) => {
     const {
       title,
       description,
-      shortDescription,
-      category,
-      level,
       price,
+      discount,
       discountPercent,
       status,
       thumbnail,
-      hasCertificate,
-      subjects = [],
+      teacherId,
+      teacherName,
     } = req.body;
 
-    if (!title || String(title).trim().length < 5) {
-      return errorResponse(res, "Title must be at least 5 characters", 400);
+    if (!title || String(title).trim().length < 3) {
+      return errorResponse(res, "Title must be at least 3 characters", 400);
     }
 
-    const normalizedSubjects = await buildCourseSubjects(subjects);
-    if (normalizedSubjects.length < 1) {
-      return errorResponse(res, "At least one subject is required", 400);
+    const cleanTeacherId = String(teacherId || "").trim();
+    if (!cleanTeacherId) {
+      return errorResponse(res, "teacherId is required", 400);
     }
 
-    const ref = await db.collection(COLLECTIONS.COURSES).add({
+    const teacherDoc = await db.collection(COLLECTIONS.TEACHERS).doc(cleanTeacherId).get();
+    if (!teacherDoc.exists) {
+      return errorResponse(res, "Teacher not found", 404);
+    }
+
+    const ref = db.collection(COLLECTIONS.SUBJECTS).doc();
+    const resolvedTeacherName =
+      String(teacherName || "").trim() ||
+      String(teacherDoc.data()?.fullName || "").trim() ||
+      "Teacher";
+    const cleanDiscountPercent = Math.max(
+      0,
+      toSafeNumber(discountPercent ?? discount, 0)
+    );
+
+    const subjectPayload = {
       title: String(title).trim(),
       description: description || "",
-      shortDescription: shortDescription || "",
-      category: category || "",
-      level: level || "beginner",
       price: toSafeNumber(price, 0),
-      discountPercent: Math.max(0, toSafeNumber(discountPercent, 0)),
-      status: status || "draft",
+      discountPercent: cleanDiscountPercent,
+      discount: cleanDiscountPercent,
       thumbnail: thumbnail || null,
-      subjects: normalizedSubjects,
+      teacherId: cleanTeacherId,
+      teacherName: resolvedTeacherName,
+      status: status || "published",
+      enrollmentCount: 0,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+
+    const legacyPayload = {
+      title: String(title).trim(),
+      description: description || "",
+      shortDescription: description || "",
+      category: "general",
+      level: "beginner",
+      price: toSafeNumber(price, 0),
+      discountPercent: cleanDiscountPercent,
+      status: status || "published",
+      thumbnail: thumbnail || null,
+      teacherId: cleanTeacherId,
+      teacherName: resolvedTeacherName,
+      subjects: [
+        {
+          id: "main",
+          name: String(title).trim(),
+          teacherId: cleanTeacherId,
+          teacherName: resolvedTeacherName,
+          order: 1,
+        },
+      ],
       enrollmentCount: 0,
       completionCount: 0,
       rating: 0,
-      hasCertificate: hasCertificate !== false,
+      hasCertificate: true,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
+    };
 
-    return successResponse(res, { id: ref.id }, "Course created", 201);
+    await Promise.all([
+      ref.set(subjectPayload),
+      db.collection(COLLECTIONS.COURSES).doc(ref.id).set(legacyPayload, { merge: true }),
+    ]);
+
+    return successResponse(
+      res,
+      { id: ref.id, subjectId: ref.id, teacherId: cleanTeacherId },
+      "Subject created",
+      201
+    );
   } catch (e) {
-    return errorResponse(res, "Failed to create course", 500);
+    return errorResponse(res, "Failed to create subject", 500);
   }
 };
 
@@ -2540,8 +2709,25 @@ export const updateCourse = async (req, res) => {
 
     const incoming = { ...req.body };
     let shouldRecalculateClassPricing = false;
-    if (Array.isArray(incoming.subjects)) {
-      incoming.subjects = await buildCourseSubjects(incoming.subjects);
+
+    const cleanTeacherId = String(incoming.teacherId || "").trim();
+    if (incoming.teacherId !== undefined) {
+      if (!cleanTeacherId) {
+        return errorResponse(res, "teacherId cannot be empty", 400);
+      }
+      const teacherDoc = await db.collection(COLLECTIONS.TEACHERS).doc(cleanTeacherId).get();
+      if (!teacherDoc.exists) {
+        return errorResponse(res, "Teacher not found", 404);
+      }
+      incoming.teacherId = cleanTeacherId;
+      incoming.teacherName =
+        String(incoming.teacherName || "").trim() ||
+        String(teacherDoc.data()?.fullName || "").trim() ||
+        "Teacher";
+    }
+
+    if (incoming.discount !== undefined && incoming.discountPercent === undefined) {
+      incoming.discountPercent = incoming.discount;
     }
     if (incoming.price !== undefined) {
       incoming.price = toSafeNumber(incoming.price, 0);
@@ -2557,16 +2743,36 @@ export const updateCourse = async (req, res) => {
 
     const updates = {
       ...incoming,
+      discount:
+        incoming.discountPercent !== undefined
+          ? incoming.discountPercent
+          : incoming.discount,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     };
 
-    await db.collection(COLLECTIONS.COURSES).doc(courseId).update(updates);
+    const legacyCourseUpdates = { ...updates };
+    if (updates.title || updates.teacherId || updates.teacherName) {
+      legacyCourseUpdates.subjects = [
+        {
+          id: "main",
+          name: String(updates.title || "").trim() || undefined,
+          teacherId: String(updates.teacherId || "").trim() || undefined,
+          teacherName: String(updates.teacherName || "").trim() || undefined,
+          order: 1,
+        },
+      ].filter((row) => row.name || row.teacherId || row.teacherName);
+    }
+
+    await Promise.all([
+      db.collection(COLLECTIONS.SUBJECTS).doc(courseId).set(updates, { merge: true }),
+      db.collection(COLLECTIONS.COURSES).doc(courseId).set(legacyCourseUpdates, { merge: true }),
+    ]);
     if (shouldRecalculateClassPricing) {
       await recalculateClassPricesByCourse(courseId);
     }
-    return successResponse(res, { courseId }, "Course updated");
+    return successResponse(res, { subjectId: courseId, courseId }, "Subject updated");
   } catch (e) {
-    return errorResponse(res, "Failed to update course", 500);
+    return errorResponse(res, "Failed to update subject", 500);
   }
 };
 
@@ -2575,23 +2781,21 @@ export const deleteCourse = async (req, res) => {
     const { courseId } = req.params;
     const linked = await hasCourseLinks(courseId);
     if (linked) {
-      return errorResponse(
-        res,
-        "Cannot delete course while linked to classes, teachers, students, or quizzes",
-        400
-      );
+      return errorResponse(res, "Cannot delete subject while linked to active records", 400);
     }
+    const subjectRef = db.collection(COLLECTIONS.SUBJECTS).doc(courseId);
     const courseRef = db.collection(COLLECTIONS.COURSES).doc(courseId);
 
     const contentSnap = await courseRef.collection("content").get();
     const batch = db.batch();
     contentSnap.docs.forEach((doc) => batch.delete(doc.ref));
+    batch.delete(subjectRef);
     batch.delete(courseRef);
     await batch.commit();
 
-    return successResponse(res, { courseId }, "Course deleted");
+    return successResponse(res, { subjectId: courseId, courseId }, "Subject deleted");
   } catch (e) {
-    return errorResponse(res, "Failed to delete course", 500);
+    return errorResponse(res, "Failed to delete subject", 500);
   }
 };
 
@@ -3071,6 +3275,7 @@ export const createClass = async (req, res) => {
       capacity,
       startDate,
       endDate,
+      assignedSubjects = [],
       assignedCourses = [],
       shifts = [],
     } = req.body;
@@ -3089,36 +3294,40 @@ export const createClass = async (req, res) => {
       return errorResponse(res, dateError, 400);
     }
 
-    const resolvedCourses = await buildAssignedCourses(assignedCourses);
+    const resolvedCourses = await buildAssignedCourses(
+      Array.isArray(assignedSubjects) && assignedSubjects.length > 0
+        ? assignedSubjects
+        : assignedCourses
+    );
     if (resolvedCourses.length < 1) {
-      return errorResponse(res, "At least 1 course is required", 400);
-    }
-
-    if (!Array.isArray(shifts) || shifts.length < 1) {
-      return errorResponse(res, "At least 1 shift is required", 400);
+      return errorResponse(res, "At least 1 subject is required", 400);
     }
 
     const normalizedShifts = [];
-    for (const shift of shifts) {
-      const resolved = await buildShiftPayload(shift, resolvedCourses, startDate);
-      if (resolved.error) {
-        return errorResponse(res, resolved.error, 400);
+    if (Array.isArray(shifts) && shifts.length > 0) {
+      for (const shift of shifts) {
+        const resolved = await buildShiftPayload(shift, resolvedCourses, startDate);
+        if (resolved.error) {
+          return errorResponse(res, resolved.error, 400);
+        }
+        normalizedShifts.push(resolved.data);
       }
-      normalizedShifts.push(resolved.data);
     }
 
-    const missingShiftCourses = getMissingShiftCourseNames(
-      resolvedCourses,
-      normalizedShifts
-    );
-    if (missingShiftCourses.length > 0) {
-      return errorResponse(
-        res,
-        `Add at least one shift for each assigned course. Missing schedule for: ${missingShiftCourses.join(
-          ", "
-        )}`,
-        400
+    if (normalizedShifts.length > 0) {
+      const missingShiftCourses = getMissingShiftCourseNames(
+        resolvedCourses,
+        normalizedShifts
       );
+      if (missingShiftCourses.length > 0) {
+        return errorResponse(
+          res,
+          `Add at least one shift for each assigned subject. Missing schedule for: ${missingShiftCourses.join(
+            ", "
+          )}`,
+          400
+        );
+      }
     }
 
     const classPricing = await calculateClassPriceFromCourseIds(
@@ -3133,9 +3342,15 @@ export const createClass = async (req, res) => {
       capacity: parsedCapacity,
       enrolledCount: 0,
       students: [],
+      assignedSubjects: resolvedCourses.map((row) => ({
+        ...row,
+        subjectId: row.courseId,
+        subjectName: row.courseName,
+      })),
       assignedCourses: resolvedCourses,
       totalPrice: classPricing.totalPrice,
       coursesCount: classPricing.coursesCount,
+      subjectsCount: classPricing.coursesCount,
       priceCalculatedAt: admin.firestore.FieldValue.serverTimestamp(),
       shifts: normalizedShifts,
       teachers: collectTeachersFromShifts(normalizedShifts),
@@ -3214,24 +3429,37 @@ export const updateClass = async (req, res) => {
       updates.endDate = nextEndDate;
     }
 
+    const existingAssignedSubjects = Array.isArray(classData.assignedSubjects)
+      ? classData.assignedSubjects
+      : [];
     const existingAssignedCourses = Array.isArray(classData.assignedCourses)
       ? classData.assignedCourses
       : [];
     const existingShifts = Array.isArray(classData.shifts) ? classData.shifts : [];
 
-    let nextAssignedCourses = existingAssignedCourses;
-    if (req.body.assignedCourses !== undefined) {
-      nextAssignedCourses = await buildAssignedCourses(req.body.assignedCourses);
+    let nextAssignedCourses =
+      existingAssignedSubjects.length > 0 ? existingAssignedSubjects : existingAssignedCourses;
+    if (req.body.assignedCourses !== undefined || req.body.assignedSubjects !== undefined) {
+      const incomingAssigned =
+        req.body.assignedSubjects !== undefined
+          ? req.body.assignedSubjects
+          : req.body.assignedCourses;
+      nextAssignedCourses = await buildAssignedCourses(incomingAssigned);
       if (nextAssignedCourses.length < 1) {
-        return errorResponse(res, "At least 1 course is required", 400);
+        return errorResponse(res, "At least 1 subject is required", 400);
       }
+      updates.assignedSubjects = nextAssignedCourses.map((row) => ({
+        ...row,
+        subjectId: row.courseId,
+        subjectName: row.courseName,
+      }));
       updates.assignedCourses = nextAssignedCourses;
     }
 
     let nextShifts = existingShifts;
     if (req.body.shifts !== undefined) {
-      if (!Array.isArray(req.body.shifts) || req.body.shifts.length < 1) {
-        return errorResponse(res, "At least 1 shift is required", 400);
+      if (!Array.isArray(req.body.shifts)) {
+        return errorResponse(res, "shifts must be an array", 400);
       }
       const rebuiltShifts = [];
       for (const shift of req.body.shifts) {
@@ -3243,17 +3471,17 @@ export const updateClass = async (req, res) => {
       }
       nextShifts = rebuiltShifts;
       updates.shifts = nextShifts;
-    } else if (req.body.assignedCourses !== undefined) {
+    } else if (req.body.assignedCourses !== undefined || req.body.assignedSubjects !== undefined) {
       const assignedCourseIds = new Set(
-        nextAssignedCourses.map((course) => course.courseId)
+        nextAssignedCourses.map((course) => course.courseId).filter(Boolean)
       );
       const hasInvalidShift = existingShifts.some(
-        (shift) => !assignedCourseIds.has(shift.courseId)
+        (shift) => !assignedCourseIds.has(shift.subjectId || shift.courseId)
       );
       if (hasInvalidShift) {
         return errorResponse(
           res,
-          "Remove or update shifts that use removed courses first",
+          "Remove or update shifts that use removed subjects first",
           400
         );
       }
@@ -3266,18 +3494,20 @@ export const updateClass = async (req, res) => {
       return errorResponse(res, todayShiftError, 400);
     }
 
-    const missingShiftCourses = getMissingShiftCourseNames(
-      nextAssignedCourses,
-      nextShifts
-    );
-    if (missingShiftCourses.length > 0) {
-      return errorResponse(
-        res,
-        `Add at least one shift for each assigned course. Missing schedule for: ${missingShiftCourses.join(
-          ", "
-        )}`,
-        400
+    if (nextShifts.length > 0) {
+      const missingShiftCourses = getMissingShiftCourseNames(
+        nextAssignedCourses,
+        nextShifts
       );
+      if (missingShiftCourses.length > 0) {
+        return errorResponse(
+          res,
+          `Add at least one shift for each assigned subject. Missing schedule for: ${missingShiftCourses.join(
+            ", "
+          )}`,
+          400
+        );
+      }
     }
 
     if (req.body.batchCode !== undefined) {
@@ -3291,6 +3521,7 @@ export const updateClass = async (req, res) => {
     );
     updates.totalPrice = classPricing.totalPrice;
     updates.coursesCount = classPricing.coursesCount;
+    updates.subjectsCount = classPricing.coursesCount;
     updates.priceCalculatedAt = admin.firestore.FieldValue.serverTimestamp();
 
     updates.teachers = collectTeachersFromShifts(nextShifts);
@@ -3300,6 +3531,50 @@ export const updateClass = async (req, res) => {
     return successResponse(res, { classId }, "Class updated");
   } catch (e) {
     return errorResponse(res, "Failed to update class", 500);
+  }
+};
+
+export const reopenClass = async (req, res) => {
+  try {
+    const classId = String(req.params?.classId || req.params?.id || "").trim();
+    if (!classId) return errorResponse(res, "classId is required", 400);
+
+    const classRef = db.collection(COLLECTIONS.CLASSES).doc(classId);
+    const classSnap = await classRef.get();
+    if (!classSnap.exists) return errorResponse(res, "Class not found", 404);
+
+    const classData = classSnap.data() || {};
+    const today = new Date();
+    const todayKey = today.toISOString().slice(0, 10);
+    const endDate = normalizeDateValue(classData.endDate);
+    const endInPast = endDate ? endDate.getTime() < today.getTime() : true;
+    const nextEnd = new Date(today);
+    nextEnd.setDate(nextEnd.getDate() + 30);
+    const nextEndKey = nextEnd.toISOString().slice(0, 10);
+
+    const updates = {
+      status: "active",
+      startDate: classData.startDate || todayKey,
+      endDate: endInPast ? nextEndKey : classData.endDate || nextEndKey,
+      reopenedAt: admin.firestore.FieldValue.serverTimestamp(),
+      reopenedBy: req.user?.uid || null,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+
+    await classRef.set(updates, { merge: true });
+    return successResponse(
+      res,
+      {
+        classId,
+        startDate: updates.startDate,
+        endDate: updates.endDate,
+        status: updates.status,
+      },
+      "Class reopened successfully"
+    );
+  } catch (e) {
+    console.error("reopenClass error:", e);
+    return errorResponse(res, "Failed to reopen class", 500);
   }
 };
 
@@ -3313,6 +3588,9 @@ export const deleteClass = async (req, res) => {
     const classData = classSnap.data() || {};
     const students = Array.isArray(classData.students) ? classData.students : [];
     const enrolledCount = Number(classData.enrolledCount || 0);
+    const assignedSubjects = Array.isArray(classData.assignedSubjects)
+      ? classData.assignedSubjects
+      : [];
     const assignedCourses = Array.isArray(classData.assignedCourses)
       ? classData.assignedCourses
       : [];
@@ -3322,13 +3600,14 @@ export const deleteClass = async (req, res) => {
     if (
       enrolledCount > 0 ||
       students.length > 0 ||
+      assignedSubjects.length > 0 ||
       assignedCourses.length > 0 ||
       shifts.length > 0 ||
       teachers.length > 0
     ) {
       return errorResponse(
         res,
-        "Cannot delete class while it has students, courses, or teachers assigned",
+        "Cannot delete class while it has students, subjects, shifts, or teachers assigned",
         400
       );
     }
@@ -3342,10 +3621,10 @@ export const deleteClass = async (req, res) => {
 export const addClassCourse = async (req, res) => {
   try {
     const { classId } = req.params;
-    const { courseId } = req.body;
+    const courseId = String(req.body?.courseId || req.body?.subjectId || "").trim();
 
     if (!courseId) {
-      return errorResponse(res, "courseId is required", 400);
+      return errorResponse(res, "subjectId/courseId is required", 400);
     }
 
     const classRef = db.collection(COLLECTIONS.CLASSES).doc(classId);
@@ -3355,40 +3634,57 @@ export const addClassCourse = async (req, res) => {
     }
 
     const classData = classSnap.data() || {};
+    const assignedSubjects = Array.isArray(classData.assignedSubjects)
+      ? classData.assignedSubjects
+      : [];
     const assignedCourses = Array.isArray(classData.assignedCourses)
       ? classData.assignedCourses
       : [];
-    if (assignedCourses.some((course) => course.courseId === courseId)) {
-      return errorResponse(res, "Course already assigned to class", 409);
+    const allAssigned = [...assignedSubjects, ...assignedCourses];
+    if (allAssigned.some((course) => String(course?.subjectId || course?.courseId || "").trim() === courseId)) {
+      return errorResponse(res, "Subject already assigned to class", 409);
     }
 
     const courseMeta = await getCourseMeta(courseId);
     if (!courseMeta) {
-      return errorResponse(res, "Course not found", 404);
+      return errorResponse(res, "Subject not found", 404);
     }
 
     assignedCourses.push(courseMeta);
+    assignedSubjects.push({
+      ...courseMeta,
+      subjectId: courseMeta.courseId,
+      subjectName: courseMeta.courseName,
+    });
     const classPricing = await calculateClassPriceFromCourseIds(
       assignedCourses.map((course) => course.courseId).filter(Boolean)
     );
 
     await classRef.update({
+      assignedSubjects,
       assignedCourses,
       totalPrice: classPricing.totalPrice,
       coursesCount: classPricing.coursesCount,
+      subjectsCount: classPricing.coursesCount,
       priceCalculatedAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
-    return successResponse(res, courseMeta, "Course assigned to class", 201);
+    return successResponse(
+      res,
+      { ...courseMeta, subjectId: courseMeta.courseId, subjectName: courseMeta.courseName },
+      "Subject assigned to class",
+      201
+    );
   } catch (e) {
-    return errorResponse(res, "Failed to assign course", 500);
+    return errorResponse(res, "Failed to assign subject", 500);
   }
 };
 
 export const removeClassCourse = async (req, res) => {
   try {
-    const { classId, courseId } = req.params;
+    const { classId } = req.params;
+    const courseId = String(req.params?.courseId || req.params?.subjectId || "").trim();
 
     const classRef = db.collection(COLLECTIONS.CLASSES).doc(classId);
     const classSnap = await classRef.get();
@@ -3397,22 +3693,33 @@ export const removeClassCourse = async (req, res) => {
     }
 
     const classData = classSnap.data() || {};
+    const assignedSubjects = Array.isArray(classData.assignedSubjects)
+      ? classData.assignedSubjects
+      : [];
     const assignedCourses = Array.isArray(classData.assignedCourses)
       ? classData.assignedCourses
       : [];
-    const nextAssignedCourses = assignedCourses.filter(
-      (course) => course.courseId !== courseId
+    const nextAssignedSubjects = assignedSubjects.filter(
+      (course) => String(course?.subjectId || course?.courseId || "").trim() !== courseId
     );
-    if (nextAssignedCourses.length === assignedCourses.length) {
-      return errorResponse(res, "Course not assigned to class", 404);
+    const nextAssignedCourses = assignedCourses.filter(
+      (course) => String(course?.subjectId || course?.courseId || "").trim() !== courseId
+    );
+    if (
+      nextAssignedCourses.length === assignedCourses.length &&
+      nextAssignedSubjects.length === assignedSubjects.length
+    ) {
+      return errorResponse(res, "Subject not assigned to class", 404);
     }
 
     const shifts = Array.isArray(classData.shifts) ? classData.shifts : [];
-    const hasCourseShift = shifts.some((shift) => shift.courseId === courseId);
+    const hasCourseShift = shifts.some(
+      (shift) => String(shift?.subjectId || shift?.courseId || "").trim() === courseId
+    );
     if (hasCourseShift) {
       return errorResponse(
         res,
-        "Remove shifts linked to this course first",
+        "Remove shifts linked to this subject first",
         400
       );
     }
@@ -3422,16 +3729,18 @@ export const removeClassCourse = async (req, res) => {
     );
 
     await classRef.update({
+      assignedSubjects: nextAssignedSubjects,
       assignedCourses: nextAssignedCourses,
       totalPrice: classPricing.totalPrice,
       coursesCount: classPricing.coursesCount,
+      subjectsCount: classPricing.coursesCount,
       priceCalculatedAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
-    return successResponse(res, { courseId }, "Course removed from class");
+    return successResponse(res, { subjectId: courseId, courseId }, "Subject removed from class");
   } catch (e) {
-    return errorResponse(res, "Failed to remove course", 500);
+    return errorResponse(res, "Failed to remove subject", 500);
   }
 };
 
@@ -3446,11 +3755,13 @@ export const addClassShift = async (req, res) => {
     }
 
     const classData = classSnap.data() || {};
-    const assignedCourses = Array.isArray(classData.assignedCourses)
-      ? classData.assignedCourses
-      : [];
+    const assignedCourses = Array.isArray(classData.assignedSubjects)
+      ? classData.assignedSubjects
+      : Array.isArray(classData.assignedCourses)
+        ? classData.assignedCourses
+        : [];
     if (assignedCourses.length < 1) {
-      return errorResponse(res, "Assign at least one course before adding shifts", 400);
+      return errorResponse(res, "Assign at least one subject before adding shifts", 400);
     }
 
     const resolved = await buildShiftPayload(
@@ -3572,7 +3883,7 @@ const normalizeClassStudentEntries = (students = []) =>
         : {
             studentId: String(entry?.studentId || entry?.id || entry?.uid || "").trim(),
             shiftId: String(entry?.shiftId || "").trim(),
-            courseId: String(entry?.courseId || "").trim(),
+            courseId: String(entry?.subjectId || entry?.courseId || "").trim(),
             enrolledAt: entry?.enrolledAt || null,
           }
     )
@@ -3580,6 +3891,17 @@ const normalizeClassStudentEntries = (students = []) =>
 
 const getClassAssignedCourseIds = (classData = {}) => {
   const ids = [];
+  const assignedSubjects = Array.isArray(classData.assignedSubjects)
+    ? classData.assignedSubjects
+    : [];
+  assignedSubjects.forEach((entry) => {
+    const subjectId =
+      typeof entry === "string"
+        ? String(entry || "").trim()
+        : String(entry?.subjectId || entry?.id || "").trim();
+    if (subjectId) ids.push(subjectId);
+  });
+
   const assignedCourses = Array.isArray(classData.assignedCourses)
     ? classData.assignedCourses
     : [];
@@ -3587,7 +3909,7 @@ const getClassAssignedCourseIds = (classData = {}) => {
     const courseId =
       typeof entry === "string"
         ? String(entry || "").trim()
-        : String(entry?.courseId || entry?.id || "").trim();
+        : String(entry?.subjectId || entry?.courseId || entry?.id || "").trim();
     if (courseId) ids.push(courseId);
   });
 
@@ -3596,7 +3918,7 @@ const getClassAssignedCourseIds = (classData = {}) => {
 
   const shifts = Array.isArray(classData.shifts) ? classData.shifts : [];
   shifts.forEach((shift) => {
-    const shiftCourseId = String(shift?.courseId || "").trim();
+    const shiftCourseId = String(shift?.subjectId || shift?.courseId || "").trim();
     if (shiftCourseId) ids.push(shiftCourseId);
   });
 
@@ -3677,14 +3999,17 @@ const enrollStudentInClassCore = async ({
       (entry) => entry.studentId === cleanStudentId
     );
 
+    const classWindowStatus = getClassLifecycleStatus(classData, currentCount, capacity);
+    if (classWindowStatus === "expired") {
+      throw buildKnownError("CLASS_EXPIRED");
+    }
+
     if (!alreadyInClass && currentCount >= capacity) {
       throw buildKnownError("CLASS_FULL", { capacity, currentCount });
     }
 
-    const enrollmentStatus = getEnrollmentStatusFromClassDates(classData);
-    if (enrollmentStatus === "completed") {
-      throw buildKnownError("CLASS_ENDED");
-    }
+    const enrollmentStatus =
+      classWindowStatus === "upcoming" ? "upcoming" : "active";
 
     const shifts = Array.isArray(classData.shifts) ? classData.shifts : [];
     const selectedShift = cleanShiftId
@@ -3696,7 +4021,7 @@ const enrollStudentInClassCore = async ({
 
     const assignedCourseIds = getClassAssignedCourseIds(classData);
     if (!assignedCourseIds.length) {
-      throw buildKnownError("CLASS_HAS_NO_COURSES");
+      throw buildKnownError("CLASS_HAS_NO_SUBJECTS");
     }
     if (
       normalizedEnrollmentType === "single_course" &&
@@ -3707,8 +4032,8 @@ const enrollStudentInClassCore = async ({
     if (
       normalizedEnrollmentType === "single_course" &&
       selectedShift &&
-      String(selectedShift?.courseId || "").trim() &&
-      String(selectedShift?.courseId || "").trim() !== cleanCourseId
+      String(selectedShift?.subjectId || selectedShift?.courseId || "").trim() &&
+      String(selectedShift?.subjectId || selectedShift?.courseId || "").trim() !== cleanCourseId
     ) {
       throw buildKnownError("SHIFT_COURSE_MISMATCH");
     }
@@ -3728,7 +4053,9 @@ const enrollStudentInClassCore = async ({
 
     const missingCourseIds = targetCourseIds.filter((courseIdRow) => {
       const existingEnrollment = existingRows.find((row) => {
-        const existingCourseId = String(row.data?.courseId || "").trim();
+        const existingCourseId = String(
+          row.data?.subjectId || row.data?.courseId || ""
+        ).trim();
         const existingClassId = String(row.data?.classId || "").trim();
         const status = String(row.data?.status || "").trim().toLowerCase();
         return (
@@ -3750,7 +4077,9 @@ const enrollStudentInClassCore = async ({
     const selectedCourseForStudentRow =
       normalizedEnrollmentType === "single_course"
         ? cleanCourseId
-        : String(selectedShift?.courseId || "").trim() || targetCourseIds[0] || "";
+        : String(selectedShift?.subjectId || selectedShift?.courseId || "").trim() ||
+          targetCourseIds[0] ||
+          "";
 
     let nextStudents = normalizedStudents;
     if (!alreadyInClass) {
@@ -3773,7 +4102,9 @@ const enrollStudentInClassCore = async ({
     let createdEnrollmentCount = 0;
     for (const courseIdRow of targetCourseIds) {
       const existingEnrollment = existingRows.find((row) => {
-        const existingCourseId = String(row.data?.courseId || "").trim();
+        const existingCourseId = String(
+          row.data?.subjectId || row.data?.courseId || ""
+        ).trim();
         const existingClassId = String(row.data?.classId || "").trim();
         return existingCourseId === courseIdRow && existingClassId === cleanClassId;
       });
@@ -3792,6 +4123,7 @@ const enrollStudentInClassCore = async ({
         transaction.set(
           existingEnrollment.ref,
           {
+            subjectId: courseIdRow,
             classId: cleanClassId,
             shiftId: String(selectedShift?.id || "").trim(),
             status: mergedStatus,
@@ -3809,6 +4141,7 @@ const enrollStudentInClassCore = async ({
       const enrollmentRef = db.collection(COLLECTIONS.ENROLLMENTS).doc();
       transaction.set(enrollmentRef, {
         studentId: cleanStudentId,
+        subjectId: courseIdRow,
         courseId: courseIdRow,
         classId: cleanClassId,
         shiftId: String(selectedShift?.id || "").trim() || null,
@@ -3829,6 +4162,15 @@ const enrollStudentInClassCore = async ({
       });
 
       transaction.set(
+        db.collection(COLLECTIONS.SUBJECTS).doc(courseIdRow),
+        {
+          enrollmentCount: admin.firestore.FieldValue.increment(1),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+
+      transaction.set(
         db.collection(COLLECTIONS.COURSES).doc(courseIdRow),
         {
           enrollmentCount: admin.firestore.FieldValue.increment(1),
@@ -3847,6 +4189,9 @@ const enrollStudentInClassCore = async ({
       studentUpdates.enrolledCourses = admin.firestore.FieldValue.arrayUnion(
         ...targetCourseIds
       );
+      studentUpdates.enrolledSubjects = admin.firestore.FieldValue.arrayUnion(
+        ...targetCourseIds
+      );
     }
     transaction.set(studentRef, studentUpdates, { merge: true });
 
@@ -3855,6 +4200,7 @@ const enrollStudentInClassCore = async ({
       className,
       studentId: cleanStudentId,
       enrollmentType: normalizedEnrollmentType,
+      subjectsEnrolled: targetCourseIds.length,
       coursesEnrolled: targetCourseIds.length,
       createdEnrollments: createdEnrollmentCount,
       remainingCapacity: Math.max(
@@ -3864,7 +4210,10 @@ const enrollStudentInClassCore = async ({
       capacity,
       currentCount: alreadyInClass ? currentCount : nextStudents.length,
       shiftId: String(selectedShift?.id || "").trim() || null,
+      classStatus: classWindowStatus,
       courseId:
+        normalizedEnrollmentType === "single_course" ? cleanCourseId : null,
+      subjectId:
         normalizedEnrollmentType === "single_course" ? cleanCourseId : null,
     };
   });
@@ -3883,7 +4232,7 @@ export const addStudentToClass = async (req, res) => {
         : requestedStudentId;
     const shiftId = String(req.body?.shiftId || "").trim();
     const enrollmentType = normalizeEnrollmentType(req.body?.enrollmentType);
-    const courseId = String(req.body?.courseId || "").trim();
+    const courseId = String(req.body?.courseId || req.body?.subjectId || "").trim();
     const paymentId = String(req.body?.paymentId || "").trim();
 
     if (!studentId) {
@@ -3904,7 +4253,7 @@ export const addStudentToClass = async (req, res) => {
     if (enrollmentType === "single_course" && !courseId) {
       return errorResponse(
         res,
-        "courseId is required for single_course enrollment",
+        "subjectId/courseId is required for single_subject enrollment",
         400
       );
     }
@@ -3922,8 +4271,8 @@ export const addStudentToClass = async (req, res) => {
       res,
       result,
       result.enrollmentType === "full_class"
-        ? `Student enrolled in ${result.className || "class"}! Access granted to ${result.coursesEnrolled} course(s).`
-        : "Student enrolled in course successfully"
+        ? `Student enrolled in ${result.className || "class"}! Access granted to ${result.subjectsEnrolled || result.coursesEnrolled} subject(s).`
+        : "Student enrolled in subject successfully"
     );
   } catch (e) {
     const meta = e?.meta || {};
@@ -3956,34 +4305,34 @@ export const addStudentToClass = async (req, res) => {
     if (e.message === "SHIFT_NOT_FOUND") {
       return errorResponse(res, "Shift not found", 404);
     }
-    if (e.message === "CLASS_ENDED") {
+    if (e.message === "CLASS_EXPIRED" || e.message === "CLASS_ENDED") {
       return errorResponse(
         res,
-        "Cannot enroll student. This class has already ended.",
+        "Cannot enroll student. This class is expired.",
         400
       );
     }
-    if (e.message === "CLASS_HAS_NO_COURSES") {
-      return errorResponse(res, "This class has no assigned courses", 400);
+    if (e.message === "CLASS_HAS_NO_SUBJECTS" || e.message === "CLASS_HAS_NO_COURSES") {
+      return errorResponse(res, "This class has no assigned subjects", 400);
     }
     if (e.message === "COURSE_REQUIRED") {
       return errorResponse(
         res,
-        "courseId is required for single_course enrollment",
+        "subjectId/courseId is required for single_subject enrollment",
         400
       );
     }
     if (e.message === "COURSE_NOT_IN_CLASS") {
       return errorResponse(
         res,
-        "Selected course is not assigned to this class",
+        "Selected subject is not assigned to this class",
         400
       );
     }
     if (e.message === "SHIFT_COURSE_MISMATCH") {
       return errorResponse(
         res,
-        "Selected shift does not belong to selected course",
+        "Selected shift does not belong to selected subject",
         400
       );
     }
@@ -4002,12 +4351,14 @@ export const getClassStudents = async (req, res) => {
 
     const classData = classSnap.data() || {};
     const shifts = Array.isArray(classData.shifts) ? classData.shifts : [];
-    const assignedCourses = Array.isArray(classData.assignedCourses)
-      ? classData.assignedCourses
-      : [];
+    const assignedCourses = Array.isArray(classData.assignedSubjects)
+      ? classData.assignedSubjects
+      : Array.isArray(classData.assignedCourses)
+        ? classData.assignedCourses
+        : [];
     const assignedCourseIds = assignedCourses
       .map((course) =>
-        String(course?.courseId || course?.id || course || "").trim()
+        String(course?.subjectId || course?.courseId || course?.id || course || "").trim()
       )
       .filter(Boolean);
     const shiftMap = {};
@@ -4016,7 +4367,9 @@ export const getClassStudents = async (req, res) => {
     });
     const courseMap = {};
     assignedCourses.forEach((course) => {
-      const courseId = String(course?.courseId || course?.id || course || "").trim();
+      const courseId = String(
+        course?.subjectId || course?.courseId || course?.id || course || ""
+      ).trim();
       if (!courseId) return;
       courseMap[courseId] = course;
     });
@@ -4028,7 +4381,7 @@ export const getClassStudents = async (req, res) => {
         : {
             studentId: entry.studentId,
             shiftId: entry.shiftId || "",
-            courseId: entry.courseId || "",
+            courseId: entry.subjectId || entry.courseId || "",
             enrolledAt: entry.enrolledAt || null,
           }
     );
@@ -4056,7 +4409,7 @@ export const getClassStudents = async (req, res) => {
     enrollmentSnap.docs.forEach((doc) => {
       const row = doc.data() || {};
       const studentId = String(row.studentId || "").trim();
-      const courseId = String(row.courseId || "").trim();
+      const courseId = String(row.subjectId || row.courseId || "").trim();
       if (!studentId || !courseId) return;
       const status = String(row.status || "active").trim().toLowerCase();
       if (!ACTIVE_ENROLLMENT_STATUS_SET.has(status)) return;
@@ -4091,11 +4444,18 @@ export const getClassStudents = async (req, res) => {
         ...new Set(studentEnrollments.map((row) => row.courseId).filter(Boolean)),
       ];
       const enrolledCourses = paidCourseIds.map((courseId) => ({
+        subjectId: courseId,
         courseId,
         courseName:
+          courseMap[courseId]?.subjectName ||
           courseMap[courseId]?.courseName ||
           courseMap[courseId]?.title ||
-          "Course",
+          "Subject",
+        subjectName:
+          courseMap[courseId]?.subjectName ||
+          courseMap[courseId]?.courseName ||
+          courseMap[courseId]?.title ||
+          "Subject",
         enrollmentType:
           studentEnrollments.find((row) => row.courseId === courseId)?.enrollmentType ||
           "single_course",
@@ -4103,11 +4463,18 @@ export const getClassStudents = async (req, res) => {
       const lockedCourses = assignedCourseIds
         .filter((courseId) => !paidCourseIds.includes(courseId))
         .map((courseId) => ({
+          subjectId: courseId,
           courseId,
           courseName:
+            courseMap[courseId]?.subjectName ||
             courseMap[courseId]?.courseName ||
             courseMap[courseId]?.title ||
-            "Course",
+            "Subject",
+          subjectName:
+            courseMap[courseId]?.subjectName ||
+            courseMap[courseId]?.courseName ||
+            courseMap[courseId]?.title ||
+            "Subject",
         }));
 
       return {
@@ -4127,8 +4494,12 @@ export const getClassStudents = async (req, res) => {
         endTime: shift?.endTime || "",
         teacherId: shift?.teacherId || "",
         teacherName: shift?.teacherName || "",
-        courseId: entry.courseId || shift?.courseId || "",
-        courseName: course?.courseName || shift?.courseName || "",
+        subjectId: entry.courseId || shift?.subjectId || shift?.courseId || "",
+        courseId: entry.courseId || shift?.subjectId || shift?.courseId || "",
+        subjectName:
+          course?.subjectName || course?.courseName || shift?.subjectName || shift?.courseName || "",
+        courseName:
+          course?.subjectName || course?.courseName || shift?.subjectName || shift?.courseName || "",
         enrolledCoursesCount: paidCourseIds.length,
         totalCoursesCount: assignedCourseIds.length,
         lockedCoursesCount: Math.max(assignedCourseIds.length - paidCourseIds.length, 0),
@@ -4149,7 +4520,7 @@ export const enrollStudentInClass = async (req, res) => {
     const studentId = String(req.body?.studentId || "").trim();
     const shiftId = String(req.body?.shiftId || "").trim();
     const enrollmentType = normalizeEnrollmentType(req.body?.enrollmentType);
-    const courseId = String(req.body?.courseId || "").trim();
+    const courseId = String(req.body?.courseId || req.body?.subjectId || "").trim();
     const paymentId = String(req.body?.paymentId || "").trim();
 
     if (!studentId) {
@@ -4167,7 +4538,7 @@ export const enrollStudentInClass = async (req, res) => {
     if (enrollmentType === "single_course" && !courseId) {
       return errorResponse(
         res,
-        "courseId is required for single_course enrollment",
+        "subjectId/courseId is required for single_subject enrollment",
         400
       );
     }
@@ -4185,8 +4556,8 @@ export const enrollStudentInClass = async (req, res) => {
       res,
       result,
       result.enrollmentType === "full_class"
-        ? `Student enrolled in ${result.className || "class"}! Access granted to ${result.coursesEnrolled} course(s).`
-        : "Student enrolled in course successfully"
+        ? `Student enrolled in ${result.className || "class"}! Access granted to ${result.subjectsEnrolled || result.coursesEnrolled} subject(s).`
+        : "Student enrolled in subject successfully"
     );
   } catch (e) {
     const meta = e?.meta || {};
@@ -4219,34 +4590,34 @@ export const enrollStudentInClass = async (req, res) => {
     if (e.message === "SHIFT_NOT_FOUND") {
       return errorResponse(res, "Shift not found", 404);
     }
-    if (e.message === "CLASS_HAS_NO_COURSES") {
-      return errorResponse(res, "This class has no assigned courses", 400);
+    if (e.message === "CLASS_HAS_NO_SUBJECTS" || e.message === "CLASS_HAS_NO_COURSES") {
+      return errorResponse(res, "This class has no assigned subjects", 400);
     }
     if (e.message === "COURSE_REQUIRED") {
       return errorResponse(
         res,
-        "courseId is required for single_course enrollment",
+        "subjectId/courseId is required for single_subject enrollment",
         400
       );
     }
     if (e.message === "COURSE_NOT_IN_CLASS") {
       return errorResponse(
         res,
-        "Selected course is not assigned to this class",
+        "Selected subject is not assigned to this class",
         400
       );
     }
     if (e.message === "SHIFT_COURSE_MISMATCH") {
       return errorResponse(
         res,
-        "Selected shift does not belong to selected course",
+        "Selected shift does not belong to selected subject",
         400
       );
     }
-    if (e.message === "CLASS_ENDED") {
+    if (e.message === "CLASS_EXPIRED" || e.message === "CLASS_ENDED") {
       return errorResponse(
         res,
-        "Cannot enroll student. This class has already ended.",
+        "Cannot enroll student. This class is expired.",
         400
       );
     }
@@ -4308,14 +4679,16 @@ export const removeStudentFromClass = async (req, res) => {
 
     const docsToDelete = studentEnrollments.filter((row) => {
       const rowClassId = String(row.data.classId || "").trim();
-      const rowCourseId = String(row.data.courseId || "").trim();
+      const rowCourseId = String(
+        row.data.subjectId || row.data.courseId || ""
+      ).trim();
       if (rowClassId !== cleanClassId) return false;
       if (!assignedCourseIds.length) return true;
       return assignedCourseIds.includes(rowCourseId);
     });
 
     const decrementByCourse = docsToDelete.reduce((acc, row) => {
-      const courseId = String(row.data.courseId || "").trim();
+      const courseId = String(row.data.subjectId || row.data.courseId || "").trim();
       if (!courseId) return acc;
       acc[courseId] = (acc[courseId] || 0) + 1;
       return acc;
@@ -4326,11 +4699,15 @@ export const removeStudentFromClass = async (req, res) => {
     );
     const remainingCourseIds = new Set(
       remainingEnrollments
-        .map((row) => String(row.data.courseId || "").trim())
+        .map((row) => String(row.data.subjectId || row.data.courseId || "").trim())
         .filter(Boolean)
     );
     const removedCourseIds = [
-      ...new Set(docsToDelete.map((row) => String(row.data.courseId || "").trim()).filter(Boolean)),
+      ...new Set(
+        docsToDelete
+          .map((row) => String(row.data.subjectId || row.data.courseId || "").trim())
+          .filter(Boolean)
+      ),
     ];
     const coursesToRemoveFromStudent = removedCourseIds.filter(
       (courseId) => !remainingCourseIds.has(courseId)
@@ -4347,6 +4724,14 @@ export const removeStudentFromClass = async (req, res) => {
 
     Object.entries(decrementByCourse).forEach(([courseId, count]) => {
       if (!courseId || count < 1) return;
+      batch.set(
+        db.collection(COLLECTIONS.SUBJECTS).doc(courseId),
+        {
+          enrollmentCount: admin.firestore.FieldValue.increment(-count),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
       batch.set(
         db.collection(COLLECTIONS.COURSES).doc(courseId),
         {
@@ -4365,6 +4750,9 @@ export const removeStudentFromClass = async (req, res) => {
       studentUpdates.enrolledCourses = admin.firestore.FieldValue.arrayRemove(
         ...coursesToRemoveFromStudent
       );
+      studentUpdates.enrolledSubjects = admin.firestore.FieldValue.arrayRemove(
+        ...coursesToRemoveFromStudent
+      );
     }
     batch.set(
       db.collection(COLLECTIONS.STUDENTS).doc(cleanStudentId),
@@ -4377,7 +4765,7 @@ export const removeStudentFromClass = async (req, res) => {
     return successResponse(
       res,
       { classId: cleanClassId, studentId: cleanStudentId },
-      `${studentName} removed from class. Access to class courses revoked.`
+      `${studentName} removed from class. Access to class subjects revoked.`
     );
   } catch (e) {
     console.error("removeStudentFromClass error:", e);
@@ -4423,11 +4811,12 @@ export const verifyBankTransfer = async (req, res) => {
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
-    if (action === "approve" && payData.studentId && payData.courseId) {
+    const paidSubjectId = String(payData.subjectId || payData.courseId || "").trim();
+    if (action === "approve" && payData.studentId && paidSubjectId) {
       const existingEnroll = await db
         .collection(COLLECTIONS.ENROLLMENTS)
         .where("studentId", "==", payData.studentId)
-        .where("courseId", "==", payData.courseId)
+        .where("courseId", "==", paidSubjectId)
         .where("classId", "==", payData.classId || null)
         .limit(1)
         .get();
@@ -4435,7 +4824,8 @@ export const verifyBankTransfer = async (req, res) => {
       if (existingEnroll.empty) {
         await db.collection(COLLECTIONS.ENROLLMENTS).add({
           studentId: payData.studentId,
-          courseId: payData.courseId,
+          subjectId: paidSubjectId,
+          courseId: paidSubjectId,
           classId: payData.classId || null,
           paymentId,
           status: "active",
@@ -4445,8 +4835,19 @@ export const verifyBankTransfer = async (req, res) => {
         });
 
         await db
+          .collection(COLLECTIONS.SUBJECTS)
+          .doc(paidSubjectId)
+          .set(
+            {
+              enrollmentCount: admin.firestore.FieldValue.increment(1),
+              updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            },
+            { merge: true }
+          );
+
+        await db
           .collection(COLLECTIONS.COURSES)
-          .doc(payData.courseId)
+          .doc(paidSubjectId)
           .set(
             {
               enrollmentCount: admin.firestore.FieldValue.increment(1),

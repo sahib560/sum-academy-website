@@ -47,6 +47,20 @@ function StudentMyCourses() {
       teacherName: classRow.teacherName || "Teacher",
       shiftId: classRow.shiftId || "",
       overallProgress: Math.max(0, Math.min(100, toNumber(classRow.overallProgress, 0))),
+      classStatus: String(classRow.classStatus || classRow.status || "active").toLowerCase(),
+      canLearn: Boolean(classRow.canLearn ?? true),
+      canEnroll: Boolean(classRow.canEnroll ?? true),
+      isUpcoming: Boolean(classRow.isUpcoming),
+      isExpired: Boolean(classRow.isExpired),
+      isFull: Boolean(classRow.isFull),
+      daysUntilStart:
+        classRow.daysUntilStart === null || classRow.daysUntilStart === undefined
+          ? null
+          : toNumber(classRow.daysUntilStart, 0),
+      daysUntilEnd:
+        classRow.daysUntilEnd === null || classRow.daysUntilEnd === undefined
+          ? null
+          : toNumber(classRow.daysUntilEnd, 0),
       paidCoursesCount: toNumber(classRow.paidCoursesCount, 0),
       totalCoursesCount: toNumber(
         classRow.totalCoursesCount,
@@ -54,10 +68,18 @@ function StudentMyCourses() {
       ),
       lockedCoursesCount: toNumber(classRow.lockedCoursesCount, 0),
       isLockedAfterCompletion: Boolean(classRow.isLockedAfterCompletion),
-      courses: (Array.isArray(classRow.courses) ? classRow.courses : []).map((course, index) => ({
-        id: course.id || `${classRow.classId || classIndex}-${course.courseId || index}`,
-        courseId: course.courseId || "",
-        title: course.title || "Course",
+      courses: (
+        Array.isArray(classRow.subjects)
+          ? classRow.subjects
+          : Array.isArray(classRow.courses)
+            ? classRow.courses
+            : []
+      ).map((course, index) => ({
+        id:
+          course.id ||
+          `${classRow.classId || classIndex}-${course.subjectId || course.courseId || index}`,
+        courseId: course.subjectId || course.courseId || "",
+        title: course.title || "Subject",
         teacherName: course.teacherName || "Teacher",
         thumbnail: course.thumbnail || null,
         subjects: Array.isArray(course.subjects) ? course.subjects : [],
@@ -106,14 +128,14 @@ function StudentMyCourses() {
       <Motion.section {...fadeUp}>
         <h1 className="font-heading text-3xl text-slate-900">My Classes</h1>
         <p className="mt-1 text-sm text-slate-500">
-          Click a class to view all courses assigned inside it.
+          Click a class to view all subjects assigned inside it.
         </p>
       </Motion.section>
 
       <Motion.section {...fadeUp}>
         <input
           type="text"
-          placeholder="Search courses..."
+          placeholder="Search subjects..."
           value={search}
           onChange={(event) => setSearch(event.target.value)}
           className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 shadow-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
@@ -152,6 +174,14 @@ function StudentMyCourses() {
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
               {filteredClasses.map((group) => {
                 const isActive = activeClassId === group.classId;
+                const statusBadgeClass =
+                  group.classStatus === "upcoming"
+                    ? "bg-amber-100 text-amber-700"
+                    : group.classStatus === "expired"
+                      ? "bg-slate-200 text-slate-700"
+                      : group.classStatus === "full"
+                        ? "bg-rose-100 text-rose-700"
+                        : "bg-emerald-100 text-emerald-700";
                 return (
                   <button
                     key={group.key}
@@ -168,12 +198,22 @@ function StudentMyCourses() {
                     </p>
                     <h3 className="mt-1 font-heading text-xl text-slate-900">{group.className}</h3>
                     <p className="mt-1 text-sm text-slate-500">{group.teacherName}</p>
+                    <span
+                      className={`mt-2 inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${statusBadgeClass}`}
+                    >
+                      {group.classStatus}
+                    </span>
+                    {group.classStatus === "upcoming" && Number(group.daysUntilStart) > 0 ? (
+                      <p className="mt-1 text-[11px] text-amber-700">
+                        Starts in {group.daysUntilStart} day(s)
+                      </p>
+                    ) : null}
                     <p className="mt-3 text-xs text-slate-600">
-                      Paid courses: {group.paidCoursesCount}/{group.totalCoursesCount}
+                      Paid subjects: {group.paidCoursesCount}/{group.totalCoursesCount}
                     </p>
                     {group.lockedCoursesCount > 0 ? (
                       <p className="mt-1 text-[11px] font-semibold text-amber-700">
-                        {group.lockedCoursesCount} course(s) locked
+                        {group.lockedCoursesCount} subject(s) locked
                       </p>
                     ) : null}
                     <div className="mt-2 flex items-center gap-2 text-xs text-slate-500">
@@ -197,8 +237,18 @@ function StudentMyCourses() {
             <h2 className="font-heading text-2xl text-slate-900">
               {activeClass.batchCode} - {activeClass.className}
             </h2>
+            {activeClass.classStatus === "upcoming" ? (
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                Class has not started yet. Content unlocks on the start date.
+              </div>
+            ) : null}
+            {activeClass.classStatus === "expired" ? (
+              <div className="rounded-2xl border border-slate-300 bg-slate-100 px-4 py-3 text-sm text-slate-700">
+                Class has expired. Learning is locked unless reopened by admin/teacher.
+              </div>
+            ) : null}
             <p className="text-sm text-slate-500">
-              {activeClass.courses.length} course(s) in this class
+              {activeClass.courses.length} subject(s) in this class
             </p>
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
               {activeCourses.map((course) => {
@@ -219,7 +269,7 @@ function StudentMyCourses() {
                         />
                       ) : (
                         <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-slate-100 to-slate-200 text-xs font-semibold text-slate-500">
-                          Course
+                           Subject
                         </div>
                       )}
                     </div>
@@ -297,9 +347,9 @@ function StudentMyCourses() {
                               },
                             })
                           }
-                        >
-                          Buy Now
-                        </button>
+                          >
+                           Buy Now - PKR {course.finalPrice.toLocaleString("en-PK")}
+                         </button>
                       ) : (
                         <Link
                           className={`w-full rounded-full px-4 py-2 text-center text-sm font-semibold ${
@@ -335,7 +385,7 @@ function StudentMyCourses() {
           {...fadeUp}
           className="rounded-3xl border border-dashed border-slate-200 bg-white p-10 text-center"
         >
-          <p className="text-sm text-slate-500">No courses found for your classes.</p>
+          <p className="text-sm text-slate-500">No subjects found for your classes.</p>
           <Link
             className="btn-outline mt-4 inline-flex items-center justify-center"
             to="/student/explore"
@@ -349,3 +399,4 @@ function StudentMyCourses() {
 }
 
 export default StudentMyCourses;
+

@@ -3,6 +3,7 @@ export const COLLECTIONS = {
   STUDENTS: "students",
   TEACHERS: "teachers",
   ADMINS: "admins",
+  SUBJECTS: "subjects",
   COURSES: "courses",
   CHAPTERS: "chapters",
   LECTURES: "lectures",
@@ -24,6 +25,19 @@ export const COLLECTIONS = {
   SUPPORT_MESSAGES: "supportMessages",
   SECURITY_VIOLATIONS: "securityViolations",
   FINAL_QUIZ_REQUESTS: "finalQuizRequests",
+};
+
+export const SUBJECT_SCHEMA = {
+  title: "",
+  description: "",
+  price: 0,
+  discountPercent: 0,
+  thumbnail: null,
+  teacherId: "",
+  teacherName: "",
+  status: "draft",
+  createdAt: null,
+  updatedAt: null,
 };
 
 export const COURSE_SCHEMA = {

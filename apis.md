@@ -6908,3 +6908,128 @@ Base URL: `https://sumacademy.net/api`
   "firebase": "connected ?"
 }
 ```
+
+## Subject-First Updates (2026-04-07)
+
+### GET `/api/admin/subjects`
+- Auth: Bearer token (admin)
+- Notes: Alias of admin courses listing, now subject-first.
+- Sample Success Response:
+
+```json
+{
+  "success": true,
+  "message": "Subjects fetched",
+  "data": [
+    {
+      "id": "sub_123",
+      "title": "Biology",
+      "description": "Core pre-medical biology",
+      "price": 5000,
+      "discountPercent": 10,
+      "thumbnail": "https://...",
+      "teacherId": "teacher_1",
+      "teacherName": "Ahsan Ali",
+      "status": "published",
+      "enrollmentCount": 12
+    }
+  ]
+}
+```
+
+### POST `/api/admin/subjects`
+- Auth: Bearer token (admin)
+- Body Keys: `title`, `description`, `price`, `discount|discountPercent`, `thumbnail`, `teacherId`
+- Sample Success Response:
+
+```json
+{
+  "success": true,
+  "message": "Subject created",
+  "data": {
+    "id": "sub_123",
+    "subjectId": "sub_123",
+    "teacherId": "teacher_1"
+  }
+}
+```
+
+### PUT/PATCH/DELETE `/api/admin/subjects/:courseId`
+- Auth: Bearer token (admin)
+- Notes: `:courseId` is the subject document id for backward compatibility.
+
+### POST `/api/admin/classes/:classId/subjects`
+- Auth: Bearer token (admin)
+- Body Keys: `subjectId` (or `courseId`)
+- Sample Success Response:
+
+```json
+{
+  "success": true,
+  "message": "Subject assigned to class",
+  "data": {
+    "subjectId": "sub_123",
+    "subjectName": "Biology",
+    "courseId": "sub_123",
+    "courseName": "Biology"
+  }
+}
+```
+
+### DELETE `/api/admin/classes/:classId/subjects/:courseId`
+- Auth: Bearer token (admin)
+- Notes: Removes assigned subject from class.
+
+### GET `/api/classes/available`
+- Auth: Optional bearer token for student purchase-state enrichment
+- Notes: Returns class lifecycle and pricing for full/partial enrollment.
+- Added keys in each class:
+  - `classStatus` (`upcoming|active|full|expired`)
+  - `canEnroll`, `canLearn`, `isExpired`, `isUpcoming`, `isFull`
+  - `totalPrice`, `remainingPrice`, `isFullyEnrolled`, `isPartiallyEnrolled`
+  - `purchasedSubjects`, `unpurchasedSubjects`
+  - `assignedSubjects[].alreadyPurchased`
+
+### PATCH `/api/admin/classes/:classId/reopen`
+- Auth: Bearer token (admin)
+- Sample Success Response:
+
+```json
+{
+  "success": true,
+  "message": "Class reopened successfully",
+  "data": {
+    "classId": "class_123",
+    "startDate": "2026-04-07",
+    "endDate": "2026-05-07",
+    "status": "active"
+  }
+}
+```
+
+### PATCH `/api/teacher/classes/:classId/reopen`
+- Auth: Bearer token (teacher/admin assigned to class)
+- Sample Success Response:
+
+```json
+{
+  "success": true,
+  "message": "Class reopened successfully",
+  "data": {
+    "classId": "class_123",
+    "startDate": "2026-04-07",
+    "endDate": "2026-05-07",
+    "status": "active"
+  }
+}
+```
+
+### Subject Content / Progress Endpoints
+- Student content:
+  - `GET /api/student/subjects/:subjectId/content`
+  - `POST /api/student/subjects/:subjectId/lectures/:lectureId/complete`
+  - `PATCH /api/student/subjects/:subjectId/lectures/:lectureId/progress`
+- Teacher/Admin video unlock:
+  - `PATCH /api/subjects/:subjectId/students/:studentId/video-access`
+  - `POST /api/subjects/:subjectId/students/:studentId/unlock-all`
+  - `GET /api/subjects/:subjectId/students/:studentId/progress`

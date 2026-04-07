@@ -20,9 +20,21 @@ router.get(
   requireRole("student"),
   getCourseContent
 );
+router.get(
+  "/student/subjects/:subjectId/content",
+  verifyToken,
+  requireRole("student"),
+  getCourseContent
+);
 
 router.post(
   "/student/courses/:courseId/lectures/:lectureId/complete",
+  verifyToken,
+  requireRole("student"),
+  markLectureComplete
+);
+router.post(
+  "/student/subjects/:subjectId/lectures/:lectureId/complete",
   verifyToken,
   requireRole("student"),
   markLectureComplete
@@ -34,9 +46,21 @@ router.patch(
   requireRole("student"),
   saveWatchProgress
 );
+router.patch(
+  "/student/subjects/:subjectId/lectures/:lectureId/progress",
+  verifyToken,
+  requireRole("student"),
+  saveWatchProgress
+);
 
 router.patch(
   "/courses/:courseId/students/:studentId/video-access",
+  verifyToken,
+  requireRole("teacher", "admin"),
+  updateVideoAccess
+);
+router.patch(
+  "/subjects/:subjectId/students/:studentId/video-access",
   verifyToken,
   requireRole("teacher", "admin"),
   updateVideoAccess
@@ -48,6 +72,12 @@ router.post(
   requireRole("teacher", "admin"),
   unlockAllVideosForStudent
 );
+router.post(
+  "/subjects/:subjectId/students/:studentId/unlock-all",
+  verifyToken,
+  requireRole("teacher", "admin"),
+  unlockAllVideosForStudent
+);
 
 router.get(
   "/courses/:courseId/students/:studentId/progress",
@@ -55,6 +85,11 @@ router.get(
   requireRole("teacher", "admin"),
   getStudentCourseProgress
 );
+router.get(
+  "/subjects/:subjectId/students/:studentId/progress",
+  verifyToken,
+  requireRole("teacher", "admin"),
+  getStudentCourseProgress
+);
 
 export default router;
-

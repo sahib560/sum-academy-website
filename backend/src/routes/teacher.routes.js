@@ -53,6 +53,7 @@ import {
   getSessionAttendance,
   saveSessionAttendance,
   getTeacherClasses,
+  reopenTeacherClass,
   getTeacherTimetable,
   getTeacherSettingsProfile,
   updateTeacherSettingsProfile,
@@ -113,6 +114,7 @@ router.get("/sessions/:sessionId/attendance", getSessionAttendance);
 router.post("/sessions/:sessionId/attendance", saveSessionAttendance);
 
 router.get("/classes", getTeacherClasses);
+router.patch("/classes/:classId/reopen", reopenTeacherClass);
 router.get("/timetable", getTeacherTimetable);
 router.get("/announcements", getTeacherOutgoingAnnouncements);
 router.post("/announcements", createTeacherAnnouncement);

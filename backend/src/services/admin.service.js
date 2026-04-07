@@ -59,7 +59,7 @@ const getClassStudentEntries = (classData = {}) => {
         : {
             studentId: trimText(entry?.studentId || entry?.id || entry?.uid),
             shiftId: trimText(entry?.shiftId),
-            courseId: trimText(entry?.courseId),
+            courseId: trimText(entry?.subjectId || entry?.courseId),
             enrolledAt: entry?.enrolledAt || null,
           }
     )
@@ -70,7 +70,7 @@ const getClassShiftCourseMap = (classData = {}) => {
   const shifts = Array.isArray(classData.shifts) ? classData.shifts : [];
   return shifts.reduce((acc, shift) => {
     const shiftId = trimText(shift?.id);
-    const courseId = trimText(shift?.courseId);
+    const courseId = trimText(shift?.subjectId || shift?.courseId);
     if (shiftId && courseId) acc[shiftId] = courseId;
     return acc;
   }, {});
@@ -78,6 +78,17 @@ const getClassShiftCourseMap = (classData = {}) => {
 
 const getClassAssignedCourseIds = (classData = {}) => {
   const ids = [];
+  const assignedSubjects = Array.isArray(classData.assignedSubjects)
+    ? classData.assignedSubjects
+    : [];
+  assignedSubjects.forEach((entry) => {
+    const courseId =
+      typeof entry === "string"
+        ? trimText(entry)
+        : trimText(entry?.subjectId || entry?.courseId || entry?.id);
+    if (courseId) ids.push(courseId);
+  });
+
   const directCourseId = trimText(classData.courseId);
   if (directCourseId) ids.push(directCourseId);
 
@@ -88,13 +99,13 @@ const getClassAssignedCourseIds = (classData = {}) => {
     const courseId =
       typeof entry === "string"
         ? trimText(entry)
-        : trimText(entry?.courseId || entry?.id);
+        : trimText(entry?.subjectId || entry?.courseId || entry?.id);
     if (courseId) ids.push(courseId);
   });
 
   const shifts = Array.isArray(classData.shifts) ? classData.shifts : [];
   shifts.forEach((shift) => {
-    const courseId = trimText(shift?.courseId);
+    const courseId = trimText(shift?.subjectId || shift?.courseId);
     if (courseId) ids.push(courseId);
   });
 
@@ -182,10 +193,14 @@ const mergeEnrollmentRowsByStudentCourse = (directRows = [], inferredRows = []) 
 const extractCourseProgress = (progressRows = [], courseId = "", fallbackProgress = 0) => {
   const cleanCourseId = trimText(courseId);
   const scopedRows = progressRows.filter(
-    (row) => trimText(row.courseId) === cleanCourseId || !trimText(row.courseId)
+    (row) =>
+      trimText(row.subjectId || row.courseId) === cleanCourseId ||
+      !trimText(row.subjectId || row.courseId)
   );
 
-  const direct = scopedRows.find((row) => trimText(row.courseId) === cleanCourseId);
+  const direct = scopedRows.find(
+    (row) => trimText(row.subjectId || row.courseId) === cleanCourseId
+  );
   const directProgress = Number(
     direct?.progress ?? direct?.progressPercent ?? direct?.completionPercent
   );
@@ -220,7 +235,7 @@ const getLiveEnrollmentCountByCourse = async (courseIds = []) => {
 
   const mergedRows = mergeEnrollmentRowsByStudentCourse([], inferredRows);
   return mergedRows.reduce((acc, row) => {
-    const courseId = trimText(row.courseId);
+    const courseId = trimText(row.subjectId || row.courseId);
     if (!courseId) return acc;
     acc[courseId] = (acc[courseId] || 0) + 1;
     return acc;
@@ -231,6 +246,7 @@ export const getDashboardStats = async () => {
   const [
     studentsSnap,
     teachersSnap,
+    subjectsSnap,
     coursesSnap,
     classesSnap,
     paymentsSnap,
@@ -240,6 +256,7 @@ export const getDashboardStats = async () => {
   ] = await Promise.all([
     db.collection(COLLECTIONS.USERS).where("role", "==", "student").count().get(),
     db.collection(COLLECTIONS.TEACHERS).count().get(),
+    db.collection(COLLECTIONS.SUBJECTS).count().get(),
     db.collection(COLLECTIONS.COURSES).count().get(),
     db.collection(COLLECTIONS.CLASSES).count().get(),
     db.collection(COLLECTIONS.PAYMENTS).where("status", "==", "paid").get(),
@@ -277,7 +294,10 @@ export const getDashboardStats = async () => {
   return {
     totalStudents: studentsSnap.data().count,
     totalTeachers: teachersSnap.data().count,
-    totalCourses: coursesSnap.data().count,
+    totalCourses:
+      (subjectsSnap.data().count || 0) > 0
+        ? subjectsSnap.data().count
+        : coursesSnap.data().count,
     totalClasses: classesSnap.data().count,
     totalRevenue,
     activeEnrollments: enrollmentsSnap.data().count,
@@ -348,16 +368,25 @@ export const getRecentEnrollments = async (limit = 8) => {
 };
 
 export const getTopCourses = async (limit = 5) => {
-  const snap = await db
-    .collection(COLLECTIONS.COURSES)
-    .orderBy("enrollmentCount", "desc")
-    .limit(limit)
-    .get();
+  const [subjectsSnap, coursesSnap] = await Promise.all([
+    db.collection(COLLECTIONS.SUBJECTS).orderBy("enrollmentCount", "desc").limit(limit).get(),
+    db.collection(COLLECTIONS.COURSES).orderBy("enrollmentCount", "desc").limit(limit).get(),
+  ]);
+  const rows = [];
+  const seen = new Set();
 
-  return snap.docs.map((doc) => ({
-    id: doc.id,
-    ...doc.data(),
-  }));
+  subjectsSnap.docs.forEach((doc) => {
+    seen.add(doc.id);
+    rows.push({ id: doc.id, ...doc.data(), title: trimText(doc.data()?.title) || "Subject" });
+  });
+  coursesSnap.docs.forEach((doc) => {
+    if (seen.has(doc.id)) return;
+    rows.push({ id: doc.id, ...doc.data(), title: trimText(doc.data()?.title) || "Subject" });
+  });
+
+  return rows
+    .sort((a, b) => toNumber(b.enrollmentCount, 0) - toNumber(a.enrollmentCount, 0))
+    .slice(0, limit);
 };
 
 export const getRecentActivity = async (limit = 10) => {
@@ -463,6 +492,7 @@ export const getAllStudents = async () => {
     usersSnap,
     enrollmentsSnap,
     classesSnap,
+    subjectsSnap,
     coursesSnap,
     progressSnap,
     securityViolationsSnap,
@@ -471,6 +501,7 @@ export const getAllStudents = async () => {
     db.collection(COLLECTIONS.USERS).where("role", "==", "student").get(),
     db.collection(COLLECTIONS.ENROLLMENTS).get(),
     db.collection(COLLECTIONS.CLASSES).get(),
+    db.collection(COLLECTIONS.SUBJECTS).get(),
     db.collection(COLLECTIONS.COURSES).get(),
     db.collection(COLLECTIONS.PROGRESS).get(),
     db.collection(COLLECTIONS.SECURITY_VIOLATIONS).get(),
@@ -481,10 +512,14 @@ export const getAllStudents = async () => {
     studentsMap[doc.id] = doc.data();
   });
 
-  const courseNameById = coursesSnap.docs.reduce((acc, doc) => {
-    acc[doc.id] = trimText(doc.data()?.title) || "Course";
-    return acc;
-  }, {});
+  const courseNameById = {};
+  subjectsSnap.docs.forEach((doc) => {
+    courseNameById[doc.id] = trimText(doc.data()?.title) || "Subject";
+  });
+  coursesSnap.docs.forEach((doc) => {
+    if (courseNameById[doc.id]) return;
+    courseNameById[doc.id] = trimText(doc.data()?.title) || "Subject";
+  });
 
   const directEnrollments = enrollmentsSnap.docs.map((doc) => ({
     id: doc.id,
@@ -597,11 +632,12 @@ export const getAllStudents = async () => {
 
     const enrolledCourses = paidEnrollmentRows
       .map((enrollment) => {
-        const courseId = trimText(enrollment.courseId);
+        const courseId = trimText(enrollment.subjectId || enrollment.courseId);
         const classId = trimText(enrollment.classId);
         if (!courseId) return null;
         return {
           id: `${studentId}_${courseId}_${classId || "class"}`,
+          subjectId: courseId,
           courseId,
           classId,
           classIds: classId ? [classId] : [],
@@ -609,7 +645,8 @@ export const getAllStudents = async () => {
             lowerText(enrollment.enrollmentType) === "full_class"
               ? "full_class"
               : "single_course",
-          courseName: courseNameById[courseId] || "Course",
+          courseName: courseNameById[courseId] || "Subject",
+          subjectName: courseNameById[courseId] || "Subject",
           enrolledAt: enrollment.createdAt || enrollment.enrolledAt || null,
           completedAt: enrollment.completedAt || null,
           progress: extractCourseProgress(
@@ -632,8 +669,10 @@ export const getAllStudents = async () => {
       .map((row) => ({
         id: `${studentId}_${row.courseId}_${row.classId || "class"}_locked`,
         classId: row.classId,
+        subjectId: row.courseId,
         courseId: row.courseId,
-        courseName: courseNameById[row.courseId] || "Course",
+        courseName: courseNameById[row.courseId] || "Subject",
+        subjectName: courseNameById[row.courseId] || "Subject",
       }));
     const avgProgress =
       enrolledCourses.length > 0
@@ -708,11 +747,33 @@ export const getAllStudents = async () => {
 };
 
 export const getAllCourses = async () => {
-  const snap = await db
-    .collection(COLLECTIONS.COURSES)
-    .orderBy("createdAt", "desc")
-    .get();
-  const courses = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+  const [subjectsSnap, coursesSnap] = await Promise.all([
+    db.collection(COLLECTIONS.SUBJECTS).orderBy("createdAt", "desc").get(),
+    db.collection(COLLECTIONS.COURSES).orderBy("createdAt", "desc").get(),
+  ]);
+
+  const courses = [];
+  const seen = new Set();
+  subjectsSnap.docs.forEach((doc) => {
+    const row = doc.data() || {};
+    seen.add(doc.id);
+    courses.push({
+      id: doc.id,
+      ...row,
+      title: trimText(row.title) || "Subject",
+      source: "subjects",
+    });
+  });
+  coursesSnap.docs.forEach((doc) => {
+    if (seen.has(doc.id)) return;
+    const row = doc.data() || {};
+    courses.push({
+      id: doc.id,
+      ...row,
+      title: trimText(row.title) || "Subject",
+      source: "courses",
+    });
+  });
   const liveCounts = await getLiveEnrollmentCountByCourse(
     courses.map((course) => course.id)
   );

@@ -519,7 +519,7 @@ const getClassShiftCourseMap = (classData = {}) => {
   const shifts = Array.isArray(classData.shifts) ? classData.shifts : [];
   return shifts.reduce((acc, shift) => {
     const shiftId = trimText(shift?.id);
-    const courseId = trimText(shift?.courseId);
+    const courseId = trimText(shift?.subjectId || shift?.courseId);
     if (shiftId && courseId) acc[shiftId] = courseId;
     return acc;
   }, {});
@@ -530,6 +530,17 @@ const getClassAssignedCourseIds = (classData = {}) => {
   const directCourseId = trimText(classData.courseId);
   if (directCourseId) ids.push(directCourseId);
 
+  const assignedSubjects = Array.isArray(classData.assignedSubjects)
+    ? classData.assignedSubjects
+    : [];
+  assignedSubjects.forEach((entry) => {
+    const courseId =
+      typeof entry === "string"
+        ? trimText(entry)
+        : trimText(entry?.subjectId || entry?.courseId || entry?.id);
+    if (courseId) ids.push(courseId);
+  });
+
   const assignedCourses = Array.isArray(classData.assignedCourses)
     ? classData.assignedCourses
     : [];
@@ -537,13 +548,13 @@ const getClassAssignedCourseIds = (classData = {}) => {
     const courseId =
       typeof entry === "string"
         ? trimText(entry)
-        : trimText(entry?.courseId || entry?.id);
+        : trimText(entry?.subjectId || entry?.courseId || entry?.id);
     if (courseId) ids.push(courseId);
   });
 
   const shifts = Array.isArray(classData.shifts) ? classData.shifts : [];
   shifts.forEach((shift) => {
-    const courseId = trimText(shift?.courseId);
+    const courseId = trimText(shift?.subjectId || shift?.courseId);
     if (courseId) ids.push(courseId);
   });
 
@@ -4916,6 +4927,59 @@ export const getTeacherClasses = async (req, res) => {
   } catch (error) {
     console.error("getTeacherClasses error:", error);
     return errorResponse(res, "Failed to fetch teacher classes", 500);
+  }
+};
+
+export const reopenTeacherClass = async (req, res) => {
+  try {
+    const uid = trimText(req.user?.uid);
+    const role = lowerText(req.user?.role);
+    const classId = trimText(req.params?.classId || req.params?.id);
+    if (!uid) return errorResponse(res, "Missing teacher uid", 400);
+    if (!classId) return errorResponse(res, "classId is required", 400);
+
+    const classRef = db.collection(COLLECTIONS.CLASSES).doc(classId);
+    const classSnap = await classRef.get();
+    if (!classSnap.exists) return errorResponse(res, "Class not found", 404);
+
+    const classData = classSnap.data() || {};
+    if (role !== "admin" && !isTeacherAssignedToClass(classData, uid)) {
+      return errorResponse(res, "You are not assigned to this class", 403);
+    }
+
+    const today = new Date();
+    const todayKey = today.toISOString().slice(0, 10);
+    const endDate = toDate(classData.endDate);
+    const endInPast = endDate ? endDate.getTime() < today.getTime() : true;
+    const nextEnd = new Date(today);
+    nextEnd.setDate(nextEnd.getDate() + 30);
+    const nextEndKey = nextEnd.toISOString().slice(0, 10);
+
+    const updates = {
+      status: "active",
+      startDate: classData.startDate || todayKey,
+      endDate: endInPast ? nextEndKey : classData.endDate || nextEndKey,
+      reopenedAt: admin.firestore.FieldValue.serverTimestamp(),
+      reopenedBy: uid,
+      reopenedByRole: role || "teacher",
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+
+    await classRef.set(updates, { merge: true });
+
+    return successResponse(
+      res,
+      {
+        classId,
+        status: updates.status,
+        startDate: updates.startDate,
+        endDate: updates.endDate,
+      },
+      "Class reopened successfully"
+    );
+  } catch (error) {
+    console.error("reopenTeacherClass error:", error);
+    return errorResponse(res, "Failed to reopen class", 500);
   }
 };
 

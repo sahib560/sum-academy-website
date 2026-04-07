@@ -64,16 +64,23 @@ const getEnrollmentStatusFromClassDates = (classData = {}) => {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
+  if (end) {
+    const endDay = new Date(end);
+    endDay.setHours(0, 0, 0, 0);
+    if (today.getTime() > endDay.getTime()) return "expired";
+  }
+
+  const capacity = Math.max(1, toNumber(classData?.capacity, 30));
+  const enrolledCount = Math.max(
+    toNumber(classData?.enrolledCount, 0),
+    Array.isArray(classData?.students) ? classData.students.length : 0
+  );
+  if (enrolledCount >= capacity) return "full";
+
   if (start) {
     const startDay = new Date(start);
     startDay.setHours(0, 0, 0, 0);
     if (today.getTime() < startDay.getTime()) return "upcoming";
-  }
-
-  if (end) {
-    const endDay = new Date(end);
-    endDay.setHours(0, 0, 0, 0);
-    if (today.getTime() > endDay.getTime()) return "completed";
   }
 
   return "active";
@@ -230,9 +237,13 @@ const getStudentIdentity = async (uid) => {
 };
 
 const getCourseById = async (courseId) => {
-  const courseSnap = await db.collection(COLLECTIONS.COURSES).doc(courseId).get();
-  if (!courseSnap.exists) return null;
-  return { id: courseSnap.id, ...(courseSnap.data() || {}) };
+  const [subjectSnap, courseSnap] = await Promise.all([
+    db.collection(COLLECTIONS.SUBJECTS).doc(courseId).get(),
+    db.collection(COLLECTIONS.COURSES).doc(courseId).get(),
+  ]);
+  const rowSnap = subjectSnap.exists ? subjectSnap : courseSnap;
+  if (!rowSnap.exists) return null;
+  return { id: rowSnap.id, ...(rowSnap.data() || {}) };
 };
 
 const getClassById = async (classId) => {
@@ -244,6 +255,17 @@ const getClassById = async (classId) => {
 
 const getClassAssignedCourseIds = (classData = {}) => {
   const ids = [];
+
+  const assignedSubjects = Array.isArray(classData.assignedSubjects)
+    ? classData.assignedSubjects
+    : [];
+  assignedSubjects.forEach((entry) => {
+    const subjectId =
+      typeof entry === "string"
+        ? String(entry).trim()
+        : String(entry?.subjectId || entry?.id || "").trim();
+    if (subjectId) ids.push(subjectId);
+  });
 
   const directCourseId = String(classData.courseId || "").trim();
   if (directCourseId) ids.push(directCourseId);
@@ -261,7 +283,7 @@ const getClassAssignedCourseIds = (classData = {}) => {
 
   const shifts = Array.isArray(classData.shifts) ? classData.shifts : [];
   shifts.forEach((shift) => {
-    const courseId = String(shift?.courseId || "").trim();
+    const courseId = String(shift?.subjectId || shift?.courseId || "").trim();
     if (courseId) ids.push(courseId);
   });
 
@@ -283,7 +305,7 @@ const validateClassShiftSelection = ({ classData = {}, shiftId = "", courseId = 
     return { error: "Selected shift was not found in this class", status: 400 };
   }
 
-  const shiftCourseId = String(selectedShift.courseId || "").trim();
+  const shiftCourseId = String(selectedShift.subjectId || selectedShift.courseId || "").trim();
   if (!shiftCourseId) {
     return { error: "Selected shift is missing a linked course", status: 400 };
   }
@@ -397,12 +419,15 @@ const fetchMergedPayments = async () => {
   const payments = paymentsSnap.docs.map((doc) => ({ id: doc.id, ...(doc.data() || {}) }));
 
   const studentIds = payments.map((item) => item.studentId).filter(Boolean);
-  const courseIds = payments.map((item) => item.courseId).filter(Boolean);
+  const courseIds = payments
+    .map((item) => String(item.subjectId || item.courseId || "").trim())
+    .filter(Boolean);
   const classIds = payments.map((item) => item.classId).filter(Boolean);
 
-  const [studentMap, userMap, courseMap, classMap] = await Promise.all([
+  const [studentMap, userMap, subjectMap, courseMap, classMap] = await Promise.all([
     getDocMap(COLLECTIONS.STUDENTS, studentIds),
     getDocMap(COLLECTIONS.USERS, studentIds),
+    getDocMap(COLLECTIONS.SUBJECTS, courseIds),
     getDocMap(COLLECTIONS.COURSES, courseIds),
     getDocMap(COLLECTIONS.CLASSES, classIds),
   ]);
@@ -410,7 +435,8 @@ const fetchMergedPayments = async () => {
   return payments.map((item) => {
     const student = studentMap[item.studentId] || {};
     const user = userMap[item.studentId] || {};
-    const course = courseMap[item.courseId] || {};
+    const courseId = String(item.subjectId || item.courseId || "").trim();
+    const course = subjectMap[courseId] || courseMap[courseId] || {};
     const classInfo = classMap[item.classId] || {};
 
     const studentName =
@@ -429,7 +455,8 @@ const fetchMergedPayments = async () => {
         lowerText(item.enrollmentType || "") === "full_class"
           ? "full_class"
           : "single_course",
-      courseId: item.courseId || null,
+      subjectId: courseId || null,
+      courseId: courseId || null,
       courseName: item.courseName || course.title || "",
       purchaseCourseIds: Array.isArray(item.purchaseCourseIds)
         ? item.purchaseCourseIds
@@ -704,7 +731,8 @@ export const initiatePayment = async (req, res) => {
   try {
     const studentId = req.user.uid;
     const {
-      courseId,
+      courseId: rawCourseId = "",
+      subjectId: rawSubjectId = "",
       classId = "",
       shiftId = "",
       enrollmentType = "single_course",
@@ -730,10 +758,12 @@ export const initiatePayment = async (req, res) => {
         400
       );
     }
+    const courseId = String(rawSubjectId || rawCourseId || "").trim();
+
     if (normalizedEnrollmentType === "single_course" && !courseId) {
       return errorResponse(
         res,
-        "courseId is required for single_course enrollment",
+        "subjectId/courseId is required for single_subject enrollment",
         400
       );
     }
@@ -769,14 +799,13 @@ export const initiatePayment = async (req, res) => {
     if (!classData) return errorResponse(res, "Class not found", 404);
 
     const enrollmentStatus = getEnrollmentStatusFromClassDates(classData);
-    if (enrollmentStatus === "completed") {
+    if (enrollmentStatus === "expired") {
       return errorResponse(
         res,
         "Selected class has already ended. Choose an active class.",
         400
       );
     }
-
     const classShiftValidation = validateClassShiftSelection({
       classData,
       shiftId,
@@ -792,6 +821,13 @@ export const initiatePayment = async (req, res) => {
     const studentAlreadyInClass = classStudents.some(
       (entry) => entry.studentId === studentId
     );
+    if (enrollmentStatus === "full" && !studentAlreadyInClass) {
+      return errorResponse(
+        res,
+        "Class seats are fully reserved. Please select another class.",
+        400
+      );
+    }
     const pendingSeatReservations = await countReservedSeatsForClass(
       classId,
       classStudents.map((entry) => entry.studentId)
@@ -834,7 +870,7 @@ export const initiatePayment = async (req, res) => {
 
     const classCourseIds = getClassAssignedCourseIds(classData);
     if (!classCourseIds.length) {
-      return errorResponse(res, "This class has no assigned courses", 400);
+      return errorResponse(res, "This class has no assigned subjects", 400);
     }
 
     const cleanCourseId = String(courseId || "").trim();
@@ -844,7 +880,7 @@ export const initiatePayment = async (req, res) => {
     ) {
       return errorResponse(
         res,
-        "Selected course is not assigned to this class",
+        "Selected subject is not assigned to this class",
         400
       );
     }
@@ -861,25 +897,26 @@ export const initiatePayment = async (req, res) => {
           normalizePaymentStatus(row.status || "active")
         )
       );
+    const paidCourseIds = new Set(
+      activeEnrollmentRows
+        .map((row) => String(row.subjectId || row.courseId || "").trim())
+        .filter(Boolean)
+    );
 
     if (normalizedEnrollmentType === "single_course") {
       const hasCourseEnrollment = activeEnrollmentRows.some(
-        (row) => String(row.courseId || "").trim() === cleanCourseId
+        (row) =>
+          String(row.subjectId || row.courseId || "").trim() === cleanCourseId
       );
       if (hasCourseEnrollment) {
         return errorResponse(
           res,
-          "Student already enrolled in this course for this class",
+          "Student already enrolled in this subject for this class",
           409,
           { code: "ALREADY_ENROLLED" }
         );
       }
     } else {
-      const paidCourseIds = new Set(
-        activeEnrollmentRows
-          .map((row) => String(row.courseId || "").trim())
-          .filter(Boolean)
-      );
       const hasAllCourses = classCourseIds.every((row) => paidCourseIds.has(row));
       if (hasAllCourses) {
         return errorResponse(
@@ -909,7 +946,8 @@ export const initiatePayment = async (req, res) => {
         );
         return {
           courseId: id,
-          title: course.title || "Course",
+          subjectId: id,
+          title: course.title || "Subject",
           originalPrice,
           discountPercent,
           courseDiscountAmount,
@@ -921,6 +959,10 @@ export const initiatePayment = async (req, res) => {
     if (!resolvedClassCourses.length) {
       return errorResponse(res, "No valid courses found for this class", 400);
     }
+    const payableClassCourses =
+      normalizedEnrollmentType === "full_class"
+        ? resolvedClassCourses.filter((row) => !paidCourseIds.has(row.courseId))
+        : [];
 
     let selectedCourse = null;
     if (normalizedEnrollmentType === "single_course") {
@@ -928,7 +970,7 @@ export const initiatePayment = async (req, res) => {
       if (!selectedCourse) {
         return errorResponse(
           res,
-          "Selected course not found",
+          "Selected subject not found",
           404
         );
       }
@@ -937,13 +979,15 @@ export const initiatePayment = async (req, res) => {
     const originalAmount =
       normalizedEnrollmentType === "full_class"
         ? Number(
-            resolvedClassCourses.reduce((sum, row) => sum + toNumber(row.originalPrice, 0), 0).toFixed(2)
+            payableClassCourses
+              .reduce((sum, row) => sum + toNumber(row.originalPrice, 0), 0)
+              .toFixed(2)
           )
         : Number(toNumber(selectedCourse?.originalPrice, 0).toFixed(2));
     const courseDiscountAmount =
       normalizedEnrollmentType === "full_class"
         ? Number(
-            resolvedClassCourses
+            payableClassCourses
               .reduce((sum, row) => sum + toNumber(row.courseDiscountAmount, 0), 0)
               .toFixed(2)
           )
@@ -1006,6 +1050,7 @@ export const initiatePayment = async (req, res) => {
     const paymentRef = db.collection(COLLECTIONS.PAYMENTS).doc();
     const reference = generateReference();
     const fullClassDescription = `${classData?.name || "Class"} - Full Class`;
+    const fullClassRemainingDescription = `${classData?.name || "Class"} - Complete Enrollment`;
     const singleCourseDescription = `${selectedCourse?.title || "Course"} - ${classData?.name || "Class"}`;
 
     const paymentPayload = {
@@ -1020,7 +1065,7 @@ export const initiatePayment = async (req, res) => {
           : fullClassDescription,
       purchaseCourseIds:
         normalizedEnrollmentType === "full_class"
-          ? resolvedClassCourses.map((row) => row.courseId)
+          ? payableClassCourses.map((row) => row.courseId)
           : [cleanCourseId],
       classId: classId || null,
       className: classData?.name || "",
@@ -1029,6 +1074,10 @@ export const initiatePayment = async (req, res) => {
       totalAmount: finalAmount,
       originalAmount,
       discount: discountAmount,
+      remainingPrice:
+        normalizedEnrollmentType === "full_class"
+          ? Number(finalAmount.toFixed(2))
+          : null,
       courseDiscountPercent,
       courseDiscountAmount,
       promoDiscountAmount,
@@ -1094,6 +1143,10 @@ export const initiatePayment = async (req, res) => {
         reference,
         amount: amountDueNow,
         totalAmount: finalAmount,
+        remainingPrice:
+          normalizedEnrollmentType === "full_class"
+            ? Number(finalAmount.toFixed(2))
+            : null,
         originalAmount,
         discount: discountAmount,
         courseDiscountPercent,
@@ -1106,15 +1159,29 @@ export const initiatePayment = async (req, res) => {
           paymentMethod === "bank_transfer" ? paymentDetails : undefined,
         description:
           normalizedEnrollmentType === "full_class"
-            ? fullClassDescription
+            ? paidCourseIds.size > 0
+              ? fullClassRemainingDescription
+              : fullClassDescription
             : singleCourseDescription,
         classCourses:
           normalizedEnrollmentType === "full_class"
             ? resolvedClassCourses.map((row) => ({
                 courseId: row.courseId,
+                subjectId: row.courseId,
                 title: row.title,
                 finalPrice: row.finalPrice,
+                alreadyPurchased: paidCourseIds.has(row.courseId),
               }))
+            : undefined,
+        paidSubjects:
+          normalizedEnrollmentType === "full_class"
+            ? resolvedClassCourses
+                .filter((row) => paidCourseIds.has(row.courseId))
+                .map((row) => ({ subjectId: row.courseId, title: row.title }))
+            : undefined,
+        payingNowSubjects:
+          normalizedEnrollmentType === "full_class"
+            ? payableClassCourses.map((row) => ({ subjectId: row.courseId, title: row.title }))
             : undefined,
         installments: installmentSchedule,
         isInstallment: installmentCount > 1,

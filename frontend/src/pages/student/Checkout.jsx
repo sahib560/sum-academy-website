@@ -88,10 +88,16 @@ function Checkout() {
   );
 
   const fallbackClassTotal = Number(classInfoFromState?.totalPrice || 0);
+  const fallbackClassRemaining = Number(
+    classInfoFromState?.remainingPrice || classInfoFromState?.totalPrice || 0
+  );
   const classTotalFromSelection = Number(selectedClass?.totalPrice || fallbackClassTotal || 0);
+  const classRemainingFromSelection = Number(
+    selectedClass?.remainingPrice || fallbackClassRemaining || classTotalFromSelection || 0
+  );
   const originalAmount =
     enrollmentType === "full_class"
-      ? classTotalFromSelection
+      ? classRemainingFromSelection
       : Number(course?.originalPrice ?? course?.price ?? 0);
   const courseDiscountPercent = Math.max(
     0,
@@ -311,15 +317,36 @@ function Checkout() {
               {enrollmentType === "full_class" ? (
                 <div className="mt-1 text-sm text-slate-600">
                   <p>
-                    Access to all {(selectedClass?.assignedCourses || classInfoFromState?.assignedCourses || []).length} course(s)
+                    Access to all{" "}
+                    {(selectedClass?.assignedSubjects ||
+                      selectedClass?.assignedCourses ||
+                      classInfoFromState?.assignedSubjects ||
+                      classInfoFromState?.assignedCourses ||
+                      []).length} subject(s)
                   </p>
                   <ul className="mt-1 list-disc pl-5 text-xs">
-                    {(selectedClass?.assignedCourses || classInfoFromState?.assignedCourses || []).map((row) => (
-                      <li key={`inc-${row.courseId || row.title}`}>
-                        {row.title || row.courseName || "Course"}
+                    {(
+                      selectedClass?.assignedSubjects ||
+                      selectedClass?.assignedCourses ||
+                      classInfoFromState?.assignedSubjects ||
+                      classInfoFromState?.assignedCourses ||
+                      []
+                    ).map((row) => (
+                      <li key={`inc-${row.subjectId || row.courseId || row.title}`}>
+                        {row.title || row.courseName || "Subject"}
                       </li>
                     ))}
                   </ul>
+                  {selectedClass?.isPartiallyEnrolled ? (
+                    <p className="mt-2 text-xs text-amber-700">
+                      You already paid for {selectedClass.purchasedSubjectsCount || 0} subject(s).
+                      You are paying now: PKR{" "}
+                      {Number(classRemainingFromSelection || 0).toLocaleString("en-PK")}
+                      <span className="ml-2 line-through text-slate-400">
+                        PKR {Number(classTotalFromSelection || 0).toLocaleString("en-PK")}
+                      </span>
+                    </p>
+                  ) : null}
                 </div>
               ) : null}
               <p className="mt-1 text-sm text-slate-600">
@@ -354,13 +381,14 @@ function Checkout() {
                   </option>
                   {classes.map((classItem) => {
   const spotsText = `${classItem.availableSpots} spots left`;
+  const statusText = String(classItem.classStatus || classItem.status || "active");
   return (
     <option
       key={classItem.id}
       value={classItem.id}
-      disabled={Boolean(classItem.isFull)}
+      disabled={Boolean(classItem.isFull || classItem.isExpired)}
     >
-      {classItem.name} ({classItem.batchCode || "No Batch"}) - {spotsText}
+      {classItem.name} ({classItem.batchCode || "No Batch"}) - {spotsText} - {statusText}
     </option>
   );
 })}
@@ -571,6 +599,12 @@ function Checkout() {
               <p className="mt-1 text-slate-600">
                 Class: {selectedClass?.name || "-"} - Shift: {selectedShift?.name || "-"}
               </p>
+              {enrollmentType === "full_class" && selectedClass?.isPartiallyEnrolled ? (
+                <p className="mt-1 text-xs text-amber-700">
+                  Remaining enrollment only: PKR{" "}
+                  {Number(classRemainingFromSelection || 0).toLocaleString("en-PK")}
+                </p>
+              ) : null}
               <p className="mt-1 text-slate-600">
                 Method: {formatMethodLabel(activePaymentMethod)}
               </p>

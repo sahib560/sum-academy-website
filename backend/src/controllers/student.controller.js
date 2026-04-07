@@ -292,7 +292,7 @@ const getStudentPendingPayments = async (uid, courseId = "") => {
   return snap.docs
     .map((doc) => ({ id: doc.id, ...(doc.data() || {}) }))
     .filter((row) => PENDING_PAYMENT_STATUSES.has(lowerText(row.status || "pending")))
-    .filter((row) => (cleanCourseId ? trimText(row.courseId) === cleanCourseId : true))
+    .filter((row) => (cleanCourseId ? trimText(row.subjectId || row.courseId) === cleanCourseId : true))
     .sort(
       (a, b) =>
         (parseDate(b.createdAt)?.getTime() || 0) -
@@ -305,7 +305,7 @@ const getStudentEnrolledCourseIds = async (uid, includeClassFallback = true) => 
 
   const enrollmentIds = enrollments
     .filter((row) => ACTIVE_ENROLLMENT_STATUSES.has(lowerText(row.status || "active")))
-    .map((row) => trimText(row.courseId))
+    .map((row) => trimText(row.subjectId || row.courseId))
     .filter(Boolean);
 
   if (enrollmentIds.length > 0 || !includeClassFallback) {
@@ -333,11 +333,15 @@ const getStudentClassIds = async (uid, enrollments = null) => {
 
 const getClassStatus = (classData = {}) => {
   const explicitStatus = lowerText(classData.status || "");
-  if (explicitStatus) return explicitStatus;
   const start = parseDate(classData.startDate);
   const end = parseDate(classData.endDate);
   const today = new Date();
   today.setHours(0, 0, 0, 0);
+  const capacity = Math.max(1, toNumber(classData.capacity, 30));
+  const enrolledCount = Math.max(
+    toNumber(classData.enrolledCount, 0),
+    Array.isArray(classData.students) ? classData.students.length : 0
+  );
 
   if (start) {
     const startDay = new Date(start);
@@ -347,8 +351,12 @@ const getClassStatus = (classData = {}) => {
   if (end) {
     const endDay = new Date(end);
     endDay.setHours(0, 0, 0, 0);
-    if (today.getTime() > endDay.getTime()) return "completed";
+    if (today.getTime() > endDay.getTime()) return "expired";
   }
+  if (enrolledCount >= capacity) return "full";
+  if (explicitStatus === "expired" || explicitStatus === "completed") return "expired";
+  if (explicitStatus === "upcoming") return "upcoming";
+  if (explicitStatus === "full") return "full";
   return "active";
 };
 
@@ -390,7 +398,7 @@ const buildClassCompletionStateForStudent = ({
     .filter(
       (row) => trimText(row.studentId) === uid && trimText(row.classId) === classId
     )
-    .map((row) => trimText(row.courseId))
+    .map((row) => trimText(row.subjectId || row.courseId))
     .filter(Boolean);
   const resolvedCourseIds = [
     ...new Set(
@@ -402,7 +410,7 @@ const buildClassCompletionStateForStudent = ({
     const enrollment = enrollments.find(
       (row) =>
         trimText(row.studentId) === uid &&
-        trimText(row.courseId) === courseId &&
+        trimText(row.subjectId || row.courseId) === courseId &&
         (!trimText(row.classId) || trimText(row.classId) === classId)
     );
     const progress = normalizeProgressPercent(progressRows, courseId, enrollment?.progress);
@@ -520,7 +528,7 @@ const buildStudentClassAndCourseData = ({
     const activeEnrollmentRows = enrollments.filter((row) => {
       const rowStudentId = trimText(row.studentId);
       const rowClassId = trimText(row.classId);
-      const rowCourseId = trimText(row.courseId);
+      const rowCourseId = trimText(row.subjectId || row.courseId);
       const rowStatus = lowerText(row.status || "active");
       return (
         rowStudentId === uid &&
@@ -530,7 +538,7 @@ const buildStudentClassAndCourseData = ({
       );
     });
     const enrollmentCourseIds = activeEnrollmentRows
-      .map((row) => trimText(row.courseId))
+      .map((row) => trimText(row.subjectId || row.courseId))
       .filter(Boolean);
     const paidCourseIdSet = new Set(enrollmentCourseIds);
     const resolvedCourseIds = [
@@ -561,16 +569,32 @@ const buildStudentClassAndCourseData = ({
       enrollments,
       progressRows,
     });
+    const classStatus = getClassStatus(classData);
+    const isExpired = classStatus === "expired";
+    const isUpcoming = classStatus === "upcoming";
+    const isFull = classStatus === "full";
+    const canEnroll = !isExpired && !isFull;
+    const canLearn = !isExpired && !isUpcoming;
+    const today = toDateOnly(new Date());
+    const startDateOnly = toDateOnly(classData.startDate);
+    const endDateOnly = toDateOnly(classData.endDate);
+    const daysUntilStart = startDateOnly && today
+      ? Math.ceil((startDateOnly.getTime() - today.getTime()) / 86400000)
+      : null;
+    const daysUntilEnd = endDateOnly && today
+      ? Math.ceil((endDateOnly.getTime() - today.getTime()) / 86400000)
+      : null;
 
     const classCourses = resolvedCourseIds.map((courseId) => {
       const cleanCourseId = trimText(courseId);
       const course = courseMap[cleanCourseId] || {};
       const enrollment = activeEnrollmentRows.find((row) => {
         const rowClassId = trimText(row.classId);
-        const rowCourseId = trimText(row.courseId);
+        const rowCourseId = trimText(row.subjectId || row.courseId);
         return rowCourseId === cleanCourseId && (!rowClassId || rowClassId === classId);
       });
       const isPaymentLocked = !Boolean(enrollment);
+      const classWindowLocked = isUpcoming || isExpired;
       const subjects = Array.isArray(course.subjects) ? course.subjects : [];
       const teacherName =
         trimText(course.teacherName) ||
@@ -585,14 +609,14 @@ const buildStudentClassAndCourseData = ({
             enrollment?.progress
           );
       const courseState = classCompletionState.courseCompletionRows.find(
-        (row) => row.courseId === cleanCourseId
+        (row) => trimText(row.subjectId || row.courseId) === cleanCourseId
       );
       const latestActivity = isPaymentLocked
         ? 0
         : progressRows
             .filter(
               (row) =>
-                trimText(row.courseId) === cleanCourseId || !trimText(row.courseId)
+                trimText(row.subjectId || row.courseId) === cleanCourseId || !trimText(row.subjectId || row.courseId)
             )
             .map(
               (row) =>
@@ -635,8 +659,13 @@ const buildStudentClassAndCourseData = ({
         progress,
         isCompleted: !isPaymentLocked && clampPercent(progress) >= 100,
         classCompleted: classCompletionState.completed,
-        classLocked: !isPaymentLocked && classCompletionState.isLocked,
-        canRewatch: !isPaymentLocked && !classCompletionState.isLocked,
+        classStatus,
+        classLocked:
+          !isPaymentLocked && (classCompletionState.isLocked || classWindowLocked),
+        canRewatch:
+          !isPaymentLocked &&
+          !classCompletionState.isLocked &&
+          !classWindowLocked,
         certificateEligible: !isPaymentLocked && classCompletionState.completed,
         courseCompletedInClass: !isPaymentLocked && Boolean(courseState?.completed),
         enrolledAt:
@@ -649,7 +678,11 @@ const buildStudentClassAndCourseData = ({
         latestActivity,
         paymentLockMessage: isPaymentLocked
           ? "Purchase this course to access content."
-          : "",
+          : classWindowLocked
+            ? isUpcoming
+              ? "Class has not started yet."
+              : "Class has expired."
+            : "",
       };
 
       courseRows.push(payload);
@@ -676,7 +709,13 @@ const buildStudentClassAndCourseData = ({
       name: trimText(classData.name) || "Class",
       batchCode: trimText(classData.batchCode),
       description: trimText(classData.description),
-      status: getClassStatus(classData),
+      status: classStatus,
+      classStatus,
+      canEnroll,
+      canLearn,
+      isExpired,
+      isUpcoming,
+      isFull,
       isCompletedWindow: classCompletionState.completed,
       isLockedAfterCompletion: classCompletionState.isLocked,
       canRewatch: !classCompletionState.isLocked,
@@ -691,6 +730,8 @@ const buildStudentClassAndCourseData = ({
       enrolledCount: Array.isArray(classData.students) ? classData.students.length : 0,
       startDate: toIso(classData.startDate),
       endDate: toIso(classData.endDate),
+      daysUntilStart,
+      daysUntilEnd,
       shiftId: trimText(shift?.id),
       shiftName: trimText(shift?.name),
       shiftDays: Array.isArray(shift?.days) ? shift.days : [],
@@ -713,7 +754,13 @@ const getCourseDocsByIds = async (courseIds = []) => {
   if (!uniqueIds.length) return {};
 
   const snaps = await Promise.all(
-    uniqueIds.map((courseId) => db.collection(COLLECTIONS.COURSES).doc(courseId).get())
+    uniqueIds.map(async (courseId) => {
+      const [subjectSnap, courseSnap] = await Promise.all([
+        db.collection(COLLECTIONS.SUBJECTS).doc(courseId).get(),
+        db.collection(COLLECTIONS.COURSES).doc(courseId).get(),
+      ]);
+      return subjectSnap.exists ? subjectSnap : courseSnap;
+    })
   );
   return snaps.reduce((acc, snap) => {
     if (snap.exists) acc[snap.id] = snap.data() || {};
@@ -731,23 +778,29 @@ const getProgressRowsForStudent = async (uid, courseId = "") => {
   const cleanCourseId = trimText(courseId);
   if (!cleanCourseId) return rows;
   return rows.filter(
-    (row) => trimText(row.courseId) === cleanCourseId || !trimText(row.courseId)
+    (row) => trimText(row.subjectId || row.courseId) === cleanCourseId || !trimText(row.subjectId || row.courseId)
   );
 };
 
 const getCourseLectures = async (courseId) => {
-  const byCourseSnap = await db
-    .collection(COLLECTIONS.LECTURES)
-    .where("courseId", "==", courseId)
-    .get();
-  const byCourse = byCourseSnap.docs.map((doc) => ({ id: doc.id, ...(doc.data() || {}) }));
+  const [byCourseSnap, bySubjectSnap] = await Promise.all([
+    db.collection(COLLECTIONS.LECTURES).where("courseId", "==", courseId).get(),
+    db.collection(COLLECTIONS.LECTURES).where("subjectId", "==", courseId).get(),
+  ]);
+  const byCourse = [...byCourseSnap.docs, ...bySubjectSnap.docs]
+    .map((doc) => ({ id: doc.id, ...(doc.data() || {}) }))
+    .filter(
+      (row, index, arr) => arr.findIndex((entry) => trimText(entry.id) === trimText(row.id)) === index
+    );
   if (byCourse.length > 0) return byCourse;
 
-  const chaptersSnap = await db
-    .collection(COLLECTIONS.CHAPTERS)
-    .where("courseId", "==", courseId)
-    .get();
-  const chapterIds = chaptersSnap.docs.map((doc) => doc.id);
+  const [chaptersByCourseSnap, chaptersBySubjectSnap] = await Promise.all([
+    db.collection(COLLECTIONS.CHAPTERS).where("courseId", "==", courseId).get(),
+    db.collection(COLLECTIONS.CHAPTERS).where("subjectId", "==", courseId).get(),
+  ]);
+  const chapterIds = [...chaptersByCourseSnap.docs, ...chaptersBySubjectSnap.docs].map(
+    (doc) => doc.id
+  );
   if (!chapterIds.length) return [];
 
   const lectureChunks = await Promise.all(
@@ -762,7 +815,7 @@ const getCourseLectures = async (courseId) => {
 
 const normalizeProgressPercent = (progressRows = [], courseId = "", fallback = 0) => {
   const cleanCourseId = trimText(courseId);
-  const direct = progressRows.find((row) => trimText(row.courseId) === cleanCourseId);
+  const direct = progressRows.find((row) => trimText(row.subjectId || row.courseId) === cleanCourseId);
   const directPercent = Number(
     direct?.progress ?? direct?.progressPercent ?? direct?.completionPercent
   );
@@ -771,7 +824,7 @@ const normalizeProgressPercent = (progressRows = [], courseId = "", fallback = 0
   const lectureRows = progressRows.filter(
     (row) =>
       trimText(row.lectureId) &&
-      (!trimText(row.courseId) || trimText(row.courseId) === cleanCourseId)
+      (!trimText(row.subjectId || row.courseId) || trimText(row.subjectId || row.courseId) === cleanCourseId)
   );
   if (lectureRows.length > 0) {
     const byLectureId = lectureRows.reduce((acc, row) => {
@@ -825,7 +878,7 @@ const buildLectureProgressMap = (progressRows = [], courseId = "") => {
   progressRows.forEach((row) => {
     const lectureId = trimText(row.lectureId);
     if (!lectureId) return;
-    if (trimText(row.courseId) && trimText(row.courseId) !== cleanCourseId) return;
+    if (trimText(row.subjectId || row.courseId) && trimText(row.subjectId || row.courseId) !== cleanCourseId) return;
     map[lectureId] = {
       isCompleted: Boolean(
         row.isCompleted ||
@@ -1061,7 +1114,7 @@ const getApprovedFinalQuizCourseIds = async (studentId = "") => {
   const courseIds = snap.docs
     .map((doc) => doc.data() || {})
     .filter((row) => allowedStatuses.has(lowerText(row.status || "")))
-    .map((row) => trimText(row.courseId))
+    .map((row) => trimText(row.subjectId || row.courseId))
     .filter(Boolean);
 
   return new Set(courseIds);
@@ -1369,7 +1422,7 @@ export const getStudentDashboard = async (req, res) => {
       ...new Set(
         allClassRows
           .flatMap((row) => getStudentCourseIdsFromClassRow(row, uid))
-          .concat(enrollments.map((row) => trimText(row.courseId)))
+          .concat(enrollments.map((row) => trimText(row.subjectId || row.courseId)))
           .filter(Boolean)
       ),
     ];
@@ -1406,7 +1459,7 @@ export const getStudentDashboard = async (req, res) => {
       [...paidCourseRows].sort((a, b) => b.latestActivity - a.latestActivity)[0] ||
       null;
 
-    const courseIdSet = new Set(courseRows.map((row) => trimText(row.courseId)).filter(Boolean));
+    const courseIdSet = new Set(courseRows.map((row) => trimText(row.subjectId || row.courseId)).filter(Boolean));
     const classIdSet = new Set(classRows.map((row) => trimText(row.classId)).filter(Boolean));
     const classNameById = classRows.reduce((acc, row) => {
       acc[trimText(row.classId)] = trimText(row.name);
@@ -1525,6 +1578,7 @@ export const getStudentDashboard = async (req, res) => {
           classId: row.classId,
           className: row.className,
           batchCode: row.batchCode,
+          subjectId: row.courseId,
           courseId: row.courseId,
           title: row.title,
           thumbnail: row.thumbnail,
@@ -1542,6 +1596,7 @@ export const getStudentDashboard = async (req, res) => {
               classId: lastAccessed.classId,
               className: lastAccessed.className,
               batchCode: lastAccessed.batchCode,
+              subjectId: lastAccessed.courseId,
               courseId: lastAccessed.courseId,
               title: lastAccessed.title,
               thumbnail: lastAccessed.thumbnail,
@@ -1632,7 +1687,7 @@ export const getStudentCourses = async (req, res) => {
       ...new Set(
         classRows
           .flatMap((row) => getStudentCourseIdsFromClassRow(row, uid))
-          .concat(enrollments.map((row) => trimText(row.courseId)))
+          .concat(enrollments.map((row) => trimText(row.subjectId || row.courseId)))
           .filter(Boolean)
       ),
     ];
@@ -3367,7 +3422,7 @@ const buildStudentAttendancePayload = async (uid = "") => {
       (row) =>
         trimText(row.studentId) === cleanUid &&
         trimText(row.classId) === classId &&
-        (!resolvedCourseIds.length || resolvedCourseIds.includes(trimText(row.courseId)))
+        (!resolvedCourseIds.length || resolvedCourseIds.includes(trimText(row.subjectId || row.courseId)))
     );
 
     const windowStart = maxDate([
@@ -3996,3 +4051,4 @@ export const updateStudentSettings = async (req, res) => {
     return errorResponse(res, "Failed to update student settings", 500);
   }
 };
+

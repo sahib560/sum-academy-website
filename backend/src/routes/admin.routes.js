@@ -123,11 +123,18 @@ router.patch(
 );
 
 router.get("/courses", adminOnly, adminController.getCourses);
+router.get("/subjects", adminOnly, adminController.getCourses);
 router.get("/videos", adminOnly, adminController.getVideoLibrary);
 router.post("/videos", adminOnly, adminController.createVideoLibraryItem);
 router.post("/courses", adminOnly, adminController.createCourse);
+router.post("/subjects", adminOnly, adminController.createCourse);
 router.put(
   "/courses/:courseId",
+  adminOnly,
+  adminController.updateCourse
+);
+router.put(
+  "/subjects/:courseId",
   adminOnly,
   adminController.updateCourse
 );
@@ -136,8 +143,18 @@ router.patch(
   adminOnly,
   adminController.updateCourse
 );
+router.patch(
+  "/subjects/:courseId",
+  adminOnly,
+  adminController.updateCourse
+);
 router.delete(
   "/courses/:courseId",
+  adminOnly,
+  adminController.deleteCourse
+);
+router.delete(
+  "/subjects/:courseId",
   adminOnly,
   adminController.deleteCourse
 );
@@ -179,6 +196,11 @@ router.put(
   adminOnly,
   adminController.updateClass
 );
+router.patch(
+  "/classes/:classId/reopen",
+  adminOnly,
+  adminController.reopenClass
+);
 router.delete(
   "/classes/:classId",
   adminOnly,
@@ -189,8 +211,18 @@ router.post(
   adminOnly,
   adminController.addClassCourse
 );
+router.post(
+  "/classes/:classId/subjects",
+  adminOnly,
+  adminController.addClassCourse
+);
 router.delete(
   "/classes/:classId/courses/:courseId",
+  adminOnly,
+  adminController.removeClassCourse
+);
+router.delete(
+  "/classes/:classId/subjects/:courseId",
   adminOnly,
   adminController.removeClassCourse
 );
