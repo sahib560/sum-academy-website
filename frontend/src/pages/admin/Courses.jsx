@@ -440,6 +440,10 @@ function Courses() {
 
     return errors;
   }, [form]);
+  const stepOneErrors = useMemo(() => {
+    const { teacherId: _ignore, ...rest } = basicErrors;
+    return rest;
+  }, [basicErrors]);
 
   useEffect(() => {
     if (!drawerCourse) return;
@@ -1269,12 +1273,14 @@ function Courses() {
                 onClick={() => {
                   setTouched({
                     title: true,
-                    shortDescription: true,
                     description: true,
                     price: true,
                     discountPercent: true,
                   });
-                  if (Object.keys(basicErrors).length) return;
+                  if (Object.keys(stepOneErrors).length) {
+                    toast.error("Please fix validation errors.");
+                    return;
+                  }
                   setStep(2);
                 }}
                 className="btn-primary"
