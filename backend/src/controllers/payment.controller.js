@@ -14,6 +14,8 @@ import {
 
 const { FieldValue } = admin.firestore;
 
+const lowerText = (value = "") => String(value || "").trim().toLowerCase();
+
 const toNumber = (value, fallback = 0) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
