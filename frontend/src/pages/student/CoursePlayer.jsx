@@ -963,14 +963,60 @@ function StudentCoursePlayer() {
                   }}
                   onEnded={(event) => {
                     const media = event.currentTarget;
-                    const endTime = Math.max(0, toNumber(media.duration, 0));
+                    const mediaDuration = Math.max(
+                      0,
+                      toNumber(media.duration, 0)
+                    );
+                    const mediaCurrent = Math.max(
+                      0,
+                      toNumber(media.currentTime, 0)
+                    );
+                    const endTime = Math.max(
+                      mediaDuration,
+                      mediaCurrent,
+                      Math.max(0, toNumber(durationRef.current, 0))
+                    );
                     setIsPlaying(false);
                     setCurrentTime(endTime);
                     setMaxWatchedSeconds((previous) => Math.max(previous, endTime));
                     currentTimeRef.current = endTime;
-                    durationRef.current = Math.max(durationRef.current, endTime);
+                    durationRef.current = Math.max(
+                      toNumber(durationRef.current, 0),
+                      endTime,
+                      1
+                    );
                     watchedPercentRef.current = 100;
                     void flushWatchProgress({ force: true });
+
+                    if (
+                      !courseId ||
+                      !currentLecture?.lectureId ||
+                      classCompletionLocked ||
+                      securityLocked ||
+                      currentLecture.isLocked ||
+                      currentLecture.isCompleted ||
+                      markCompleteMutation.isPending
+                    ) {
+                      return;
+                    }
+
+                    const autoKey = `${courseId}:${currentLecture.lectureId}`;
+                    if (autoCompletedLectureRef.current === autoKey) {
+                      return;
+                    }
+                    autoCompletedLectureRef.current = autoKey;
+
+                    markCompleteMutation.mutate({
+                      courseId,
+                      lectureId: currentLecture.lectureId,
+                      watchedPercent: 100,
+                      currentTimeSec: Math.round(
+                        Math.max(0, toNumber(currentTimeRef.current, 0))
+                      ),
+                      durationSec: Math.round(
+                        Math.max(1, toNumber(durationRef.current, 0))
+                      ),
+                    });
                   }}
                   onError={() => {
                     setVideoLoadError("Unable to play this video right now.");

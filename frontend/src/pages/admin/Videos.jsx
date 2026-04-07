@@ -73,14 +73,15 @@ function AdminVideos() {
 
   const submitVideo = () => {
     if (!title.trim()) return toast.error("Video title is required");
-    if (!courseId) return toast.error("Select course");
-    if (!teacherId) return toast.error("Select teacher");
+    if (!courseId) return toast.error("Select subject");
+    if (!teacherId) return toast.error("Selected subject has no assigned teacher");
     if (!uploadedVideo?.url) return toast.error("Upload video first");
 
     createMutation.mutate({
       title: title.trim(),
       url: uploadedVideo.url,
       courseId,
+      subjectId: courseId,
       courseName: selectedCourse?.title || "",
       teacherId,
       teacherName: selectedTeacher?.fullName || "",
@@ -98,7 +99,7 @@ function AdminVideos() {
       <section>
         <h1 className="font-heading text-3xl text-slate-900">Video Library</h1>
         <p className="mt-1 text-sm text-slate-500">
-          Upload once, then attach videos in course content by title and URL.
+          Upload once, then attach videos in subject content by title and URL.
         </p>
       </section>
 
@@ -116,34 +117,44 @@ function AdminVideos() {
             />
           </div>
           <div>
-            <label className="text-sm font-semibold text-slate-700">Course</label>
+            <label className="text-sm font-semibold text-slate-700">Subject</label>
             <select
               value={courseId}
-              onChange={(event) => setCourseId(event.target.value)}
+              onChange={(event) => {
+                const nextCourseId = event.target.value;
+                const nextCourse =
+                  courses.find((row) => String(row.id) === String(nextCourseId)) || null;
+                const nextTeacherId = String(nextCourse?.teacherId || "").trim();
+                setCourseId(nextCourseId);
+                setTeacherId(nextTeacherId);
+                setUploadedVideo(null);
+              }}
               className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-2 text-sm"
             >
-              <option value="">Select course</option>
+              <option value="">Select subject</option>
               {courses.map((row) => (
                 <option key={row.id} value={row.id}>
-                  {row.title || "Course"}
+                  {row.title || "Subject"}
                 </option>
               ))}
             </select>
           </div>
           <div>
-            <label className="text-sm font-semibold text-slate-700">Teacher</label>
-            <select
-              value={teacherId}
-              onChange={(event) => setTeacherId(event.target.value)}
-              className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-2 text-sm"
-            >
-              <option value="">Select teacher</option>
-              {teachers.map((row) => (
-                <option key={row.uid || row.id} value={row.uid || row.id}>
-                  {row.fullName || row.name || row.email || "Teacher"}
-                </option>
-              ))}
-            </select>
+            <label className="text-sm font-semibold text-slate-700">
+              Assigned Teacher (Auto)
+            </label>
+            <input
+              type="text"
+              value={
+                selectedTeacher?.fullName ||
+                selectedTeacher?.name ||
+                selectedTeacher?.email ||
+                selectedCourse?.teacherName ||
+                "No teacher assigned to this subject"
+              }
+              readOnly
+              className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2 text-sm text-slate-600"
+            />
           </div>
           <div className="md:col-span-2">
             <label className="inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
@@ -165,7 +176,7 @@ function AdminVideos() {
             label="Upload Course Video"
             hint="MP4, AVI, MOV - max 2GB"
             onUpload={async (file, { onProgress }) => {
-              if (!courseId) throw new Error("Select course first");
+              if (!courseId) throw new Error("Select subject first");
               const path = `videos/library/${courseId}/${Date.now()}-${file.name}`;
               const result = await uploadToStorage({ file, path, onProgress });
               setUploadedVideo(result);
@@ -206,7 +217,8 @@ function AdminVideos() {
               >
                 <p className="font-semibold text-slate-900">{row.title || "Video"}</p>
                 <p className="mt-1 text-xs text-slate-500">
-                  {row.courseName || "Course"} - {row.teacherName || "Teacher"} -{" "}
+                  {row.subjectName || row.courseName || "Subject"} -{" "}
+                  {row.teacherName || "Teacher"} -{" "}
                   {toDateText(row.createdAt)}
                 </p>
                 <div className="mt-2">

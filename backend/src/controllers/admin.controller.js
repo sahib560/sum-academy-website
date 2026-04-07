@@ -2931,7 +2931,7 @@ export const createVideoLibraryItem = async (req, res) => {
       return errorResponse(res, "subjectId/courseId is required", 400);
     }
 
-    const [subjectMeta, teacherSnap] = await Promise.all([
+    const [subjectMeta, requestedTeacherSnap] = await Promise.all([
       getCourseMeta(cleanCourseId),
       String(teacherId).trim()
         ? db.collection(COLLECTIONS.TEACHERS).doc(String(teacherId).trim()).get()
@@ -2942,13 +2942,25 @@ export const createVideoLibraryItem = async (req, res) => {
       return errorResponse(res, "Subject not found", 404);
     }
 
+    const subjectTeacherId = String(subjectMeta.teacherId || "").trim();
+    const requestedTeacherId = String(teacherId || "").trim();
+    const resolvedTeacherId = subjectTeacherId || requestedTeacherId;
+    if (!resolvedTeacherId) {
+      return errorResponse(res, "Selected subject has no assigned teacher", 400);
+    }
+    const resolvedTeacherSnap =
+      requestedTeacherSnap?.exists && requestedTeacherId === resolvedTeacherId
+        ? requestedTeacherSnap
+        : await db.collection(COLLECTIONS.TEACHERS).doc(resolvedTeacherId).get();
+
     const resolvedCourseName =
       String(courseName).trim() ||
       String(subjectMeta.courseName || subjectMeta.subjectName || "").trim() ||
       "Subject";
     const resolvedTeacherName =
       String(teacherName).trim() ||
-      String(teacherSnap?.data?.()?.fullName || "").trim() ||
+      String(subjectMeta.teacherName || "").trim() ||
+      String(resolvedTeacherSnap?.data?.()?.fullName || "").trim() ||
       String(subjectMeta.teacherName || "").trim() ||
       "Teacher";
     const requestedLive = parseNullableBoolean(isLiveSession);
@@ -2964,7 +2976,7 @@ export const createVideoLibraryItem = async (req, res) => {
       subjectId: cleanCourseId,
       courseName: resolvedCourseName,
       subjectName: resolvedCourseName,
-      teacherId: String(teacherId).trim(),
+      teacherId: resolvedTeacherId,
       teacherName: resolvedTeacherName,
       videoMode: isLiveFlag ? "live_session" : "recorded",
       isLiveSession: isLiveFlag,

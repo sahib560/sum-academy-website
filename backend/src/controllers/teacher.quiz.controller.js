@@ -254,17 +254,55 @@ const getTeacherCourseSubjectContext = async (
   chapterId = "",
   role = "teacher"
 ) => {
-  const courseSnap = await db.collection(COLLECTIONS.COURSES).doc(courseId).get();
-  if (!courseSnap.exists) return { error: "Course not found", status: 404 };
-  const courseData = courseSnap.data() || {};
+  const cleanCourseId = trimText(courseId);
+  const cleanSubjectId = trimText(subjectId);
+  const [courseSnap, subjectSnap] = await Promise.all([
+    db.collection(COLLECTIONS.COURSES).doc(cleanCourseId).get(),
+    db.collection(COLLECTIONS.SUBJECTS).doc(cleanCourseId).get(),
+  ]);
+  if (!courseSnap.exists && !subjectSnap.exists) {
+    return { error: "Subject/Course not found", status: 404 };
+  }
 
-  const subjects = Array.isArray(courseData.subjects) ? courseData.subjects : [];
-  const subject = subjects.find(
-    (entry) =>
-      trimText(entry.subjectId || entry.id) === subjectId ||
-      trimText(entry.id) === subjectId
-  );
-  if (!subject) return { error: "Subject not found in this course", status: 404 };
+  let courseData = {};
+  let subject = null;
+
+  if (courseSnap.exists) {
+    courseData = courseSnap.data() || {};
+    const subjects = Array.isArray(courseData.subjects) ? courseData.subjects : [];
+    subject = subjects.find(
+      (entry) =>
+        trimText(entry.subjectId || entry.id) === cleanSubjectId ||
+        trimText(entry.id) === cleanSubjectId
+    );
+    if (!subject) return { error: "Subject not found in this course", status: 404 };
+  } else {
+    const subjectData = subjectSnap.data() || {};
+    const subjectTitle =
+      trimText(subjectData.title || subjectData.subjectName || subjectData.courseName) ||
+      "Subject";
+    const subjectTeacherId = trimText(subjectData.teacherId);
+    const subjectTeacherName = trimText(subjectData.teacherName) || "Teacher";
+    const effectiveSubjectId = cleanSubjectId || cleanCourseId;
+    courseData = {
+      id: cleanCourseId,
+      title: subjectTitle,
+      teacherId: subjectTeacherId,
+      teacherName: subjectTeacherName,
+      subjects: [
+        {
+          id: effectiveSubjectId,
+          subjectId: effectiveSubjectId,
+          name: subjectTitle,
+          subjectName: subjectTitle,
+          teacherId: subjectTeacherId,
+          teacherName: subjectTeacherName,
+          order: 1,
+        },
+      ],
+    };
+    subject = courseData.subjects[0];
+  }
 
   if (role !== "admin") {
     const subjectTeacherId = trimText(subject.teacherId);
@@ -278,10 +316,12 @@ const getTeacherCourseSubjectContext = async (
     const chapterSnap = await db.collection(COLLECTIONS.CHAPTERS).doc(chapterId).get();
     if (!chapterSnap.exists) return { error: "Chapter not found", status: 404 };
     chapterData = chapterSnap.data() || {};
-    if (trimText(chapterData.courseId) !== courseId) {
+    const chapterCourseId = trimText(chapterData.courseId);
+    const chapterSubjectId = trimText(chapterData.subjectId);
+    if (chapterCourseId && chapterCourseId !== cleanCourseId) {
       return { error: "Chapter does not belong to this course", status: 400 };
     }
-    if (trimText(chapterData.subjectId) !== subjectId) {
+    if (chapterSubjectId && chapterSubjectId !== cleanSubjectId) {
       return { error: "Chapter does not belong to this subject", status: 400 };
     }
   }
@@ -334,15 +374,30 @@ const getClassStudentIds = (classData = {}) => {
 };
 
 const getClassAssignedCourseIds = (classData = {}) => {
+  const assignedSubjects = Array.isArray(classData.assignedSubjects)
+    ? classData.assignedSubjects
+    : [];
+  const subjectIds = assignedSubjects
+    .map((entry) =>
+      typeof entry === "string"
+        ? trimText(entry)
+        : trimText(entry?.subjectId || entry?.courseId || entry?.id)
+    )
+    .filter(Boolean);
+
   const assigned = Array.isArray(classData.assignedCourses) ? classData.assignedCourses : [];
   const ids = assigned
     .map((entry) =>
-      typeof entry === "string" ? trimText(entry) : trimText(entry?.courseId || entry?.id)
+      typeof entry === "string"
+        ? trimText(entry)
+        : trimText(entry?.subjectId || entry?.courseId || entry?.id)
     )
     .filter(Boolean);
   const fallbackCourseId = trimText(classData.courseId);
+  const fallbackSubjectId = trimText(classData.subjectId);
+  if (fallbackSubjectId) ids.push(fallbackSubjectId);
   if (fallbackCourseId) ids.push(fallbackCourseId);
-  return [...new Set(ids)];
+  return [...new Set([...subjectIds, ...ids])];
 };
 
 const getStudentIdsForCourse = async (courseId = "") => {
@@ -350,12 +405,21 @@ const getStudentIdsForCourse = async (courseId = "") => {
   if (!cleanCourseId) return [];
 
   const statuses = new Set(["", "active", "completed", "pending_review"]);
-  const enrollmentSnap = await db
-    .collection(COLLECTIONS.ENROLLMENTS)
-    .where("courseId", "==", cleanCourseId)
-    .get();
-  const fromEnrollments = enrollmentSnap.docs
-    .map((doc) => doc.data() || {})
+  const [enrollmentByCourseSnap, enrollmentBySubjectSnap] = await Promise.all([
+    db
+      .collection(COLLECTIONS.ENROLLMENTS)
+      .where("courseId", "==", cleanCourseId)
+      .get(),
+    db
+      .collection(COLLECTIONS.ENROLLMENTS)
+      .where("subjectId", "==", cleanCourseId)
+      .get(),
+  ]);
+  const enrollmentRows = [
+    ...enrollmentByCourseSnap.docs.map((doc) => ({ id: doc.id, ...(doc.data() || {}) })),
+    ...enrollmentBySubjectSnap.docs.map((doc) => ({ id: doc.id, ...(doc.data() || {}) })),
+  ];
+  const fromEnrollments = [...new Map(enrollmentRows.map((row) => [row.id, row])).values()]
     .filter((row) => statuses.has(lowerText(row.status || "active")))
     .map((row) => trimText(row.studentId))
     .filter(Boolean);
@@ -375,6 +439,7 @@ const getStudentIdsForCourse = async (courseId = "") => {
     const hasCourse = enrolledCourses.some((entry) => {
       if (typeof entry === "string") return trimText(entry) === cleanCourseId;
       return (
+        trimText(entry?.subjectId) === cleanCourseId ||
         trimText(entry?.courseId) === cleanCourseId ||
         trimText(entry?.id) === cleanCourseId
       );

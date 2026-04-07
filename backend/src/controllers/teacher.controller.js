@@ -194,18 +194,13 @@ export const getTeacherDashboard = async (req, res) => {
       return errorResponse(res, "Missing teacher uid", 400);
     }
 
-    const [coursesSnap, classesSnap, enrollmentsSnap, quizResultsSnap] =
+    const [allCourses, classesSnap, enrollmentsSnap, quizResultsSnap] =
       await Promise.all([
-        db.collection(COLLECTIONS.COURSES).get(),
+        getUnifiedCourseRows(),
         db.collection(COLLECTIONS.CLASSES).get(),
         db.collection(COLLECTIONS.ENROLLMENTS).get(),
         db.collection(COLLECTIONS.QUIZ_RESULTS).get(),
       ]);
-
-    const allCourses = coursesSnap.docs.map((doc) => ({
-      id: doc.id,
-      data: doc.data() || {},
-    }));
 
     const teacherOwnedCourseIds = new Set(
       normalizeTeacherCourseIds(allCourses, teacherId)
@@ -316,7 +311,8 @@ export const getTeacherDashboard = async (req, res) => {
 
         return {
           id: course.id,
-          title: data.title || "Untitled Course",
+          title:
+            trimText(data.title || data.subjectName || data.courseName) || "Untitled Subject",
           enrolled: fallbackEnrolled,
           completion: Math.max(0, Math.min(100, avgCompletion)),
           status: capitalize(data.status || "draft"),
@@ -355,8 +351,10 @@ export const getTeacherDashboard = async (req, res) => {
         const studentDoc = studentById[studentId] || {};
         const userDoc = userById[studentId] || {};
         const studentName = resolveStudentName(studentDoc, userDoc);
+        const courseMeta = courseMetaById[String(row.courseId || "")] || {};
         const courseName =
-          courseMetaById[String(row.courseId || "")]?.title || "Course";
+          trimText(courseMeta.title || courseMeta.subjectName || courseMeta.courseName) ||
+          "Subject";
 
         const items = [];
         const enrolledAt = toIso(row.createdAt);
@@ -585,7 +583,7 @@ const getTeacherCourseIdsFromClassData = (
 
   const shiftCourses = (Array.isArray(classData.shifts) ? classData.shifts : [])
     .filter((shift) => trimText(shift?.teacherId) === cleanUid)
-    .map((shift) => trimText(shift?.courseId))
+    .map((shift) => trimText(shift?.subjectId || shift?.courseId))
     .filter(Boolean);
   if (shiftCourses.length) return [...new Set(shiftCourses)];
 
@@ -861,6 +859,56 @@ const buildCourseLikeDataFromSubject = (id, data = {}) => {
   };
 };
 
+const mergeCourseAndSubjectData = (id, legacyCourseData = {}, subjectData = {}) => {
+  const courseData = legacyCourseData || {};
+  const subjectLike = buildCourseLikeDataFromSubject(id, subjectData || {});
+  const mergedTitle =
+    trimText(subjectLike.title || courseData.title || courseData.subjectName || courseData.courseName) ||
+    "Untitled Subject";
+  const mergedCategory =
+    trimText(subjectLike.category || courseData.category || subjectLike.subjectName || courseData.subjectName) ||
+    "General";
+
+  return {
+    ...courseData,
+    ...subjectLike,
+    title: mergedTitle,
+    category: mergedCategory,
+    teacherId: trimText(subjectLike.teacherId || courseData.teacherId),
+    teacherName: trimText(subjectLike.teacherName || courseData.teacherName || "Teacher") || "Teacher",
+    subjects:
+      Array.isArray(subjectLike.subjects) && subjectLike.subjects.length > 0
+        ? subjectLike.subjects
+        : Array.isArray(courseData.subjects)
+          ? courseData.subjects
+          : [],
+    price: toPositiveNumber(subjectLike.price ?? courseData.price, 0),
+    discountPercent: toPositiveNumber(
+      subjectLike.discountPercent ?? courseData.discountPercent ?? courseData.discount,
+      0
+    ),
+    enrollmentCount: Math.max(
+      toPositiveNumber(courseData.enrollmentCount, 0),
+      toPositiveNumber(subjectLike.enrollmentCount, 0)
+    ),
+    completionCount: Math.max(
+      toPositiveNumber(courseData.completionCount, 0),
+      toPositiveNumber(subjectLike.completionCount, 0)
+    ),
+    rating: toPositiveNumber(courseData.rating ?? subjectLike.rating, 0),
+    ratingCount: Math.max(
+      toPositiveNumber(courseData.ratingCount, 0),
+      toPositiveNumber(subjectLike.ratingCount, 0)
+    ),
+    hasCertificate:
+      courseData.hasCertificate === false || subjectLike.hasCertificate === false ? false : true,
+    createdAt: courseData.createdAt || subjectLike.createdAt || null,
+    updatedAt: courseData.updatedAt || subjectLike.updatedAt || null,
+    __docId: id,
+    __source: "merged_subject_course",
+  };
+};
+
 const getUnifiedCourseRows = async () => {
   const [coursesSnap, subjectsSnap] = await Promise.all([
     db.collection(COLLECTIONS.COURSES).get(),
@@ -880,10 +928,17 @@ const getUnifiedCourseRows = async () => {
   });
 
   subjectsSnap.docs.forEach((doc) => {
-    if (rowsById[doc.id]) return;
+    const subjectData = doc.data() || {};
+    if (rowsById[doc.id]) {
+      rowsById[doc.id] = {
+        id: doc.id,
+        data: mergeCourseAndSubjectData(doc.id, rowsById[doc.id].data || {}, subjectData),
+      };
+      return;
+    }
     rowsById[doc.id] = {
       id: doc.id,
-      data: buildCourseLikeDataFromSubject(doc.id, doc.data() || {}),
+      data: buildCourseLikeDataFromSubject(doc.id, subjectData),
     };
   });
 
@@ -894,10 +949,10 @@ const serializeCourse = (id, data = {}) => {
   const subjects = Array.isArray(data.subjects) ? data.subjects : [];
   return {
     id,
-    title: data.title || "",
+    title: trimText(data.title || data.subjectName || data.courseName),
     description: data.description || "",
     shortDescription: data.shortDescription || "",
-    category: data.category || "",
+    category: trimText(data.category || data.subjectName),
     level: data.level || "beginner",
     status: lowerText(data.status || "draft") || "draft",
     thumbnail: data.thumbnail || null,
@@ -1545,15 +1600,17 @@ export const getTeacherCourses = async (req, res) => {
       const mappedCourses = courseRows
         .map((row) => {
           const course = serializeCourse(row.id, row.data);
+          const mySubjects = getAllCourseSubjects(row.data);
+          const firstSubjectName = trimText(mySubjects[0]?.subjectName);
           return {
             id: course.id,
-            title: course.title,
-            category: course.category,
+            title: trimText(course.title) || firstSubjectName || "Untitled Subject",
+            category: trimText(course.category) || firstSubjectName || "General",
             level: course.level,
             status: course.status,
             thumbnail: course.thumbnail,
             price: course.price,
-            mySubjects: getAllCourseSubjects(row.data),
+            mySubjects,
             enrollmentCount: course.enrollmentCount,
             classes: classesByCourseId[course.id] || [],
             createdAt: course.createdAt,
@@ -1614,10 +1671,11 @@ export const getTeacherCourses = async (req, res) => {
             : isLegacyOwner || isClassLinked
               ? getAllCourseSubjects(row.data)
               : [];
+        const firstSubjectName = trimText(mySubjects[0]?.subjectName);
         return {
           id: course.id,
-          title: course.title,
-          category: course.category,
+          title: trimText(course.title) || firstSubjectName || "Untitled Subject",
+          category: trimText(course.category) || firstSubjectName || "General",
           level: course.level,
           status: course.status,
           thumbnail: course.thumbnail,
@@ -2965,7 +3023,14 @@ const getTeacherAssignedCourses = async (uid) => {
 
   const courseIds = courses.map((row) => row.courseId);
   const courseNameById = Object.fromEntries(
-    courses.map((row) => [row.courseId, trimText(row.courseData?.title) || "Untitled Course"])
+    courses.map((row) => [
+      row.courseId,
+      trimText(
+        row.courseData?.title ||
+          row.courseData?.subjectName ||
+          row.mySubjects?.[0]?.subjectName
+      ) || "Untitled Subject",
+    ])
   );
   const subjectIdsByCourseId = Object.fromEntries(
     courses.map((row) => [
