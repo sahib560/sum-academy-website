@@ -815,7 +815,7 @@ const getLiveEnrollmentRowsForCourses = async (courseIds = []) => {
 const getLiveEnrollmentCountByCourse = async (courseIds = []) => {
   const rows = await getLiveEnrollmentRowsForCourses(courseIds);
   return rows.reduce((acc, row) => {
-    const courseId = trimText(row.courseId);
+    const courseId = trimText(row.subjectId || row.courseId);
     if (!courseId) return acc;
     acc[courseId] = (acc[courseId] || 0) + 1;
     return acc;
@@ -2559,7 +2559,11 @@ export const getCourseStudents = async (req, res) => {
             .get();
           const progressRow = snap.docs
             .map((doc) => doc.data() || {})
-            .find((row) => trimText(row.courseId) === courseId);
+            .find(
+              (row) =>
+                trimText(row.subjectId || row.courseId) === courseId &&
+                !trimText(row.lectureId)
+            );
           return [studentId, progressRow || null];
         })
       ),
@@ -2814,11 +2818,13 @@ export const getFinalQuizRequests = async (req, res) => {
     if (role !== "admin") {
       const teacherCourses = await getTeacherAssignedCourses(uid);
       const allowedCourseIds = new Set(teacherCourses.courseIds || []);
-      rows = rows.filter((row) => allowedCourseIds.has(trimText(row.courseId)));
+      rows = rows.filter((row) =>
+        allowedCourseIds.has(trimText(row.subjectId || row.courseId))
+      );
     }
 
     if (courseFilter) {
-      rows = rows.filter((row) => trimText(row.courseId) === courseFilter);
+      rows = rows.filter((row) => trimText(row.subjectId || row.courseId) === courseFilter);
     }
     if (statusFilter) {
       rows = rows.filter((row) => lowerText(row.status) === statusFilter);
@@ -2829,7 +2835,7 @@ export const getFinalQuizRequests = async (req, res) => {
       studentId: trimText(row.studentId),
       studentName: trimText(row.studentName) || "Student",
       studentEmail: trimText(row.studentEmail),
-      courseId: trimText(row.courseId),
+      courseId: trimText(row.subjectId || row.courseId),
       courseName: trimText(row.courseName) || "Course",
       status: lowerText(row.status || "pending"),
       notes: trimText(row.notes),
@@ -2892,15 +2898,21 @@ export const updateFinalQuizRequestStatus = async (req, res) => {
     );
 
     if (action === "approve") {
-      const courseId = trimText(requestData.courseId);
+      const courseId = trimText(requestData.subjectId || requestData.courseId);
       const studentId = trimText(requestData.studentId);
       if (courseId && studentId) {
-        const quizzesSnap = await db
-          .collection(COLLECTIONS.QUIZZES)
-          .where("courseId", "==", courseId)
-          .get();
+        const [byCourseSnap, bySubjectSnap] = await Promise.all([
+          db
+            .collection(COLLECTIONS.QUIZZES)
+            .where("courseId", "==", courseId)
+            .get(),
+          db
+            .collection(COLLECTIONS.QUIZZES)
+            .where("subjectId", "==", courseId)
+            .get(),
+        ]);
 
-        const finalQuizzes = quizzesSnap.docs.filter((doc) => {
+        const finalQuizzes = [...byCourseSnap.docs, ...bySubjectSnap.docs].filter((doc) => {
           const row = doc.data() || {};
           const status = lowerText(row.status || "active");
           return status === "active" && isFinalQuizEntry(row);
@@ -3065,10 +3077,14 @@ const getTeacherLectureRows = async (courseIds = [], subjectIdsByCourseId = {}) 
 const extractCourseProgress = (progressRows = [], courseId = "", fallbackProgress = 0) => {
   const cleanCourseId = trimText(courseId);
   const scopedRows = progressRows.filter(
-    (row) => trimText(row.courseId) === cleanCourseId || !trimText(row.courseId)
+    (row) => trimText(row.subjectId || row.courseId) === cleanCourseId
   );
 
-  const direct = scopedRows.find((row) => trimText(row.courseId) === cleanCourseId);
+  const direct = scopedRows.find(
+    (row) =>
+      trimText(row.subjectId || row.courseId) === cleanCourseId &&
+      !trimText(row.lectureId)
+  );
   const directProgress = Number(
     direct?.progress ?? direct?.progressPercent ?? direct?.completionPercent
   );
@@ -3077,16 +3093,46 @@ const extractCourseProgress = (progressRows = [], courseId = "", fallbackProgres
   if (scopedRows.length > 0) {
     const lectureRows = scopedRows.filter((row) => trimText(row.lectureId));
     if (lectureRows.length) {
-      const completed = lectureRows.filter((row) =>
-        Boolean(
+      const byLectureId = lectureRows.reduce((acc, row) => {
+        const lectureId = trimText(row.lectureId);
+        if (!lectureId) return acc;
+        const isCompleted = Boolean(
           row.isCompleted ||
             row.completed ||
             toPositiveNumber(row.progress, 0) >= 100 ||
             toPositiveNumber(row.progressPercent, 0) >= 100 ||
             toPositiveNumber(row.completionPercent, 0) >= 100
-        )
-      ).length;
-      return clampPercent((completed / lectureRows.length) * 100);
+        );
+        const rawPercent = Number(
+          row.watchedPercent ?? row.progress ?? row.progressPercent ?? row.completionPercent
+        );
+        const durationSec = Math.max(
+          0,
+          toPositiveNumber(row.durationSec ?? row.videoDurationSec ?? row.totalDurationSec, 0)
+        );
+        const currentTimeSec = Math.max(
+          0,
+          toPositiveNumber(row.currentTimeSec ?? row.resumeAtSeconds ?? row.lastPositionSec, 0)
+        );
+        const inferredPercent =
+          durationSec > 0 ? (Math.min(currentTimeSec, durationSec) / durationSec) * 100 : 0;
+        const weightedPercent = isCompleted
+          ? 100
+          : clampPercent(Number.isFinite(rawPercent) ? rawPercent : inferredPercent);
+
+        if (!acc[lectureId]) {
+          acc[lectureId] = weightedPercent;
+          return acc;
+        }
+        acc[lectureId] = Math.max(acc[lectureId], weightedPercent);
+        return acc;
+      }, {});
+
+      const scores = Object.values(byLectureId);
+      if (scores.length > 0) {
+        const total = scores.reduce((sum, score) => sum + toPositiveNumber(score, 0), 0);
+        return clampPercent(total / scores.length);
+      }
     }
   }
 
@@ -3117,7 +3163,7 @@ export const getTeacherStudents = async (req, res) => {
       enrollmentsSnap.docs.forEach((doc) => {
         const row = doc.data() || {};
         const studentId = trimText(row.studentId);
-        const courseId = trimText(row.courseId);
+        const courseId = trimText(row.subjectId || row.courseId);
         if (!studentId || !courseId) return;
         if (!Array.isArray(enrollmentsByStudent[studentId])) {
           enrollmentsByStudent[studentId] = [];
@@ -3290,12 +3336,14 @@ export const getTeacherStudents = async (req, res) => {
           : [];
 
         const enrolledCourses = studentEnrollments.map((enrollment) => {
-          const courseId = trimText(enrollment.courseId);
+          const courseId = trimText(enrollment.subjectId || enrollment.courseId);
           const progress = extractCourseProgress(progressRows, courseId, enrollment.progress);
           const completedAt =
             toIso(enrollment.completedAt) ||
             toIso(
-              progressRows.find((row) => trimText(row.courseId) === courseId)?.completedAt
+              progressRows.find(
+                (row) => trimText(row.subjectId || row.courseId) === courseId && !trimText(row.lectureId)
+              )?.completedAt
             );
           return {
             courseId,
@@ -3358,7 +3406,7 @@ const isLectureCompletedForStudent = (progressRows = [], courseId = "", lectureI
   const rowByLecture = progressRows.find(
     (row) =>
       trimText(row.lectureId) === cleanLectureId &&
-      (!trimText(row.courseId) || trimText(row.courseId) === cleanCourseId)
+      trimText(row.subjectId || row.courseId) === cleanCourseId
   );
   if (rowByLecture) {
     return Boolean(
@@ -3370,7 +3418,11 @@ const isLectureCompletedForStudent = (progressRows = [], courseId = "", lectureI
     );
   }
 
-  const courseRow = progressRows.find((row) => trimText(row.courseId) === cleanCourseId);
+  const courseRow = progressRows.find(
+    (row) =>
+      trimText(row.subjectId || row.courseId) === cleanCourseId &&
+      !trimText(row.lectureId)
+  );
   if (Array.isArray(courseRow?.completedLectureIds)) {
     return courseRow.completedLectureIds.some((id) => trimText(id) === cleanLectureId);
   }
@@ -3453,7 +3505,7 @@ export const getTeacherStudentById = async (req, res) => {
     const progressRows = progressSnap.docs.map((doc) => ({ id: doc.id, ...(doc.data() || {}) }));
     const quizRows = quizResultsSnap.docs
       .map((doc) => ({ id: doc.id, ...(doc.data() || {}) }))
-      .filter((row) => courseIds.includes(trimText(row.courseId)));
+      .filter((row) => courseIds.includes(trimText(row.subjectId || row.courseId)));
 
     const teacherClassIds = classesSnap.docs
       .map((doc) => ({ id: doc.id, ...(doc.data() || {}) }))
@@ -3464,7 +3516,7 @@ export const getTeacherStudentById = async (req, res) => {
       .filter(
         (row) =>
           teacherClassIds.includes(trimText(row.classId)) ||
-          courseIds.includes(trimText(row.courseId))
+          courseIds.includes(trimText(row.subjectId || row.courseId))
       );
 
     const teacherLectures = await getTeacherLectureRows(courseIds, subjectIdsByCourseId);
@@ -3486,7 +3538,7 @@ export const getTeacherStudentById = async (req, res) => {
       .filter((row) => teacherLectureIds.has(trimText(row.lectureId)));
 
     const enrolledCourses = enrollments.map((enrollment) => {
-      const courseId = trimText(enrollment.courseId);
+      const courseId = trimText(enrollment.subjectId || enrollment.courseId);
       const progress = extractCourseProgress(progressRows, courseId, enrollment.progress);
       return {
         courseId,
@@ -3495,7 +3547,11 @@ export const getTeacherStudentById = async (req, res) => {
         completedAt:
           toIso(enrollment.completedAt) ||
           toIso(
-            progressRows.find((row) => trimText(row.courseId) === courseId)?.completedAt
+            progressRows.find(
+              (row) =>
+                trimText(row.subjectId || row.courseId) === courseId &&
+                !trimText(row.lectureId)
+            )?.completedAt
           ),
         enrolledAt: toIso(enrollment.createdAt || enrollment.enrolledAt),
         classId: trimText(enrollment.classId),
@@ -3602,10 +3658,11 @@ export const getStudentProgress = async (req, res) => {
     const enrollmentSnap = await db
       .collection(COLLECTIONS.ENROLLMENTS)
       .where("studentId", "==", studentId)
-      .where("courseId", "==", courseId)
       .get();
-    let enrollment =
-      enrollmentSnap.empty ? null : enrollmentSnap.docs[0].data() || null;
+    const enrollmentRows = enrollmentSnap.docs.map((doc) => doc.data() || {});
+    let enrollment = enrollmentRows.find(
+      (row) => trimText(row.subjectId || row.courseId) === courseId
+    ) || null;
     if (!enrollment) {
       const classesSnap = await db.collection(COLLECTIONS.CLASSES).get();
       const classDocs = classesSnap.docs.map((doc) => ({
@@ -3661,7 +3718,7 @@ export const getStudentProgress = async (req, res) => {
       const lectureProgressRow = progressRows.find(
         (row) =>
           trimText(row.lectureId) === lecture.id &&
-          (!trimText(row.courseId) || trimText(row.courseId) === courseId)
+          trimText(row.subjectId || row.courseId) === courseId
       );
       return {
         lectureId: lecture.id,
@@ -3778,7 +3835,7 @@ export const getStudentAttendance = async (req, res) => {
       .map((doc) => ({ id: doc.id, ...(doc.data() || {}) }))
       .filter((row) => {
         if (!classCourseIds.length) return true;
-        return classCourseIds.includes(trimText(row.courseId));
+        return classCourseIds.includes(trimText(row.subjectId || row.courseId));
       });
 
     const courseMap = await getCourseMapByIds(classCourseIds);
@@ -3820,7 +3877,7 @@ export const getStudentAttendance = async (req, res) => {
         const sessionDate = parseSessionDateOnly(row.date);
         if (!sessionDate) return false;
         if (classCourseIds.length) {
-          const sessionCourseId = trimText(row.courseId);
+          const sessionCourseId = trimText(row.subjectId || row.courseId);
           if (sessionCourseId && !classCourseIds.includes(sessionCourseId)) return false;
         }
         if (windowStart && sessionDate.getTime() < windowStart.getTime()) return false;

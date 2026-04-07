@@ -425,7 +425,7 @@ const buildClassCompletionStateForStudent = ({
         trimText(row.subjectId || row.courseId) === courseId &&
         (!trimText(row.classId) || trimText(row.classId) === classId)
     );
-    const progress = normalizeProgressPercent(progressRows, courseId, enrollment?.progress);
+    const progress = normalizeProgressPercent(progressRows, courseId, 0);
     const status = lowerText(enrollment?.status || "active");
     const completed =
       progress >= 100 || status === "completed" || Boolean(enrollment?.completedAt);
@@ -618,7 +618,7 @@ const buildStudentClassAndCourseData = ({
         : normalizeProgressPercent(
             progressRows,
             cleanCourseId,
-            enrollment?.progress
+            0
           );
       const courseState = classCompletionState.courseCompletionRows.find(
         (row) => trimText(row.subjectId || row.courseId) === cleanCourseId
@@ -628,7 +628,7 @@ const buildStudentClassAndCourseData = ({
         : progressRows
             .filter(
               (row) =>
-                trimText(row.subjectId || row.courseId) === cleanCourseId || !trimText(row.subjectId || row.courseId)
+                trimText(row.subjectId || row.courseId) === cleanCourseId
             )
             .map(
               (row) =>
@@ -840,7 +840,7 @@ const normalizeProgressPercent = (progressRows = [], courseId = "", fallback = 0
   const lectureRows = progressRows.filter(
     (row) =>
       trimText(row.lectureId) &&
-      (!trimText(row.subjectId || row.courseId) || trimText(row.subjectId || row.courseId) === cleanCourseId)
+      trimText(row.subjectId || row.courseId) === cleanCourseId
   );
   if (lectureRows.length > 0) {
     const byLectureId = lectureRows.reduce((acc, row) => {
@@ -1014,6 +1014,10 @@ const generateCertificateId = () => {
 
 const isFinalQuizRow = (quiz = {}) => {
   const tags = Array.isArray(quiz.tags) ? quiz.tags : [];
+  const scope = lowerText(quiz.scope || quiz.quizScope || "");
+  const chapterId = trimText(quiz.chapterId);
+  if (scope === "subject" || scope === "final") return true;
+  if (!chapterId && scope && scope !== "chapter") return true;
   return (
     quiz.isFinalQuiz === true ||
     lowerText(quiz.quizType) === "final" ||
@@ -1046,7 +1050,7 @@ const getCourseFinalQuizzes = async (courseId = "") => {
       (row, index, arr) =>
         arr.findIndex((entry) => trimText(entry.id) === trimText(row.id)) === index
     )
-    .filter((row) => lowerText(row.status || "active") === "active")
+    .filter((row) => !["draft", "inactive", "deleted", "archived"].includes(lowerText(row.status || "active")))
     .filter((row) => isFinalQuizRow(row));
 };
 
@@ -1483,6 +1487,22 @@ export const getStudentDashboard = async (req, res) => {
     const attendancePayload = await buildStudentAttendancePayload(uid);
 
     const paidCourseRows = courseRows.filter((row) => !row.isPaymentLocked);
+    const finalQuizStateByCourseId = {};
+    await Promise.all(
+      paidCourseRows.map(async (row) => {
+        const cleanCourseId = trimText(row.courseId);
+        if (!cleanCourseId) return;
+        try {
+          finalQuizStateByCourseId[cleanCourseId] =
+            await resolveFinalQuizRequirementState({
+              studentId: uid,
+              courseId: cleanCourseId,
+            });
+        } catch {
+          finalQuizStateByCourseId[cleanCourseId] = null;
+        }
+      })
+    );
     const completedCount = paidCourseRows.filter(
       (row) => clampPercent(row.progress) >= 100
     ).length;
@@ -1620,6 +1640,35 @@ export const getStudentDashboard = async (req, res) => {
           enrollmentType: row.enrollmentType || null,
           isPaymentLocked: Boolean(row.isPaymentLocked),
           progress: row.progress,
+          finalQuiz: (() => {
+            const state = finalQuizStateByCourseId[trimText(row.courseId)];
+            if (!state || !state.requiresFinalQuiz) {
+              return {
+                required: false,
+                total: 0,
+                passed: true,
+                requestId: null,
+                requestStatus: null,
+                canRequest: false,
+                canRequestNow: false,
+              };
+            }
+            const progressPercent = clampPercent(row.progress);
+            return {
+              required: true,
+              total: toNumber(state.finalQuizCount, 0),
+              passed: Boolean(state.finalQuizPassed),
+              requestId: state.requestId || null,
+              requestStatus: state.requestStatus || null,
+              requestSubmittedAt: state.requestSubmittedAt || null,
+              requestReviewedAt: state.requestReviewedAt || null,
+              canRequest: Boolean(state.canRequest),
+              canRequestNow:
+                Boolean(state.canRequest) &&
+                progressPercent >= 100 &&
+                !Boolean(state.finalQuizPassed),
+            };
+          })(),
         })),
         lastAccessedCourse: lastAccessed
           ? {
@@ -1634,6 +1683,36 @@ export const getStudentDashboard = async (req, res) => {
               teacherName: lastAccessed.teacherName,
               isPaymentLocked: Boolean(lastAccessed.isPaymentLocked),
               progress: lastAccessed.progress,
+              finalQuiz: (() => {
+                const state =
+                  finalQuizStateByCourseId[trimText(lastAccessed.courseId)];
+                if (!state || !state.requiresFinalQuiz) {
+                  return {
+                    required: false,
+                    total: 0,
+                    passed: true,
+                    requestId: null,
+                    requestStatus: null,
+                    canRequest: false,
+                    canRequestNow: false,
+                  };
+                }
+                const progressPercent = clampPercent(lastAccessed.progress);
+                return {
+                  required: true,
+                  total: toNumber(state.finalQuizCount, 0),
+                  passed: Boolean(state.finalQuizPassed),
+                  requestId: state.requestId || null,
+                  requestStatus: state.requestStatus || null,
+                  requestSubmittedAt: state.requestSubmittedAt || null,
+                  requestReviewedAt: state.requestReviewedAt || null,
+                  canRequest: Boolean(state.canRequest),
+                  canRequestNow:
+                    Boolean(state.canRequest) &&
+                    progressPercent >= 100 &&
+                    !Boolean(state.finalQuizPassed),
+                };
+              })(),
             }
           : null,
         attendanceSummary: attendancePayload.summary || {
@@ -2496,14 +2575,54 @@ export const getStudentCertificates = async (req, res) => {
       })
     );
 
-    const payload = certDocs
+    const normalizedCerts = certDocs
       .filter(Boolean)
       .map((cert) => ({
         ...cert,
         issuedAt: toIso(cert.issuedAt),
         createdAt: toIso(cert.createdAt),
         revokedAt: toIso(cert.revokedAt),
-      }))
+      }));
+
+    const certCourseIds = [
+      ...new Set(
+        normalizedCerts
+          .map((cert) => trimText(cert.subjectId || cert.courseId))
+          .filter(Boolean)
+      ),
+    ];
+    const courseValidationMap = Object.fromEntries(
+      await Promise.all(
+        certCourseIds.map(async (courseId) => {
+          try {
+            const [lectures, progressRows, finalQuizState] = await Promise.all([
+              getCourseLectures(courseId),
+              getProgressRowsForStudent(uid, courseId),
+              resolveFinalQuizRequirementState({ studentId: uid, courseId }),
+            ]);
+            const progressMap = buildLectureProgressMap(progressRows, courseId);
+            const totalLectures = lectures.length;
+            const completedLectures = lectures.filter(
+              (lecture) => progressMap[lecture.id]?.isCompleted
+            ).length;
+            const lecturesCompleted =
+              totalLectures > 0 ? completedLectures >= totalLectures : true;
+            const finalQuizOk =
+              !finalQuizState.requiresFinalQuiz || finalQuizState.finalQuizPassed;
+            return [courseId, lecturesCompleted && finalQuizOk];
+          } catch {
+            return [courseId, false];
+          }
+        })
+      )
+    );
+
+    const payload = normalizedCerts
+      .filter((cert) => {
+        const courseId = trimText(cert.subjectId || cert.courseId);
+        if (!courseId) return false;
+        return courseValidationMap[courseId] === true;
+      })
       .sort(
         (a, b) =>
           (parseDate(b.issuedAt || b.createdAt)?.getTime() || 0) -

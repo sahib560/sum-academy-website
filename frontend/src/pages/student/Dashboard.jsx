@@ -104,6 +104,10 @@ function StudentDashboard() {
   const topAnnouncements = dashboard.announcements.slice(0, 3);
   const showPendingApproval =
     dashboard.access.hasPendingApproval && dashboard.stats.enrolledCoursesCount < 1;
+  const finalQuizRows = dashboard.courses.filter((row) => row?.finalQuiz?.required);
+  const requestableFinalQuizRows = finalQuizRows.filter(
+    (row) => Boolean(row?.finalQuiz?.canRequestNow)
+  );
 
   const cards = [
     {
@@ -179,6 +183,39 @@ function StudentDashboard() {
             <p className="mt-2 text-xs text-amber-700">
               Reference: {dashboard.access.latestPendingPayment.reference}
             </p>
+          ) : null}
+        </Motion.section>
+      )}
+
+      {!isLoading && finalQuizRows.length > 0 && (
+        <Motion.section
+          {...fadeUp}
+          className="rounded-2xl border border-cyan-200 bg-cyan-50 p-4 text-sm text-cyan-900"
+        >
+          <p className="font-semibold">Final Quiz Status</p>
+          <div className="mt-2 space-y-2">
+            {finalQuizRows.slice(0, 3).map((row) => (
+              <div
+                key={`final-quiz-${row.courseId || row.id}`}
+                className="rounded-xl border border-cyan-200 bg-white/80 px-3 py-2"
+              >
+                <p className="font-semibold text-slate-900">{row.title || "Subject"}</p>
+                <p className="mt-1 text-xs">
+                  {row.finalQuiz?.passed
+                    ? "Final quiz passed"
+                    : row.finalQuiz?.requestStatus
+                      ? `Request status: ${row.finalQuiz.requestStatus}`
+                      : row.finalQuiz?.canRequestNow
+                        ? "Ready to request final quiz"
+                        : "Complete all lectures to request final quiz"}
+                </p>
+              </div>
+            ))}
+          </div>
+          {requestableFinalQuizRows.length > 0 ? (
+            <Link className="mt-3 inline-flex rounded-full bg-cyan-600 px-4 py-2 text-xs font-semibold text-white" to="/student/courses">
+              Request Final Quiz
+            </Link>
           ) : null}
         </Motion.section>
       )}
