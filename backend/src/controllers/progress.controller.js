@@ -483,10 +483,7 @@ const buildVideoAccessMap = (rows = []) => {
       };
       return;
     }
-    map[lectureId] = {
-      ...existing,
-      hasAccess: Boolean(existing?.hasAccess) || hasAccess,
-    };
+    map[lectureId] = existing;
   });
   return map;
 };
@@ -614,6 +611,7 @@ export const buildCourseContentForStudent = async (
       );
       const videoAccessMeta = videoAccessMap[lectureId] || null;
       const manualAccess = Boolean(videoAccessMeta?.hasAccess === true);
+      const manualLock = Boolean(videoAccessMeta?.hasAccess === false);
       const lectureVideoMeta = normalizeLectureVideoMeta(lecture);
       const hasVideoSource = Boolean(trimText(lectureVideoMeta.videoUrl));
 
@@ -636,6 +634,9 @@ export const buildCourseContentForStudent = async (
       } else if (isClassLockedByState) {
         isLocked = true;
         lockReason = classLockReason;
+      } else if (manualLock) {
+        isLocked = true;
+        lockReason = "Locked by teacher/admin";
       } else if (missingVideoLocked) {
         isLocked = true;
         lockReason = "Lecture video is not uploaded yet";

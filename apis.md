@@ -1197,6 +1197,12 @@ Base URL: `https://sumacademy.net/api`
             "lockReason": "Lecture completed. Waiting for new lecture upload."
           },
           {
+            "lectureId": "lec_1b",
+            "isCompleted": false,
+            "isLocked": true,
+            "lockReason": "Locked by teacher/admin"
+          },
+          {
             "lectureId": "lec_2",
             "isCompleted": false,
             "isLocked": true,

@@ -863,11 +863,27 @@ const buildStudentClassAndCourseData = ({
         classCompleted: classCompletionState.completed,
         classStatus,
         classLocked:
-          !isPaymentLocked && (classCompletionState.isLocked || classWindowLocked),
+          !isPaymentLocked &&
+          (
+            classCompletionState.isLocked ||
+            classWindowLocked ||
+            (
+              Boolean(courseState?.completed) &&
+              classCompletionState.lockAfterCompletion &&
+              !classCompletionState.studentUnlocked
+            )
+          ),
         canRewatch:
           !isPaymentLocked &&
-          !classCompletionState.isLocked &&
-          !classWindowLocked,
+          !(
+            classCompletionState.isLocked ||
+            classWindowLocked ||
+            (
+              Boolean(courseState?.completed) &&
+              classCompletionState.lockAfterCompletion &&
+              !classCompletionState.studentUnlocked
+            )
+          ),
         certificateEligible: !isPaymentLocked && classCompletionState.completed,
         courseCompletedInClass: !isPaymentLocked && Boolean(courseState?.completed),
         enrolledAt:
