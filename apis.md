@@ -1174,14 +1174,38 @@ Base URL: `https://sumacademy.net/api`
 - Path Params: `courseId`
 - Query Params: None
 - Body Keys: None
-- Error Messages: `courseId is required`, `Missing student uid`, `Failed to fetch course content`
+- Error Messages: `subjectId/courseId is required`, `Missing student uid`, `Failed to fetch course content`
 - Sample Success Response:
 
 ```json
 {
   "success": true,
-  "message": "Success",
-  "data": {}
+  "message": "Subject content fetched",
+  "data": {
+    "courseId": "KscKrww9Yr8oNoIQpV2a",
+    "subjectId": "KscKrww9Yr8oNoIQpV2a",
+    "overallProgress": 50,
+    "isCourseCompleted": false,
+    "chapters": [
+      {
+        "chapterId": "ch_1",
+        "lectures": [
+          {
+            "lectureId": "lec_1",
+            "isCompleted": true,
+            "isLocked": true,
+            "lockReason": "Lecture completed. Waiting for new lecture upload."
+          },
+          {
+            "lectureId": "lec_2",
+            "isCompleted": false,
+            "isLocked": true,
+            "lockReason": "Lecture video is not uploaded yet"
+          }
+        ]
+      }
+    ]
+  }
 }
 ```
 
@@ -1190,8 +1214,8 @@ Base URL: `https://sumacademy.net/api`
 ```json
 {
   "success": false,
-  "message": "courseId is required",
-  "error": "courseId is required"
+  "message": "subjectId/courseId is required",
+  "error": "subjectId/courseId is required"
 }
 ```
 
@@ -1262,14 +1286,25 @@ Base URL: `https://sumacademy.net/api`
 - Path Params: `courseId`, `lectureId`
 - Query Params: None
 - Body Keys: `currentTimeSec`, `duration`, `durationSec`, `watchedPercent`
-- Error Messages: `courseId and lectureId are required`, `Missing student uid`, `Course is already completed`, `Lecture not found in this course`, `Complete previous content first`, `Watch at least 80% of the lecture before marking complete`, `Failed to mark complete`
+- Error Messages: `subjectId/courseId and lectureId are required`, `Missing student uid`, `Course is already completed`, `Lecture not found in this course`, `Complete previous content first`, `Watch at least 80% of the lecture before marking complete`, `Failed to mark complete`
 - Sample Success Response:
 
 ```json
 {
   "success": true,
-  "message": "Success",
-  "data": {}
+  "message": "Lecture completed! Course is ready for teacher/admin completion approval.",
+  "data": {
+    "lectureId": "lec_2",
+    "completedCount": 6,
+    "totalLectures": 6,
+    "progressPercent": 100,
+    "chapterCompleted": true,
+    "chapterQuizUnlocked": true,
+    "readyForCompletionApproval": true,
+    "courseCompleted": false,
+    "certificateGenerated": false,
+    "nextAction": "await_teacher_approval"
+  }
 }
 ```
 
@@ -1289,8 +1324,57 @@ Base URL: `https://sumacademy.net/api`
 ```json
 {
   "success": false,
-  "message": "courseId and lectureId are required",
-  "error": "courseId and lectureId are required"
+  "message": "subjectId/courseId and lectureId are required",
+  "error": "subjectId/courseId and lectureId are required"
+}
+```
+
+### POST `/api/subjects/:subjectId/students/:studentId/complete`
+- Auth: Bearer token (teacher/admin)
+- Path Params: `subjectId`, `studentId`
+- Query Params: None
+- Body Keys: `classId` (optional), `force` (admin only)
+- Success Messages: `Subject marked completed and certificate issued.`, `Subject marked completed by admin (forced) and certificate issued.`
+- Error Messages: `subjectId/courseId and studentId are required`, `Only teachers and admins can complete subjects`, `Student has not completed all lectures/quizzes for this subject`, `Only admin can force completion/certificate generation`, `No enrollment found for this student in this subject`, `Failed to complete subject`
+- Sample Request Body:
+
+```json
+{
+  "classId": "TR5HYHIIuuZ6Xlouoa5k",
+  "force": false
+}
+```
+
+- Sample Success Response:
+
+```json
+{
+  "success": true,
+  "message": "Subject marked completed and certificate issued.",
+  "data": {
+    "subjectId": "KscKrww9Yr8oNoIQpV2a",
+    "courseId": "KscKrww9Yr8oNoIQpV2a",
+    "classId": "TR5HYHIIuuZ6Xlouoa5k",
+    "completionScope": "class",
+    "forced": false,
+    "certificateGenerated": true,
+    "certId": "SUM-2026-A1B2C3D4"
+  }
+}
+```
+
+### POST `/api/classes/:classId/students/:studentId/complete`
+- Auth: Bearer token (teacher/admin)
+- Path Params: `classId`, `studentId`
+- Query Params: None
+- Body Keys: `force` (admin only)
+- Success Messages: `Class completion updated and certificates processed.`, `Class completion partially updated. Check per-subject results.`
+- Error Messages: `classId and studentId are required`, `Only teachers and admins can complete classes`, `Only admin can force completion/certificate generation`, `Class not found`, `No class enrollments found for this student`, `No subjects were completed for this class`, `Failed to complete class`
+- Sample Request Body:
+
+```json
+{
+  "force": false
 }
 ```
 
@@ -6602,14 +6686,38 @@ Base URL: `https://sumacademy.net/api`
 - Path Params: `courseId`
 - Query Params: None
 - Body Keys: None
-- Error Messages: `courseId is required`, `Missing student uid`, `Failed to fetch course content`
+- Error Messages: `subjectId/courseId is required`, `Missing student uid`, `Failed to fetch course content`
 - Sample Success Response:
 
 ```json
 {
   "success": true,
-  "message": "Success",
-  "data": {}
+  "message": "Subject content fetched",
+  "data": {
+    "courseId": "KscKrww9Yr8oNoIQpV2a",
+    "subjectId": "KscKrww9Yr8oNoIQpV2a",
+    "overallProgress": 50,
+    "isCourseCompleted": false,
+    "chapters": [
+      {
+        "chapterId": "ch_1",
+        "lectures": [
+          {
+            "lectureId": "lec_1",
+            "isCompleted": true,
+            "isLocked": true,
+            "lockReason": "Lecture completed. Waiting for new lecture upload."
+          },
+          {
+            "lectureId": "lec_2",
+            "isCompleted": false,
+            "isLocked": true,
+            "lockReason": "Lecture video is not uploaded yet"
+          }
+        ]
+      }
+    ]
+  }
 }
 ```
 
@@ -6618,8 +6726,8 @@ Base URL: `https://sumacademy.net/api`
 ```json
 {
   "success": false,
-  "message": "courseId is required",
-  "error": "courseId is required"
+  "message": "subjectId/courseId is required",
+  "error": "subjectId/courseId is required"
 }
 ```
 
@@ -6690,14 +6798,25 @@ Base URL: `https://sumacademy.net/api`
 - Path Params: `courseId`, `lectureId`
 - Query Params: None
 - Body Keys: `currentTimeSec`, `duration`, `durationSec`, `watchedPercent`
-- Error Messages: `courseId and lectureId are required`, `Missing student uid`, `Course is already completed`, `Lecture not found in this course`, `Complete previous content first`, `Watch at least 80% of the lecture before marking complete`, `Failed to mark complete`
+- Error Messages: `subjectId/courseId and lectureId are required`, `Missing student uid`, `Course is already completed`, `Lecture not found in this course`, `Complete previous content first`, `Watch at least 80% of the lecture before marking complete`, `Failed to mark complete`
 - Sample Success Response:
 
 ```json
 {
   "success": true,
-  "message": "Success",
-  "data": {}
+  "message": "Lecture completed! Course is ready for teacher/admin completion approval.",
+  "data": {
+    "lectureId": "lec_2",
+    "completedCount": 6,
+    "totalLectures": 6,
+    "progressPercent": 100,
+    "chapterCompleted": true,
+    "chapterQuizUnlocked": true,
+    "readyForCompletionApproval": true,
+    "courseCompleted": false,
+    "certificateGenerated": false,
+    "nextAction": "await_teacher_approval"
+  }
 }
 ```
 
@@ -6717,8 +6836,8 @@ Base URL: `https://sumacademy.net/api`
 ```json
 {
   "success": false,
-  "message": "courseId and lectureId are required",
-  "error": "courseId and lectureId are required"
+  "message": "subjectId/courseId and lectureId are required",
+  "error": "subjectId/courseId and lectureId are required"
 }
 ```
 

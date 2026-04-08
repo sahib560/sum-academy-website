@@ -6,6 +6,8 @@ import {
   updateVideoAccess,
   unlockAllVideosForStudent,
   getStudentCourseProgress,
+  completeStudentSubjectByStaff,
+  completeStudentClassByStaff,
 } from "../controllers/progress.controller.js";
 import {
   verifyToken,
@@ -90,6 +92,25 @@ router.get(
   verifyToken,
   requireRole("teacher", "admin"),
   getStudentCourseProgress
+);
+
+router.post(
+  "/courses/:courseId/students/:studentId/complete",
+  verifyToken,
+  requireRole("teacher", "admin"),
+  completeStudentSubjectByStaff
+);
+router.post(
+  "/subjects/:subjectId/students/:studentId/complete",
+  verifyToken,
+  requireRole("teacher", "admin"),
+  completeStudentSubjectByStaff
+);
+router.post(
+  "/classes/:classId/students/:studentId/complete",
+  verifyToken,
+  requireRole("teacher", "admin"),
+  completeStudentClassByStaff
 );
 
 export default router;

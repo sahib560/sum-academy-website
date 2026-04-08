@@ -225,7 +225,7 @@ const enrichEnrollmentRowsWithClassWindow = async (rows = []) => {
 const ensureStudentEnrolled = async (studentId, courseId) => {
   const rows = await getCourseEnrollmentRows(studentId, courseId);
   const eligibleRows = rows.filter((row) =>
-    ["active", "completed", "upcoming", "pending_review", ""].includes(
+    ["active", "completed", "upcoming", "pending_review", "pending_completion_review", ""].includes(
       lowerText(row.status || "active")
     )
   );
@@ -614,14 +614,19 @@ export const buildCourseContentForStudent = async (
       );
       const videoAccessMeta = videoAccessMap[lectureId] || null;
       const manualAccess = Boolean(videoAccessMeta?.hasAccess === true);
+      const lectureVideoMeta = normalizeLectureVideoMeta(lecture);
+      const hasVideoSource = Boolean(trimText(lectureVideoMeta.videoUrl));
 
       const progressLocked =
         !manualAccess &&
+        !isCompleted &&
         (index === 0 ? !previousChapterComplete : !previousLectureCompleted);
       const progressLockReason = index === 0
         ? "Complete previous chapter first"
         : "Complete previous lecture first";
       const completionLocked = enrollmentCompleted && !manualAccess;
+      const completedLectureLocked = isCompleted && !manualAccess;
+      const missingVideoLocked = !hasVideoSource;
 
       let isLocked = false;
       let lockReason = "";
@@ -631,9 +636,15 @@ export const buildCourseContentForStudent = async (
       } else if (isClassLockedByState) {
         isLocked = true;
         lockReason = classLockReason;
+      } else if (missingVideoLocked) {
+        isLocked = true;
+        lockReason = "Lecture video is not uploaded yet";
       } else if (progressLocked) {
         isLocked = true;
         lockReason = progressLockReason;
+      } else if (completedLectureLocked) {
+        isLocked = true;
+        lockReason = "Lecture completed. Waiting for new lecture upload.";
       } else if (completionLocked) {
         isLocked = true;
         lockReason = "Course completed. Contact teacher to rewatch.";
@@ -660,7 +671,7 @@ export const buildCourseContentForStudent = async (
         order: toNumber(lecture.order, 0),
         duration: durationLabel,
         durationLabel,
-        ...normalizeLectureVideoMeta(lecture),
+        ...lectureVideoMeta,
         videoTitle,
         videoDuration,
         pdfNotes: Array.isArray(lecture.pdfNotes) ? lecture.pdfNotes : [],
@@ -684,7 +695,10 @@ export const buildCourseContentForStudent = async (
           canWatch: unlocked,
           canSeekForward: false,
           isPaymentLocked: isPaymentLockedByState,
-          isProgressLocked: progressLocked && !isPaymentLockedByState && !isClassLockedByState,
+          isProgressLocked:
+            (progressLocked || completedLectureLocked) &&
+            !isPaymentLockedByState &&
+            !isClassLockedByState,
           isClassLocked: isClassLockedByState,
           isCompletionLocked:
             completionLocked && !isPaymentLockedByState && !isClassLockedByState,
@@ -704,7 +718,7 @@ export const buildCourseContentForStudent = async (
     });
 
     const allLecturesDone =
-      lecturesWithStatus.length === 0 || lecturesWithStatus.every((lecture) => lecture.isCompleted);
+      lecturesWithStatus.length > 0 && lecturesWithStatus.every((lecture) => lecture.isCompleted);
     const quizzesWithStatus = chapterQuizzes.map((quiz) => {
       const quizId = trimText(quiz.id);
       const result = quizResultsMap[quizId] || null;
@@ -743,8 +757,7 @@ export const buildCourseContentForStudent = async (
 
     const allQuizzesPassed =
       quizzesWithStatus.length === 0 || quizzesWithStatus.every((quiz) => quiz.isPassed);
-    const isChapterComplete =
-      (lecturesWithStatus.length === 0 ? true : allLecturesDone) && allQuizzesPassed;
+    const isChapterComplete = allLecturesDone && allQuizzesPassed;
 
     previousChapterComplete = isChapterComplete;
 
@@ -1203,44 +1216,33 @@ export const markLectureComplete = async (req, res) => {
     const requiresFinalQuiz = finalQuizzesAfter.length > 0;
     const finalQuizPassed =
       !requiresFinalQuiz || finalQuizzesAfter.every((quiz) => Boolean(quiz.isPassed));
-    const courseCompleted = allLecturesCompleted && allChaptersCompleted && finalQuizPassed;
+    const readyForCompletionApproval =
+      allLecturesCompleted && allChaptersCompleted && finalQuizPassed;
+    let courseCompleted = false;
     let certificateGenerated = false;
 
     if (builtAfter.enrollmentRows.length > 0) {
       const batch = db.batch();
       builtAfter.enrollmentRows.forEach((row) => {
+        const currentStatus = lowerText(row.status || "active");
+        const nextStatus =
+          currentStatus === "completed"
+            ? "completed"
+            : readyForCompletionApproval
+              ? "pending_completion_review"
+              : "active";
+        const progressValue =
+          currentStatus === "completed" ? 100 : toNumber(builtAfter.overallProgress, 0);
+        if (currentStatus === "completed") courseCompleted = true;
         batch.update(row.ref, {
-          progress: courseCompleted ? 100 : toNumber(builtAfter.overallProgress, 0),
-          status: courseCompleted ? "completed" : "active",
-          completedAt: courseCompleted ? serverTimestamp() : null,
+          progress: progressValue,
+          status: nextStatus,
+          readyForCompletionApproval,
+          completedAt: currentStatus === "completed" ? row.completedAt || null : null,
           updatedAt: serverTimestamp(),
         });
       });
       await batch.commit();
-    }
-
-    if (courseCompleted) {
-      let classContext = null;
-      const preferredEnrollment = builtAfter.enrollmentRows.find((row) => trimText(row.classId));
-      const classId = trimText(preferredEnrollment?.classId);
-      if (classId) {
-        const classSnap = await db.collection("classes").doc(classId).get();
-        if (classSnap.exists) {
-          const classData = classSnap.data() || {};
-          classContext = {
-            classId,
-            className: trimText(classData.name),
-            batchCode: trimText(classData.batchCode),
-          };
-        }
-      }
-      const certResult = await ensureCertificateForCourse(
-        studentId,
-        courseId,
-        builtAfter.course,
-        classContext
-      );
-      certificateGenerated = Boolean(certResult.created);
     }
 
     const lectureChapter = builtAfter.chapters.find((chapter) =>
@@ -1261,13 +1263,20 @@ export const markLectureComplete = async (req, res) => {
         progressPercent: toNumber(builtAfter.overallProgress, 0),
         chapterCompleted,
         chapterQuizUnlocked,
+        readyForCompletionApproval,
         courseCompleted,
         certificateGenerated,
-        nextAction: courseCompleted ? "course_complete" : "continue",
+        nextAction: courseCompleted
+          ? "course_complete"
+          : readyForCompletionApproval
+            ? "await_teacher_approval"
+            : "continue",
       },
       courseCompleted
-        ? "Course completed! Certificate generated."
-        : chapterCompleted && chapterQuizUnlocked
+        ? "Course completed by teacher/admin."
+        : readyForCompletionApproval
+          ? "Lecture completed! Course is ready for teacher/admin completion approval."
+          : chapterCompleted && chapterQuizUnlocked
           ? "Chapter completed! Quiz unlocked."
           : "Lecture completed! Keep going."
     );
@@ -1567,5 +1576,334 @@ export const getStudentCourseProgress = async (req, res) => {
   } catch (error) {
     console.error("getStudentCourseProgress error:", error);
     return errorResponse(res, "Failed to fetch progress", 500);
+  }
+};
+
+const resolveCourseContentSnapshot = async (courseId) => {
+  const cleanCourseId = trimText(courseId);
+  const [subjectSnap, courseSnap] = await Promise.all([
+    db.collection("subjects").doc(cleanCourseId).get(),
+    db.collection("courses").doc(cleanCourseId).get(),
+  ]);
+  const contentSnap = subjectSnap.exists ? subjectSnap : courseSnap;
+  return contentSnap.exists
+    ? { exists: true, data: { id: contentSnap.id, ...(contentSnap.data() || {}) } }
+    : { exists: false, data: null };
+};
+
+const resolveClassContextById = async (classId) => {
+  const cleanClassId = trimText(classId);
+  if (!cleanClassId) return null;
+  const classSnap = await db.collection("classes").doc(cleanClassId).get();
+  if (!classSnap.exists) return null;
+  const classData = classSnap.data() || {};
+  return {
+    classId: cleanClassId,
+    className: trimText(classData.name),
+    batchCode: trimText(classData.batchCode),
+  };
+};
+
+const resolveCompletionReadiness = (built = {}) => {
+  const chapters = Array.isArray(built.chapters) ? built.chapters : [];
+  const lectures = chapters.flatMap((chapter) =>
+    Array.isArray(chapter.lectures) ? chapter.lectures : []
+  );
+  const totalLectures = lectures.length;
+  const completedLectures = lectures.filter((lecture) => Boolean(lecture.isCompleted)).length;
+  const allLecturesCompleted =
+    totalLectures > 0 && completedLectures >= totalLectures;
+  const allChaptersCompleted =
+    chapters.length > 0 && chapters.every((chapter) => Boolean(chapter.isChapterComplete));
+  const finalQuizzes = Array.isArray(built.subjectQuizzes) ? built.subjectQuizzes : [];
+  const requiresFinalQuiz = finalQuizzes.length > 0;
+  const finalQuizPassed =
+    !requiresFinalQuiz || finalQuizzes.every((quiz) => Boolean(quiz.isPassed));
+
+  return {
+    totalLectures,
+    completedLectures,
+    requiresFinalQuiz,
+    finalQuizPassed,
+    allLecturesCompleted,
+    allChaptersCompleted,
+    readyForCompletion: allLecturesCompleted && allChaptersCompleted && finalQuizPassed,
+  };
+};
+
+const finalizeStudentCourseByStaff = async ({
+  studentId,
+  courseId,
+  requesterId,
+  requesterRole,
+  force = false,
+  classId = "",
+}) => {
+  const cleanStudentId = trimText(studentId);
+  const cleanCourseId = trimText(courseId);
+  const cleanClassId = trimText(classId);
+
+  const permission = await ensureTeacherCanManageCourse(
+    requesterRole,
+    requesterId,
+    cleanCourseId
+  );
+  if (!permission.allowed) {
+    return {
+      ok: false,
+      status: permission.status || 403,
+      error: permission.error || "Access denied",
+      code: "ACCESS_DENIED",
+    };
+  }
+
+  const allRows = await getCourseEnrollmentRows(cleanStudentId, cleanCourseId);
+  const enrollmentRows = allRows.filter((row) => {
+    if (cleanClassId && trimText(row.classId) !== cleanClassId) return false;
+    return [
+      "active",
+      "upcoming",
+      "pending_review",
+      "pending_completion_review",
+      "completed",
+      "",
+    ].includes(lowerText(row.status || "active"));
+  });
+
+  if (!enrollmentRows.length) {
+    return {
+      ok: false,
+      status: 404,
+      error: "No enrollment found for this student in this subject",
+      code: "ENROLLMENT_NOT_FOUND",
+    };
+  }
+
+  const built = await buildCourseContentForStudent(cleanStudentId, cleanCourseId, {
+    ignoreAccessWindow: true,
+  });
+  if (built.error) {
+    return {
+      ok: false,
+      status: built.status || 400,
+      error: built.error || "Failed to resolve subject content",
+      code: trimText(built.code) || "CONTENT_BUILD_FAILED",
+    };
+  }
+
+  const readiness = resolveCompletionReadiness(built);
+  if (!readiness.readyForCompletion && !force) {
+    return {
+      ok: false,
+      status: 400,
+      error: "Student has not completed all lectures/quizzes for this subject",
+      code: "NOT_READY_FOR_COMPLETION",
+      details: readiness,
+    };
+  }
+
+  if (force && requesterRole !== "admin") {
+    return {
+      ok: false,
+      status: 403,
+      error: "Only admin can force completion/certificate generation",
+      code: "ADMIN_FORCE_REQUIRED",
+    };
+  }
+
+  let classContext = null;
+  if (cleanClassId) {
+    classContext = await resolveClassContextById(cleanClassId);
+  } else {
+    const firstClassId = trimText(enrollmentRows[0]?.classId);
+    classContext = firstClassId ? await resolveClassContextById(firstClassId) : null;
+  }
+
+  const contentDoc = await resolveCourseContentSnapshot(cleanCourseId);
+  const courseData = built.course || contentDoc.data || {};
+  const certResult = await ensureCertificateForCourse(
+    cleanStudentId,
+    cleanCourseId,
+    courseData,
+    classContext
+  );
+
+  const batch = db.batch();
+  enrollmentRows.forEach((row) => {
+    batch.update(row.ref, {
+      status: "completed",
+      progress: 100,
+      readyForCompletionApproval: false,
+      completionApprovedBy: requesterId,
+      completionApprovedRole: requesterRole,
+      completionApprovedAt: serverTimestamp(),
+      completedAt: row.completedAt || serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+  });
+  await batch.commit();
+
+  return {
+    ok: true,
+    subjectId: cleanCourseId,
+    courseId: cleanCourseId,
+    classId: classContext?.classId || cleanClassId || null,
+    completionScope: classContext?.classId ? "class" : "subject",
+    forced: force,
+    certificateGenerated: Boolean(certResult.created),
+    certId: trimText(certResult.certId) || null,
+    readiness,
+  };
+};
+
+export const completeStudentSubjectByStaff = async (req, res) => {
+  try {
+    const courseId = trimText(req.params?.courseId || req.params?.subjectId);
+    const studentId = trimText(req.params?.studentId);
+    const requesterId = trimText(req.user?.uid);
+    const requesterRole = lowerText(req.user?.role);
+    const force = req.body?.force === true;
+    const classId = trimText(req.body?.classId);
+
+    if (!courseId || !studentId) {
+      return errorResponse(res, "subjectId/courseId and studentId are required", 400);
+    }
+    if (!requesterId) return errorResponse(res, "Missing requester uid", 400);
+    if (!["teacher", "admin"].includes(requesterRole)) {
+      return errorResponse(res, "Only teachers and admins can complete subjects", 403);
+    }
+
+    const result = await finalizeStudentCourseByStaff({
+      studentId,
+      courseId,
+      requesterId,
+      requesterRole,
+      force,
+      classId,
+    });
+
+    if (!result.ok) {
+      return errorResponse(
+        res,
+        result.error || "Failed to complete subject",
+        result.status || 400,
+        {
+          ...(result.code ? { code: result.code } : {}),
+          ...(result.details ? { details: result.details } : {}),
+        }
+      );
+    }
+
+    return successResponse(
+      res,
+      result,
+      result.forced
+        ? "Subject marked completed by admin (forced) and certificate issued."
+        : "Subject marked completed and certificate issued."
+    );
+  } catch (error) {
+    console.error("completeStudentSubjectByStaff error:", error);
+    return errorResponse(res, "Failed to complete subject", 500);
+  }
+};
+
+export const completeStudentClassByStaff = async (req, res) => {
+  try {
+    const classId = trimText(req.params?.classId);
+    const studentId = trimText(req.params?.studentId);
+    const requesterId = trimText(req.user?.uid);
+    const requesterRole = lowerText(req.user?.role);
+    const force = req.body?.force === true;
+
+    if (!classId || !studentId) {
+      return errorResponse(res, "classId and studentId are required", 400);
+    }
+    if (!requesterId) return errorResponse(res, "Missing requester uid", 400);
+    if (!["teacher", "admin"].includes(requesterRole)) {
+      return errorResponse(res, "Only teachers and admins can complete classes", 403);
+    }
+    if (force && requesterRole !== "admin") {
+      return errorResponse(
+        res,
+        "Only admin can force completion/certificate generation",
+        403,
+        { code: "ADMIN_FORCE_REQUIRED" }
+      );
+    }
+
+    const classSnap = await db.collection("classes").doc(classId).get();
+    if (!classSnap.exists) return errorResponse(res, "Class not found", 404);
+
+    const enrollmentSnap = await db
+      .collection("enrollments")
+      .where("studentId", "==", studentId)
+      .where("classId", "==", classId)
+      .get();
+
+    if (enrollmentSnap.empty) {
+      return errorResponse(res, "No class enrollments found for this student", 404);
+    }
+
+    const courseIds = [
+      ...new Set(
+        enrollmentSnap.docs
+          .map((doc) => trimText(doc.data()?.subjectId || doc.data()?.courseId))
+          .filter(Boolean)
+      ),
+    ];
+
+    const results = [];
+    for (const courseId of courseIds) {
+      const finalized = await finalizeStudentCourseByStaff({
+        studentId,
+        courseId,
+        requesterId,
+        requesterRole,
+        force,
+        classId,
+      });
+      results.push({
+        subjectId: courseId,
+        ...(finalized.ok
+          ? {
+              completed: true,
+              certificateGenerated: finalized.certificateGenerated,
+              certId: finalized.certId,
+              forced: finalized.forced,
+            }
+          : {
+              completed: false,
+              error: finalized.error,
+              code: finalized.code,
+            }),
+      });
+    }
+
+    const completedCount = results.filter((row) => row.completed).length;
+    if (completedCount === 0) {
+      return errorResponse(
+        res,
+        "No subjects were completed for this class",
+        400,
+        { code: "CLASS_COMPLETION_FAILED", results }
+      );
+    }
+
+    return successResponse(
+      res,
+      {
+        classId,
+        studentId,
+        completedSubjects: completedCount,
+        totalSubjects: courseIds.length,
+        results,
+      },
+      completedCount === courseIds.length
+        ? "Class completion updated and certificates processed."
+        : "Class completion partially updated. Check per-subject results."
+    );
+  } catch (error) {
+    console.error("completeStudentClassByStaff error:", error);
+    return errorResponse(res, "Failed to complete class", 500);
   }
 };
