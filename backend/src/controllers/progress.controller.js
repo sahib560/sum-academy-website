@@ -80,10 +80,10 @@ const normalizeLectureVideoMeta = (lecture = {}) => ({
     trimText(lecture.signedUrl) ||
     trimText(lecture.signedVideoUrl) ||
     trimText(lecture.videoSignedUrl) ||
-    "",
+    null,
   videoMode: normalizeVideoMode(lecture.videoMode),
   isLiveSession: Boolean(lecture.isLiveSession),
-  videoTitle: sanitizeDisplayText(lecture.videoTitle),
+  videoTitle: sanitizeDisplayText(lecture.videoTitle) || null,
   premiereEndedAt: toIso(lecture.premiereEndedAt),
   videoDuration:
     lecture.videoDuration === null || lecture.videoDuration === undefined
@@ -468,11 +468,25 @@ const buildVideoAccessMap = (rows = []) => {
     const lectureId = trimText(row.lectureId);
     if (!lectureId) return;
     const hasAccess = row.hasAccess !== false;
-    if (map[lectureId] === undefined) {
-      map[lectureId] = hasAccess;
+    const rowTs = Math.max(toMillis(row.updatedAt), toMillis(row.grantedAt), toMillis(row.createdAt));
+    const existing = map[lectureId];
+    const existingTs = existing
+      ? Math.max(toMillis(existing.updatedAt), toMillis(existing.grantedAt), toMillis(existing.createdAt))
+      : -1;
+    if (!existing || rowTs >= existingTs) {
+      map[lectureId] = {
+        hasAccess,
+        grantedAt: row.grantedAt || null,
+        updatedAt: row.updatedAt || null,
+        createdAt: row.createdAt || null,
+        grantedBy: trimText(row.grantedBy),
+      };
       return;
     }
-    map[lectureId] = Boolean(map[lectureId]) || hasAccess;
+    map[lectureId] = {
+      ...existing,
+      hasAccess: Boolean(existing?.hasAccess) || hasAccess,
+    };
   });
   return map;
 };
@@ -547,6 +561,16 @@ export const buildCourseContentForStudent = async (
   const enrollmentCompleted = enrollmentState.rows.some(
     (row) => lowerText(row.status || "active") === "completed"
   );
+  const accessDeniedCode = trimText(enrollmentState.code);
+  const isPaymentLockedByState = accessDeniedCode === "PAYMENT_PENDING";
+  const isClassNotStarted = accessDeniedCode === "CLASS_NOT_STARTED";
+  const isClassEnded = accessDeniedCode === "CLASS_EXPIRED";
+  const isClassLockedByState = isClassNotStarted || isClassEnded;
+  const classLockReason = isClassNotStarted
+    ? "Class has not started yet"
+    : isClassEnded
+      ? "Class has ended"
+      : "";
   const nowMs = Date.now();
 
   const chapterRows = [];
@@ -588,30 +612,47 @@ export const buildCourseContentForStudent = async (
         0,
         Math.min(100, toNumber(lectureProgress.watchedPercent, 0))
       );
-      const manualAccess = videoAccessMap[lectureId] === true;
+      const videoAccessMeta = videoAccessMap[lectureId] || null;
+      const manualAccess = Boolean(videoAccessMeta?.hasAccess === true);
+
+      const progressLocked =
+        !manualAccess &&
+        (index === 0 ? !previousChapterComplete : !previousLectureCompleted);
+      const progressLockReason = index === 0
+        ? "Complete previous chapter first"
+        : "Complete previous lecture first";
+      const completionLocked = enrollmentCompleted && !manualAccess;
 
       let isLocked = false;
       let lockReason = "";
-
-      if (enrollmentCompleted) {
-        isLocked = !manualAccess;
-        if (isLocked) {
-          lockReason = "Course completed. Contact teacher/admin to unlock rewatch.";
-        }
-      } else if (manualAccess) {
-        isLocked = false;
-      } else if (index === 0) {
-        isLocked = !previousChapterComplete;
-        if (isLocked) lockReason = "Pass previous chapter quiz to unlock this lecture.";
-      } else {
-        isLocked = !previousLectureCompleted;
-        if (isLocked) lockReason = "Complete the previous lecture first.";
+      if (isPaymentLockedByState) {
+        isLocked = true;
+        lockReason = "Payment verification is pending";
+      } else if (isClassLockedByState) {
+        isLocked = true;
+        lockReason = classLockReason;
+      } else if (progressLocked) {
+        isLocked = true;
+        lockReason = progressLockReason;
+      } else if (completionLocked) {
+        isLocked = true;
+        lockReason = "Course completed. Contact teacher to rewatch.";
       }
+
+      const unlocked = !isLocked;
+      const unlockedAtIso = toIso(videoAccessMeta?.updatedAt || videoAccessMeta?.grantedAt);
+      const unlockedBy = trimText(videoAccessMeta?.grantedBy) || null;
+      const rewatchAllowed = enrollmentCompleted && manualAccess;
+      const videoTitle = sanitizeDisplayText(lecture.videoTitle) || null;
+      const videoDuration = isPremiereLive
+        ? "Live"
+        : explicitDurationLabel || (lectureDurationSec > 0 ? formatDurationLabel(lectureDurationSec) : null);
 
       lecturesWithStatus.push({
         id: lectureId,
         lectureId,
         chapterId: trimText(lecture.chapterId),
+        courseId: cleanCourseId,
         title:
           sanitizeDisplayText(lecture.title) ||
           sanitizeDisplayText(lecture.videoTitle) ||
@@ -620,6 +661,8 @@ export const buildCourseContentForStudent = async (
         duration: durationLabel,
         durationLabel,
         ...normalizeLectureVideoMeta(lecture),
+        videoTitle,
+        videoDuration,
         pdfNotes: Array.isArray(lecture.pdfNotes) ? lecture.pdfNotes : [],
         books: Array.isArray(lecture.books) ? lecture.books : [],
         notes: sanitizeDisplayText(lecture.notes || lecture.description),
@@ -636,6 +679,24 @@ export const buildCourseContentForStudent = async (
         disableSeeking: isPremiereLive,
         isLocked,
         lockReason,
+        unlocked,
+        access: {
+          canWatch: unlocked,
+          canSeekForward: false,
+          isPaymentLocked: isPaymentLockedByState,
+          isProgressLocked: progressLocked && !isPaymentLockedByState && !isClassLockedByState,
+          isClassLocked: isClassLockedByState,
+          isCompletionLocked:
+            completionLocked && !isPaymentLockedByState && !isClassLockedByState,
+          manuallyUnlocked: manualAccess,
+        },
+        lockAfterCompletion: enrollmentCompleted,
+        rewatch: {
+          isAllowed: rewatchAllowed,
+          unlockedByTeacher: rewatchAllowed,
+          unlockedAt: rewatchAllowed ? unlockedAtIso : null,
+          unlockedBy: rewatchAllowed ? unlockedBy : null,
+        },
         manuallyUnlocked: manualAccess,
       });
 
@@ -650,7 +711,11 @@ export const buildCourseContentForStudent = async (
       const dueAtDate = toDate(quiz.dueAt || quiz.assignmentDueAt || null);
       const dueAt = dueAtDate ? dueAtDate.toISOString() : null;
       const isExpired = Boolean(dueAtDate && dueAtDate.getTime() < nowMs && !result);
-      const quizLocked = isExpired || (!enrollmentCompleted && !allLecturesDone);
+      const quizLocked =
+        isExpired ||
+        isPaymentLockedByState ||
+        isClassLockedByState ||
+        (!enrollmentCompleted && !allLecturesDone);
       return {
         id: quizId,
         quizId,
@@ -659,11 +724,15 @@ export const buildCourseContentForStudent = async (
         scope: lowerText(quiz.scope || "chapter"),
         passScore: toNumber(quiz.passScore, 50),
         isLocked: quizLocked,
-        lockReason: isExpired
-          ? "Quiz deadline has passed."
-          : quizLocked
-            ? "Complete all chapter videos to unlock quiz."
-            : "",
+        lockReason: isPaymentLockedByState
+          ? "Payment verification is pending"
+          : isClassLockedByState
+            ? classLockReason
+            : isExpired
+              ? "Quiz deadline has passed"
+              : quizLocked
+                ? "Complete all chapter videos to unlock quiz"
+                : "",
         dueAt,
         isExpired,
         result,
@@ -701,18 +770,23 @@ export const buildCourseContentForStudent = async (
     const dueAtDate = toDate(quiz.dueAt || quiz.assignmentDueAt || null);
     const dueAt = dueAtDate ? dueAtDate.toISOString() : null;
     const isExpired = Boolean(dueAtDate && dueAtDate.getTime() < nowMs && !result);
-    const quizLocked = isExpired || !allChaptersComplete;
+    const quizLocked =
+      isExpired || isPaymentLockedByState || isClassLockedByState || !allChaptersComplete;
     return {
       id: quizId,
       quizId,
       title: sanitizeDisplayText(quiz.title) || "Final Quiz",
       scope: lowerText(quiz.scope || "subject"),
       isLocked: quizLocked,
-      lockReason: isExpired
-        ? "Quiz deadline has passed."
-        : quizLocked
-          ? "Complete all chapters to unlock final quiz."
-          : "",
+      lockReason: isPaymentLockedByState
+        ? "Payment verification is pending"
+        : isClassLockedByState
+          ? classLockReason
+          : isExpired
+            ? "Quiz deadline has passed"
+            : quizLocked
+              ? "Complete all chapters to unlock final quiz"
+              : "",
       dueAt,
       isExpired,
       result,
@@ -964,7 +1038,9 @@ export const getCourseContent = async (req, res) => {
     if (!courseId) return errorResponse(res, "subjectId/courseId is required", 400);
     if (!studentId) return errorResponse(res, "Missing student uid", 400);
 
-    const built = await buildCourseContentForStudent(studentId, courseId);
+    const built = await buildCourseContentForStudent(studentId, courseId, {
+      ignoreAccessWindow: true,
+    });
     if (built.error) {
       return errorResponse(res, built.error, built.status || 400, {
         ...(built.meta || {}),

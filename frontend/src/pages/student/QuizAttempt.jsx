@@ -24,61 +24,6 @@ const toNumber = (value, fallback = 0) => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
-const getFullscreenElement = () => {
-  if (typeof document === "undefined") return null;
-  return (
-    document.fullscreenElement ||
-    document.webkitFullscreenElement ||
-    document.mozFullScreenElement ||
-    document.msFullscreenElement ||
-    null
-  );
-};
-
-const canUseFullscreenApi = () => {
-  if (typeof document === "undefined") return false;
-  const target = document.documentElement || document.body;
-  if (!target) return false;
-  return Boolean(
-    target.requestFullscreen ||
-      target.webkitRequestFullscreen ||
-      target.mozRequestFullScreen ||
-      target.msRequestFullscreen
-  );
-};
-
-const requestAnyFullscreen = async () => {
-  if (typeof document === "undefined") return false;
-  const target = document.documentElement || document.body;
-  if (!target) return false;
-  const request =
-    target.requestFullscreen ||
-    target.webkitRequestFullscreen ||
-    target.mozRequestFullScreen ||
-    target.msRequestFullscreen;
-  if (typeof request !== "function") return false;
-  const result = request.call(target);
-  if (result && typeof result.then === "function") {
-    await result;
-  }
-  return Boolean(getFullscreenElement());
-};
-
-const exitAnyFullscreen = async () => {
-  if (typeof document === "undefined") return false;
-  const exit =
-    document.exitFullscreen ||
-    document.webkitExitFullscreen ||
-    document.mozCancelFullScreen ||
-    document.msExitFullscreen;
-  if (typeof exit !== "function") return false;
-  const result = exit.call(document);
-  if (result && typeof result.then === "function") {
-    await result;
-  }
-  return true;
-};
-
 const formatSeconds = (seconds = 0) => {
   const safe = Math.max(0, Math.floor(toNumber(seconds, 0)));
   const minutes = Math.floor(safe / 60);
@@ -152,26 +97,10 @@ function StudentQuizAttempt() {
   const [tabSwitchCount, setTabSwitchCount] = useState(0);
   const [showExitModal, setShowExitModal] = useState(false);
   const [showSubmitModal, setShowSubmitModal] = useState(false);
-  const [showFullscreenWarning, setShowFullscreenWarning] = useState(false);
   const [submittedResult, setSubmittedResult] = useState(null);
   const [showReview, setShowReview] = useState(false);
   const [animatedPercent, setAnimatedPercent] = useState(0);
   const [securityDeactivatedInfo, setSecurityDeactivatedInfo] = useState(null);
-  const isMobileClient = useMemo(() => {
-    if (typeof window === "undefined" || typeof navigator === "undefined") return false;
-    const ua = String(navigator.userAgent || "");
-    const coarsePointer =
-      typeof window.matchMedia === "function"
-        ? window.matchMedia("(pointer: coarse)").matches
-        : false;
-    return (
-      /Android|iPhone|iPad|iPod|Mobile|Opera Mini|IEMobile|BlackBerry/i.test(ua) ||
-      coarsePointer
-    );
-  }, []);
-  const shouldEnforceFullscreen = useMemo(() => {
-    return !isMobileClient && canUseFullscreenApi();
-  }, [isMobileClient]);
   const lastReportedViolationRef = useRef({
     reason: "",
     count: 0,
@@ -221,7 +150,6 @@ function StudentQuizAttempt() {
       setAnimatedPercent(0);
       setSubmittedResult(result);
       setShowSubmitModal(false);
-      void exitAnyFullscreen();
     },
     onError: (mutationError) => {
       submitLockRef.current = false;
@@ -330,7 +258,6 @@ function StudentQuizAttempt() {
     autoSubmitQueuedRef.current = false;
 
     const cleanup = setupMaxProtection({
-      enforceFullscreenMode: shouldEnforceFullscreen,
       quizMode: true,
       maxViolations: TAB_SWITCH_LIMIT,
       onViolation: (count, reason) => {
@@ -389,57 +316,10 @@ function StudentQuizAttempt() {
     started,
     submittedResult,
     submitMutation.isPending,
-    shouldEnforceFullscreen,
   ]);
-
-  useEffect(() => {
-    if (!shouldEnforceFullscreen) return undefined;
-    const onFullscreenChange = () => {
-      if (!started || submittedResult) return;
-      if (!getFullscreenElement()) {
-        setShowFullscreenWarning(true);
-      } else {
-        setShowFullscreenWarning(false);
-      }
-    };
-    const events = [
-      "fullscreenchange",
-      "webkitfullscreenchange",
-      "mozfullscreenchange",
-      "MSFullscreenChange",
-    ];
-    events.forEach((eventName) => {
-      document.addEventListener(eventName, onFullscreenChange);
-    });
-    return () => {
-      events.forEach((eventName) => {
-        document.removeEventListener(eventName, onFullscreenChange);
-      });
-    };
-  }, [started, submittedResult, shouldEnforceFullscreen]);
-
-  const requestQuizFullscreen = async () => {
-    if (!shouldEnforceFullscreen) return true;
-    try {
-      const entered = await requestAnyFullscreen();
-      setShowFullscreenWarning(!entered);
-      if (!entered) {
-        toast.error("Please allow fullscreen to continue the quiz");
-      }
-      return entered;
-    } catch {
-      toast.error("Fullscreen permission was denied");
-      setShowFullscreenWarning(true);
-      return false;
-    }
-  };
 
   const startQuiz = async () => {
     if (started) return;
-    if (shouldEnforceFullscreen) {
-      const entered = await requestQuizFullscreen();
-      if (!entered) return;
-    }
     quizStartedAtRef.current = Date.now();
     setTimeLeft(initialDurationSeconds);
     setStarted(true);
@@ -718,9 +598,7 @@ function StudentQuizAttempt() {
               <h1 className="font-heading text-2xl text-slate-900">{quiz.title}</h1>
               <p className="mt-2 text-sm text-slate-500">{quiz.courseName}</p>
               <p className="mt-4 text-sm text-slate-600">
-                {shouldEnforceFullscreen
-                  ? "This quiz requires fullscreen mode and active tab monitoring."
-                  : "This quiz uses active tab monitoring on your device."}
+                This quiz uses active tab monitoring and security protection.
               </p>
               <button className="btn-primary mt-6" onClick={startQuiz}>
                 Start Quiz
@@ -964,7 +842,6 @@ function StudentQuizAttempt() {
                 <button
                   className="flex-1 rounded-full bg-rose-500 px-4 py-2 text-sm font-semibold text-white"
                   onClick={() => {
-                    void exitAnyFullscreen();
                     navigate("/student/quizzes");
                   }}
                 >
@@ -1008,22 +885,6 @@ function StudentQuizAttempt() {
                   Confirm Submit
                 </button>
               </div>
-            </Motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      <AnimatePresence>
-        {showFullscreenWarning && shouldEnforceFullscreen && (
-          <div className="fixed inset-0 z-[85] flex items-center justify-center bg-slate-950/85 px-4 text-center text-white">
-            <Motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-              <h3 className="font-heading text-2xl">Please stay in fullscreen during quiz</h3>
-              <button
-                className="mt-4 rounded-full bg-white px-5 py-2 text-sm font-semibold text-slate-900"
-                onClick={requestQuizFullscreen}
-              >
-                Resume Fullscreen
-              </button>
             </Motion.div>
           </div>
         )}

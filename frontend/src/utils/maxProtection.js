@@ -446,7 +446,6 @@ export const setupMaxProtection = ({
   onViolation,
   onMaxViolation,
   maxViolations = Number.POSITIVE_INFINITY,
-  enforceFullscreenMode = false,
   quizMode = false,
 } = {}) => {
   if (typeof activeCleanup === "function") {
@@ -503,13 +502,6 @@ export const setupMaxProtection = ({
 
   if (quizMode) {
     cleanupVisibility = setupVisibilityGuard(onViolation);
-    if (enforceFullscreenMode && !isMobile) {
-      cleanupFullscreen = enforceFullscreen(() => {
-        if (typeof onViolation === "function") {
-          onViolation(violationCount.current, "fullscreen_exit");
-        }
-      });
-    }
   }
 
   activeCleanup = () => {
