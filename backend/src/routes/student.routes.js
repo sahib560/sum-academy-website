@@ -8,6 +8,7 @@ import {
   markLectureComplete,
   requestFinalQuizForCourse,
   getStudentCertificates,
+  downloadStudentCertificate,
   getStudentQuizzes,
   getQuizById,
   submitQuizAttempt,
@@ -31,6 +32,7 @@ router.post("/courses/:courseId/final-quiz-request", requestFinalQuizForCourse);
 router.post("/courses/:courseId/lectures/:lectureId/complete", markLectureComplete);
 
 router.get("/certificates", getStudentCertificates);
+router.get("/certificates/:id/download", downloadStudentCertificate);
 router.get("/quizzes", getStudentQuizzes);
 router.get("/quizzes/:quizId", getQuizById);
 router.post("/quizzes/:quizId/submit", submitQuizAttempt);

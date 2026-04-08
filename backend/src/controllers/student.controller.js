@@ -1,3 +1,4 @@
+import PDFDocument from "pdfkit";
 import { admin, auth, db } from "../config/firebase.js";
 import { COLLECTIONS } from "../config/collections.js";
 import {
@@ -51,6 +52,195 @@ const parseDate = (value) => {
 const toIso = (value) => {
   const parsed = parseDate(value);
   return parsed ? parsed.toISOString() : null;
+};
+
+const removeTrailingSlashes = (value = "") => trimText(value).replace(/\/+$/, "");
+
+const getRequestProtocol = (req) => {
+  const forwarded = trimText(req.headers?.["x-forwarded-proto"]);
+  if (forwarded) return forwarded.split(",")[0].trim();
+  return trimText(req.protocol) || "https";
+};
+
+const getApiBaseUrl = (req) => {
+  const configured = removeTrailingSlashes(process.env.API_BASE_URL || "");
+  if (configured) return configured;
+  const host = trimText(req.headers?.["x-forwarded-host"] || req.get?.("host"));
+  if (!host) return removeTrailingSlashes(process.env.CLIENT_URL || "");
+  return `${getRequestProtocol(req)}://${host}`;
+};
+
+const getCertificateDownloadUrl = (req, cert = {}) => {
+  const direct = trimText(
+    cert.pdfUrl ||
+      cert.downloadUrl ||
+      cert.certificatePdfUrl ||
+      cert.fileUrl ||
+      cert.url
+  );
+  if (/^https?:\/\//i.test(direct)) return direct;
+
+  const certKey = trimText(cert.id || cert.certId);
+  if (!certKey) return null;
+  const baseUrl = getApiBaseUrl(req);
+  if (!baseUrl) return `/api/student/certificates/${encodeURIComponent(certKey)}/download`;
+  return `${baseUrl}/api/student/certificates/${encodeURIComponent(certKey)}/download`;
+};
+
+const formatCertificateIssuedDate = (value) => {
+  const parsed = parseDate(value);
+  if (!parsed) return "N/A";
+  return parsed.toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+  });
+};
+
+const buildCertificateCompletionTitle = (cert = {}) => {
+  const completionTitle = trimText(cert.completionTitle);
+  if (completionTitle) return completionTitle;
+
+  const className = trimText(cert.className);
+  const batchCode = trimText(cert.batchCode);
+  const courseName = trimText(cert.courseName);
+  if (className) {
+    const classLabel = batchCode ? `${className} (${batchCode})` : className;
+    return courseName ? `${classLabel} - ${courseName}` : classLabel;
+  }
+  return courseName || "Course Completion";
+};
+
+const streamCertificatePdf = (res, cert = {}) => {
+  const certId = trimText(cert.certId || cert.id || "certificate");
+  const safeFileName = `SUM_Certificate_${certId}`.replace(/[^a-zA-Z0-9._-]/g, "_");
+  const studentName = trimText(cert.studentName || "Student");
+  const completionTitle = buildCertificateCompletionTitle(cert);
+  const issuedOn = formatCertificateIssuedDate(cert.issuedAt || cert.createdAt);
+  const verificationUrl = trimText(cert.verificationUrl || "");
+
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `attachment; filename="${safeFileName}.pdf"`);
+  res.setHeader("Cache-Control", "private, no-store, max-age=0");
+
+  const doc = new PDFDocument({ size: "A4", margin: 50 });
+  doc.pipe(res);
+
+  doc.rect(24, 24, 547, 795).lineWidth(1.2).stroke("#2A4D9B");
+
+  doc.fontSize(16).fillColor("#2A4D9B").text("SUM Academy", { align: "center" });
+  doc.moveDown(0.6);
+  doc.fontSize(32).fillColor("#111827").text("Certificate of Completion", { align: "center" });
+  doc.moveDown(1.2);
+  doc.fontSize(13).fillColor("#4B5563").text("This is to certify that", { align: "center" });
+  doc.moveDown(0.5);
+  doc.fontSize(30).fillColor("#0F172A").text(studentName, { align: "center" });
+  doc.moveDown(0.6);
+  doc.fontSize(12).fillColor("#4B5563").text("has successfully completed", { align: "center" });
+  doc.moveDown(0.5);
+  doc.fontSize(18).fillColor("#1D4ED8").text(completionTitle, { align: "center" });
+
+  doc.moveDown(2.2);
+  doc.fontSize(11).fillColor("#6B7280").text(`Certificate ID: ${certId}`, { align: "center" });
+  doc.moveDown(0.4);
+  doc.fontSize(11).fillColor("#6B7280").text(`Issued on: ${issuedOn}`, { align: "center" });
+  if (verificationUrl) {
+    doc.moveDown(0.4);
+    doc.fontSize(10).fillColor("#2563EB").text(`Verify: ${verificationUrl}`, {
+      align: "center",
+      link: verificationUrl,
+      underline: true,
+    });
+  }
+
+  doc.moveDown(3);
+  doc.fontSize(11).fillColor("#111827").text("Authorized by", { align: "center" });
+  doc.moveDown(0.4);
+  doc.fontSize(13).fillColor("#111827").text("SUM Academy", { align: "center" });
+
+  doc.end();
+};
+
+const getValidatedStudentCertificates = async (uid) => {
+  const studentSnap = await db.collection(COLLECTIONS.STUDENTS).doc(uid).get();
+  if (!studentSnap.exists) return [];
+  const studentData = studentSnap.data() || {};
+  const certRefs = Array.isArray(studentData.certificates) ? studentData.certificates : [];
+  const certIds = certRefs
+    .map((entry) => trimText(entry?.certId || entry?.id))
+    .filter(Boolean);
+
+  if (!certIds.length) return [];
+
+  const certDocs = await Promise.all(
+    certIds.map(async (certId) => {
+      const byCertIdSnap = await db
+        .collection(COLLECTIONS.CERTIFICATES)
+        .where("certId", "==", certId)
+        .limit(1)
+        .get();
+      if (!byCertIdSnap.empty) {
+        const row = byCertIdSnap.docs[0];
+        return { id: row.id, ...(row.data() || {}) };
+      }
+      const docSnap = await db.collection(COLLECTIONS.CERTIFICATES).doc(certId).get();
+      return docSnap.exists ? { id: docSnap.id, ...(docSnap.data() || {}) } : null;
+    })
+  );
+
+  const normalizedCerts = certDocs
+    .filter(Boolean)
+    .map((cert) => ({
+      ...cert,
+      issuedAt: toIso(cert.issuedAt),
+      createdAt: toIso(cert.createdAt),
+      revokedAt: toIso(cert.revokedAt),
+    }));
+
+  const certCourseIds = [
+    ...new Set(
+      normalizedCerts
+        .map((cert) => trimText(cert.subjectId || cert.courseId))
+        .filter(Boolean)
+    ),
+  ];
+  const courseValidationMap = Object.fromEntries(
+    await Promise.all(
+      certCourseIds.map(async (courseId) => {
+        try {
+          const [lectures, progressRows, finalQuizState] = await Promise.all([
+            getCourseLectures(courseId),
+            getProgressRowsForStudent(uid, courseId),
+            resolveFinalQuizRequirementState({ studentId: uid, courseId }),
+          ]);
+          const progressMap = buildLectureProgressMap(progressRows, courseId);
+          const totalLectures = lectures.length;
+          const completedLectures = lectures.filter(
+            (lecture) => progressMap[lecture.id]?.isCompleted
+          ).length;
+          const lecturesCompleted =
+            totalLectures > 0 ? completedLectures >= totalLectures : true;
+          const finalQuizOk =
+            !finalQuizState.requiresFinalQuiz || finalQuizState.finalQuizPassed;
+          return [courseId, lecturesCompleted && finalQuizOk];
+        } catch {
+          return [courseId, false];
+        }
+      })
+    )
+  );
+
+  return normalizedCerts
+    .filter((cert) => {
+      const courseId = trimText(cert.subjectId || cert.courseId);
+      if (!courseId) return false;
+      return courseValidationMap[courseId] === true;
+    })
+    .sort(
+      (a, b) =>
+        (parseDate(b.issuedAt || b.createdAt)?.getTime() || 0) -
+        (parseDate(a.issuedAt || a.createdAt)?.getTime() || 0)
+    );
 };
 
 const formatSessionDate = (value) => {
@@ -2741,90 +2931,58 @@ export const getStudentCertificates = async (req, res) => {
     const uid = trimText(req.user?.uid);
     if (!uid) return errorResponse(res, "Missing student uid", 400);
 
-    const studentSnap = await db.collection(COLLECTIONS.STUDENTS).doc(uid).get();
-    if (!studentSnap.exists) return successResponse(res, [], "Certificates fetched");
-    const studentData = studentSnap.data() || {};
-    const certRefs = Array.isArray(studentData.certificates) ? studentData.certificates : [];
-    const certIds = certRefs
-      .map((entry) => trimText(entry?.certId || entry?.id))
-      .filter(Boolean);
-
-    if (!certIds.length) return successResponse(res, [], "Certificates fetched");
-
-    const certDocs = await Promise.all(
-      certIds.map(async (certId) => {
-        const byCertIdSnap = await db
-          .collection(COLLECTIONS.CERTIFICATES)
-          .where("certId", "==", certId)
-          .limit(1)
-          .get();
-        if (!byCertIdSnap.empty) {
-          const row = byCertIdSnap.docs[0];
-          return { id: row.id, ...(row.data() || {}) };
-        }
-        const docSnap = await db.collection(COLLECTIONS.CERTIFICATES).doc(certId).get();
-        return docSnap.exists ? { id: docSnap.id, ...(docSnap.data() || {}) } : null;
-      })
-    );
-
-    const normalizedCerts = certDocs
-      .filter(Boolean)
-      .map((cert) => ({
+    const payload = await getValidatedStudentCertificates(uid);
+    const payloadWithDownload = payload.map((cert) => {
+      const downloadUrl = getCertificateDownloadUrl(req, cert);
+      return {
         ...cert,
-        issuedAt: toIso(cert.issuedAt),
-        createdAt: toIso(cert.createdAt),
-        revokedAt: toIso(cert.revokedAt),
-      }));
+        downloadUrl,
+        pdfUrl: trimText(cert.pdfUrl) || downloadUrl,
+      };
+    });
 
-    const certCourseIds = [
-      ...new Set(
-        normalizedCerts
-          .map((cert) => trimText(cert.subjectId || cert.courseId))
-          .filter(Boolean)
-      ),
-    ];
-    const courseValidationMap = Object.fromEntries(
-      await Promise.all(
-        certCourseIds.map(async (courseId) => {
-          try {
-            const [lectures, progressRows, finalQuizState] = await Promise.all([
-              getCourseLectures(courseId),
-              getProgressRowsForStudent(uid, courseId),
-              resolveFinalQuizRequirementState({ studentId: uid, courseId }),
-            ]);
-            const progressMap = buildLectureProgressMap(progressRows, courseId);
-            const totalLectures = lectures.length;
-            const completedLectures = lectures.filter(
-              (lecture) => progressMap[lecture.id]?.isCompleted
-            ).length;
-            const lecturesCompleted =
-              totalLectures > 0 ? completedLectures >= totalLectures : true;
-            const finalQuizOk =
-              !finalQuizState.requiresFinalQuiz || finalQuizState.finalQuizPassed;
-            return [courseId, lecturesCompleted && finalQuizOk];
-          } catch {
-            return [courseId, false];
-          }
-        })
-      )
-    );
-
-    const payload = normalizedCerts
-      .filter((cert) => {
-        const courseId = trimText(cert.subjectId || cert.courseId);
-        if (!courseId) return false;
-        return courseValidationMap[courseId] === true;
-      })
-      .sort(
-        (a, b) =>
-          (parseDate(b.issuedAt || b.createdAt)?.getTime() || 0) -
-          (parseDate(a.issuedAt || a.createdAt)?.getTime() || 0)
-      );
-
-    return successResponse(res, payload, "Certificates fetched");
+    return successResponse(res, payloadWithDownload, "Certificates fetched");
   } catch (error) {
     console.error("getStudentCertificates error:", error);
     return errorResponse(res, "Failed to fetch certificates", 500);
+  }
+};
+
+export const downloadStudentCertificate = async (req, res) => {
+  try {
+    const uid = trimText(req.user?.uid);
+    if (!uid) return errorResponse(res, "Missing student uid", 400);
+
+    const certKey = trimText(req.params?.id);
+    if (!certKey) return errorResponse(res, "Certificate id is required", 400);
+
+    const certificates = await getValidatedStudentCertificates(uid);
+    const certificate = certificates.find(
+      (cert) =>
+        trimText(cert.id) === certKey ||
+        trimText(cert.certId).toLowerCase() === certKey.toLowerCase()
+    );
+    if (!certificate) {
+      return errorResponse(res, "Certificate not found", 404);
+    }
+
+    const existingDirectUrl = trimText(
+      certificate.pdfUrl ||
+        certificate.downloadUrl ||
+        certificate.certificatePdfUrl ||
+        certificate.fileUrl ||
+        certificate.url
+    );
+    if (/^https?:\/\//i.test(existingDirectUrl)) {
+      return res.redirect(existingDirectUrl);
+    }
+
+    streamCertificatePdf(res, certificate);
+  } catch (error) {
+    console.error("downloadStudentCertificate error:", error);
+    if (!res.headersSent) {
+      return errorResponse(res, "Failed to download certificate", 500);
+    }
   }
 };
 

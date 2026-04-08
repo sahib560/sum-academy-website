@@ -1080,7 +1080,29 @@ Base URL: `https://sumacademy.net/api`
 {
   "success": true,
   "message": "Certificates fetched",
-  "data": {}
+  "data": [
+    {
+      "id": "3uR0gK2aP9mQzv8XyT4n",
+      "studentId": "M4m0hT7BfRj2e9QwK6Ys",
+      "studentName": "Ahsan Ali",
+      "courseId": "KscKrww9Yr8oNoIQpV2a",
+      "subjectId": "KscKrww9Yr8oNoIQpV2a",
+      "courseName": "Chemistry XI-Pre Medical",
+      "classId": "TR5HYHIIuuZ6Xlouoa5k",
+      "className": "Class Pre Medical for XI batch 0001",
+      "batchCode": "CLAS-15940",
+      "completionScope": "class",
+      "completionTitle": "Class Pre Medical for XI batch 0001 (CLAS-15940) - Chemistry XI-Pre Medical",
+      "certId": "SUM-2026-A1B2C3D4",
+      "verificationUrl": "https://sumacademy.net/verify/SUM-2026-A1B2C3D4",
+      "downloadUrl": "https://sumacademy.net/api/student/certificates/3uR0gK2aP9mQzv8XyT4n/download",
+      "pdfUrl": "https://sumacademy.net/api/student/certificates/3uR0gK2aP9mQzv8XyT4n/download",
+      "isRevoked": false,
+      "issuedAt": "2026-04-07T14:12:26.000Z",
+      "createdAt": "2026-04-07T14:12:26.000Z",
+      "revokedAt": null
+    }
+  ]
 }
 ```
 
@@ -1091,6 +1113,32 @@ Base URL: `https://sumacademy.net/api`
   "success": false,
   "message": "Missing student uid",
   "error": "Missing student uid"
+}
+```
+
+### GET `/api/student/certificates/:id/download`
+- Auth: Bearer token (student)
+- Path Params: `id` (certificate document id or `certId`)
+- Query Params: None
+- Body Keys: None
+- Success Type: Binary PDF download (`application/pdf`) or redirect to existing stored certificate URL
+- Error Messages: `Missing student uid`, `Certificate id is required`, `Certificate not found`, `Failed to download certificate`
+- Success Response Headers:
+
+```json
+{
+  "Content-Type": "application/pdf",
+  "Content-Disposition": "attachment; filename=\"SUM_Certificate_SUM-2026-A1B2C3D4.pdf\""
+}
+```
+
+- Sample Error Response:
+
+```json
+{
+  "success": false,
+  "message": "Certificate not found",
+  "error": "Certificate not found"
 }
 ```
 
