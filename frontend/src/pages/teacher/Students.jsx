@@ -6,6 +6,10 @@ import { jsPDF } from "jspdf";
 import { FiCheck, FiEye, FiLock, FiMessageSquare, FiUserPlus } from "react-icons/fi";
 import { Skeleton } from "../../components/Skeleton.jsx";
 import {
+  completeStudentClass,
+  completeStudentSubject,
+} from "../../services/progress.service.js";
+import {
   getStudentAttendance,
   getStudentProgress,
   getTeacherStudentById,
@@ -245,6 +249,16 @@ function Students() {
   const quickVideoAccessMutation = useMutation({
     mutationFn: ({ studentId, lectureAccess }) =>
       updateStudentVideoAccess(studentId, { lectureAccess }),
+  });
+
+  const completeSubjectMutation = useMutation({
+    mutationFn: ({ courseId, studentId, classId = "" }) =>
+      completeStudentSubject(courseId, studentId, { classId, force: false }),
+  });
+
+  const completeClassMutation = useMutation({
+    mutationFn: ({ classId, studentId }) =>
+      completeStudentClass(classId, studentId, { force: false }),
   });
 
   const students = useMemo(
@@ -526,6 +540,106 @@ function Students() {
     return buildCalendarGrid(attendanceMonth, attendanceQuery.data.sessions || []);
   }, [attendanceMonth, attendanceQuery.data]);
 
+  const selectedProfileCourse = useMemo(() => {
+    const rows = Array.isArray(profileData?.enrolledCourses) ? profileData.enrolledCourses : [];
+    return rows.find((row) => String(row.courseId) === String(selectedProgressCourseId)) || null;
+  }, [profileData?.enrolledCourses, selectedProgressCourseId]);
+
+  const selectedQuickCourse = useMemo(() => {
+    const rows = Array.isArray(quickProfileData?.enrolledCourses)
+      ? quickProfileData.enrolledCourses
+      : [];
+    return rows.find((row) => String(row.courseId) === String(quickAccessCourseId)) || null;
+  }, [quickProfileData?.enrolledCourses, quickAccessCourseId]);
+
+  const completeProfileSubject = async () => {
+    if (!selectedStudentId || !selectedProgressCourseId) return;
+    try {
+      const response = await completeSubjectMutation.mutateAsync({
+        courseId: selectedProgressCourseId,
+        studentId: selectedStudentId,
+        classId: selectedProfileCourse?.classId || "",
+      });
+      const certId = response?.data?.certId;
+      toast.success(
+        certId
+          ? `Subject marked completed. Certificate issued (${certId}).`
+          : "Subject marked completed."
+      );
+      profileProgressQuery.refetch();
+      profileQuery.refetch();
+      studentsQuery.refetch();
+    } catch (error) {
+      toast.error(error?.response?.data?.message || "Failed to complete subject");
+    }
+  };
+
+  const completeProfileClass = async () => {
+    const classId = selectedProfileCourse?.classId || "";
+    if (!selectedStudentId || !classId) return;
+    try {
+      const response = await completeClassMutation.mutateAsync({
+        classId,
+        studentId: selectedStudentId,
+      });
+      const completedSubjects = Number(response?.data?.completedSubjects || 0);
+      toast.success(
+        completedSubjects > 0
+          ? `Class completion updated for ${completedSubjects} subject(s).`
+          : "Class completion updated."
+      );
+      profileProgressQuery.refetch();
+      profileQuery.refetch();
+      studentsQuery.refetch();
+    } catch (error) {
+      toast.error(error?.response?.data?.message || "Failed to complete class");
+    }
+  };
+
+  const completeQuickSubject = async () => {
+    if (!quickAccessStudentId || !quickAccessCourseId) return;
+    try {
+      const response = await completeSubjectMutation.mutateAsync({
+        courseId: quickAccessCourseId,
+        studentId: quickAccessStudentId,
+        classId: selectedQuickCourse?.classId || "",
+      });
+      const certId = response?.data?.certId;
+      toast.success(
+        certId
+          ? `Subject marked completed. Certificate issued (${certId}).`
+          : "Subject marked completed."
+      );
+      quickProgressQuery.refetch();
+      quickProfileQuery.refetch();
+      studentsQuery.refetch();
+    } catch (error) {
+      toast.error(error?.response?.data?.message || "Failed to complete subject");
+    }
+  };
+
+  const completeQuickClass = async () => {
+    const classId = selectedQuickCourse?.classId || "";
+    if (!quickAccessStudentId || !classId) return;
+    try {
+      const response = await completeClassMutation.mutateAsync({
+        classId,
+        studentId: quickAccessStudentId,
+      });
+      const completedSubjects = Number(response?.data?.completedSubjects || 0);
+      toast.success(
+        completedSubjects > 0
+          ? `Class completion updated for ${completedSubjects} subject(s).`
+          : "Class completion updated."
+      );
+      quickProgressQuery.refetch();
+      quickProfileQuery.refetch();
+      studentsQuery.refetch();
+    } catch (error) {
+      toast.error(error?.response?.data?.message || "Failed to complete class");
+    }
+  };
+
   return (
     <div className="space-y-6">
       <Toaster position="top-left" toastOptions={{ style: { borderRadius: "12px", fontFamily: "DM Sans, sans-serif" } }} />
@@ -647,7 +761,7 @@ function Students() {
                   {activeProfileTab === "progress" ? (
                     <div className="space-y-4">
                       <div className="flex flex-wrap gap-2">{(profileData.enrolledCourses || []).map((course) => <button key={course.courseId} className={`rounded-full px-3 py-1.5 text-xs font-semibold ${selectedProgressCourseId === course.courseId ? "bg-primary text-white" : "border border-slate-200 text-slate-600"}`} onClick={() => setSelectedProgressCourseId(course.courseId)} disabled={false}>{course.courseName}</button>)}</div>
-                      {profileProgressQuery.isLoading ? <Skeleton className="h-40 w-full" /> : profileProgressQuery.data ? <div className="space-y-3"><div className="rounded-2xl border border-slate-200 p-4 text-center"><p className="text-xs uppercase tracking-wide text-slate-500">Overall Progress</p><p className="mt-1 text-4xl font-bold text-primary">{clampPercent(profileProgressQuery.data.progressPercent)}%</p><p className="mt-1 text-sm text-slate-500">{formatNumber(profileProgressQuery.data.completedLectures)} / {formatNumber(profileProgressQuery.data.totalLectures)} lectures completed</p></div>{Object.entries(progressGroupedBySubject).map(([subjectName, lectures]) => <div key={subjectName} className="rounded-2xl border border-slate-200 p-3"><p className="font-semibold text-slate-800">{subjectName}</p><div className="mt-2 space-y-2">{lectures.map((lecture) => <div key={lecture.lectureId} className="flex items-center justify-between rounded-xl border border-slate-200 p-2"><div><p className="text-sm font-semibold text-slate-800">{lecture.title}</p><p className="text-xs text-slate-500">{lecture.isCompleted ? `Completed ${formatReadableDate(lecture.completedAt)}` : "Not completed"}</p></div><label className="flex items-center gap-2 text-xs font-semibold text-slate-600"><input type="checkbox" checked={Boolean(profileAccessDraft[lecture.lectureId])} onChange={(event) => setProfileAccessDraft((prev) => ({ ...prev, [lecture.lectureId]: event.target.checked }))} />{profileAccessDraft[lecture.lectureId] ? "Unlocked" : "Locked"}</label></div>)}</div></div>)}<button className="w-full rounded-full bg-primary px-4 py-2 text-sm font-semibold text-white" onClick={saveProfileVideoAccess} disabled={profileVideoAccessMutation.isPending}>{profileVideoAccessMutation.isPending ? "Saving..." : `Save Video Access`}</button></div> : <p className="text-sm text-slate-500">No progress data available.</p>}
+                      {profileProgressQuery.isLoading ? <Skeleton className="h-40 w-full" /> : profileProgressQuery.data ? <div className="space-y-3"><div className="rounded-2xl border border-slate-200 p-4 text-center"><p className="text-xs uppercase tracking-wide text-slate-500">Overall Progress</p><p className="mt-1 text-4xl font-bold text-primary">{clampPercent(profileProgressQuery.data.progressPercent)}%</p><p className="mt-1 text-sm text-slate-500">{formatNumber(profileProgressQuery.data.completedLectures)} / {formatNumber(profileProgressQuery.data.totalLectures)} lectures completed</p></div>{Object.entries(progressGroupedBySubject).map(([subjectName, lectures]) => <div key={subjectName} className="rounded-2xl border border-slate-200 p-3"><p className="font-semibold text-slate-800">{subjectName}</p><div className="mt-2 space-y-2">{lectures.map((lecture) => <div key={lecture.lectureId} className="flex items-center justify-between rounded-xl border border-slate-200 p-2"><div><p className="text-sm font-semibold text-slate-800">{lecture.title}</p><p className="text-xs text-slate-500">{lecture.isCompleted ? `Completed ${formatReadableDate(lecture.completedAt)}` : "Not completed"}</p></div><label className="flex items-center gap-2 text-xs font-semibold text-slate-600"><input type="checkbox" checked={Boolean(profileAccessDraft[lecture.lectureId])} onChange={(event) => setProfileAccessDraft((prev) => ({ ...prev, [lecture.lectureId]: event.target.checked }))} />{profileAccessDraft[lecture.lectureId] ? "Unlocked" : "Locked"}</label></div>)}</div></div>)}<div className="grid gap-2 sm:grid-cols-3"><button className="rounded-full bg-primary px-4 py-2 text-sm font-semibold text-white" onClick={saveProfileVideoAccess} disabled={profileVideoAccessMutation.isPending}>{profileVideoAccessMutation.isPending ? "Saving..." : `Save Video Access`}</button><button className="rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60" onClick={completeProfileSubject} disabled={completeSubjectMutation.isPending || !selectedProgressCourseId || !selectedStudentId}>{completeSubjectMutation.isPending ? "Completing..." : "Mark Subject Completed"}</button><button className="rounded-full border border-indigo-300 px-4 py-2 text-sm font-semibold text-indigo-700 disabled:opacity-60" onClick={completeProfileClass} disabled={completeClassMutation.isPending || !selectedProfileCourse?.classId || !selectedStudentId}>{completeClassMutation.isPending ? "Completing Class..." : "Mark Class Completed"}</button></div></div> : <p className="text-sm text-slate-500">No progress data available.</p>}
                     </div>
                   ) : null}
 
@@ -818,7 +932,7 @@ function Students() {
             <Motion.button className="absolute inset-0 bg-slate-900/45" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setQuickAccessStudentId("")} disabled={quickVideoAccessMutation.isPending} />
             <Motion.div className="relative z-[1] w-full max-w-2xl rounded-3xl bg-white p-6 shadow-2xl" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }}>
               <h3 className="font-heading text-2xl text-slate-900">Video Access - {quickProfileData?.fullName || "Student"}</h3>
-              {quickProfileQuery.isLoading ? <Skeleton className="mt-4 h-32 w-full" /> : <><select value={quickAccessCourseId} onChange={(event) => setQuickAccessCourseId(event.target.value)} className="mt-4 w-full rounded-2xl border border-slate-200 px-4 py-2 text-sm">{(quickProfileData?.enrolledCourses || []).map((course) => <option key={course.courseId} value={course.courseId}>{course.courseName}</option>)}</select><p className="mt-3 rounded-2xl border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-800">These are lectures from your assigned subjects. Locked videos are for students who completed the course.</p>{quickProgressQuery.isLoading ? <Skeleton className="mt-4 h-36 w-full" /> : <div className="mt-4 max-h-80 space-y-3 overflow-y-auto">{Object.entries(quickGroupedBySubject).map(([subjectName, lectures]) => <div key={subjectName} className="rounded-2xl border border-slate-200 p-3"><p className="font-semibold text-slate-800">{subjectName}</p><div className="mt-2 space-y-2">{lectures.map((lecture) => <div key={lecture.lectureId} className="flex items-center justify-between rounded-xl border border-slate-200 p-2"><div><p className="text-sm font-semibold text-slate-800">{lecture.title}</p><p className="text-xs text-slate-500">{quickAccessDraft[lecture.lectureId] ? "Access granted" : "Locked after completion"}</p></div><label className="flex items-center gap-2 text-xs font-semibold text-slate-600"><input type="checkbox" checked={Boolean(quickAccessDraft[lecture.lectureId])} onChange={(event) => setQuickAccessDraft((prev) => ({ ...prev, [lecture.lectureId]: event.target.checked }))} />{quickAccessDraft[lecture.lectureId] ? "Unlock" : "Lock"}</label></div>)}</div></div>)}</div>}<div className="mt-6 flex justify-end gap-2"><button className="rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600" onClick={() => setQuickAccessStudentId("")} disabled={quickVideoAccessMutation.isPending}>Cancel</button><button className="rounded-full bg-primary px-4 py-2 text-sm font-semibold text-white" onClick={saveQuickAccess} disabled={quickVideoAccessMutation.isPending}>{quickVideoAccessMutation.isPending ? "Saving..." : "Save Access"}</button></div></>}
+              {quickProfileQuery.isLoading ? <Skeleton className="mt-4 h-32 w-full" /> : <><select value={quickAccessCourseId} onChange={(event) => setQuickAccessCourseId(event.target.value)} className="mt-4 w-full rounded-2xl border border-slate-200 px-4 py-2 text-sm">{(quickProfileData?.enrolledCourses || []).map((course) => <option key={course.courseId} value={course.courseId}>{course.courseName}</option>)}</select><p className="mt-3 rounded-2xl border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-800">These are lectures from your assigned subjects. Locked videos are for students who completed the course.</p>{quickProgressQuery.isLoading ? <Skeleton className="mt-4 h-36 w-full" /> : <div className="mt-4 max-h-80 space-y-3 overflow-y-auto">{Object.entries(quickGroupedBySubject).map(([subjectName, lectures]) => <div key={subjectName} className="rounded-2xl border border-slate-200 p-3"><p className="font-semibold text-slate-800">{subjectName}</p><div className="mt-2 space-y-2">{lectures.map((lecture) => <div key={lecture.lectureId} className="flex items-center justify-between rounded-xl border border-slate-200 p-2"><div><p className="text-sm font-semibold text-slate-800">{lecture.title}</p><p className="text-xs text-slate-500">{quickAccessDraft[lecture.lectureId] ? "Access granted" : "Locked after completion"}</p></div><label className="flex items-center gap-2 text-xs font-semibold text-slate-600"><input type="checkbox" checked={Boolean(quickAccessDraft[lecture.lectureId])} onChange={(event) => setQuickAccessDraft((prev) => ({ ...prev, [lecture.lectureId]: event.target.checked }))} />{quickAccessDraft[lecture.lectureId] ? "Unlock" : "Lock"}</label></div>)}</div></div>)}</div>}<div className="mt-6 grid gap-2 sm:grid-cols-4"><button className="rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600" onClick={() => setQuickAccessStudentId("")} disabled={quickVideoAccessMutation.isPending}>Cancel</button><button className="rounded-full bg-primary px-4 py-2 text-sm font-semibold text-white" onClick={saveQuickAccess} disabled={quickVideoAccessMutation.isPending}>{quickVideoAccessMutation.isPending ? "Saving..." : "Save Access"}</button><button className="rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60" onClick={completeQuickSubject} disabled={completeSubjectMutation.isPending || !quickAccessStudentId || !quickAccessCourseId}>{completeSubjectMutation.isPending ? "Completing..." : "Mark Subject Completed"}</button><button className="rounded-full border border-indigo-300 px-4 py-2 text-sm font-semibold text-indigo-700 disabled:opacity-60" onClick={completeQuickClass} disabled={completeClassMutation.isPending || !selectedQuickCourse?.classId || !quickAccessStudentId}>{completeClassMutation.isPending ? "Completing Class..." : "Mark Class Completed"}</button></div></>}
             </Motion.div>
           </div>
         ) : null}

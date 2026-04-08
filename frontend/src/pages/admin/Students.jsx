@@ -35,6 +35,8 @@ import {
 } from "../../services/admin.service.js";
 import {
   getStudentProgress as getStudentCourseProgress,
+  completeStudentClass,
+  completeStudentSubject,
   unlockAllVideos,
   updateVideoAccess as updateStudentCourseVideoAccess,
 } from "../../services/progress.service.js";
@@ -129,6 +131,9 @@ const normalizeEnrolledCourses = (courses) => {
         id: `course-${index}-${entry}`,
         courseId: "",
         courseName: entry,
+        classId: "",
+        className: "",
+        batchCode: "",
         enrolledAt: null,
         progress: 0,
       };
@@ -137,6 +142,9 @@ const normalizeEnrolledCourses = (courses) => {
       id: entry.id || entry.courseId || `course-${index}`,
       courseId: entry.courseId || entry.id || "",
       courseName: entry.courseName || entry.name || "Untitled Course",
+      classId: entry.classId || "",
+      className: entry.className || "",
+      batchCode: entry.batchCode || "",
       enrolledAt: entry.enrolledAt || entry.createdAt || null,
       progress: Number(entry.progress || 0),
     };
@@ -392,8 +400,11 @@ function Students() {
     studentName: "",
     courseId: "",
     courseName: "",
+    classId: "",
+    className: "",
   });
   const [videoAccessDraft, setVideoAccessDraft] = useState({});
+  const [forceComplete, setForceComplete] = useState(false);
 
   const [addForm, setAddForm] = useState(emptyAddForm);
   const [editForm, setEditForm] = useState(emptyEditForm);
@@ -663,6 +674,42 @@ function Students() {
     },
   });
 
+  const completeSubjectMutation = useMutation({
+    mutationFn: ({ courseId, studentId, classId, force }) =>
+      completeStudentSubject(courseId, studentId, { classId, force }),
+    onSuccess: async (response) => {
+      await invalidateStudents();
+      await videoAccessProgressQuery.refetch();
+      const certId = response?.data?.certId;
+      toast.success(
+        certId
+          ? `Subject marked completed. Certificate issued (${certId}).`
+          : "Subject marked completed."
+      );
+    },
+    onError: (error) => {
+      toast.error(error?.response?.data?.message || "Failed to complete subject");
+    },
+  });
+
+  const completeClassMutation = useMutation({
+    mutationFn: ({ classId, studentId, force }) =>
+      completeStudentClass(classId, studentId, { force }),
+    onSuccess: async (response) => {
+      await invalidateStudents();
+      await videoAccessProgressQuery.refetch();
+      const completedSubjects = Number(response?.data?.completedSubjects || 0);
+      toast.success(
+        completedSubjects > 0
+          ? `Class completion updated for ${completedSubjects} subject(s).`
+          : "Class completion updated."
+      );
+    },
+    onError: (error) => {
+      toast.error(error?.response?.data?.message || "Failed to complete class");
+    },
+  });
+
   const openAdd = () => {
     setAddForm(emptyAddForm);
     setAddTouched({});
@@ -715,7 +762,10 @@ function Students() {
       studentName: student.fullName,
       courseId,
       courseName: course.courseName || "Course",
+      classId: course.classId || "",
+      className: course.className || "",
     });
+    setForceComplete(false);
   };
 
   const openReset = (student) => {
@@ -1559,7 +1609,10 @@ function Students() {
               studentName: "",
               courseId: "",
               courseName: "",
+              classId: "",
+              className: "",
             });
+            setForceComplete(false);
           }
         }
       >
@@ -1569,7 +1622,82 @@ function Students() {
             <p className="text-xs text-slate-500">
               Unlock individual lectures or unlock all for rewatch.
             </p>
+            {videoAccessPanel.className ? (
+              <p className="mt-1 text-xs text-slate-500">
+                Class: {videoAccessPanel.className}
+              </p>
+            ) : null}
           </div>
+
+          {videoAccessProgressQuery.data ? (
+            <div className="rounded-2xl border border-blue-100 bg-blue-50 p-3 text-sm text-blue-900">
+              <p className="font-semibold">
+                Progress: {Number(videoAccessProgressQuery.data.completedLectures || 0)}/
+                {Number(videoAccessProgressQuery.data.totalLectures || 0)} lectures
+              </p>
+              <p className="text-xs">
+                {Math.max(
+                  0,
+                  Math.min(100, Number(videoAccessProgressQuery.data.progressPercent || 0))
+                )}
+                % complete
+              </p>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  className="rounded-full bg-emerald-600 px-4 py-2 text-xs font-semibold text-white"
+                  onClick={() =>
+                    completeSubjectMutation.mutate({
+                      courseId: videoAccessPanel.courseId,
+                      studentId: videoAccessPanel.studentId,
+                      classId: videoAccessPanel.classId || "",
+                      force: forceComplete,
+                    })
+                  }
+                  disabled={
+                    completeSubjectMutation.isPending ||
+                    !videoAccessPanel.courseId ||
+                    !videoAccessPanel.studentId
+                  }
+                >
+                  {completeSubjectMutation.isPending
+                    ? "Completing Subject..."
+                    : "Mark Subject Completed"}
+                </button>
+                <button
+                  type="button"
+                  className="rounded-full border border-indigo-300 px-4 py-2 text-xs font-semibold text-indigo-700"
+                  onClick={() =>
+                    completeClassMutation.mutate({
+                      classId: videoAccessPanel.classId,
+                      studentId: videoAccessPanel.studentId,
+                      force: forceComplete,
+                    })
+                  }
+                  disabled={
+                    completeClassMutation.isPending ||
+                    !videoAccessPanel.classId ||
+                    !videoAccessPanel.studentId
+                  }
+                >
+                  {completeClassMutation.isPending
+                    ? "Completing Class..."
+                    : "Mark Class Completed"}
+                </button>
+              </div>
+              <label className="mt-3 inline-flex items-center gap-2 text-xs font-semibold text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={forceComplete}
+                  onChange={(event) => setForceComplete(event.target.checked)}
+                  disabled={
+                    completeSubjectMutation.isPending || completeClassMutation.isPending
+                  }
+                />
+                Force completion + certificate (Admin override)
+              </label>
+            </div>
+          ) : null}
 
           {videoAccessProgressQuery.isLoading ? (
             <p className="text-sm text-slate-500">Loading lecture progress...</p>

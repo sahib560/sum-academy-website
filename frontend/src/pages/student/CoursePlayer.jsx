@@ -465,6 +465,10 @@ function StudentCoursePlayer() {
       const data = result || {};
       if (data?.courseCompleted) {
         toast.success("Congratulations! Course completed!");
+      } else if (data?.nextAction === "await_teacher_approval") {
+        toast.success(
+          "All required lectures/quizzes are done. Waiting for teacher/admin approval."
+        );
       } else if (data?.chapterCompleted && data?.chapterQuizUnlocked) {
         toast.success("Chapter complete! Quiz unlocked.");
       } else {

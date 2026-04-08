@@ -43,3 +43,22 @@ export const unlockAllVideos = (courseId, studentId) =>
 
 export const getStudentProgress = (courseId, studentId) =>
   api.get(`/courses/${courseId}/students/${studentId}/progress`).then((r) => r.data.data);
+
+export const completeStudentSubject = (
+  courseId,
+  studentId,
+  { classId = "", force = false } = {}
+) =>
+  api
+    .post(`/subjects/${courseId}/students/${studentId}/complete`, {
+      ...(classId ? { classId } : {}),
+      force: Boolean(force),
+    })
+    .then((r) => r.data);
+
+export const completeStudentClass = (classId, studentId, { force = false } = {}) =>
+  api
+    .post(`/classes/${classId}/students/${studentId}/complete`, {
+      force: Boolean(force),
+    })
+    .then((r) => r.data);
