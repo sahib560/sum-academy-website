@@ -454,6 +454,7 @@ function SiteSettings() {
     const mimeType = String(file?.type || "").toLowerCase();
     const allowedMimeTypes = [
       "application/vnd.android.package-archive",
+      "application/x-android-package",
       "application/octet-stream",
       "application/zip",
       "application/x-zip-compressed",

@@ -295,6 +295,7 @@ export const uploadAndroidApk = async (req, res) => {
       "APK uploaded"
     );
   } catch (error) {
+    console.error("uploadAndroidApk error:", error);
     return errorResponse(res, error?.message || "Failed to upload APK", 400);
   } finally {
     if (tempPath) {
