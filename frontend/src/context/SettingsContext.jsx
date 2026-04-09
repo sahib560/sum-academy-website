@@ -12,6 +12,10 @@ export const defaultSettings = {
     address: "Karachi, Pakistan",
     logoUrl: null,
     faviconUrl: null,
+    apkUrl: null,
+    apkFileName: "",
+    apkMimeType: "",
+    apkSize: null,
     socialLinks: {
       facebook: "",
       instagram: "",
@@ -416,6 +420,7 @@ const withCompatibility = (settings) => {
     ...general,
     logoPreview: general.logoUrl || "",
     faviconPreview: general.faviconUrl || "",
+    apkPreview: general.apkUrl || "",
   };
   next.content = {
     heroBadge: hero.badge,

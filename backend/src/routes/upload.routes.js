@@ -6,6 +6,7 @@ import {
   uploadCourseVideo,
   uploadPaymentReceipt,
   uploadLogo,
+  uploadAndroidApk,
   deleteUploadedFile,
 } from "../controllers/upload.controller.js";
 import { verifyToken, requireRole } from "../middlewares/auth.middleware.js";
@@ -40,6 +41,8 @@ router.post(
 );
 
 router.post("/upload/logo", adminOnly, upload.single("file"), uploadLogo);
+
+router.post("/upload/apk", adminOnly, upload.single("file"), uploadAndroidApk);
 
 router.post(
   "/payments/:paymentId/receipt",

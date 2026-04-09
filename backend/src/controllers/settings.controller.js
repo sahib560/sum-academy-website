@@ -22,6 +22,10 @@ const DEFAULT_SETTINGS = {
     address: "Karachi, Pakistan",
     logoUrl: null,
     faviconUrl: null,
+    apkUrl: null,
+    apkFileName: "",
+    apkMimeType: "",
+    apkSize: null,
     socialLinks: {
       facebook: "",
       instagram: "",
@@ -530,6 +534,17 @@ export const updateGeneralSettings = async (req, res) => {
       address: normalizeString(input.address ?? current.general.address),
       logoUrl: input.logoUrl ?? current.general.logoUrl ?? null,
       faviconUrl: input.faviconUrl ?? current.general.faviconUrl ?? null,
+      apkUrl: input.apkUrl ?? current.general.apkUrl ?? null,
+      apkFileName: normalizeString(
+        input.apkFileName ?? current.general.apkFileName
+      ),
+      apkMimeType: normalizeString(
+        input.apkMimeType ?? current.general.apkMimeType
+      ),
+      apkSize:
+        Number.isFinite(Number(input.apkSize))
+          ? Number(input.apkSize)
+          : Number(current.general.apkSize || 0) || null,
       socialLinks: {
         facebook: normalizeString(socialLinks.facebook),
         instagram: normalizeString(socialLinks.instagram),

@@ -20,12 +20,18 @@ const ALLOWED_VIDEO_TYPES = [
   "video/mov",
 ];
 
+const ALLOWED_APK_TYPES = [
+  "application/vnd.android.package-archive",
+  "application/octet-stream",
+];
+
 const MAX_SIZES = {
   image: 5 * 1024 * 1024,
   pdf: 50 * 1024 * 1024,
   video: 2 * 1024 * 1024 * 1024,
   receipt: 10 * 1024 * 1024,
   logo: 2 * 1024 * 1024,
+  apk: 300 * 1024 * 1024,
 };
 
 const sanitizeFolder = (value = "") =>
@@ -181,6 +187,19 @@ export const uploadReceipt = async (fileBuffer, originalName, mimeType) => {
     mimeType,
     folder: "receipts",
     maxSize: MAX_SIZES.receipt,
+  });
+};
+
+export const uploadAPK = async (fileBuffer, originalName, mimeType) => {
+  if (!ALLOWED_APK_TYPES.includes(mimeType)) {
+    throw new Error("Only APK files are allowed");
+  }
+  return uploadFile({
+    fileBuffer,
+    originalName,
+    mimeType,
+    folder: "apps/android",
+    maxSize: MAX_SIZES.apk,
   });
 };
 

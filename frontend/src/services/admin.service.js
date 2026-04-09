@@ -485,6 +485,16 @@ export const getEmailTemplates = () =>
 export const updateEmailTemplate = (data) =>
   api.put("/admin/settings/templates", data).then((r) => r.data);
 
+export const uploadApkFile = (file) => {
+  const formData = new FormData();
+  formData.append("file", file);
+  return api
+    .post("/upload/apk", formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+    })
+    .then((r) => r.data);
+};
+
 export const updateSiteSettings = (data) => {
   if (data?.general) return updateGeneralSettings(data.general);
   if (data?.email) return updateEmailSettings(data.email);

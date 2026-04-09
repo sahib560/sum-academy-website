@@ -263,47 +263,57 @@ const getStudentCourseIds = async (studentId) => {
 const getViewerContext = async (uid, role) => {
   let classIds = [];
   let courseIds = [];
+  const normalizedRole = String(role || "").toLowerCase();
 
-  if (role === "student") {
+  if (normalizedRole === "student") {
     [classIds, courseIds] = await Promise.all([
       getStudentClassIds(uid),
       getStudentCourseIds(uid),
     ]);
   }
 
-  return { uid, role, classIds, courseIds };
+  return { uid, role: normalizedRole, classIds, courseIds };
 };
 
 const isAnnouncementVisibleToUser = (announcement, context) => {
   const { uid, role, classIds, courseIds } = context;
-  const isSingleUserTarget = announcement.targetType === "single_user";
+  const targetType = String(announcement.targetType || "system").toLowerCase();
+  const isSingleUserTarget = targetType === "single_user";
+  const postedBy = trimText(announcement.postedBy);
   const audienceRole = String(announcement.audienceRole || "student").toLowerCase();
+  const recipientIds = Array.isArray(announcement.recipientIds)
+    ? announcement.recipientIds.map((entry) => trimText(entry)).filter(Boolean)
+    : [];
+
+  if (role === "admin") {
+    return true;
+  }
+
+  if (role === "teacher") {
+    if (postedBy === uid) return true;
+    if (isSingleUserTarget) {
+      return announcement.targetId === uid || recipientIds.includes(uid);
+    }
+    if (recipientIds.includes(uid)) return true;
+    if (targetType === "system") {
+      return ["teacher", "all"].includes(audienceRole);
+    }
+    return ["teacher", "all"].includes(audienceRole);
+  }
+
   const isAudienceMatch =
     isSingleUserTarget || audienceRole === "all" || audienceRole === role;
   if (!isAudienceMatch) return false;
 
   if (isSingleUserTarget) {
-    const recipientIds = Array.isArray(announcement.recipientIds)
-      ? announcement.recipientIds
-      : [];
     return announcement.targetId === uid || recipientIds.includes(uid);
   }
 
-  if (role !== "student") {
-    if (announcement.targetType !== "system") return false;
-    if (role === "teacher") {
-      if (!["teacher", "all"].includes(audienceRole)) return false;
-      const postedByRole = trimText(announcement.postedByRole).toLowerCase();
-      if (postedByRole && postedByRole !== "admin") return false;
-    }
-    return announcement.targetType === "system";
-  }
-
-  if (announcement.targetType === "system") return true;
-  if (announcement.targetType === "class") {
+  if (targetType === "system") return true;
+  if (targetType === "class") {
     return classIds.includes(announcement.targetId);
   }
-  if (announcement.targetType === "course") {
+  if (targetType === "course") {
     return courseIds.includes(announcement.targetId);
   }
 

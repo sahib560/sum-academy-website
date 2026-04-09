@@ -45,16 +45,19 @@ const iconMap = {
 
 const isTeacherAudienceAnnouncement = (item, uid = "") => {
   const audienceRole = String(item?.audienceRole || "").toLowerCase();
-  const postedByRole = String(item?.postedByRole || "").toLowerCase();
-  const isAdminOrLegacy = !postedByRole || postedByRole === "admin";
+  const targetType = String(item?.targetType || "").toLowerCase();
+  const postedBy = String(item?.postedBy || "").trim();
   const recipientIds = Array.isArray(item?.recipientIds) ? item.recipientIds : [];
-  if (item?.targetType === "single_user") {
+  if (postedBy && postedBy === uid) return true;
+  if (targetType === "single_user") {
     return item?.targetId === uid || recipientIds.includes(uid);
   }
+  if (recipientIds.includes(uid)) return true;
+  if (targetType === "system") {
+    return audienceRole === "teacher" || audienceRole === "all";
+  }
   return (
-    item?.targetType === "system" &&
-    isAdminOrLegacy &&
-    (audienceRole === "teacher" || audienceRole === "all")
+    audienceRole === "teacher" || audienceRole === "all"
   );
 };
 

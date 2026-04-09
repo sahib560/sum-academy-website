@@ -93,6 +93,8 @@ function Navbar() {
   const closeMenu = () => setMenuOpen(false);
   const logoSrc = settings.general.logoUrl || logo;
   const siteName = settings.general.siteName || "SUM Academy";
+  const apkUrl = String(settings?.general?.apkUrl || "").trim();
+  const apkFileName = String(settings?.general?.apkFileName || "SUM-Academy.apk");
   const navbarLabels = {
     navbarLmsLabel: "LMS Login",
     navbarSignInLabel: "Sign In",
@@ -100,7 +102,20 @@ function Navbar() {
   };
 
   const handleAppDownloadClick = () => {
-    toast.success("something is coming soon");
+    if (!apkUrl) {
+      toast.success("Something is coming soon");
+      return;
+    }
+
+    const link = document.createElement("a");
+    link.href = apkUrl;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    link.setAttribute("download", apkFileName);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    toast.success("Downloading app...");
   };
 
   return (

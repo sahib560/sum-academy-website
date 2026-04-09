@@ -23,6 +23,7 @@ import {
   updateCertificateSettings,
   updateSecuritySettings,
   updateTestimonialsSettings,
+  uploadApkFile,
 } from "../../services/admin.service.js";
 import { defaultSettings } from "../../context/SettingsContext.jsx";
 import { storage } from "../../config/firebase.js";
@@ -448,6 +449,61 @@ function SiteSettings() {
     return uploaded;
   };
 
+  const handleApkUpload = async (file) => {
+    const fileName = String(file?.name || "").toLowerCase();
+    const mimeType = String(file?.type || "").toLowerCase();
+    const allowedMimeTypes = [
+      "application/vnd.android.package-archive",
+      "application/octet-stream",
+      "",
+    ];
+
+    if (!fileName.endsWith(".apk")) {
+      throw new Error("Only APK file is allowed");
+    }
+    if (!allowedMimeTypes.includes(mimeType)) {
+      throw new Error("Invalid APK mime type");
+    }
+    if (Number(file?.size || 0) > 300 * 1024 * 1024) {
+      throw new Error("APK max size is 300MB");
+    }
+
+    const response = await uploadApkFile(file);
+    const data = response?.data || {};
+    const apkUrl = data?.url || "";
+
+    if (!apkUrl) {
+      throw new Error("APK upload failed");
+    }
+
+    updateSection("general", {
+      apkUrl,
+      apkFileName: data?.fileName || file.name,
+      apkMimeType: file.type || "application/vnd.android.package-archive",
+      apkSize: Number(data?.size || file.size || 0) || null,
+    });
+    setBaseline((prev) => ({
+      ...prev,
+      general: {
+        ...prev.general,
+        apkUrl,
+        apkFileName: data?.fileName || file.name,
+        apkMimeType: file.type || "application/vnd.android.package-archive",
+        apkSize: Number(data?.size || file.size || 0) || null,
+      },
+    }));
+    queryClient.invalidateQueries({ queryKey: ["site-settings-admin-all"] });
+    refetchSettings();
+    toast.success("APK uploaded and linked to Download App.");
+
+    return {
+      url: apkUrl,
+      name: data?.fileName || file.name,
+      size: Number(data?.size || file.size || 0) || null,
+      type: file.type || "application/vnd.android.package-archive",
+    };
+  };
+
   const renderTab = () => {
     if (activeTab === "General") {
       return (
@@ -544,6 +600,17 @@ function SiteSettings() {
               />
             </div>
           </div>
+          <div className="space-y-1">
+            <p className={fieldLabelClass}>Android APK URL</p>
+            <input
+              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+              placeholder="https://storage.googleapis.com/.../app-release.apk"
+              value={draft.general.apkUrl || ""}
+              onChange={(e) =>
+                updateSection("general", { apkUrl: e.target.value })
+              }
+            />
+          </div>
           <div className="grid gap-3 rounded-2xl border border-slate-200 p-3 md:grid-cols-2">
             <FileUploader
               accept="image/jpeg,image/png,image/webp,image/svg+xml"
@@ -565,6 +632,20 @@ function SiteSettings() {
                 <span className="text-xs text-slate-500">Uploading...</span>
               ) : null}
             </label>
+          </div>
+          <div className="rounded-2xl border border-slate-200 p-3">
+            <FileUploader
+              accept=".apk,application/vnd.android.package-archive,application/octet-stream"
+              maxSize={300}
+              label="Upload Android APK"
+              hint="APK file - max 300MB. This powers the public Download App button."
+              onUpload={handleApkUpload}
+            />
+            {draft.general.apkFileName ? (
+              <p className="mt-2 text-xs text-slate-500">
+                Current APK: {draft.general.apkFileName}
+              </p>
+            ) : null}
           </div>
           <div className="grid gap-3 md:grid-cols-2">
             <div className="space-y-1">

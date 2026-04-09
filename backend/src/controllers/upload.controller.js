@@ -8,6 +8,7 @@ import {
   uploadVideo,
   uploadReceipt,
   uploadLogo as uploadLogoFile,
+  uploadAPK,
   deleteFile,
   MAX_SIZES,
 } from "../services/storage.service.js";
@@ -230,6 +231,46 @@ export const uploadLogo = async (req, res) => {
     return successResponse(res, { url: result.url }, "Logo uploaded");
   } catch (error) {
     return errorResponse(res, error?.message || "Failed to upload logo", 400);
+  }
+};
+
+export const uploadAndroidApk = async (req, res) => {
+  try {
+    if (!req.file) return errorResponse(res, "No file uploaded", 400);
+
+    const result = await uploadAPK(
+      req.file.buffer,
+      req.file.originalname,
+      req.file.mimetype
+    );
+
+    await db
+      .collection(COLLECTIONS.SETTINGS)
+      .doc("siteSettings")
+      .set(
+        {
+          general: {
+            apkUrl: result.url,
+            apkFileName: req.file.originalname || result.fileName,
+            apkMimeType: req.file.mimetype || "application/vnd.android.package-archive",
+            apkSize: result.size || null,
+            apkUploadedAt: admin.firestore.FieldValue.serverTimestamp(),
+          },
+        },
+        { merge: true }
+      );
+
+    return successResponse(
+      res,
+      {
+        url: result.url,
+        fileName: req.file.originalname || result.fileName,
+        size: result.size || null,
+      },
+      "APK uploaded"
+    );
+  } catch (error) {
+    return errorResponse(res, error?.message || "Failed to upload APK", 400);
   }
 };
 
