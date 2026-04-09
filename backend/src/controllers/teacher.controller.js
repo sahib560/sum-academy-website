@@ -39,6 +39,18 @@ const toDate = (value) => {
 };
 
 const getEnrollmentStatusFromClassDates = (classData = {}) => {
+  const explicitStatus = String(classData?.status || "")
+    .trim()
+    .toLowerCase();
+  if (
+    ["completed", "permanently_completed", "closed"].includes(explicitStatus) ||
+    classData?.isCompleted === true ||
+    classData?.completed === true ||
+    classData?.permanentlyCompleted === true ||
+    classData?.completionLocked === true
+  ) {
+    return "completed";
+  }
   const start = toDate(classData?.startDate);
   const end = toDate(classData?.endDate);
   const today = new Date();
@@ -475,6 +487,24 @@ const serverTimestamp = () => admin.firestore.FieldValue.serverTimestamp();
 const trimText = (value = "") => String(value || "").trim();
 
 const lowerText = (value = "") => trimText(value).toLowerCase();
+const PERMANENT_COMPLETION_MESSAGE =
+  "This class or subject is completed. Your certificate is generated. Thank you for joining us. Keep exploring our other subjects and classes. Thank you.";
+const isMarkedCompletedState = (row = {}) => {
+  const normalizedStatus = lowerText(
+    row?.status || row?.lifecycleStatus || row?.state || ""
+  );
+  if (["completed", "permanently_completed", "closed"].includes(normalizedStatus)) {
+    return true;
+  }
+  return (
+    row?.isCompleted === true ||
+    row?.completed === true ||
+    row?.permanentlyCompleted === true ||
+    row?.completionLocked === true ||
+    row?.lockedAfterCompletion === true ||
+    row?.isLockedAfterCompletion === true
+  );
+};
 
 const toPositiveNumber = (value, fallback = 0) => {
   const parsed = Number(value);
@@ -557,6 +587,42 @@ const getClassAssignedCourseIds = (classData = {}) => {
   });
 
   return [...new Set(ids)];
+};
+
+const ensureSubjectEditableForContent = async (courseId = "") => {
+  const cleanCourseId = trimText(courseId);
+  if (!cleanCourseId) {
+    return { editable: false, error: "courseId is required", status: 400 };
+  }
+
+  const [subjectSnap, courseSnap, classesSnap] = await Promise.all([
+    db.collection(COLLECTIONS.SUBJECTS).doc(cleanCourseId).get(),
+    db.collection(COLLECTIONS.COURSES).doc(cleanCourseId).get(),
+    db.collection(COLLECTIONS.CLASSES).get(),
+  ]);
+
+  const subjectData = subjectSnap.exists
+    ? subjectSnap.data() || {}
+    : courseSnap.exists
+      ? courseSnap.data() || {}
+      : {};
+  const subjectCompleted = isMarkedCompletedState(subjectData);
+  const classCompleted = classesSnap.docs.some((doc) => {
+    const classData = doc.data() || {};
+    if (!isMarkedCompletedState(classData)) return false;
+    return getClassAssignedCourseIds(classData).includes(cleanCourseId);
+  });
+
+  if (subjectCompleted || classCompleted) {
+    return {
+      editable: false,
+      error: PERMANENT_COMPLETION_MESSAGE,
+      status: 400,
+      code: "SUBJECT_OR_CLASS_COMPLETED",
+    };
+  }
+
+  return { editable: true };
 };
 
 const isTeacherListedInClassTeachers = (classData = {}, uid = "") => {
@@ -1995,6 +2061,13 @@ export const addChapterToCourse = async (req, res) => {
     );
     if (!ownsSubject) return errorResponse(res, "Forbidden", 403);
 
+    const editableState = await ensureSubjectEditableForContent(courseId);
+    if (!editableState.editable) {
+      return errorResponse(res, editableState.error, editableState.status || 400, {
+        ...(editableState.code ? { code: editableState.code } : {}),
+      });
+    }
+
     const existingSnap = await db
       .collection(COLLECTIONS.CHAPTERS)
       .where("courseId", "==", courseId)
@@ -2150,6 +2223,15 @@ export const addLecture = async (req, res) => {
     const linked = await getChapterWithAssignedSubject(chapterId, uid, role);
     if (linked.error) return errorResponse(res, linked.error, linked.status);
 
+    const editableState = await ensureSubjectEditableForContent(
+      trimText(linked.chapterData.courseId)
+    );
+    if (!editableState.editable) {
+      return errorResponse(res, editableState.error, editableState.status || 400, {
+        ...(editableState.code ? { code: editableState.code } : {}),
+      });
+    }
+
     const existingSnap = await db
       .collection(COLLECTIONS.LECTURES)
       .where("chapterId", "==", chapterId)
@@ -2288,6 +2370,15 @@ export const saveLectureContent = async (req, res) => {
 
     const linked = await getLectureWithAssignedSubject(lectureId, uid, role);
     if (linked.error) return errorResponse(res, linked.error, linked.status);
+
+    const editableState = await ensureSubjectEditableForContent(
+      trimText(linked.lectureData.courseId)
+    );
+    if (!editableState.editable) {
+      return errorResponse(res, editableState.error, editableState.status || 400, {
+        ...(editableState.code ? { code: editableState.code } : {}),
+      });
+    }
 
     const normalizedType = lowerText(type);
     if (!["video", "pdf", "book"].includes(normalizedType)) {

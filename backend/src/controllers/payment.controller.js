@@ -15,6 +15,24 @@ import {
 const { FieldValue } = admin.firestore;
 
 const lowerText = (value = "") => String(value || "").trim().toLowerCase();
+const PERMANENT_COMPLETION_MESSAGE =
+  "This class or subject is completed. Your certificate is generated. Thank you for joining us. Keep exploring our other subjects and classes. Thank you.";
+const isMarkedCompletedState = (row = {}) => {
+  const normalizedStatus = lowerText(
+    row?.status || row?.lifecycleStatus || row?.state || ""
+  );
+  if (["completed", "permanently_completed", "closed"].includes(normalizedStatus)) {
+    return true;
+  }
+  return (
+    row?.isCompleted === true ||
+    row?.completed === true ||
+    row?.permanentlyCompleted === true ||
+    row?.completionLocked === true ||
+    row?.lockedAfterCompletion === true ||
+    row?.isLockedAfterCompletion === true
+  );
+};
 
 const toNumber = (value, fallback = 0) => {
   const parsed = Number(value);
@@ -59,6 +77,9 @@ const parsePromoExpiryDate = (value) => {
 };
 
 const getEnrollmentStatusFromClassDates = (classData = {}) => {
+  if (isMarkedCompletedState(classData)) {
+    return "completed";
+  }
   const start = parseDate(classData?.startDate);
   const end = parseDate(classData?.endDate);
   const today = new Date();
@@ -244,6 +265,26 @@ const getCourseById = async (courseId) => {
   const rowSnap = subjectSnap.exists ? subjectSnap : courseSnap;
   if (!rowSnap.exists) return null;
   return { id: rowSnap.id, ...(rowSnap.data() || {}) };
+};
+
+const getCompletedSubjectIds = async (courseIds = []) => {
+  const uniqueIds = [...new Set((Array.isArray(courseIds) ? courseIds : []).filter(Boolean))];
+  if (!uniqueIds.length) return [];
+  const snaps = await Promise.all(
+    uniqueIds.map(async (courseId) => {
+      const [subjectSnap, courseSnap] = await Promise.all([
+        db.collection(COLLECTIONS.SUBJECTS).doc(courseId).get(),
+        db.collection(COLLECTIONS.COURSES).doc(courseId).get(),
+      ]);
+      const rowData = subjectSnap.exists
+        ? subjectSnap.data() || {}
+        : courseSnap.exists
+          ? courseSnap.data() || {}
+          : {};
+      return { courseId, completed: isMarkedCompletedState(rowData) };
+    })
+  );
+  return snaps.filter((row) => row.completed).map((row) => row.courseId);
 };
 
 const getClassById = async (classId) => {
@@ -799,6 +840,14 @@ export const initiatePayment = async (req, res) => {
     if (!classData) return errorResponse(res, "Class not found", 404);
 
     const enrollmentStatus = getEnrollmentStatusFromClassDates(classData);
+    if (enrollmentStatus === "completed") {
+      return errorResponse(
+        res,
+        PERMANENT_COMPLETION_MESSAGE,
+        400,
+        { code: "CLASS_COMPLETED" }
+      );
+    }
     if (enrollmentStatus === "expired") {
       return errorResponse(
         res,
@@ -882,6 +931,23 @@ export const initiatePayment = async (req, res) => {
         res,
         "Selected subject is not assigned to this class",
         400
+      );
+    }
+
+    const targetCourseIdsForPurchase =
+      normalizedEnrollmentType === "single_course"
+        ? [cleanCourseId]
+        : classCourseIds;
+    const completedSubjectIds = await getCompletedSubjectIds(targetCourseIdsForPurchase);
+    if (completedSubjectIds.length) {
+      return errorResponse(
+        res,
+        PERMANENT_COMPLETION_MESSAGE,
+        400,
+        {
+          code: "SUBJECT_COMPLETED",
+          subjectIds: completedSubjectIds,
+        }
       );
     }
 
@@ -1844,7 +1910,7 @@ export const verifyBankTransfer = async (req, res) => {
         enrollmentStatus = getEnrollmentStatusFromClassDates(classData);
       }
       if (enrollmentStatus === "completed") {
-        throw new Error("CLASS_ENDED");
+        throw new Error("CLASS_COMPLETED");
       }
 
       if (classData && effectiveShiftId) {
@@ -1902,6 +1968,27 @@ export const verifyBankTransfer = async (req, res) => {
       }
       if (!enrollmentCourseIds.length) {
         throw new Error("CLASS_HAS_NO_COURSES");
+      }
+
+      const completedSubjectIds = [];
+      for (const courseId of enrollmentCourseIds) {
+        const [subjectSnap, courseSnap] = await Promise.all([
+          transaction.get(db.collection(COLLECTIONS.SUBJECTS).doc(courseId)),
+          transaction.get(db.collection(COLLECTIONS.COURSES).doc(courseId)),
+        ]);
+        const rowData = subjectSnap.exists
+          ? subjectSnap.data() || {}
+          : courseSnap.exists
+            ? courseSnap.data() || {}
+            : {};
+        if (isMarkedCompletedState(rowData)) {
+          completedSubjectIds.push(courseId);
+        }
+      }
+      if (completedSubjectIds.length) {
+        const subjectError = new Error("SUBJECT_COMPLETED");
+        subjectError.meta = { subjectIds: completedSubjectIds };
+        throw subjectError;
       }
 
       const enrollmentQuery = db
@@ -2109,6 +2196,14 @@ export const verifyBankTransfer = async (req, res) => {
       "Payment approved"
     );
   } catch (error) {
+    if (error?.message === "CLASS_COMPLETED") {
+      return errorResponse(
+        res,
+        PERMANENT_COMPLETION_MESSAGE,
+        400,
+        { code: "CLASS_COMPLETED" }
+      );
+    }
     if (error?.message === "CLASS_ENDED") {
       return errorResponse(
         res,
@@ -2179,6 +2274,19 @@ export const verifyBankTransfer = async (req, res) => {
         res,
         "Cannot approve payment because no course is linked to this payment/class.",
         400
+      );
+    }
+    if (error?.message === "SUBJECT_COMPLETED") {
+      return errorResponse(
+        res,
+        PERMANENT_COMPLETION_MESSAGE,
+        400,
+        {
+          code: "SUBJECT_COMPLETED",
+          subjectIds: Array.isArray(error?.meta?.subjectIds)
+            ? error.meta.subjectIds
+            : [],
+        }
       );
     }
     if (error?.message === "PROMO_LIMIT_REACHED") {

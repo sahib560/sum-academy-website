@@ -472,6 +472,8 @@ const hasTeacherLinks = async (teacherId) => {
 
 const CLASS_STATUSES = new Set(["upcoming", "active", "completed", "expired", "full"]);
 const VIDEO_LIBRARY_COLLECTION = COLLECTIONS.VIDEOS || "videos";
+const PERMANENT_COMPLETION_MESSAGE =
+  "This class or subject is completed. Your certificate is generated. Thank you for joining us. Keep exploring our other subjects and classes. Thank you.";
 const SHIFT_NAME_OPTIONS = new Set([
   "Morning",
   "Evening",
@@ -515,8 +517,34 @@ const normalizeDateValue = (value) => {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 };
 
+const isMarkedCompletedState = (row = {}) => {
+  const normalizedStatus = String(
+    row?.status || row?.lifecycleStatus || row?.state || ""
+  )
+    .trim()
+    .toLowerCase();
+  if (["completed", "permanently_completed", "closed"].includes(normalizedStatus)) {
+    return true;
+  }
+  return (
+    row?.isCompleted === true ||
+    row?.completed === true ||
+    row?.permanentlyCompleted === true ||
+    row?.completionLocked === true ||
+    row?.lockedAfterCompletion === true ||
+    row?.isLockedAfterCompletion === true
+  );
+};
+
 const getClassLifecycleStatus = (classData = {}, enrolledCount = 0, capacity = 30) => {
   const cappedCapacity = Math.max(1, Number(capacity || classData?.capacity || 30));
+  const explicitStatus = String(classData?.status || "").trim().toLowerCase();
+  if (
+    ["completed", "permanently_completed", "closed"].includes(explicitStatus) ||
+    isMarkedCompletedState(classData)
+  ) {
+    return "completed";
+  }
   const start = normalizeDateValue(classData?.startDate);
   const end = normalizeDateValue(classData?.endDate);
   const today = new Date();
@@ -706,6 +734,45 @@ const getCourseMeta = async (courseId) => {
     discountPercent,
     finalPrice,
     thumbnail: row.thumbnail || null,
+  };
+};
+
+const getSubjectCompletionState = async (courseId = "") => {
+  const cleanCourseId = String(courseId || "").trim();
+  if (!cleanCourseId) {
+    return {
+      locked: false,
+      subjectCompleted: false,
+      classCompleted: false,
+      message: "",
+    };
+  }
+
+  const [subjectSnap, courseSnap, classesSnap] = await Promise.all([
+    db.collection(COLLECTIONS.SUBJECTS).doc(cleanCourseId).get(),
+    db.collection(COLLECTIONS.COURSES).doc(cleanCourseId).get(),
+    db.collection(COLLECTIONS.CLASSES).get(),
+  ]);
+
+  const subjectData = subjectSnap.exists
+    ? subjectSnap.data() || {}
+    : courseSnap.exists
+      ? courseSnap.data() || {}
+      : {};
+  const subjectCompleted = isMarkedCompletedState(subjectData);
+  const classCompleted = classesSnap.docs.some((doc) => {
+    const classData = doc.data() || {};
+    if (!isMarkedCompletedState(classData)) return false;
+    const assignedIds = getClassAssignedCourseIds(classData);
+    return assignedIds.includes(cleanCourseId);
+  });
+
+  const locked = subjectCompleted || classCompleted;
+  return {
+    locked,
+    subjectCompleted,
+    classCompleted,
+    message: locked ? PERMANENT_COMPLETION_MESSAGE : "",
   };
 };
 
@@ -2972,6 +3039,15 @@ export const createVideoLibraryItem = async (req, res) => {
     if (!subjectMeta) {
       return errorResponse(res, "Subject not found", 404);
     }
+    const subjectCompletionState = await getSubjectCompletionState(cleanCourseId);
+    if (subjectCompletionState.locked) {
+      return errorResponse(
+        res,
+        subjectCompletionState.message || PERMANENT_COMPLETION_MESSAGE,
+        400,
+        { code: "SUBJECT_OR_CLASS_COMPLETED" }
+      );
+    }
 
     const subjectTeacherId = String(subjectMeta.teacherId || "").trim();
     const requestedTeacherId = String(teacherId || "").trim();
@@ -3061,6 +3137,15 @@ export const addCourseContent = async (req, res) => {
 
     const cleanCourseId = String(courseId || "").trim();
     const cleanSubjectId = String(subjectId || "").trim();
+    const subjectCompletionState = await getSubjectCompletionState(cleanCourseId);
+    if (subjectCompletionState.locked) {
+      return errorResponse(
+        res,
+        subjectCompletionState.message || PERMANENT_COMPLETION_MESSAGE,
+        400,
+        { code: "SUBJECT_OR_CLASS_COMPLETED" }
+      );
+    }
 
     const [subjectSnap, courseSnap] = await Promise.all([
       db.collection(COLLECTIONS.SUBJECTS).doc(cleanCourseId).get(),
@@ -4085,6 +4170,9 @@ const enrollStudentInClassCore = async ({
     );
 
     const classWindowStatus = getClassLifecycleStatus(classData, currentCount, capacity);
+    if (classWindowStatus === "completed") {
+      throw buildKnownError("CLASS_COMPLETED");
+    }
     if (classWindowStatus === "expired") {
       throw buildKnownError("CLASS_EXPIRED");
     }
@@ -4126,6 +4214,27 @@ const enrollStudentInClassCore = async ({
       normalizedEnrollmentType === "single_course"
         ? [cleanCourseId]
         : assignedCourseIds;
+
+    const completedSubjectIds = [];
+    for (const courseIdRow of targetCourseIds) {
+      const [subjectSnap, courseSnap] = await Promise.all([
+        transaction.get(db.collection(COLLECTIONS.SUBJECTS).doc(courseIdRow)),
+        transaction.get(db.collection(COLLECTIONS.COURSES).doc(courseIdRow)),
+      ]);
+      const rowData = subjectSnap.exists
+        ? subjectSnap.data() || {}
+        : courseSnap.exists
+          ? courseSnap.data() || {}
+          : {};
+      if (isMarkedCompletedState(rowData)) {
+        completedSubjectIds.push(courseIdRow);
+      }
+    }
+    if (completedSubjectIds.length > 0) {
+      throw buildKnownError("SUBJECT_COMPLETED", {
+        subjectIds: completedSubjectIds,
+      });
+    }
 
     const enrollmentQuery = db
       .collection(COLLECTIONS.ENROLLMENTS)
@@ -4395,6 +4504,44 @@ export const addStudentToClass = async (req, res) => {
         res,
         "Cannot enroll student. This class is expired.",
         400
+      );
+    }
+    if (e.message === "CLASS_COMPLETED") {
+      return errorResponse(
+        res,
+        PERMANENT_COMPLETION_MESSAGE,
+        400,
+        { code: "CLASS_COMPLETED" }
+      );
+    }
+    if (e.message === "SUBJECT_COMPLETED") {
+      return errorResponse(
+        res,
+        PERMANENT_COMPLETION_MESSAGE,
+        400,
+        {
+          code: "SUBJECT_COMPLETED",
+          subjectIds: Array.isArray(meta.subjectIds) ? meta.subjectIds : [],
+        }
+      );
+    }
+    if (e.message === "CLASS_COMPLETED") {
+      return errorResponse(
+        res,
+        PERMANENT_COMPLETION_MESSAGE,
+        400,
+        { code: "CLASS_COMPLETED" }
+      );
+    }
+    if (e.message === "SUBJECT_COMPLETED") {
+      return errorResponse(
+        res,
+        PERMANENT_COMPLETION_MESSAGE,
+        400,
+        {
+          code: "SUBJECT_COMPLETED",
+          subjectIds: Array.isArray(meta.subjectIds) ? meta.subjectIds : [],
+        }
       );
     }
     if (e.message === "CLASS_HAS_NO_SUBJECTS" || e.message === "CLASS_HAS_NO_COURSES") {

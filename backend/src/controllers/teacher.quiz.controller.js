@@ -5,6 +5,24 @@ import { successResponse, errorResponse } from "../utils/response.utils.js";
 const serverTimestamp = () => admin.firestore.FieldValue.serverTimestamp();
 const trimText = (value = "") => String(value || "").trim();
 const lowerText = (value = "") => trimText(value).toLowerCase();
+const PERMANENT_COMPLETION_MESSAGE =
+  "This class or subject is completed. Your certificate is generated. Thank you for joining us. Keep exploring our other subjects and classes. Thank you.";
+const isMarkedCompletedState = (row = {}) => {
+  const normalizedStatus = lowerText(
+    row?.status || row?.lifecycleStatus || row?.state || ""
+  );
+  if (["completed", "permanently_completed", "closed"].includes(normalizedStatus)) {
+    return true;
+  }
+  return (
+    row?.isCompleted === true ||
+    row?.completed === true ||
+    row?.permanentlyCompleted === true ||
+    row?.completionLocked === true ||
+    row?.lockedAfterCompletion === true ||
+    row?.isLockedAfterCompletion === true
+  );
+};
 const toIso = (value) => {
   if (!value) return null;
   if (typeof value?.toDate === "function") {
@@ -398,6 +416,42 @@ const getClassAssignedCourseIds = (classData = {}) => {
   if (fallbackSubjectId) ids.push(fallbackSubjectId);
   if (fallbackCourseId) ids.push(fallbackCourseId);
   return [...new Set([...subjectIds, ...ids])];
+};
+
+const ensureQuizEditingAllowedForCourse = async (courseId = "") => {
+  const cleanCourseId = trimText(courseId);
+  if (!cleanCourseId) {
+    return { allowed: false, error: "courseId is required", status: 400 };
+  }
+
+  const [subjectSnap, courseSnap, classesSnap] = await Promise.all([
+    db.collection(COLLECTIONS.SUBJECTS).doc(cleanCourseId).get(),
+    db.collection(COLLECTIONS.COURSES).doc(cleanCourseId).get(),
+    db.collection(COLLECTIONS.CLASSES).get(),
+  ]);
+
+  const subjectData = subjectSnap.exists
+    ? subjectSnap.data() || {}
+    : courseSnap.exists
+      ? courseSnap.data() || {}
+      : {};
+  const subjectCompleted = isMarkedCompletedState(subjectData);
+  const classCompleted = classesSnap.docs.some((doc) => {
+    const classData = doc.data() || {};
+    if (!isMarkedCompletedState(classData)) return false;
+    return getClassAssignedCourseIds(classData).includes(cleanCourseId);
+  });
+
+  if (subjectCompleted || classCompleted) {
+    return {
+      allowed: false,
+      status: 400,
+      error: PERMANENT_COMPLETION_MESSAGE,
+      code: "SUBJECT_OR_CLASS_COMPLETED",
+    };
+  }
+
+  return { allowed: true };
 };
 
 const getStudentIdsForCourse = async (courseId = "") => {
@@ -1283,6 +1337,12 @@ export const createTeacherQuiz = async (req, res) => {
       role
     );
     if (context.error) return errorResponse(res, context.error, context.status);
+    const editableState = await ensureQuizEditingAllowedForCourse(courseId);
+    if (!editableState.allowed) {
+      return errorResponse(res, editableState.error, editableState.status || 400, {
+        ...(editableState.code ? { code: editableState.code } : {}),
+      });
+    }
 
     const questions = questionInput.map((row, index) =>
       normalizeQuestionInput(row, index + 1)
@@ -1691,6 +1751,12 @@ export const bulkUploadTeacherQuiz = async (req, res) => {
       role
     );
     if (context.error) return errorResponse(res, context.error, context.status);
+    const editableState = await ensureQuizEditingAllowedForCourse(courseId);
+    if (!editableState.allowed) {
+      return errorResponse(res, editableState.error, editableState.status || 400, {
+        ...(editableState.code ? { code: editableState.code } : {}),
+      });
+    }
 
     const groupedByTitle = new Map();
     const rowErrors = [];

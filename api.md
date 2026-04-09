@@ -3,7 +3,7 @@ Base URL: `https://sumacademy.net/api`
 
 Legacy complete category-wise API reference is preserved below in this same file.
 
-Last updated: 2026-04-08
+Last updated: 2026-04-09
 
 ## Standard Response Shape
 
@@ -14,6 +14,31 @@ Last updated: 2026-04-08
   "data": {}
 }
 ```
+
+## 2026-04-09 Completion Lock Update
+
+### Permanent completion message
+
+When a class/subject is marked completed, APIs now return this message:
+
+`This class or subject is completed. Your certificate is generated. Thank you for joining us. Keep exploring our other subjects and classes. Thank you.`
+
+### Course content response additions
+
+`GET /api/student/courses/:courseId/content` now includes:
+
+- `data.isPermanentlyCompleted` (`boolean`)
+- `data.completionMessage` (`string`)
+
+Lecture and quiz items are returned locked with the same completion message when permanent completion is active.
+
+### Enrollment and payment blocks
+
+Enrollment/payment approval now blocks completed classes/subjects with:
+
+- `code: "CLASS_COMPLETED"`
+- `code: "SUBJECT_COMPLETED"`
+- `code: "SUBJECT_OR_CLASS_COMPLETED"` (content/quiz upload protection)
 
 ## Course Content API
 

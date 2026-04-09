@@ -69,6 +69,7 @@ const api = axios.create({
 
 api.interceptors.request.use(
   async (config) => {
+    const method = String(config?.method || "get").toLowerCase();
     const user = firebaseAuth.currentUser;
     if (user) {
       const token = await user.getIdToken();
@@ -77,6 +78,21 @@ api.interceptors.request.use(
         Authorization: `Bearer ${token}`,
       };
     }
+    config.headers = {
+      ...config.headers,
+      "Cache-Control": "no-cache, no-store, max-age=0",
+      Pragma: "no-cache",
+      Expires: "0",
+    };
+
+    // Add cache-buster for GET requests to avoid stale proxy/browser responses.
+    if (method === "get") {
+      config.params = {
+        ...(config.params || {}),
+        _ts: Date.now(),
+      };
+    }
+
     if (typeof window !== "undefined") {
       config.headers = {
         ...config.headers,

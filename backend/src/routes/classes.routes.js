@@ -97,6 +97,16 @@ const normalizeSubjectMeta = (id, row = {}) => {
 };
 
 const getClassStatus = (classData = {}, capacity = 30, enrolledCount = 0) => {
+  const explicitStatus = lowerText(classData.status || "");
+  if (
+    ["completed", "permanently_completed", "closed"].includes(explicitStatus) ||
+    classData?.isCompleted === true ||
+    classData?.completed === true ||
+    classData?.permanentlyCompleted === true ||
+    classData?.completionLocked === true
+  ) {
+    return "completed";
+  }
   const start = toDayStart(classData.startDate);
   const end = toDayStart(classData.endDate);
   const today = todayStart();
@@ -232,7 +242,8 @@ router.get("/available", async (req, res) => {
         const isFull = classStatus === "full";
         const isUpcoming = classStatus === "upcoming";
         const isExpired = classStatus === "expired";
-        const canEnroll = !isExpired && !isFull;
+        const isCompleted = classStatus === "completed";
+        const canEnroll = !isExpired && !isFull && !isCompleted;
         const canLearn = classStatus === "active";
 
         const purchasedSubjects = assignedSubjects.filter((row) => row.alreadyPurchased);
@@ -315,6 +326,7 @@ router.get("/available", async (req, res) => {
           isExpired,
           isUpcoming,
           isFull,
+          isCompleted,
           startDate: classItem.startDate || null,
           endDate: classItem.endDate || null,
           daysUntilStart,

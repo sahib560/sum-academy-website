@@ -29,6 +29,24 @@ const toIso = (value) => {
   const parsed = toDate(value);
   return parsed ? parsed.toISOString() : null;
 };
+const PERMANENT_COMPLETION_MESSAGE =
+  "This class or subject is completed. Your certificate is generated. Thank you for joining us. Keep exploring our other subjects and classes. Thank you.";
+const isMarkedCompletedState = (row = {}) => {
+  const normalizedStatus = lowerText(
+    row?.status || row?.lifecycleStatus || row?.state || ""
+  );
+  if (["completed", "permanently_completed", "closed"].includes(normalizedStatus)) {
+    return true;
+  }
+  return (
+    row?.isCompleted === true ||
+    row?.completed === true ||
+    row?.permanentlyCompleted === true ||
+    row?.completionLocked === true ||
+    row?.lockedAfterCompletion === true ||
+    row?.isLockedAfterCompletion === true
+  );
+};
 const toMillis = (value) => {
   const parsed = toDate(value);
   return parsed ? parsed.getTime() : 0;
@@ -157,6 +175,12 @@ const evaluateEnrollmentWindow = (row = {}) => {
 
 const resolveClassStatusByWindow = (row = {}) => {
   const explicitStatus = lowerText(row.classStatus || "");
+  if (["completed", "permanently_completed", "closed"].includes(explicitStatus)) {
+    return "completed";
+  }
+  if (row.classMarkedCompleted === true || isMarkedCompletedState(row)) {
+    return "completed";
+  }
   const windowState = evaluateEnrollmentWindow(row);
 
   if (windowState.code === "CLASS_NOT_STARTED") return "upcoming";
@@ -195,6 +219,7 @@ const enrichEnrollmentRowsWithClassWindow = async (rows = []) => {
   return rows.map((row) => {
     const classId = trimText(row.classId);
     const classData = classMap[classId] || {};
+    const classMarkedCompleted = isMarkedCompletedState(classData);
     const classStartDate =
       classData.startDate ||
       classData.classStartDate ||
@@ -209,6 +234,7 @@ const enrichEnrollmentRowsWithClassWindow = async (rows = []) => {
       null;
     const classStatus = resolveClassStatusByWindow({
       classStatus: lowerText(row.classStatus || classData.status || ""),
+      classMarkedCompleted,
       classStartDate,
       classEndDate,
     });
@@ -218,6 +244,10 @@ const enrichEnrollmentRowsWithClassWindow = async (rows = []) => {
       classStartDate,
       classEndDate,
       classStatus,
+      classMarkedCompleted,
+      classCompletionMessage: classMarkedCompleted
+        ? PERMANENT_COMPLETION_MESSAGE
+        : "",
     };
   });
 };
@@ -237,6 +267,24 @@ const ensureStudentEnrolled = async (studentId, courseId) => {
   const checks = candidateRows.map((row) => {
     const status = lowerText(row.status || "active");
     const windowState = evaluateEnrollmentWindow(row);
+
+    if (
+      status === "completed" ||
+      lowerText(row.classStatus || "") === "completed" ||
+      row.classMarkedCompleted === true
+    ) {
+      return {
+        row,
+        allowed: false,
+        code: "CLASS_COMPLETED",
+        message: row.classCompletionMessage || PERMANENT_COMPLETION_MESSAGE,
+        meta: {
+          classStartDate: toIso(row.classStartDate),
+          classEndDate: toIso(row.classEndDate),
+          classId: trimText(row.classId),
+        },
+      };
+    }
 
     if (
       (status === "upcoming" || row.classStatus === "upcoming") &&
@@ -279,6 +327,7 @@ const ensureStudentEnrolled = async (studentId, courseId) => {
 
   const preferredError =
     checks.find((item) => item.code === "PAYMENT_PENDING") ||
+    checks.find((item) => item.code === "CLASS_COMPLETED") ||
     checks.find((item) => item.code === "CLASS_NOT_STARTED") ||
     checks.find((item) => item.code === "CLASS_EXPIRED") ||
     checks[0];
@@ -558,6 +607,24 @@ export const buildCourseContentForStudent = async (
   const enrollmentCompleted = enrollmentState.rows.some(
     (row) => lowerText(row.status || "active") === "completed"
   );
+  const adminCompletedEnrollment = enrollmentState.rows.some(
+    (row) =>
+      lowerText(row.status || "active") === "completed" &&
+      lowerText(row.completionApprovedRole || "") === "admin"
+  );
+  const subjectPermanentlyCompleted = isMarkedCompletedState(contentSnap.data() || {});
+  const classPermanentlyCompleted = enrollmentState.rows.some(
+    (row) =>
+      row.classMarkedCompleted === true ||
+      lowerText(row.classStatus || "") === "completed"
+  );
+  const permanentlyCompleted =
+    subjectPermanentlyCompleted ||
+    classPermanentlyCompleted ||
+    adminCompletedEnrollment;
+  const completionLockMessage = permanentlyCompleted
+    ? PERMANENT_COMPLETION_MESSAGE
+    : "Course completed. Contact teacher to rewatch.";
   const accessDeniedCode = trimText(enrollmentState.code);
   const isPaymentLockedByState = accessDeniedCode === "PAYMENT_PENDING";
   const isClassNotStarted = accessDeniedCode === "CLASS_NOT_STARTED";
@@ -625,12 +692,16 @@ export const buildCourseContentForStudent = async (
       const completionLocked = enrollmentCompleted && !manualAccess;
       const completedLectureLocked = isCompleted && !manualAccess;
       const missingVideoLocked = !hasVideoSource;
+      const permanentlyLocked = permanentlyCompleted;
 
       let isLocked = false;
       let lockReason = "";
       if (isPaymentLockedByState) {
         isLocked = true;
         lockReason = "Payment verification is pending";
+      } else if (permanentlyLocked) {
+        isLocked = true;
+        lockReason = completionLockMessage;
       } else if (isClassLockedByState) {
         isLocked = true;
         lockReason = classLockReason;
@@ -654,7 +725,7 @@ export const buildCourseContentForStudent = async (
       const unlocked = !isLocked;
       const unlockedAtIso = toIso(videoAccessMeta?.updatedAt || videoAccessMeta?.grantedAt);
       const unlockedBy = trimText(videoAccessMeta?.grantedBy) || null;
-      const rewatchAllowed = enrollmentCompleted && manualAccess;
+      const rewatchAllowed = enrollmentCompleted && manualAccess && !permanentlyCompleted;
       const videoTitle = sanitizeDisplayText(lecture.videoTitle) || null;
       const videoDuration = isPremiereLive
         ? "Live"
@@ -699,20 +770,23 @@ export const buildCourseContentForStudent = async (
           isProgressLocked:
             (progressLocked || completedLectureLocked) &&
             !isPaymentLockedByState &&
-            !isClassLockedByState,
-          isClassLocked: isClassLockedByState,
+            !isClassLockedByState &&
+            !permanentlyLocked,
+          isClassLocked: isClassLockedByState || classPermanentlyCompleted,
           isCompletionLocked:
-            completionLocked && !isPaymentLockedByState && !isClassLockedByState,
-          manuallyUnlocked: manualAccess,
+            (completionLocked || permanentlyLocked) &&
+            !isPaymentLockedByState &&
+            !isClassLockedByState,
+          manuallyUnlocked: manualAccess && !permanentlyLocked,
         },
-        lockAfterCompletion: enrollmentCompleted,
+        lockAfterCompletion: enrollmentCompleted || permanentlyCompleted,
         rewatch: {
           isAllowed: rewatchAllowed,
           unlockedByTeacher: rewatchAllowed,
           unlockedAt: rewatchAllowed ? unlockedAtIso : null,
           unlockedBy: rewatchAllowed ? unlockedBy : null,
         },
-        manuallyUnlocked: manualAccess,
+        manuallyUnlocked: manualAccess && !permanentlyLocked,
       });
 
       previousLectureCompleted = isCompleted;
@@ -730,6 +804,7 @@ export const buildCourseContentForStudent = async (
         isExpired ||
         isPaymentLockedByState ||
         isClassLockedByState ||
+        permanentlyCompleted ||
         (!enrollmentCompleted && !allLecturesDone);
       return {
         id: quizId,
@@ -741,6 +816,8 @@ export const buildCourseContentForStudent = async (
         isLocked: quizLocked,
         lockReason: isPaymentLockedByState
           ? "Payment verification is pending"
+          : permanentlyCompleted
+            ? completionLockMessage
           : isClassLockedByState
             ? classLockReason
             : isExpired
@@ -785,7 +862,11 @@ export const buildCourseContentForStudent = async (
     const dueAt = dueAtDate ? dueAtDate.toISOString() : null;
     const isExpired = Boolean(dueAtDate && dueAtDate.getTime() < nowMs && !result);
     const quizLocked =
-      isExpired || isPaymentLockedByState || isClassLockedByState || !allChaptersComplete;
+      isExpired ||
+      isPaymentLockedByState ||
+      isClassLockedByState ||
+      permanentlyCompleted ||
+      !allChaptersComplete;
     return {
       id: quizId,
       quizId,
@@ -794,6 +875,8 @@ export const buildCourseContentForStudent = async (
       isLocked: quizLocked,
       lockReason: isPaymentLockedByState
         ? "Payment verification is pending"
+        : permanentlyCompleted
+          ? completionLockMessage
         : isClassLockedByState
           ? classLockReason
           : isExpired
@@ -831,7 +914,9 @@ export const buildCourseContentForStudent = async (
     course: { id: cleanCourseId, ...(contentSnap.data() || {}) },
     subject: { id: cleanCourseId, ...(contentSnap.data() || {}) },
     enrollmentRows: enrollmentState.rows,
-    isCourseCompleted: enrollmentCompleted,
+    isCourseCompleted: enrollmentCompleted || permanentlyCompleted,
+    isPermanentlyCompleted: permanentlyCompleted,
+    completionLockMessage,
     fullyCompleted,
     overallProgress,
     totalLectures,
@@ -1075,6 +1160,8 @@ export const getCourseContent = async (req, res) => {
           "",
         teacherName: trimText(built.course.teacherName) || "Teacher",
         isCourseCompleted: Boolean(built.isCourseCompleted),
+        isPermanentlyCompleted: Boolean(built.isPermanentlyCompleted),
+        completionMessage: built.completionLockMessage || "",
         overallProgress: Math.max(0, Math.min(100, toNumber(built.overallProgress, 0))),
         totalLectures: built.totalLectures,
         completedLectures: built.completedLectures,
@@ -1117,6 +1204,15 @@ export const markLectureComplete = async (req, res) => {
         ...(builtBefore.meta || {}),
         ...(builtBefore.code ? { code: builtBefore.code } : {}),
       });
+    }
+
+    if (builtBefore.isPermanentlyCompleted) {
+      return errorResponse(
+        res,
+        builtBefore.completionLockMessage || PERMANENT_COMPLETION_MESSAGE,
+        403,
+        { code: "CLASS_OR_SUBJECT_COMPLETED" }
+      );
     }
 
     if (builtBefore.isCourseCompleted) {
@@ -1312,6 +1408,14 @@ export const saveWatchProgress = async (req, res) => {
         ...(built.meta || {}),
         ...(built.code ? { code: built.code } : {}),
       });
+    }
+    if (built.isPermanentlyCompleted) {
+      return errorResponse(
+        res,
+        built.completionLockMessage || PERMANENT_COMPLETION_MESSAGE,
+        403,
+        { code: "CLASS_OR_SUBJECT_COMPLETED" }
+      );
     }
 
     const lectureRow = built.chapters

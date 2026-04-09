@@ -6,7 +6,6 @@ import { Toaster, toast } from "react-hot-toast";
 import { FiX } from "react-icons/fi";
 import {
   addCourseContent,
-  createAdminVideo,
   createSubject,
   deleteSubject,
   deleteCourseContent,
@@ -21,7 +20,6 @@ import {
   deleteFile,
   uploadPDF,
   uploadThumbnail,
-  uploadVideo,
 } from "../../utils/upload.firebase.js";
 
 const MotionDiv = motion.div;
@@ -533,13 +531,6 @@ function Courses() {
       toast.error(err?.response?.data?.error || "Failed to add content."),
   });
 
-  const createGalleryVideoMutation = useMutation({
-    mutationFn: createAdminVideo,
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["admin", "videos"] });
-    },
-  });
-
   const deleteContentMutation = useMutation({
     mutationFn: async ({ courseId, item }) => {
       try {
@@ -690,104 +681,34 @@ function Courses() {
       return;
     }
 
-    if (selectedLibraryVideo) {
-      setVideoState((prev) => ({
-        ...prev,
-        status: "processing",
-        progress: 100,
-        error: "",
-      }));
-      try {
-        await addContentMutation.mutateAsync({
-          courseId: drawerCourse.id,
-          subjectId: activeSubject.id,
-          data: {
-            type: "video",
-            title: resolvedTitle,
-            url: selectedLibraryVideo.url,
-            videoId: selectedLibraryVideo.id,
-            isLiveSession: Boolean(videoState.isLiveSession),
-            videoMode: videoState.isLiveSession ? "live_session" : "recorded",
-            size: Number(selectedLibraryVideo.size || 0),
-            subjectId: activeSubject.id,
-          },
-        });
-        setVideoState({
-          title: "",
-          file: null,
-          libraryVideoId: "",
-          saveToGallery: false,
-          isLiveSession: false,
-          progress: 100,
-          status: "done",
-          error: "",
-        });
-        setShowVideoModal(false);
-      } catch (error) {
-        setVideoState((prev) => ({
-          ...prev,
-          status: "idle",
-          error: error.message || "Video save failed.",
-        }));
-      }
-      return;
-    }
-
-    if (!videoState.file) {
-      setVideoState((prev) => ({ ...prev, error: "Select a video file." }));
+    if (!selectedLibraryVideo) {
+      setVideoState((prev) => ({ ...prev, error: "Select a video from gallery." }));
       return;
     }
 
     setVideoState((prev) => ({
       ...prev,
-      status: "uploading",
-      progress: 0,
+      status: "processing",
+      progress: 100,
       error: "",
     }));
 
     try {
-      const uploaded = await uploadVideo(
-        videoState.file,
-        drawerCourse.id,
-        activeSubject.id,
-        (progress) => setVideoState((prev) => ({ ...prev, progress }))
-      );
-
-      setVideoState((prev) => ({ ...prev, status: "processing" }));
-
       await addContentMutation.mutateAsync({
         courseId: drawerCourse.id,
         subjectId: activeSubject.id,
         data: {
           type: "video",
           title: resolvedTitle,
-          url: uploaded.url,
-          isLiveSession: Boolean(videoState.isLiveSession),
-          videoMode: videoState.isLiveSession ? "live_session" : "recorded",
-          size: uploaded.size,
+          url: selectedLibraryVideo.url,
+          videoId: selectedLibraryVideo.id,
+          // Respect gallery-level live/session configuration.
+          isLiveSession: Boolean(selectedLibraryVideo.isLiveSession),
+          videoMode: selectedLibraryVideo.videoMode || (selectedLibraryVideo.isLiveSession ? "live_session" : "recorded"),
+          size: Number(selectedLibraryVideo.size || 0),
           subjectId: activeSubject.id,
         },
       });
-
-      if (videoState.saveToGallery) {
-        try {
-          await createGalleryVideoMutation.mutateAsync({
-            title: resolvedTitle,
-            url: uploaded.url,
-            courseId: drawerCourse.id,
-            courseName: drawerCourse.title || "",
-            teacherId: activeSubject.teacherId || "",
-            teacherName: activeSubject.teacherName || "",
-            isLiveSession: Boolean(videoState.isLiveSession),
-            videoMode: videoState.isLiveSession ? "live_session" : "recorded",
-          });
-        } catch (galleryError) {
-          toast.error(
-            galleryError?.response?.data?.error ||
-              "Video added to course, but failed to save in gallery."
-          );
-        }
-      }
 
       setVideoState({
         title: "",
@@ -1688,7 +1609,7 @@ function Courses() {
           </div>
           <div>
             <label className="text-sm font-semibold text-slate-700">
-              Use Existing Library Video (Optional)
+              Select Video from Gallery
             </label>
             <select
               value={videoState.libraryVideoId}
@@ -1702,67 +1623,24 @@ function Courses() {
               }
               className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm"
             >
-              <option value="">Upload new video file</option>
+              <option value="">Select gallery video</option>
               {courseVideoLibrary.map((item) => (
                 <option key={item.id} value={item.id}>
                   {item.title || "Video"}
                 </option>
               ))}
             </select>
-            <p className="mt-1 text-xs text-slate-500">
-              First video in a subject is auto live for first watch, then replay is normal recorded.
-            </p>
+            {courseVideoLibrary.length < 1 ? (
+              <p className="mt-2 text-xs text-amber-700">
+                No videos found in gallery. Please upload videos in Video Library first.
+              </p>
+            ) : (
+              <p className="mt-1 text-xs text-slate-500">
+                Live/recorded mode is taken from selected gallery video.
+              </p>
+            )}
+            <FieldError message={videoState.error} />
           </div>
-          <div className="grid gap-2 sm:grid-cols-2">
-            <label className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700">
-              <input
-                type="checkbox"
-                checked={videoState.isLiveSession}
-                onChange={(e) =>
-                  setVideoState((p) => ({
-                    ...p,
-                    isLiveSession: e.target.checked,
-                  }))
-                }
-                className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary"
-              />
-              Mark as live session (premiere first watch)
-            </label>
-            <label className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700">
-              <input
-                type="checkbox"
-                checked={videoState.saveToGallery}
-                disabled={Boolean(videoState.libraryVideoId)}
-                onChange={(e) =>
-                  setVideoState((p) => ({
-                    ...p,
-                    saveToGallery: e.target.checked,
-                  }))
-                }
-                className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary disabled:opacity-50"
-              />
-              Save uploaded file to gallery
-            </label>
-          </div>
-          <UploadZone
-            labelText="Upload Video"
-            helper="MP4, AVI, MOV - max 2GB"
-            accept="video/mp4,video/x-msvideo,video/quicktime"
-            onFile={(file) =>
-              setVideoState((p) => ({
-                ...p,
-                file,
-                libraryVideoId: "",
-                error: "",
-              }))
-            }
-            error={videoState.libraryVideoId ? "" : videoState.error}
-          />
-          {videoState.file ? (
-            <p className="text-xs text-slate-500">
-              Selected: {videoState.file.name} ({bytes(videoState.file.size)})
-            </p>
-          ) : null}
           {videoState.status !== "idle" ? (
             <div className="rounded-xl border border-slate-200 p-3">
               <div className="flex items-center justify-between text-xs text-slate-500">
@@ -1792,7 +1670,16 @@ function Courses() {
             >
               Cancel
             </button>
-            <button type="button" onClick={uploadVideoNow} disabled={videoState.status === "uploading" || videoState.status === "processing"} className="btn-primary min-w-[130px]">
+            <button
+              type="button"
+              onClick={uploadVideoNow}
+              disabled={
+                videoState.status === "uploading" ||
+                videoState.status === "processing" ||
+                !videoState.libraryVideoId
+              }
+              className="btn-primary min-w-[130px]"
+            >
               {videoState.status === "uploading" || videoState.status === "processing" ? "Uploading..." : "Save"}
             </button>
           </div>

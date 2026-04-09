@@ -40,6 +40,9 @@ const __dirname  = path.dirname(__filename);
 
 const app  = express();
 const PORT = process.env.PORT || 5000;
+
+// Prevent proxy/browser caching for dynamic API responses.
+app.disable("etag");
 // â”€â”€ Trust Proxy (required for Hostinger) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.set('trust proxy', 1);
 
@@ -123,6 +126,18 @@ const dashboardLimiter = rateLimit({
 
 app.use((req, res, next) => {
   res.setHeader("X-RateLimit-Policy", "dashboard-friendly");
+  next();
+});
+
+// Always serve fresh API data (web + Android).
+app.use("/api", (req, res, next) => {
+  res.setHeader(
+    "Cache-Control",
+    "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0"
+  );
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
+  res.setHeader("Surrogate-Control", "no-store");
   next();
 });
 

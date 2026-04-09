@@ -245,7 +245,11 @@ const normalizeProgressPayload = (payload = {}) => {
 
   const allLectures = normalizedChapters.flatMap((chapter) => chapter.lectures);
   const isCourseCompleted = Boolean(payload.isCourseCompleted);
+  const isPermanentlyCompleted = Boolean(payload.isPermanentlyCompleted);
   const anyManualRewatch = allLectures.some((lecture) => lecture.manuallyUnlocked);
+  const completionMessage =
+    sanitizeDisplayText(payload.completionMessage || payload.completionLockMessage) ||
+    "This class or subject is completed. Your certificate is generated. Thank you for joining us. Keep exploring our other subjects and classes. Thank you.";
 
   return {
     course: {
@@ -263,7 +267,9 @@ const normalizeProgressPayload = (payload = {}) => {
       completionPercent: clamp(toNumber(payload.overallProgress, 0), 0, 100),
     },
     access: {
-      isLockedAfterCompletion: isCourseCompleted,
+      isLockedAfterCompletion: isCourseCompleted || isPermanentlyCompleted,
+      isPermanentlyCompleted,
+      completionMessage,
       canRewatchAny: anyManualRewatch,
     },
     chapters: normalizedChapters,
@@ -358,6 +364,9 @@ function StudentCoursePlayer() {
     [normalized.lectures, currentLectureId]
   );
   const classCompletionLocked = Boolean(normalized.access?.isLockedAfterCompletion);
+  const completionLockMessage =
+    normalized.access?.completionMessage ||
+    "This class or subject is completed. Your certificate is generated. Thank you for joining us. Keep exploring our other subjects and classes. Thank you.";
   const isLivePremiere = Boolean(currentLecture?.isPremiereLive);
 
   const watchedPercent = useMemo(() => {
@@ -963,7 +972,7 @@ function StudentCoursePlayer() {
         <div className="space-y-4">
           {classCompletionLocked ? (
             <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-              This class is completed. Videos are locked for rewatch until teacher/admin unlocks access.
+              {completionLockMessage}
             </div>
           ) : null}
           <div className="grid gap-6 lg:grid-cols-[7fr_3fr]">
@@ -1111,7 +1120,7 @@ function StudentCoursePlayer() {
                     {securityLocked
                       ? "Locked due to security violations in this session."
                       : classCompletionLocked
-                        ? "Class completed. Rewatch is locked until teacher/admin unlocks."
+                        ? completionLockMessage
                         : currentLecture?.lockReason || "Complete previous content first."}
                   </p>
                 </div>

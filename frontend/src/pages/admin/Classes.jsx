@@ -150,6 +150,52 @@ const getTeacherInitials = (name = "") =>
     .map((part) => part.charAt(0).toUpperCase())
     .join("");
 
+const pickTeacherFromMaps = (teacherId, activeTeachersById = {}, allTeachersById = {}) => {
+  const normalizedId = String(teacherId || "").trim();
+  if (!normalizedId) return null;
+
+  const teacher = activeTeachersById[normalizedId] || allTeachersById[normalizedId];
+  const teacherName =
+    teacher?.fullName ||
+    teacher?.teacherName ||
+    teacher?.name ||
+    "";
+
+  if (!teacherName && !normalizedId) return null;
+  return {
+    id: normalizedId,
+    fullName: teacherName || "Assigned Teacher",
+  };
+};
+
+const resolveAssignedTeacher = (item = {}, activeTeachersById = {}, allTeachersById = {}) => {
+  const subjects = Array.isArray(item?.subjects) ? item.subjects : [];
+  const direct = pickTeacherFromMaps(item?.teacherId, activeTeachersById, allTeachersById);
+  if (direct) return direct;
+
+  for (const subject of subjects) {
+    const subjectTeacher = pickTeacherFromMaps(
+      subject?.teacherId,
+      activeTeachersById,
+      allTeachersById
+    );
+    if (subjectTeacher) return subjectTeacher;
+  }
+
+  const fallbackName =
+    String(item?.teacherName || "").trim() ||
+    String(subjects.find((subject) => subject?.teacherName)?.teacherName || "").trim();
+  const fallbackId =
+    String(item?.teacherId || "").trim() ||
+    String(subjects.find((subject) => subject?.teacherId)?.teacherId || "").trim();
+
+  if (!fallbackId && !fallbackName) return null;
+  return {
+    id: fallbackId,
+    fullName: fallbackName || "Assigned Teacher",
+  };
+};
+
 const normalizeClass = (row = {}) => {
   const assignedCourses = Array.isArray(row.assignedCourses) ? row.assignedCourses : [];
   const shifts = Array.isArray(row.shifts)
@@ -260,7 +306,7 @@ const validateBasicInfo = (values) => {
 
 const validateCoursesStep = (values) => {
   if (!Array.isArray(values.assignedCourses) || values.assignedCourses.length < 1) {
-    return { assignedCourses: "At least 1 course is required." };
+    return { assignedCourses: "At least 1 subject is required." };
   }
   return {};
 };
@@ -329,10 +375,10 @@ const validateShiftRow = (shift, index = 0, classStartDate = "") => {
     }
   }
   if (!shift.courseId) {
-    errors[`${prefix}-courseId`] = "Course is required.";
+    errors[`${prefix}-courseId`] = "Subject is required.";
   }
   if (!shift.teacherId) {
-    errors[`${prefix}-teacherId`] = "Teacher is required.";
+    errors[`${prefix}-teacherId`] = "Assigned subject teacher is required.";
   }
 
   return errors;
@@ -512,7 +558,7 @@ function ShiftFormFields({
   shift,
   index,
   courses,
-  teacherOptions,
+  assignedTeacher,
   classStartDate = "",
   lockCourseSelection = false,
   onChange,
@@ -525,7 +571,8 @@ function ShiftFormFields({
   const minStartTime = startsToday ? getCurrentTimeInput() : undefined;
   const selectedCourseName =
     courses.find((course) => course.courseId === shift.courseId)?.courseName ||
-    "Assigned Course";
+    "Assigned Subject";
+  const selectedTeacherName = assignedTeacher?.fullName || "No assigned teacher";
 
   const toggleDay = (day) => {
     const nextDays = shift.days.includes(day)
@@ -586,7 +633,7 @@ function ShiftFormFields({
 
         <div>
           <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Course
+            Subject
           </label>
           {lockCourseSelection ? (
             <div className="mt-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700">
@@ -598,10 +645,10 @@ function ShiftFormFields({
               onChange={(event) => onChange(index, "courseId", event.target.value)}
               className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
             >
-              <option value="">Select course</option>
+              <option value="">Select subject</option>
               {courses.map((course) => (
                 <option key={course.courseId} value={course.courseId}>
-                  {course.courseName || "Untitled Course"}
+                  {course.courseName || "Untitled Subject"}
                 </option>
               ))}
             </select>
@@ -613,18 +660,9 @@ function ShiftFormFields({
           <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
             Teacher
           </label>
-          <select
-            value={shift.teacherId}
-            onChange={(event) => onChange(index, "teacherId", event.target.value)}
-            className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
-          >
-            <option value="">Select teacher</option>
-            {teacherOptions.map((teacher) => (
-              <option key={teacher.id || teacher.teacherId} value={teacher.id || teacher.teacherId}>
-                {teacher.fullName || teacher.teacherName || "Unknown Teacher"}
-              </option>
-            ))}
-          </select>
+          <div className="mt-1 rounded-xl border border-slate-200 bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-700">
+            {selectedTeacherName}
+          </div>
           <FieldError message={errors[`${prefix}-teacherId`]} />
         </div>
 
@@ -765,6 +803,15 @@ function Classes() {
     () => teachers.filter((teacher) => teacher.isActive !== false),
     [teachers]
   );
+  const teachersById = useMemo(
+    () =>
+      teachers.reduce((acc, teacher) => {
+        const key = teacher.id || teacher.teacherId || "";
+        if (key) acc[key] = teacher;
+        return acc;
+      }, {}),
+    [teachers]
+  );
   const activeTeachersById = useMemo(
     () =>
       activeTeachers.reduce((acc, teacher) => {
@@ -774,26 +821,26 @@ function Classes() {
       }, {}),
     [activeTeachers]
   );
+  const getAssignedTeacherForCourse = (courseId) => {
+    if (!courseId) return null;
+    const subject = courses.find((item) => item.id === courseId);
+    if (!subject) return null;
+    return resolveAssignedTeacher(subject, activeTeachersById, teachersById);
+  };
   const selectableCourseIdsForClass = useMemo(() => {
     const selectable = new Set();
-    courses.forEach((course) => {
-      const subjects = Array.isArray(course?.subjects) ? course.subjects : [];
-      if (subjects.length < 1) {
-        if (activeTeachers.length > 0) {
-          selectable.add(course.id);
-        }
-        return;
-      }
-      const hasActiveSubjectTeacher = subjects.some((subject) => {
-        const teacherId = String(subject?.teacherId || "").trim();
-        return Boolean(teacherId && activeTeachersById[teacherId]);
-      });
-      if (hasActiveSubjectTeacher) {
-        selectable.add(course.id);
+    courses.forEach((subject) => {
+      const assignedTeacher = resolveAssignedTeacher(
+        subject,
+        activeTeachersById,
+        teachersById
+      );
+      if (assignedTeacher?.id) {
+        selectable.add(subject.id);
       }
     });
     return selectable;
-  }, [courses, activeTeachers, activeTeachersById]);
+  }, [courses, activeTeachersById, teachersById]);
   const selectableCoursesForClass = useMemo(
     () => courses.filter((course) => selectableCourseIdsForClass.has(course.id)),
     [courses, selectableCourseIdsForClass]
@@ -1030,69 +1077,42 @@ function Classes() {
   const getCourseMetaById = (courseId) => {
     const course = courses.find((item) => item.id === courseId);
     if (!course) return null;
+    const assignedTeacher = getAssignedTeacherForCourse(course.id);
     return {
       courseId: course.id,
-      courseName: course.title || "Untitled Course",
+      courseName: course.title || "Untitled Subject",
       subjectName:
         Array.isArray(course.subjects) && course.subjects[0]?.name
           ? course.subjects[0].name
           : course.category || "",
+      teacherId: assignedTeacher?.id || "",
+      teacherName: assignedTeacher?.fullName || "",
     };
-  };
-
-  const getTeacherOptionsForCourse = (courseId) => {
-    if (!courseId) return [];
-    const course = courses.find((item) => item.id === courseId);
-    const subjects = Array.isArray(course?.subjects) ? course.subjects : [];
-    const fromSubjects = subjects
-      .map((subject) => {
-        const teacherId = String(subject?.teacherId || "").trim();
-        if (!teacherId) return null;
-        const activeTeacher = activeTeachersById[teacherId];
-        if (!activeTeacher) return null;
-        return {
-          id: teacherId,
-          fullName:
-            activeTeacher.fullName ||
-            activeTeacher.teacherName ||
-            String(subject?.teacherName || "").trim(),
-        };
-      })
-      .filter((teacher) => teacher?.id && teacher?.fullName);
-
-    if (subjects.length > 0) {
-      if (fromSubjects.length < 1) return [];
-      const unique = [];
-      const seen = new Set();
-      fromSubjects.forEach((teacher) => {
-        if (!seen.has(teacher.id)) {
-          seen.add(teacher.id);
-          unique.push(teacher);
-        }
-      });
-      return unique;
-    }
-
-    return activeTeachers;
   };
 
   useEffect(() => {
     if (classForm.assignedCourses.length !== 1) return;
     const onlyCourseId = classForm.assignedCourses[0].courseId;
+    const assignedTeacher = getAssignedTeacherForCourse(onlyCourseId);
     setClassForm((prev) => {
       const nextShifts = prev.shifts.map((shift) => {
-        if (shift.courseId === onlyCourseId) return shift;
+        if (
+          shift.courseId === onlyCourseId &&
+          shift.teacherId === (assignedTeacher?.id || "")
+        ) {
+          return shift;
+        }
         return {
           ...shift,
           courseId: onlyCourseId,
-          teacherId: "",
+          teacherId: assignedTeacher?.id || "",
         };
       });
       const changed = nextShifts.some((shift, index) => shift !== prev.shifts[index]);
       if (!changed) return prev;
       return { ...prev, shifts: nextShifts };
     });
-  }, [classForm.assignedCourses]);
+  }, [classForm.assignedCourses, courses, activeTeachersById, teachersById]);
 
   const openCreateClassModal = () => {
     classSaveIntentRef.current = false;
@@ -1114,9 +1134,11 @@ function Classes() {
       startDate: toDateInput(classItem.startDate),
       endDate: toDateInput(classItem.endDate),
       assignedCourses: (classItem.assignedCourses || []).map((course) => ({
-        courseId: course.courseId,
-        courseName: course.courseName || "Untitled Course",
+        courseId: course.courseId || course.subjectId || course.id || "",
+        courseName: course.courseName || course.subjectName || course.title || "Untitled Subject",
         subjectName: course.subjectName || "",
+        teacherId: course.teacherId || "",
+        teacherName: course.teacherName || "",
       })),
       shifts:
         classItem.shifts?.length > 0
@@ -1168,16 +1190,16 @@ function Classes() {
   const handleAddCourseToForm = () => {
     if (!courseSelectForForm) return;
     if (!selectableCourseIdsForClass.has(courseSelectForForm)) {
-      toast.error("This course has no active teacher available.");
+      toast.error("This subject has no active assigned teacher.");
       return;
     }
     if (classForm.assignedCourses.some((course) => course.courseId === courseSelectForForm)) {
-      toast.error("Course already added.");
+      toast.error("Subject already added.");
       return;
     }
     const meta = getCourseMetaById(courseSelectForForm);
     if (!meta) {
-      toast.error("Course not found.");
+      toast.error("Subject not found.");
       return;
     }
 
@@ -1214,7 +1236,7 @@ function Classes() {
       const current = { ...nextShifts[index] };
       current[field] = value;
       if (field === "courseId") {
-        current.teacherId = "";
+        current.teacherId = getAssignedTeacherForCourse(value)?.id || "";
       }
       nextShifts[index] = current;
       return {
@@ -1225,13 +1247,16 @@ function Classes() {
   };
 
   const addShiftToForm = (preferredCourseId = "") => {
+    const normalizedCourseId = String(preferredCourseId || "").trim();
+    const assignedTeacher = getAssignedTeacherForCourse(normalizedCourseId);
     setClassForm((prev) => ({
       ...prev,
       shifts: [
         ...prev.shifts,
         {
           ...emptyShift(),
-          courseId: String(preferredCourseId || "").trim(),
+          courseId: normalizedCourseId,
+          teacherId: assignedTeacher?.id || "",
         },
       ],
     }));
@@ -1273,7 +1298,7 @@ function Classes() {
         days: shift.days,
         startTime: shift.startTime,
         endTime: shift.endTime,
-        teacherId: shift.teacherId,
+        teacherId: shift.teacherId || getAssignedTeacherForCourse(shift.courseId)?.id || "",
         courseId: shift.courseId,
         room: shift.room || "",
       })),
@@ -1318,17 +1343,20 @@ function Classes() {
       : assignedCourses.length === 1
       ? assignedCourses[0].courseId || ""
       : "";
+    const assignedTeacher = getAssignedTeacherForCourse(defaultCourseId);
     setShiftModalMode("create");
     setEditingShiftId("");
     setShiftForm({
       ...emptyShift(),
       courseId: defaultCourseId,
+      teacherId: assignedTeacher?.id || "",
     });
     setShiftErrors({});
     setIsShiftModalOpen(true);
   };
 
   const openEditShiftModal = (shift) => {
+    const assignedTeacher = getAssignedTeacherForCourse(shift.courseId || "");
     setShiftModalMode("edit");
     setEditingShiftId(shift.id);
     setShiftForm({
@@ -1337,7 +1365,7 @@ function Classes() {
       days: Array.isArray(shift.days) ? shift.days : [],
       startTime: shift.startTime || "",
       endTime: shift.endTime || "",
-      teacherId: shift.teacherId || "",
+      teacherId: shift.teacherId || assignedTeacher?.id || "",
       courseId: shift.courseId || "",
       room: shift.room || "",
     });
@@ -1369,7 +1397,8 @@ function Classes() {
       days: shiftForm.days,
       startTime: shiftForm.startTime,
       endTime: shiftForm.endTime,
-      teacherId: shiftForm.teacherId,
+      teacherId:
+        shiftForm.teacherId || getAssignedTeacherForCourse(shiftForm.courseId)?.id || "",
       courseId: shiftForm.courseId,
       room: shiftForm.room || "",
     };
@@ -1462,7 +1491,7 @@ function Classes() {
     ? drawerAssignedCourses[0].courseId
     : "";
   const singleDrawerCourseName = isSingleDrawerCourse
-    ? drawerAssignedCourses[0].courseName || "Assigned Course"
+    ? drawerAssignedCourses[0].courseName || "Assigned Subject"
     : "";
   const shiftModalClassStartDateInput = activeClass?.startDate
     ? toDateInput(activeClass.startDate)
@@ -1471,8 +1500,7 @@ function Classes() {
     shiftModalClassStartDateInput === getTodayInputDate()
       ? getCurrentTimeInput()
       : undefined;
-
-  const teacherOptionsForShiftModal = getTeacherOptionsForCourse(shiftForm.courseId);
+  const shiftModalAssignedTeacher = getAssignedTeacherForCourse(shiftForm.courseId);
 
   useEffect(() => {
     if (!enrollShiftId) return;
@@ -1486,15 +1514,21 @@ function Classes() {
 
   useEffect(() => {
     if (!isShiftModalOpen || !singleDrawerCourseId) return;
+    const assignedTeacher = getAssignedTeacherForCourse(singleDrawerCourseId);
     setShiftForm((prev) => {
-      if (prev.courseId === singleDrawerCourseId) return prev;
+      if (
+        prev.courseId === singleDrawerCourseId &&
+        prev.teacherId === (assignedTeacher?.id || "")
+      ) {
+        return prev;
+      }
       return {
         ...prev,
         courseId: singleDrawerCourseId,
-        teacherId: "",
+        teacherId: assignedTeacher?.id || "",
       };
     });
-  }, [isShiftModalOpen, singleDrawerCourseId]);
+  }, [isShiftModalOpen, singleDrawerCourseId, courses, activeTeachersById, teachersById]);
 
   useEffect(() => {
     if (enrollEnrollmentType !== "single_course") return;
@@ -1555,7 +1589,7 @@ function Classes() {
 
             <div className="flex flex-wrap gap-2 text-xs">
               <span className="rounded-full bg-slate-100 px-3 py-1 text-slate-600">
-                {classItem.assignedCourses.length} Courses
+                {classItem.assignedCourses.length} Subjects
               </span>
               <span className="rounded-full bg-slate-100 px-3 py-1 text-slate-600">
                 {classItem.shifts.length} Shifts
@@ -1648,7 +1682,7 @@ function Classes() {
         <div>
           <h2 className="font-heading text-3xl text-slate-900">Classes Management</h2>
           <p className="text-sm text-slate-500">
-            Create classes, assign courses and shifts, and manage student enrollment.
+            Create classes, assign subjects and shifts, and manage student enrollment.
           </p>
         </div>
         <button type="button" onClick={openCreateClassModal} className="btn-primary">
@@ -1718,7 +1752,7 @@ function Classes() {
           <p className="text-4xl">🏫</p>
           <h3 className="mt-3 text-xl font-semibold text-slate-900">No classes yet</h3>
           <p className="mt-2 text-sm text-slate-500">
-            Start by creating your first class with courses and shifts.
+            Start by creating your first class with subjects and shifts.
           </p>
           <button type="button" onClick={openCreateClassModal} className="btn-primary mt-5">
             Add Class
@@ -1857,10 +1891,10 @@ function Classes() {
                   onChange={(event) => setCourseSelectForForm(event.target.value)}
                   className="min-w-[220px] flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
                 >
-                  <option value="">Select course</option>
+                  <option value="">Select subject</option>
                   {selectableCoursesForClass.map((course) => (
                     <option key={course.id} value={course.id}>
-                      {course.title || "Untitled Course"}
+                      {course.title || "Untitled Subject"}
                     </option>
                   ))}
                 </select>
@@ -1869,20 +1903,20 @@ function Classes() {
                   onClick={handleAddCourseToForm}
                   className="rounded-full border border-primary/20 bg-primary px-4 py-2 text-xs font-semibold text-white"
                 >
-                  Add Course
+                  Add Subject
                 </button>
               </div>
               {selectableCoursesForClass.length < 1 ? (
                 <p className="text-xs text-amber-600">
-                  No course can be assigned right now. Please activate at least one teacher
-                  in courses first.
+                  No subject can be assigned right now. Please assign active teachers to
+                  subjects first.
                 </p>
               ) : null}
               <FieldError message={classErrors.assignedCourses} />
 
               {classForm.assignedCourses.length < 1 ? (
                 <div className="rounded-2xl border border-dashed border-slate-200 bg-white px-4 py-8 text-center text-sm text-slate-500">
-                  No courses assigned yet.
+                  No subjects assigned yet.
                 </div>
               ) : (
                 <div className="space-y-2">
@@ -1893,10 +1927,12 @@ function Classes() {
                     >
                       <div>
                         <p className="text-sm font-semibold text-slate-900">
-                          {course.courseName || "Untitled Course"}
+                          {course.courseName || "Untitled Subject"}
                         </p>
                         <p className="text-xs text-slate-500">
-                          {course.subjectName || "General"}
+                          {course.teacherName
+                            ? `Assigned Teacher: ${course.teacherName}`
+                            : course.subjectName || "General"}
                         </p>
                       </div>
                       <button
@@ -1925,7 +1961,7 @@ function Classes() {
                 </button>
                 {missingShiftCoursesInForm.length > 0 ? (
                   <span className="text-xs font-semibold text-amber-700">
-                    Missing schedule for {missingShiftCoursesInForm.length} course
+                    Missing schedule for {missingShiftCoursesInForm.length} subject
                     {missingShiftCoursesInForm.length > 1 ? "s" : ""}
                   </span>
                 ) : null}
@@ -1936,7 +1972,7 @@ function Classes() {
               {missingShiftCoursesInForm.length > 0 ? (
                 <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
                   <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">
-                    Unscheduled Courses
+                    Unscheduled Subjects
                   </p>
                   <div className="mt-2 flex flex-wrap gap-2">
                     {missingShiftCoursesInForm.map((course) => (
@@ -1959,7 +1995,7 @@ function Classes() {
                   shift={shift}
                   index={index}
                   courses={classForm.assignedCourses}
-                  teacherOptions={getTeacherOptionsForCourse(shift.courseId)}
+                  assignedTeacher={getAssignedTeacherForCourse(shift.courseId)}
                   classStartDate={classForm.startDate}
                   lockCourseSelection={classForm.assignedCourses.length === 1}
                   onChange={updateShiftInForm}
@@ -2048,7 +2084,7 @@ function Classes() {
                     {tab === "overview"
                       ? "Overview"
                       : tab === "courses"
-                      ? "Courses & Shifts"
+                      ? "Subjects & Shifts"
                       : tab === "students"
                       ? "Students"
                       : "Schedule"}
@@ -2085,7 +2121,7 @@ function Classes() {
                   <h4 className="font-heading text-2xl text-slate-900">Quick Stats</h4>
                   <div className="grid grid-cols-3 gap-3">
                     <div className="rounded-2xl bg-slate-50 p-3 text-center">
-                      <p className="text-xs text-slate-500">Courses</p>
+                      <p className="text-xs text-slate-500">Subjects</p>
                       <p className="mt-1 text-xl font-bold text-slate-900">
                         {activeClass.assignedCourses.length}
                       </p>
@@ -2110,7 +2146,7 @@ function Classes() {
             {drawerTab === "courses" ? (
               <div className="space-y-5">
                 <div className="rounded-3xl border border-slate-200 bg-white p-5">
-                  <h4 className="font-heading text-2xl text-slate-900">Assigned Courses</h4>
+                  <h4 className="font-heading text-2xl text-slate-900">Assigned Subjects</h4>
                   {missingShiftCoursesInActiveClass.length > 0 ? (
                     <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
                       <p className="text-sm font-semibold text-amber-800">
@@ -2120,14 +2156,14 @@ function Classes() {
                           .join(", ")}
                       </p>
                       <p className="mt-1 text-xs text-amber-700">
-                        Add days and timings for each course so timetable and teacher dashboard
+                        Add days and timings for each subject so timetable and teacher dashboard
                         stay accurate.
                       </p>
                     </div>
                   ) : null}
                   <div className="mt-4 space-y-2">
                     {activeClass.assignedCourses.length < 1 ? (
-                      <p className="text-sm text-slate-500">No courses assigned yet.</p>
+                      <p className="text-sm text-slate-500">No subjects assigned yet.</p>
                     ) : (
                       activeClass.assignedCourses.map((course) => (
                         <div
@@ -2136,7 +2172,7 @@ function Classes() {
                         >
                           <div>
                             <p className="text-sm font-semibold text-slate-900">
-                              {course.courseName || "Untitled Course"}
+                              {course.courseName || "Untitled Subject"}
                             </p>
                             <p className="text-xs text-slate-500">
                               {course.subjectName || "General"}
@@ -2165,7 +2201,7 @@ function Classes() {
                       onChange={(event) => setDrawerCourseId(event.target.value)}
                       className="min-w-[220px] flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
                     >
-                      <option value="">Select course to add</option>
+                      <option value="">Select subject to add</option>
                       {selectableCoursesForClass
                         .filter(
                           (course) =>
@@ -2175,7 +2211,7 @@ function Classes() {
                         )
                         .map((course) => (
                           <option key={course.id} value={course.id}>
-                            {course.title || "Untitled Course"}
+                            {course.title || "Untitled Subject"}
                           </option>
                         ))}
                     </select>
@@ -2183,11 +2219,11 @@ function Classes() {
                       type="button"
                       onClick={() => {
                         if (!drawerCourseId) {
-                          toast.error("Select a course first.");
+                          toast.error("Select a subject first.");
                           return;
                         }
                         if (!selectableCourseIdsForClass.has(drawerCourseId)) {
-                          toast.error("This course has no active teacher available.");
+                          toast.error("This subject has no active assigned teacher.");
                           return;
                         }
                         addClassCourseMutation.mutate({
@@ -2197,7 +2233,7 @@ function Classes() {
                       }}
                       className="btn-primary"
                     >
-                      Add Course
+                      Add Subject
                     </button>
                   </div>
                 </div>
@@ -2760,7 +2796,7 @@ function Classes() {
 
           <div className="grid gap-3 md:grid-cols-2">
             <div>
-              <label className="text-sm font-semibold text-slate-700">Course</label>
+              <label className="text-sm font-semibold text-slate-700">Subject</label>
               {isSingleDrawerCourse ? (
                 <div className="mt-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700">
                   {singleDrawerCourseName}
@@ -2769,18 +2805,22 @@ function Classes() {
                 <select
                   value={shiftForm.courseId}
                   onChange={(event) =>
-                    setShiftForm((prev) => ({
-                      ...prev,
-                      courseId: event.target.value,
-                      teacherId: "",
-                    }))
+                    setShiftForm((prev) => {
+                      const nextCourseId = event.target.value;
+                      const assignedTeacher = getAssignedTeacherForCourse(nextCourseId);
+                      return {
+                        ...prev,
+                        courseId: nextCourseId,
+                        teacherId: assignedTeacher?.id || "",
+                      };
+                    })
                   }
                   className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm"
                 >
-                  <option value="">Select course</option>
+                  <option value="">Select subject</option>
                   {(activeClass?.assignedCourses || []).map((course) => (
                     <option key={course.courseId} value={course.courseId}>
-                      {course.courseName || "Untitled Course"}
+                      {course.courseName || "Untitled Subject"}
                     </option>
                   ))}
                 </select>
@@ -2789,20 +2829,9 @@ function Classes() {
             </div>
             <div>
               <label className="text-sm font-semibold text-slate-700">Teacher</label>
-              <select
-                value={shiftForm.teacherId}
-                onChange={(event) =>
-                  setShiftForm((prev) => ({ ...prev, teacherId: event.target.value }))
-                }
-                className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm"
-              >
-                <option value="">Select teacher</option>
-                {teacherOptionsForShiftModal.map((teacher) => (
-                  <option key={teacher.id || teacher.teacherId} value={teacher.id || teacher.teacherId}>
-                    {teacher.fullName || teacher.teacherName || "Unknown Teacher"}
-                  </option>
-                ))}
-              </select>
+              <div className="mt-2 rounded-2xl border border-slate-200 bg-slate-100 px-4 py-3 text-sm font-semibold text-slate-700">
+                {shiftModalAssignedTeacher?.fullName || "No assigned teacher"}
+              </div>
               <FieldError message={shiftErrors.teacherId} />
             </div>
           </div>
