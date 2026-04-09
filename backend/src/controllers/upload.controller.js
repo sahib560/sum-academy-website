@@ -1,4 +1,7 @@
 import multer from "multer";
+import os from "os";
+import path from "path";
+import { promises as fs } from "fs";
 import { admin, db } from "../config/firebase.js";
 import { COLLECTIONS } from "../config/collections.js";
 import { successResponse, errorResponse } from "../utils/response.utils.js";
@@ -9,6 +12,7 @@ import {
   uploadReceipt,
   uploadLogo as uploadLogoFile,
   uploadAPK,
+  uploadAPKFromPath,
   deleteFile,
   MAX_SIZES,
 } from "../services/storage.service.js";
@@ -18,6 +22,19 @@ const storage = multer.memoryStorage();
 export const upload = multer({
   storage,
   limits: { fileSize: MAX_SIZES.video },
+});
+
+const apkDiskStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, os.tmpdir()),
+  filename: (req, file, cb) => {
+    const ext = path.extname(file?.originalname || "") || ".apk";
+    cb(null, `sum-apk-${Date.now()}${ext}`);
+  },
+});
+
+export const apkUpload = multer({
+  storage: apkDiskStorage,
+  limits: { fileSize: MAX_SIZES.apk },
 });
 
 export const uploadThumbnail = async (req, res) => {
@@ -235,14 +252,22 @@ export const uploadLogo = async (req, res) => {
 };
 
 export const uploadAndroidApk = async (req, res) => {
+  const tempPath = req.file?.path || "";
   try {
     if (!req.file) return errorResponse(res, "No file uploaded", 400);
 
-    const result = await uploadAPK(
-      req.file.buffer,
-      req.file.originalname,
-      req.file.mimetype
-    );
+    const result = tempPath
+      ? await uploadAPKFromPath(
+          tempPath,
+          req.file.originalname,
+          req.file.mimetype,
+          req.file.size
+        )
+      : await uploadAPK(
+          req.file.buffer,
+          req.file.originalname,
+          req.file.mimetype
+        );
 
     await db
       .collection(COLLECTIONS.SETTINGS)
@@ -271,6 +296,10 @@ export const uploadAndroidApk = async (req, res) => {
     );
   } catch (error) {
     return errorResponse(res, error?.message || "Failed to upload APK", 400);
+  } finally {
+    if (tempPath) {
+      await fs.unlink(tempPath).catch(() => {});
+    }
   }
 };
 

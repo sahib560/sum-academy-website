@@ -455,6 +455,10 @@ function SiteSettings() {
     const allowedMimeTypes = [
       "application/vnd.android.package-archive",
       "application/octet-stream",
+      "application/zip",
+      "application/x-zip-compressed",
+      "multipart/x-zip",
+      "application/java-archive",
       "",
     ];
 

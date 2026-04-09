@@ -23,6 +23,10 @@ const ALLOWED_VIDEO_TYPES = [
 const ALLOWED_APK_TYPES = [
   "application/vnd.android.package-archive",
   "application/octet-stream",
+  "application/zip",
+  "application/x-zip-compressed",
+  "multipart/x-zip",
+  "application/java-archive",
 ];
 
 const MAX_SIZES = {
@@ -191,16 +195,86 @@ export const uploadReceipt = async (fileBuffer, originalName, mimeType) => {
 };
 
 export const uploadAPK = async (fileBuffer, originalName, mimeType) => {
-  if (!ALLOWED_APK_TYPES.includes(mimeType)) {
-    throw new Error("Only APK files are allowed");
+  const extension = String(path.extname(originalName || "") || "")
+    .toLowerCase()
+    .trim();
+  if (extension !== ".apk") {
+    throw new Error("Only APK file is allowed");
+  }
+  const normalizedMime = String(mimeType || "").toLowerCase().trim();
+  const hasAllowedMime =
+    !normalizedMime || ALLOWED_APK_TYPES.includes(normalizedMime);
+  if (!hasAllowedMime) {
+    throw new Error(
+      "Invalid APK file type. Please upload a valid .apk package."
+    );
   }
   return uploadFile({
     fileBuffer,
     originalName,
-    mimeType,
+    mimeType:
+      normalizedMime || "application/vnd.android.package-archive",
     folder: "apps/android",
     maxSize: MAX_SIZES.apk,
   });
+};
+
+export const uploadAPKFromPath = async (
+  localPath,
+  originalName,
+  mimeType,
+  fileSize = 0
+) => {
+  if (!localPath) {
+    throw new Error("APK temp file path is required");
+  }
+  const extension = String(path.extname(originalName || "") || "")
+    .toLowerCase()
+    .trim();
+  if (extension !== ".apk") {
+    throw new Error("Only APK file is allowed");
+  }
+  if (Number(fileSize || 0) > MAX_SIZES.apk) {
+    throw new Error(
+      `File too large. Max size: ${Math.round(MAX_SIZES.apk / 1024 / 1024)}MB`
+    );
+  }
+  const normalizedMime = String(mimeType || "").toLowerCase().trim();
+  const hasAllowedMime =
+    !normalizedMime || ALLOWED_APK_TYPES.includes(normalizedMime);
+  if (!hasAllowedMime) {
+    throw new Error(
+      "Invalid APK file type. Please upload a valid .apk package."
+    );
+  }
+
+  const fileName = `${Date.now()}-${uuidv4()}.apk`;
+  const filePath = `apps/android/${fileName}`;
+  await bucket.upload(localPath, {
+    destination: filePath,
+    resumable: false,
+    metadata: {
+      contentType:
+        normalizedMime || "application/vnd.android.package-archive",
+      metadata: {
+        originalName,
+        uploadedAt: new Date().toISOString(),
+      },
+    },
+  });
+
+  const remote = bucket.file(filePath);
+  await remote.makePublic();
+
+  return {
+    url: `https://storage.googleapis.com/${bucket.name}/${filePath}`,
+    fileName,
+    filePath,
+    originalName,
+    mimeType:
+      normalizedMime || "application/vnd.android.package-archive",
+    size: Number(fileSize || 0) || null,
+  };
 };
 
 export { MAX_SIZES };
