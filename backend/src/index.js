@@ -47,28 +47,47 @@ app.disable("etag");
 app.set('trust proxy', 1);
 
 // â”€â”€ Allowed origins (Web + Android app) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-const allowedOrigins = [
+const allowedOrigins = new Set([
   "https://sumacademy.net",
   "https://www.sumacademy.net",
   "http://localhost:5173",
   "http://localhost:3000",
-  // Android app uses null origin or custom scheme
+  "http://localhost",
+  "https://localhost",
+  "capacitor://localhost",
+  "ionic://localhost",
   "null",
+]);
+
+const allowedOriginPatterns = [
+  /^https?:\/\/([a-z0-9-]+\.)*sumacademy\.net(?::\d+)?$/i,
+  /^https?:\/\/localhost(?::\d+)?$/i,
+  /^capacitor:\/\/localhost$/i,
+  /^ionic:\/\/localhost$/i,
+  /^file:\/\//i,
 ];
 
-// â”€â”€ Security â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-app.use(helmet({
-  contentSecurityPolicy: false, // needed for React frontend
-}));
+const normalizeOrigin = (origin = "") =>
+  String(origin || "").trim().replace(/\/+$/, "");
 
-app.use(cors({
+const isAllowedOrigin = (origin = "") => {
+  const normalized = normalizeOrigin(origin);
+  if (!normalized) return true;
+  if (allowedOrigins.has(normalized)) return true;
+  return allowedOriginPatterns.some((pattern) => pattern.test(normalized));
+};
+
+const corsOptions = {
   origin: (origin, callback) => {
     // Allow requests with no origin (Android app, Postman, mobile)
     if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin)) {
+
+    if (isAllowedOrigin(origin)) {
       return callback(null, true);
     }
-    return callback(new Error("Not allowed by CORS"));
+
+    console.warn("[CORS] Blocked origin:", origin);
+    return callback(null, false);
   },
   credentials:    true,
   methods:        ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
@@ -79,10 +98,17 @@ app.use(cors({
     "x-screen-resolution",
     "x-platform",
   ],
+};
+
+// â”€â”€ Security â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+app.use(helmet({
+  contentSecurityPolicy: false, // needed for React frontend
 }));
 
+app.use(cors(corsOptions));
+
 // Handle preflight requests for all routes
-app.options("/{*path}", cors());
+app.options("/{*path}", cors(corsOptions));
 
 // â”€â”€ Rate Limiting â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const generalLimiter = rateLimit({
