@@ -246,18 +246,56 @@ const getStudentClassIds = async (studentId) => {
 };
 
 const getStudentCourseIds = async (studentId) => {
-  const enrollmentSnap = await db
-    .collection(COLLECTIONS.ENROLLMENTS)
-    .where("studentId", "==", studentId)
-    .get();
+  const [enrollmentSnap, studentSnap, classSnap] = await Promise.all([
+    db
+      .collection(COLLECTIONS.ENROLLMENTS)
+      .where("studentId", "==", studentId)
+      .get(),
+    db.collection(COLLECTIONS.STUDENTS).doc(studentId).get(),
+    db.collection(COLLECTIONS.CLASSES).get(),
+  ]);
 
-  return [
-    ...new Set(
-      enrollmentSnap.docs
-        .map((doc) => doc.data()?.courseId)
-        .filter(Boolean)
-    ),
-  ];
+  const fromEnrollments = enrollmentSnap.docs.flatMap((doc) => {
+    const data = doc.data() || {};
+    return [data.courseId, data.subjectId].filter(Boolean);
+  });
+
+  const studentData = studentSnap.exists ? studentSnap.data() || {} : {};
+  const enrolledCourses = Array.isArray(studentData.enrolledCourses)
+    ? studentData.enrolledCourses
+    : [];
+  const enrolledSubjects = Array.isArray(studentData.enrolledSubjects)
+    ? studentData.enrolledSubjects
+    : [];
+
+  const fromStudentDoc = [...enrolledCourses, ...enrolledSubjects]
+    .map((entry) => {
+      if (typeof entry === "string") return entry;
+      return entry?.subjectId || entry?.courseId || entry?.id || "";
+    })
+    .filter(Boolean);
+
+  const fromClasses = classSnap.docs.flatMap((doc) => {
+    const data = doc.data() || {};
+    const students = extractStudentIdsFromClass(data);
+    if (!students.includes(studentId)) return [];
+
+    const assignedSubjects = Array.isArray(data.assignedSubjects)
+      ? data.assignedSubjects
+      : [];
+    const assignedCourses = Array.isArray(data.assignedCourses)
+      ? data.assignedCourses
+      : [];
+
+    return [...assignedSubjects, ...assignedCourses]
+      .map((entry) => {
+        if (typeof entry === "string") return entry;
+        return entry?.subjectId || entry?.courseId || entry?.id || "";
+      })
+      .filter(Boolean);
+  });
+
+  return [...new Set([...fromEnrollments, ...fromStudentDoc, ...fromClasses])];
 };
 
 const getViewerContext = async (uid, role) => {
@@ -289,16 +327,23 @@ const isAnnouncementVisibleToUser = (announcement, context) => {
     return true;
   }
 
+  const hasExplicitRecipients = recipientIds.length > 0;
+  const isRecipient = recipientIds.includes(uid);
+
   if (role === "teacher") {
     if (postedBy === uid) return true;
     if (isSingleUserTarget) {
-      return announcement.targetId === uid || recipientIds.includes(uid);
+      return announcement.targetId === uid || isRecipient;
     }
-    if (recipientIds.includes(uid)) return true;
+    if (isRecipient) return true;
     if (targetType === "system") {
       return ["teacher", "all"].includes(audienceRole);
     }
     return ["teacher", "all"].includes(audienceRole);
+  }
+
+  if (role === "student" && hasExplicitRecipients) {
+    return isRecipient;
   }
 
   const isAudienceMatch =

@@ -510,6 +510,12 @@ const createCourseQuizAnnouncement = async ({
   courseName = "",
   quizId = "",
   quizTitle = "",
+  dueAt = "",
+  mode = "new",
+  targetType = "course",
+  targetId = "",
+  targetName = "",
+  recipientIds: explicitRecipientIds = [],
   postedBy = "",
   postedByName = "Teacher",
   postedByRole = "teacher",
@@ -518,17 +524,43 @@ const createCourseQuizAnnouncement = async ({
   const cleanQuizTitle = trimText(quizTitle);
   if (!cleanCourseId || !cleanQuizTitle) return;
 
-  const recipientIds = await getStudentIdsForCourse(cleanCourseId);
+  const recipientIds = (
+    Array.isArray(explicitRecipientIds) && explicitRecipientIds.length > 0
+      ? explicitRecipientIds
+      : await getStudentIdsForCourse(cleanCourseId)
+  )
+    .map((id) => trimText(id))
+    .filter(Boolean);
   if (recipientIds.length < 1) return;
 
+  const normalizedTargetType = ["class", "course", "single_user"].includes(
+    lowerText(targetType)
+  )
+    ? lowerText(targetType)
+    : "course";
+  const resolvedTargetId =
+    trimText(targetId) || (normalizedTargetType === "course" ? cleanCourseId : "");
+  const resolvedTargetName =
+    trimText(targetName) || trimText(courseName) || "Course";
+  const dueLabel = dueAt
+    ? ` Due: ${new Date(dueAt).toLocaleString()}.`
+    : "";
+  const isAssignedAnnouncement = lowerText(mode) === "assigned";
+  const title = isAssignedAnnouncement
+    ? `Quiz Assigned: ${cleanQuizTitle}`
+    : `New Quiz Available: ${cleanQuizTitle}`;
+  const message = isAssignedAnnouncement
+    ? `Quiz "${cleanQuizTitle}" has been assigned to you in ${resolvedTargetName}.${dueLabel} Please attempt it on time.`
+    : `A new quiz "${cleanQuizTitle}" has been added in ${
+        trimText(courseName) || "your course"
+      }. Please attempt it on time.`;
+
   await db.collection(COLLECTIONS.ANNOUNCEMENTS).add({
-    title: `New Quiz Available: ${cleanQuizTitle}`,
-    message: `A new quiz "${cleanQuizTitle}" has been added in ${
-      trimText(courseName) || "your course"
-    }. Please attempt it on time.`,
-    targetType: "course",
-    targetId: cleanCourseId,
-    targetName: trimText(courseName) || "Course",
+    title,
+    message,
+    targetType: normalizedTargetType,
+    targetId: resolvedTargetId,
+    targetName: resolvedTargetName,
     audienceRole: "student",
     postedBy: trimText(postedBy),
     postedByName: trimText(postedByName) || "Teacher",
@@ -538,8 +570,10 @@ const createCourseQuizAnnouncement = async ({
     studentsReached: recipientIds.length,
     recipientIds,
     meta: {
-      kind: "quiz",
+      kind: isAssignedAnnouncement ? "quiz_assignment" : "quiz",
       quizId: trimText(quizId),
+      courseId: cleanCourseId,
+      dueAt: dueAt || null,
     },
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
@@ -1004,6 +1038,9 @@ export const assignQuizToStudents = async (req, res) => {
     }
 
     let targetStudentIds = [];
+    let announcementTargetType = "course";
+    let announcementTargetId = quizCourseId;
+    let announcementTargetName = trimText(quizData.courseName) || "Course";
     if (targetType === "course") {
       targetStudentIds = await getStudentIdsForCourse(quizCourseId);
       if (!targetStudentIds.length) {
@@ -1039,6 +1076,10 @@ export const assignQuizToStudents = async (req, res) => {
       if (!targetStudentIds.length) {
         return errorResponse(res, "No students found in selected class", 400);
       }
+      announcementTargetType = "class";
+      announcementTargetId = classId;
+      announcementTargetName =
+        trimText(classData.name) || trimText(classData.batchCode) || "Class";
     } else {
       if (!studentIds.length) {
         return errorResponse(res, "Select at least one student", 400);
@@ -1094,6 +1135,27 @@ export const assignQuizToStudents = async (req, res) => {
 
     const updatedSnap = await owned.quizRef.get();
     const updatedData = updatedSnap.data() || {};
+    const actorName = await getTeacherDisplayName(uid, req.user?.email || "");
+
+    try {
+      await createCourseQuizAnnouncement({
+        courseId: quizCourseId,
+        courseName: trimText(quizData.courseName) || "Course",
+        quizId,
+        quizTitle: trimText(quizData.title) || "Quiz",
+        dueAt: dueDate.toISOString(),
+        mode: "assigned",
+        targetType: announcementTargetType,
+        targetId: announcementTargetId,
+        targetName: announcementTargetName,
+        recipientIds: uniqueStudentIds,
+        postedBy: uid,
+        postedByName: actorName,
+        postedByRole: role || "teacher",
+      });
+    } catch (announcementError) {
+      console.error("assignQuizToStudents announcement error:", announcementError);
+    }
 
     return successResponse(
       res,
