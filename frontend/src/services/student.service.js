@@ -6,6 +6,12 @@ export const getStudentDashboard = () =>
 export const getStudentCourses = () =>
   api.get("/student/courses").then((r) => r.data.data);
 
+export const getStudentLiveSessions = () =>
+  api.get("/student/live-sessions").then((r) => r.data.data);
+
+export const joinStudentLiveSession = (sessionId) =>
+  api.post(`/student/live-sessions/${sessionId}/join`).then((r) => r.data.data);
+
 export const getCourseProgress = (courseId) =>
   api.get(`/student/courses/${courseId}/progress`).then((r) => r.data.data);
 

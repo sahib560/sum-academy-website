@@ -44,6 +44,7 @@ import StudentLayout from "./layouts/StudentLayout.jsx";
 import StudentDashboard from "./pages/student/Dashboard.jsx";
 import StudentMyCourses from "./pages/student/MyCourses.jsx";
 import StudentExploreCourses from "./pages/student/ExploreCourses.jsx";
+import StudentLivePage from "./pages/student/Live.jsx";
 import StudentCoursePlayer from "./pages/student/CoursePlayer.jsx";
 import StudentCertificates from "./pages/student/Certificates.jsx";
 import StudentQuizzes from "./pages/student/Quizzes.jsx";
@@ -383,6 +384,7 @@ function AppLayout({ showComingSoon }) {
           <Route index element={<Navigate to="dashboard" replace />} />
           <Route path="dashboard" element={<StudentDashboard />} />
           <Route path="courses" element={<StudentMyCourses />} />
+          <Route path="live" element={<StudentLivePage />} />
           <Route path="courses/:courseId/player" element={<StudentCoursePlayer />} />
           <Route
             path="courses/:courseId/player/:lectureId"

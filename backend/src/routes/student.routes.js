@@ -3,6 +3,8 @@ import { verifyToken, requireRole } from "../middlewares/auth.middleware.js";
 import {
   getStudentDashboard,
   getStudentCourses,
+  getStudentLiveSessions,
+  joinStudentLiveSession,
   getStudentCourseProgress,
   getFinalQuizRequestStatus,
   markLectureComplete,
@@ -26,6 +28,8 @@ router.use(verifyToken, requireRole("student"));
 
 router.get("/dashboard", getStudentDashboard);
 router.get("/courses", getStudentCourses);
+router.get("/live-sessions", getStudentLiveSessions);
+router.post("/live-sessions/:sessionId/join", joinStudentLiveSession);
 router.get("/courses/:courseId/progress", getStudentCourseProgress);
 router.get("/courses/:courseId/final-quiz-request", getFinalQuizRequestStatus);
 router.post("/courses/:courseId/final-quiz-request", requestFinalQuizForCourse);

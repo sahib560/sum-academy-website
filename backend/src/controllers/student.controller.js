@@ -54,6 +54,231 @@ const toIso = (value) => {
   return parsed ? parsed.toISOString() : null;
 };
 
+const LIVE_ACCESS_COLLECTION = "liveSessionAccess";
+const PAKISTAN_UTC_OFFSET_HOURS = 5;
+const PK_DATE_PARTS_FORMATTER = new Intl.DateTimeFormat("en-US", {
+  timeZone: "Asia/Karachi",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+const PK_WEEKDAY_FORMATTER = new Intl.DateTimeFormat("en-US", {
+  timeZone: "Asia/Karachi",
+  weekday: "short",
+});
+const WEEKDAY_TO_INDEX = {
+  sun: 0,
+  sunday: 0,
+  mon: 1,
+  monday: 1,
+  tue: 2,
+  tues: 2,
+  tuesday: 2,
+  wed: 3,
+  wednesday: 3,
+  thu: 4,
+  thur: 4,
+  thurs: 4,
+  thursday: 4,
+  fri: 5,
+  friday: 5,
+  sat: 6,
+  saturday: 6,
+};
+const TIME_24_RE = /^([01]?\d|2[0-3]):([0-5]\d)$/;
+const TIME_12_RE = /^(\d{1,2}):([0-5]\d)\s*(am|pm)$/i;
+const DURATION_TIME_RE = /^(\d{1,2}):([0-5]\d)(?::([0-5]\d))?$/;
+const PK_DATE_KEY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+const getPkDateKey = (value = new Date()) => {
+  const parsed = parseDate(value);
+  if (!parsed) return null;
+  const parts = PK_DATE_PARTS_FORMATTER.formatToParts(parsed);
+  const year = parts.find((part) => part.type === "year")?.value;
+  const month = parts.find((part) => part.type === "month")?.value;
+  const day = parts.find((part) => part.type === "day")?.value;
+  if (!year || !month || !day) return null;
+  return `${year}-${month}-${day}`;
+};
+
+const parsePkDateKey = (value = "") => {
+  const clean = trimText(value);
+  if (!PK_DATE_KEY_RE.test(clean)) return null;
+  const [year, month, day] = clean.split("-").map((part) => Number(part));
+  if (!year || !month || !day) return null;
+  return { year, month, day };
+};
+
+const addDaysToDateKey = (dateKey = "", days = 0) => {
+  const parsed = parsePkDateKey(dateKey);
+  if (!parsed) return null;
+  const base = new Date(Date.UTC(parsed.year, parsed.month - 1, parsed.day + Number(days || 0), 12, 0, 0));
+  const year = String(base.getUTCFullYear());
+  const month = String(base.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(base.getUTCDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const parseTimeToMinutes = (value = "") => {
+  const clean = trimText(value).toLowerCase();
+  if (!clean) return null;
+  const time24 = TIME_24_RE.exec(clean);
+  if (time24) {
+    return Number(time24[1]) * 60 + Number(time24[2]);
+  }
+  const time12 = TIME_12_RE.exec(clean);
+  if (time12) {
+    const rawHour = Number(time12[1]);
+    const minute = Number(time12[2]);
+    const meridiem = lowerText(time12[3]);
+    const hour24 = (rawHour % 12) + (meridiem === "pm" ? 12 : 0);
+    return hour24 * 60 + minute;
+  }
+  return null;
+};
+
+const parseDurationToSeconds = (value) => {
+  if (value === null || value === undefined) return 0;
+  const numeric = Number(value);
+  if (Number.isFinite(numeric) && numeric > 0) return Math.round(numeric);
+  const clean = trimText(value);
+  if (!clean) return 0;
+  const parts = DURATION_TIME_RE.exec(clean);
+  if (!parts) return 0;
+  const first = Number(parts[1]);
+  const second = Number(parts[2]);
+  const third = Number(parts[3] || 0);
+  if (parts[3] !== undefined) {
+    return first * 3600 + second * 60 + third;
+  }
+  return first * 60 + second;
+};
+
+const toPkDateTime = (dateKey = "", timeValue = "") => {
+  const parsedDate = parsePkDateKey(dateKey);
+  const timeMinutes = parseTimeToMinutes(timeValue);
+  if (!parsedDate || timeMinutes === null) return null;
+  const hour = Math.floor(timeMinutes / 60);
+  const minute = timeMinutes % 60;
+  return new Date(
+    Date.UTC(
+      parsedDate.year,
+      parsedDate.month - 1,
+      parsedDate.day,
+      hour - PAKISTAN_UTC_OFFSET_HOURS,
+      minute,
+      0,
+      0
+    )
+  );
+};
+
+const getPkWeekdayIndex = (dateValue) => {
+  const parsed = parseDate(dateValue);
+  if (!parsed) return null;
+  const label = lowerText(PK_WEEKDAY_FORMATTER.format(parsed));
+  return WEEKDAY_TO_INDEX[label] ?? null;
+};
+
+const normalizeShiftDays = (days = []) => {
+  const values = Array.isArray(days) ? days : [days];
+  const normalized = new Set();
+  values.forEach((entry) => {
+    const clean = lowerText(entry);
+    if (!clean) return;
+    if (clean === "weekend") {
+      normalized.add(6);
+      normalized.add(0);
+      return;
+    }
+    if (clean === "weekday" || clean === "weekdays") {
+      [1, 2, 3, 4, 5].forEach((day) => normalized.add(day));
+      return;
+    }
+    const splitParts = clean.split(/[,/|]/).map((part) => lowerText(part));
+    splitParts.forEach((part) => {
+      if (WEEKDAY_TO_INDEX[part] !== undefined) {
+        normalized.add(WEEKDAY_TO_INDEX[part]);
+      }
+    });
+    if (WEEKDAY_TO_INDEX[clean] !== undefined) {
+      normalized.add(WEEKDAY_TO_INDEX[clean]);
+    }
+  });
+  return [...normalized];
+};
+
+const resolveShiftDurationSeconds = (shift = {}) => {
+  const startMinutes = parseTimeToMinutes(shift?.startTime);
+  const endMinutes = parseTimeToMinutes(shift?.endTime);
+  if (startMinutes === null || endMinutes === null) return 0;
+  const delta = endMinutes - startMinutes;
+  if (delta <= 0) return 0;
+  return delta * 60;
+};
+
+const resolveLiveVideoDurationSeconds = (lecture = {}, shift = {}) => {
+  const videoDurationSec = Math.max(
+    parseDurationToSeconds(lecture.durationSec),
+    parseDurationToSeconds(lecture.videoDuration),
+    parseDurationToSeconds(lecture.videoDurationSec)
+  );
+  const shiftDurationSec = resolveShiftDurationSeconds(shift);
+  return Math.max(videoDurationSec, shiftDurationSec, 60);
+};
+
+const buildLiveSessionId = ({
+  classId = "",
+  shiftId = "",
+  subjectId = "",
+  lectureId = "",
+  dateKey = "",
+}) =>
+  [classId, shiftId, subjectId, lectureId, dateKey]
+    .map((value) => trimText(value).replace(/[^a-zA-Z0-9_-]/g, "_"))
+    .filter(Boolean)
+    .join("__");
+
+const findNextShiftOccurrence = ({
+  shift = {},
+  classData = {},
+  durationSeconds = 0,
+  now = new Date(),
+}) => {
+  const startTime = trimText(shift?.startTime);
+  const startMinutes = parseTimeToMinutes(startTime);
+  if (startMinutes === null) return null;
+
+  const classStartKey = getPkDateKey(classData.startDate);
+  const classEndKey = getPkDateKey(classData.endDate);
+  const todayKey = getPkDateKey(now);
+  if (!todayKey) return null;
+
+  const activeWeekdays = normalizeShiftDays(shift?.days);
+  const maxLookAheadDays = 366;
+
+  for (let offset = 0; offset <= maxLookAheadDays; offset += 1) {
+    const dateKey = addDaysToDateKey(todayKey, offset);
+    if (!dateKey) continue;
+    if (classStartKey && dateKey < classStartKey) continue;
+    if (classEndKey && dateKey > classEndKey) continue;
+
+    if (activeWeekdays.length > 0) {
+      const weekday = getPkWeekdayIndex(toPkDateTime(dateKey, "12:00"));
+      if (weekday === null || !activeWeekdays.includes(weekday)) continue;
+    }
+
+    const startAt = toPkDateTime(dateKey, startTime);
+    if (!startAt) continue;
+    const endAt = new Date(startAt.getTime() + durationSeconds * 1000);
+    if (endAt.getTime() <= now.getTime()) continue;
+
+    return { dateKey, startAt, endAt };
+  }
+
+  return null;
+};
+
 const removeTrailingSlashes = (value = "") => trimText(value).replace(/\/+$/, "");
 
 const getRequestProtocol = (req) => {
@@ -2024,6 +2249,362 @@ export const getStudentCourses = async (req, res) => {
   } catch (error) {
     console.error("getStudentCourses error:", error);
     return errorResponse(res, "Failed to fetch student courses", 500);
+  }
+};
+
+const buildStudentLiveSessions = async (uid) => {
+  const [enrollments, classMembershipRows] = await Promise.all([
+    getEnrolledRows(uid),
+    getStudentClassMembershipRows(uid),
+  ]);
+  const enrollmentClassIds = enrollments.map((row) => trimText(row.classId)).filter(Boolean);
+  const classMap = classMembershipRows.reduce((acc, row) => {
+    acc[trimText(row.id)] = row;
+    return acc;
+  }, {});
+  const missingClassIds = [...new Set(enrollmentClassIds)].filter((classId) => !classMap[classId]);
+  const missingClassRows = await Promise.all(
+    missingClassIds.map(async (classId) => {
+      const snap = await db.collection(COLLECTIONS.CLASSES).doc(classId).get();
+      return snap.exists ? { id: snap.id, ...(snap.data() || {}) } : null;
+    })
+  );
+  const classRows = [...classMembershipRows, ...missingClassRows.filter(Boolean)].map((row) => ({
+    ...(row || {}),
+    id: trimText(row?.id),
+  }));
+
+  const paidByClassSubject = new Set(
+    enrollments
+      .filter((row) => ACTIVE_ENROLLMENT_STATUSES.has(lowerText(row.status || "active")))
+      .map((row) => `${trimText(row.classId)}::${trimText(row.subjectId || row.courseId)}`)
+      .filter((key) => !key.endsWith("::"))
+  );
+  const subjectIds = new Set();
+  classRows.forEach((classData) => {
+    const classId = trimText(classData.id);
+    if (!classId) return;
+    const shifts = Array.isArray(classData.shifts) ? classData.shifts : [];
+    shifts.forEach((shift) => {
+      const subjectId = trimText(shift?.subjectId || shift?.courseId);
+      if (!subjectId) return;
+      if (paidByClassSubject.has(`${classId}::${subjectId}`)) {
+        subjectIds.add(subjectId);
+      }
+    });
+  });
+
+  const [subjectSnaps, liveAccessSnap, lectureRowsBySubject] = await Promise.all([
+    Promise.all(
+      [...subjectIds].map(async (subjectId) => {
+        const [subjectSnap, courseSnap] = await Promise.all([
+          db.collection(COLLECTIONS.SUBJECTS).doc(subjectId).get(),
+          db.collection(COLLECTIONS.COURSES).doc(subjectId).get(),
+        ]);
+        const target = subjectSnap.exists ? subjectSnap : courseSnap;
+        return {
+          id: subjectId,
+          data: target.exists ? target.data() || {} : {},
+        };
+      })
+    ),
+    db
+      .collection(LIVE_ACCESS_COLLECTION)
+      .where("studentId", "==", uid)
+      .get()
+      .catch(() => ({ docs: [] })),
+    Promise.all(
+      [...subjectIds].map(async (subjectId) => ({
+        subjectId,
+        lectures: await getCourseLectures(subjectId),
+      }))
+    ),
+  ]);
+
+  const subjectMap = subjectSnaps.reduce((acc, row) => {
+    acc[row.id] = row.data || {};
+    return acc;
+  }, {});
+  const lectureMap = lectureRowsBySubject.reduce((acc, row) => {
+    const liveLecture = (Array.isArray(row.lectures) ? row.lectures : [])
+      .filter(
+        (lecture) =>
+          Boolean(lecture?.isLiveSession) &&
+          trimText(
+            lecture?.videoUrl ||
+              lecture?.streamUrl ||
+              lecture?.playbackUrl ||
+              lecture?.signedUrl ||
+              lecture?.videoSignedUrl
+          )
+      )
+      .sort((a, b) => toNumber(a.order, 0) - toNumber(b.order, 0))[0];
+    acc[row.subjectId] = liveLecture || null;
+    return acc;
+  }, {});
+  const liveAccessMap = (liveAccessSnap.docs || []).reduce((acc, doc) => {
+    const row = doc.data() || {};
+    const sessionId = trimText(row.sessionId);
+    if (!sessionId) return acc;
+    acc[sessionId] = row;
+    return acc;
+  }, {});
+
+  const now = new Date();
+  const sessions = [];
+
+  classRows.forEach((classData) => {
+    const classId = trimText(classData.id);
+    if (!classId) return;
+    const classStatus = getClassStatus(classData);
+    const shifts = Array.isArray(classData.shifts) ? classData.shifts : [];
+    shifts.forEach((shift) => {
+      const shiftId = trimText(shift?.id);
+      const subjectId = trimText(shift?.subjectId || shift?.courseId);
+      if (!subjectId || !paidByClassSubject.has(`${classId}::${subjectId}`)) return;
+
+      const lecture = lectureMap[subjectId];
+      if (!lecture) return;
+
+      const durationSeconds = resolveLiveVideoDurationSeconds(lecture, shift);
+      const occurrence = findNextShiftOccurrence({
+        shift,
+        classData,
+        durationSeconds,
+        now,
+      });
+      if (!occurrence) return;
+
+      const startAt = occurrence.startAt;
+      const endAt = occurrence.endAt;
+      const joinOpenAt = new Date(startAt.getTime() - 10 * 60 * 1000);
+      const joinCloseAt = startAt;
+      const sessionId = buildLiveSessionId({
+        classId,
+        shiftId,
+        subjectId,
+        lectureId: trimText(lecture.id),
+        dateKey: occurrence.dateKey,
+      });
+      const accessRow = liveAccessMap[sessionId] || null;
+      const joined = Boolean(accessRow) && accessRow.active !== false;
+
+      const nowMs = now.getTime();
+      const joinOpenMs = joinOpenAt.getTime();
+      const joinCloseMs = joinCloseAt.getTime();
+      const startMs = startAt.getTime();
+      const endMs = endAt.getTime();
+
+      let status = "scheduled";
+      let lockReason = "";
+      let canJoin = false;
+      let canPlay = false;
+      let waiting = false;
+
+      if (classStatus === "expired") {
+        status = "expired";
+        lockReason = "Class has ended.";
+      } else if (nowMs < joinOpenMs) {
+        status = "scheduled";
+        lockReason = "Join opens 10 minutes before class shift start time.";
+      } else if (nowMs >= joinOpenMs && nowMs < startMs) {
+        status = joined ? "waiting" : "join_window_open";
+        lockReason = "Waiting for class shift start time.";
+        canJoin = !joined;
+        waiting = true;
+      } else if (nowMs >= startMs && nowMs < endMs) {
+        if (joined) {
+          status = "live";
+          canPlay = true;
+        } else {
+          status = "join_closed";
+          lockReason = "You cannot join after class shift start time.";
+        }
+      } else {
+        status = "ended";
+        lockReason = "This live session has ended.";
+      }
+
+      sessions.push({
+        id: sessionId,
+        classId,
+        className: trimText(classData.name) || "Class",
+        batchCode: trimText(classData.batchCode),
+        classStatus,
+        shiftId,
+        shiftName: trimText(shift?.name) || "Shift",
+        shiftDays: Array.isArray(shift?.days) ? shift.days : [],
+        shiftStartTime: trimText(shift?.startTime),
+        shiftEndTime: trimText(shift?.endTime),
+        subjectId,
+        courseId: subjectId,
+        subjectName:
+          trimText(shift?.subjectName || shift?.courseName) ||
+          trimText(subjectMap[subjectId]?.title) ||
+          "Subject",
+        teacherId: trimText(shift?.teacherId || subjectMap[subjectId]?.teacherId),
+        teacherName:
+          trimText(shift?.teacherName || subjectMap[subjectId]?.teacherName) || "Teacher",
+        lectureId: trimText(lecture.id),
+        lectureTitle: trimText(lecture.title) || "Live Session",
+        videoUrl:
+          trimText(
+            lecture.videoUrl ||
+              lecture.streamUrl ||
+              lecture.playbackUrl ||
+              lecture.signedUrl ||
+              lecture.videoSignedUrl
+          ) || null,
+        videoMode: trimText(lecture.videoMode || "live_session"),
+        isLiveSession: true,
+        sessionDate: occurrence.dateKey,
+        joinWindow: {
+          opensAt: joinOpenAt.toISOString(),
+          closesAt: joinCloseAt.toISOString(),
+        },
+        timing: {
+          startAt: startAt.toISOString(),
+          endAt: endAt.toISOString(),
+          durationSeconds,
+          shiftDurationSeconds: resolveShiftDurationSeconds(shift),
+          videoDurationSeconds: Math.max(
+            parseDurationToSeconds(lecture.durationSec),
+            parseDurationToSeconds(lecture.videoDuration)
+          ),
+        },
+        status,
+        waiting,
+        canJoin,
+        canPlay,
+        isJoined: joined,
+        joinedAt: toIso(accessRow?.joinedAt) || null,
+        lockReason,
+      });
+    });
+  });
+
+  return sessions.sort(
+    (a, b) =>
+      (parseDate(a?.timing?.startAt)?.getTime() || 0) -
+      (parseDate(b?.timing?.startAt)?.getTime() || 0)
+  );
+};
+
+export const getStudentLiveSessions = async (req, res) => {
+  try {
+    const uid = trimText(req.user?.uid);
+    if (!uid) return errorResponse(res, "Missing student uid", 400);
+
+    const sessions = await buildStudentLiveSessions(uid);
+    const liveNowCount = sessions.filter((row) => row.status === "live").length;
+    const joinableCount = sessions.filter((row) => row.canJoin).length;
+
+    return successResponse(
+      res,
+      {
+        sessions,
+        summary: {
+          total: sessions.length,
+          liveNow: liveNowCount,
+          joinable: joinableCount,
+        },
+      },
+      "Student live sessions fetched"
+    );
+  } catch (error) {
+    console.error("getStudentLiveSessions error:", error);
+    return errorResponse(res, "Failed to fetch live sessions", 500);
+  }
+};
+
+export const joinStudentLiveSession = async (req, res) => {
+  try {
+    const uid = trimText(req.user?.uid);
+    const sessionId = trimText(req.params?.sessionId);
+    if (!uid) return errorResponse(res, "Missing student uid", 400);
+    if (!sessionId) return errorResponse(res, "sessionId is required", 400);
+
+    const sessions = await buildStudentLiveSessions(uid);
+    const session = sessions.find((row) => trimText(row.id) === sessionId);
+    if (!session) {
+      return errorResponse(res, "Live session not found", 404);
+    }
+
+    const accessRef = db.collection(LIVE_ACCESS_COLLECTION).doc(`${uid}__${sessionId}`);
+    const existingSnap = await accessRef.get();
+    const existingData = existingSnap.exists ? existingSnap.data() || {} : null;
+    const now = new Date();
+    const nowMs = now.getTime();
+    const joinOpenMs = parseDate(session.joinWindow?.opensAt)?.getTime() || 0;
+    const joinCloseMs = parseDate(session.joinWindow?.closesAt)?.getTime() || 0;
+    const startMs = parseDate(session.timing?.startAt)?.getTime() || 0;
+    const endMs = parseDate(session.timing?.endAt)?.getTime() || 0;
+    const canResumeJoinedSession =
+      Boolean(existingData) && existingData.active !== false && nowMs < endMs;
+
+    if (!canResumeJoinedSession) {
+      if (session.classStatus === "expired") {
+        return errorResponse(res, "Class has ended.", 403, { code: "CLASS_EXPIRED" });
+      }
+      if (nowMs < joinOpenMs) {
+        return errorResponse(
+          res,
+          "You can join only 10 minutes before class shift start time.",
+          403,
+          { code: "JOIN_NOT_OPEN" }
+        );
+      }
+      if (nowMs >= joinCloseMs) {
+        return errorResponse(
+          res,
+          "You cannot join after class shift start time.",
+          403,
+          { code: "LATE_JOIN_NOT_ALLOWED" }
+        );
+      }
+      if (nowMs >= endMs) {
+        return errorResponse(res, "This live session has ended.", 403, {
+          code: "SESSION_ENDED",
+        });
+      }
+    }
+
+    await accessRef.set(
+      {
+        sessionId,
+        studentId: uid,
+        classId: session.classId,
+        shiftId: session.shiftId,
+        subjectId: session.subjectId,
+        courseId: session.courseId,
+        lectureId: session.lectureId,
+        sessionDate: session.sessionDate,
+        joinedAt: existingData?.joinedAt || serverTimestamp(),
+        lastSeenAt: serverTimestamp(),
+        active: true,
+        startAt: session.timing?.startAt || null,
+        endAt: session.timing?.endAt || null,
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    );
+
+    return successResponse(
+      res,
+      {
+        sessionId,
+        waiting: nowMs < startMs,
+        canPlay: nowMs >= startMs && nowMs < endMs,
+        startAt: session.timing?.startAt || null,
+        endAt: session.timing?.endAt || null,
+      },
+      nowMs < startMs
+        ? "Joined live waiting room. Playback starts at shift time."
+        : "Joined live session"
+    );
+  } catch (error) {
+    console.error("joinStudentLiveSession error:", error);
+    return errorResponse(res, "Failed to join live session", 500);
   }
 };
 

@@ -241,6 +241,23 @@ function StudentDashboard() {
 
       <Motion.section
         {...fadeUp}
+        className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"
+      >
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h3 className="font-heading text-xl text-slate-900">Live Page</h3>
+            <p className="mt-1 text-sm text-slate-500">
+              Join live sessions 10 minutes before shift time. Late join is blocked.
+            </p>
+          </div>
+          <Link className="btn-primary px-5 py-2.5" to="/student/live">
+            Open Live Page
+          </Link>
+        </div>
+      </Motion.section>
+
+      <Motion.section
+        {...fadeUp}
         className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"
       >
         {isLoading ? (

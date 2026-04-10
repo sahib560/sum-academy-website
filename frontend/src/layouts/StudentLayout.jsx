@@ -13,6 +13,7 @@ import {
   FiHelpCircle,
   FiLogOut,
   FiMenu,
+  FiRadio,
   FiSettings,
   FiUser,
 } from "react-icons/fi";
@@ -27,6 +28,7 @@ const MotionDiv = motion.div;
 const navItems = [
   { label: "Dashboard", to: "/student/dashboard", icon: "grid" },
   { label: "My Classes", to: "/student/courses", icon: "book" },
+  { label: "Live Page", to: "/student/live", icon: "live" },
   { label: "Explore Classes", to: "/student/explore", icon: "compass" },
   { label: "Certificates", to: "/student/certificates", icon: "award" },
   { label: "Quizzes", to: "/student/quizzes", icon: "clipboard" },
@@ -39,7 +41,7 @@ const navItems = [
 const mobileTabs = [
   { label: "Dashboard", to: "/student/dashboard", icon: "grid" },
   { label: "Classes", to: "/student/courses", icon: "book" },
-  { label: "Quizzes", to: "/student/quizzes", icon: "clipboard" },
+  { label: "Live", to: "/student/live", icon: "live" },
   { label: "Explore", to: "/student/explore", icon: "compass" },
   { label: "Profile", to: "/student/settings", icon: "user" },
 ];
@@ -55,6 +57,7 @@ const iconMap = {
   help: <FiHelpCircle className="h-4 w-4" />,
   settings: <FiSettings className="h-4 w-4" />,
   user: <FiUser className="h-4 w-4" />,
+  live: <FiRadio className="h-4 w-4" />,
 };
 
 function StudentLayout() {
