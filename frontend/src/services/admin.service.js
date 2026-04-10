@@ -359,6 +359,18 @@ export const replySupportMessage = (messageId, replyMessage) =>
 export const getAdminQuizzes = () =>
   api.get("/admin/quizzes").then((r) => r.data.data);
 
+export const getAdminTests = () =>
+  api.get("/admin/tests").then((r) => r.data.data || []);
+
+export const createAdminTest = (data) =>
+  api.post("/admin/tests", data).then((r) => r.data);
+
+export const getAdminTestById = (testId) =>
+  api.get(`/admin/tests/${testId}`).then((r) => r.data.data || {});
+
+export const getAdminTestRanking = (testId) =>
+  api.get(`/admin/tests/${testId}/ranking`).then((r) => r.data.data || {});
+
 export const getAdminQuizById = (quizId) =>
   api.get(`/admin/quizzes/${quizId}`).then((r) => r.data.data);
 

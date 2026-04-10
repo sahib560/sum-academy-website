@@ -21,6 +21,15 @@ import {
   getStudentSettings,
   updateStudentSettings,
 } from "../controllers/student.controller.js";
+import {
+  getStudentTests,
+  getStudentTestById,
+  startStudentTest,
+  submitStudentTestAnswer,
+  finishStudentTest,
+  getStudentTestRanking,
+  downloadStudentTestRankingPdf,
+} from "../controllers/tests.controller.js";
 
 const router = Router();
 
@@ -28,6 +37,13 @@ router.use(verifyToken, requireRole("student"));
 
 router.get("/dashboard", getStudentDashboard);
 router.get("/courses", getStudentCourses);
+router.get("/tests", getStudentTests);
+router.get("/tests/:testId", getStudentTestById);
+router.post("/tests/:testId/start", startStudentTest);
+router.post("/tests/:testId/answer", submitStudentTestAnswer);
+router.post("/tests/:testId/finish", finishStudentTest);
+router.get("/tests/:testId/ranking", getStudentTestRanking);
+router.get("/tests/:testId/ranking/pdf", downloadStudentTestRankingPdf);
 router.get("/live-sessions", getStudentLiveSessions);
 router.post("/live-sessions/:sessionId/join", joinStudentLiveSession);
 router.get("/courses/:courseId/progress", getStudentCourseProgress);

@@ -32,6 +32,7 @@ const navItems = [
   { label: "Explore Classes", to: "/student/explore", icon: "compass" },
   { label: "Certificates", to: "/student/certificates", icon: "award" },
   { label: "Quizzes", to: "/student/quizzes", icon: "clipboard" },
+  { label: "Tests", to: "/student/tests", icon: "clipboard" },
   { label: "Payments", to: "/student/payments", icon: "credit" },
   { label: "Announcements", to: "/student/announcements", icon: "bell" },
   { label: "Help & Support", to: "/student/help", icon: "help" },

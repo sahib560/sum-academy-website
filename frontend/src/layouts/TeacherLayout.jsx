@@ -28,6 +28,7 @@ const navItems = [
   { label: "Sessions", to: "/teacher/sessions", icon: "calendar" },
   { label: "Timetable", to: "/teacher/timetable", icon: "clock" },
   { label: "Quizzes", to: "/teacher/quizzes", icon: "clipboard" },
+  { label: "Tests", to: "/teacher/tests", icon: "clipboard" },
   { label: "Announcements", to: "/teacher/announcements", icon: "bell" },
   { label: "Settings", to: "/teacher/settings", icon: "settings" },
 ];

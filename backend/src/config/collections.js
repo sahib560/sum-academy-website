@@ -17,6 +17,8 @@ export const COLLECTIONS = {
   ANNOUNCEMENTS: "announcements",
   QUIZZES: "quizzes",
   QUIZ_RESULTS: "quizResults",
+  TESTS: "tests",
+  TEST_ATTEMPTS: "testAttempts",
   VIDEOS: "videos",
   ATTENDANCE: "attendance",
   AUDIT_LOGS: "auditLogs",

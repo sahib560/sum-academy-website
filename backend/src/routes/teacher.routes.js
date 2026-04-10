@@ -6,6 +6,12 @@ import {
   getTeacherOutgoingAnnouncements,
 } from "../controllers/announcement.controller.js";
 import {
+  createTest,
+  getManagedTests,
+  getManagedTestById,
+  getManagedTestRanking,
+} from "../controllers/tests.controller.js";
+import {
   getTeacherQuizzes,
   getTeacherQuizById,
   assignQuizToStudents,
@@ -132,6 +138,10 @@ router.patch(
   "/quizzes/:quizId/submissions/:resultId/grade-short",
   gradeShortAnswerSubmission
 );
+router.get("/tests", getManagedTests);
+router.post("/tests", createTest);
+router.get("/tests/:testId", getManagedTestById);
+router.get("/tests/:testId/ranking", getManagedTestRanking);
 router.get("/settings/profile", getTeacherSettingsProfile);
 router.put("/settings/profile", updateTeacherSettingsProfile);
 router.get("/settings/security", getTeacherSettingsSecurity);

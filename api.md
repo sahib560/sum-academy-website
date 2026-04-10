@@ -7387,3 +7387,67 @@ Relevant APIs:
   - `PATCH /api/subjects/:subjectId/students/:studentId/video-access`
   - `POST /api/subjects/:subjectId/students/:studentId/unlock-all`
   - `GET /api/subjects/:subjectId/students/:studentId/progress`
+
+## Test Module APIs
+
+### POST `/api/teacher/tests`
+### POST `/api/admin/tests`
+- Auth: Bearer token (`teacher`/`admin`)
+- Body:
+```json
+{
+  "title": "Weekly Biology Test",
+  "description": "Chapter 1 to 3",
+  "scope": "class",
+  "classId": "TR5HYHIIuuZ6Xlouoa5k",
+  "startAt": "2026-04-12T09:00:00.000Z",
+  "endAt": "2026-04-12T11:00:00.000Z",
+  "durationMinutes": 60,
+  "maxViolations": 3,
+  "questions": [
+    {
+      "questionText": "Which blood group is universal donor?",
+      "optionA": "A+",
+      "optionB": "O-",
+      "optionC": "AB+",
+      "optionD": "B+",
+      "correctAnswer": "B",
+      "marks": 1
+    }
+  ]
+}
+```
+
+### GET `/api/student/tests`
+- Returns tests available for logged-in student (class tests + center tests).
+
+### GET `/api/student/tests/:testId`
+- Returns test metadata, sanitized questions, current attempt, current question.
+
+### POST `/api/student/tests/:testId/start`
+- Starts or resumes attempt.
+
+### POST `/api/student/tests/:testId/answer`
+- One-way progression only (cannot answer previous question again).
+- Body:
+```json
+{
+  "questionId": "q_1",
+  "selectedAnswer": "O-"
+}
+```
+
+### POST `/api/student/tests/:testId/finish`
+- Manual or auto submit.
+- Body:
+```json
+{
+  "reason": "manual"
+}
+```
+
+### GET `/api/student/tests/:testId/ranking`
+- Returns ranking with positions and current student's rank.
+
+### GET `/api/student/tests/:testId/ranking/pdf`
+- Downloads ranking as PDF.

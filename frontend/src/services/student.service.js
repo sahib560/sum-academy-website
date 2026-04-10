@@ -43,6 +43,36 @@ export const getStudentCertificates = () =>
 export const getStudentQuizzes = () =>
   api.get("/student/quizzes").then((r) => r.data.data);
 
+export const getStudentTests = () =>
+  api.get("/student/tests").then((r) => r.data.data || []);
+
+export const getStudentTestById = (testId) =>
+  api.get(`/student/tests/${testId}`).then((r) => r.data.data || {});
+
+export const startStudentTest = (testId) =>
+  api.post(`/student/tests/${testId}/start`).then((r) => r.data.data || {});
+
+export const submitStudentTestAnswer = (testId, payload) =>
+  api.post(`/student/tests/${testId}/answer`, payload).then((r) => r.data.data || {});
+
+export const finishStudentTest = (testId, payload = {}) =>
+  api.post(`/student/tests/${testId}/finish`, payload).then((r) => r.data.data || {});
+
+export const getStudentTestRanking = (testId) =>
+  api.get(`/student/tests/${testId}/ranking`).then((r) => r.data.data || {});
+
+export const downloadStudentTestRankingPdf = async (testId) => {
+  const response = await api.get(`/student/tests/${testId}/ranking/pdf`, {
+    responseType: "blob",
+  });
+  const disposition = String(response.headers?.["content-disposition"] || "");
+  const match = disposition.match(/filename="?([^"]+)"?/i);
+  return {
+    blob: response.data,
+    filename: match?.[1] || `test-ranking-${testId}.pdf`,
+  };
+};
+
 export const getQuizById = (quizId) =>
   api.get(`/student/quizzes/${quizId}`).then((r) => r.data.data);
 

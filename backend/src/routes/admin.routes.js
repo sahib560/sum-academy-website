@@ -27,6 +27,12 @@ import {
   updateFinalQuizRequestStatus,
   updateCourseRewatchAccess,
 } from "../controllers/teacher.controller.js";
+import {
+  createTest,
+  getManagedTests,
+  getManagedTestById,
+  getManagedTestRanking,
+} from "../controllers/tests.controller.js";
 
 const router = Router();
 const upload = multer({
@@ -115,6 +121,10 @@ router.post("/quizzes", adminOnly, createTeacherQuiz);
 router.post("/quizzes/bulk-upload", adminOnly, upload.single("file"), bulkUploadTeacherQuiz);
 router.patch("/quizzes/:quizId/assign", adminOnly, assignQuizToStudents);
 router.get("/quizzes/:quizId/submissions", adminOnly, getQuizSubmissions);
+router.get("/tests", adminOnly, getManagedTests);
+router.post("/tests", adminOnly, createTest);
+router.get("/tests/:testId", adminOnly, getManagedTestById);
+router.get("/tests/:testId/ranking", adminOnly, getManagedTestRanking);
 router.get("/final-quiz-requests", adminOnly, getFinalQuizRequests);
 router.patch(
   "/final-quiz-requests/:requestId",

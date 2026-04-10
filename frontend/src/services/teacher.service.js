@@ -149,6 +149,18 @@ export const revokeTeacherOtherSessions = () =>
 export const getTeacherQuizzes = () =>
   api.get("/teacher/quizzes").then((r) => r.data.data);
 
+export const getTeacherTests = () =>
+  api.get("/teacher/tests").then((r) => r.data.data || []);
+
+export const createTeacherTest = (data) =>
+  api.post("/teacher/tests", data).then((r) => r.data);
+
+export const getTeacherTestById = (testId) =>
+  api.get(`/teacher/tests/${testId}`).then((r) => r.data.data || {});
+
+export const getTeacherTestRanking = (testId) =>
+  api.get(`/teacher/tests/${testId}/ranking`).then((r) => r.data.data || {});
+
 export const getTeacherQuizById = (quizId) =>
   api.get(`/teacher/quizzes/${quizId}`).then((r) => r.data.data);
 

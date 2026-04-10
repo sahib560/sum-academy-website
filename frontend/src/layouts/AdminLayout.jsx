@@ -62,6 +62,7 @@ const navSections = [
       { label: "Videos", to: "/admin/videos", icon: "film" },
       { label: "Subject Content", to: "/admin/course-content", icon: "book" },
       { label: "Quizzes", to: "/admin/quizzes", icon: "clipboard" },
+      { label: "Tests", to: "/admin/tests", icon: "clipboard" },
       { label: "Certificates", to: "/admin/certificates", icon: "award" },
       { label: "Announcements", to: "/admin/announcements", icon: "bell" },
       { label: "Support Inbox", to: "/admin/support", icon: "support" },

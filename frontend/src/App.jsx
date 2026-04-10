@@ -40,6 +40,7 @@ import TeacherQuizzes from "./pages/teacher/Quizzes.jsx";
 import TeacherMyQuizzes from "./pages/teacher/MyQuizzes.jsx";
 import TeacherQuizDetailAssignmentGrading from "./pages/teacher/QuizDetailAssignmentGrading.jsx";
 import TeacherTimetable from "./pages/teacher/Timetable.jsx";
+import TeacherTests from "./pages/teacher/Tests.jsx";
 import StudentLayout from "./layouts/StudentLayout.jsx";
 import StudentDashboard from "./pages/student/Dashboard.jsx";
 import StudentMyCourses from "./pages/student/MyCourses.jsx";
@@ -49,6 +50,8 @@ import StudentCoursePlayer from "./pages/student/CoursePlayer.jsx";
 import StudentCertificates from "./pages/student/Certificates.jsx";
 import StudentQuizzes from "./pages/student/Quizzes.jsx";
 import StudentQuizAttempt from "./pages/student/QuizAttempt.jsx";
+import StudentTests from "./pages/student/Tests.jsx";
+import StudentTestAttempt from "./pages/student/TestAttempt.jsx";
 import StudentPayments from "./pages/student/Payments.jsx";
 import StudentAnnouncements from "./pages/student/Announcements.jsx";
 import StudentHelpSupport from "./pages/student/HelpSupport.jsx";
@@ -58,6 +61,7 @@ import Analytics from "./pages/admin/Analytics.jsx";
 import AdminTeachers from "./pages/admin/Teachers.jsx";
 import Students from "./pages/admin/Students.jsx";
 import Classes from "./pages/admin/Classes.jsx";
+import AdminTests from "./pages/admin/Tests.jsx";
 import { useAuth } from "./hooks/useAuth.js";
 import { useSettings } from "./hooks/useSettings.js";
 import Unauthorized from "./pages/Unauthorized.jsx";
@@ -309,6 +313,14 @@ function AppLayout({ showComingSoon }) {
           }
         />
         <Route
+          path="/student/tests/:testId/attempt"
+          element={
+            <ProtectedRoute allowedRoles={["student"]}>
+              <StudentTestAttempt />
+            </ProtectedRoute>
+          }
+        />
+        <Route
           path="/admin"
           element={
             <ProtectedRoute allowedRoles={["admin"]}>
@@ -326,6 +338,7 @@ function AppLayout({ showComingSoon }) {
           <Route path="classes" element={<Classes />} />
           <Route path="videos" element={<AdminVideos />} />
           <Route path="quizzes" element={<TeacherQuizzes />} />
+          <Route path="tests" element={<AdminTests />} />
           <Route path="quizzes/my" element={<TeacherMyQuizzes />} />
           <Route
             path="quizzes/detail"
@@ -360,6 +373,7 @@ function AppLayout({ showComingSoon }) {
           <Route path="sessions" element={<TeacherSessions />} />
           <Route path="timetable" element={<TeacherTimetable />} />
           <Route path="quizzes" element={<TeacherQuizzes />} />
+          <Route path="tests" element={<TeacherTests />} />
           <Route path="quizzes/my" element={<TeacherMyQuizzes />} />
           <Route
             path="quizzes/detail"
@@ -394,6 +408,7 @@ function AppLayout({ showComingSoon }) {
           <Route path="checkout" element={<StudentCheckout />} />
           <Route path="certificates" element={<StudentCertificates />} />
           <Route path="quizzes" element={<StudentQuizzes />} />
+          <Route path="tests" element={<StudentTests />} />
           <Route path="payments" element={<StudentPayments />} />
           <Route path="announcements" element={<StudentAnnouncements />} />
           <Route path="notifications" element={<NotificationsPage />} />
