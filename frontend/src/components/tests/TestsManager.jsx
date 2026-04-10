@@ -12,6 +12,11 @@ const defaultQuestion = () => ({
   marks: 1,
 });
 
+const normalizeCorrectAnswer = (value) => {
+  const clean = String(value || "").trim().toUpperCase();
+  return ["A", "B", "C", "D"].includes(clean) ? clean : "";
+};
+
 const toInputDateTime = (value) => {
   if (!value) return "";
   const parsed = new Date(value);
@@ -99,7 +104,8 @@ export default function TestsManager({
         q.optionA.trim() &&
         q.optionB.trim() &&
         q.optionC.trim() &&
-        q.optionD.trim()
+        q.optionD.trim() &&
+        normalizeCorrectAnswer(q.correctAnswer)
     );
   }, [form, isCenter]);
 
@@ -121,6 +127,7 @@ export default function TestsManager({
         optionC: q.optionC,
         optionD: q.optionD,
         correctAnswer: q.correctAnswer,
+        expectedAnswer: "",
         marks: Number(q.marks || 1),
       })),
     };
@@ -270,12 +277,12 @@ export default function TestsManager({
                 ))}
                 <select
                   className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                  value={question.correctAnswer}
+                  value={normalizeCorrectAnswer(question.correctAnswer) || "A"}
                   onChange={(e) =>
                     setForm((p) => ({
                       ...p,
                       questions: p.questions.map((q, i) =>
-                        i === idx ? { ...q, correctAnswer: e.target.value } : q
+                        i === idx ? { ...q, correctAnswer: normalizeCorrectAnswer(e.target.value) } : q
                       ),
                     }))
                   }

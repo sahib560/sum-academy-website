@@ -111,6 +111,28 @@ api.interceptors.response.use(
   async (error) => {
     const status = error?.response?.status;
     const url = error?.config?.url || "";
+    if (status === 429) {
+      const retryAfter = Number(error?.response?.data?.retryAfter || 60);
+      const message =
+        error?.response?.data?.message || "Too many requests";
+
+      console.warn(`[Rate Limit] ${message} Retry in ${retryAfter}s`);
+
+      if (
+        String(error?.config?.method || "").toLowerCase() === "get" &&
+        retryAfter <= 60
+      ) {
+        await new Promise((resolve) =>
+          setTimeout(resolve, retryAfter * 1000)
+        );
+        return api.request(error.config);
+      }
+
+      return Promise.reject(
+        new Error(`${message} Please wait ${retryAfter} seconds.`)
+      );
+    }
+
     const errorCode =
       error?.response?.data?.errors?.code || error?.response?.data?.code;
     const isAuthBootstrap =

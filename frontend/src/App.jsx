@@ -46,6 +46,7 @@ import StudentDashboard from "./pages/student/Dashboard.jsx";
 import StudentMyCourses from "./pages/student/MyCourses.jsx";
 import StudentExploreCourses from "./pages/student/ExploreCourses.jsx";
 import StudentLivePage from "./pages/student/Live.jsx";
+import LiveSession from "./pages/student/LiveSession.jsx";
 import StudentCoursePlayer from "./pages/student/CoursePlayer.jsx";
 import StudentCertificates from "./pages/student/Certificates.jsx";
 import StudentQuizzes from "./pages/student/Quizzes.jsx";
@@ -317,6 +318,14 @@ function AppLayout({ showComingSoon }) {
           element={
             <ProtectedRoute allowedRoles={["student"]}>
               <StudentTestAttempt />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/student/live/:sessionId"
+          element={
+            <ProtectedRoute allowedRoles={["student"]}>
+              <LiveSession />
             </ProtectedRoute>
           }
         />

@@ -423,8 +423,25 @@ function TeacherSessions() {
       setScheduleForm(emptyScheduleForm);
       invalidateSessions();
     },
-    onError: (error) =>
-      toast.error(getErrorMessage(error, "Failed to schedule session")),
+    onError: (error) => {
+      const code =
+        error?.response?.data?.errors?.code || error?.response?.data?.code;
+      if (code === "SESSION_CONFLICT") {
+        const conflict = error?.response?.data?.errors?.conflictingSession || {};
+        toast.error(
+          `Time conflict with "${conflict.topic || "session"}" (${conflict.startTime || "-"} - ${conflict.endTime || "-"})`,
+          { duration: 6000 }
+        );
+        return;
+      }
+      if (code === "TEACHER_CONFLICT") {
+        toast.error("You have another session scheduled at this time", {
+          duration: 6000,
+        });
+        return;
+      }
+      toast.error(getErrorMessage(error, "Failed to schedule session"));
+    },
   });
 
   const updateMutation = useMutation({

@@ -5,6 +5,10 @@ import {
   getStudentCourses,
   getStudentLiveSessions,
   joinStudentLiveSession,
+  getStudentSessionById,
+  joinStudentSession,
+  getSessionSync,
+  logSessionViolation,
   getStudentCourseProgress,
   getFinalQuizRequestStatus,
   markLectureComplete,
@@ -46,6 +50,10 @@ router.get("/tests/:testId/ranking", getStudentTestRanking);
 router.get("/tests/:testId/ranking/pdf", downloadStudentTestRankingPdf);
 router.get("/live-sessions", getStudentLiveSessions);
 router.post("/live-sessions/:sessionId/join", joinStudentLiveSession);
+router.get("/sessions/:sessionId", getStudentSessionById);
+router.post("/sessions/:sessionId/join", joinStudentSession);
+router.get("/sessions/:sessionId/sync", getSessionSync);
+router.post("/sessions/:sessionId/violation", logSessionViolation);
 router.get("/courses/:courseId/progress", getStudentCourseProgress);
 router.get("/courses/:courseId/final-quiz-request", getFinalQuizRequestStatus);
 router.post("/courses/:courseId/final-quiz-request", requestFinalQuizForCourse);

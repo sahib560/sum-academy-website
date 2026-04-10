@@ -62,12 +62,38 @@ const normalizeCorrectAnswer = (rawCorrect = "", options = []) => {
   const upper = answer.toUpperCase();
   const byLetter = { A: 0, B: 1, C: 2, D: 3, E: 4, F: 5 };
   if (byLetter[upper] !== undefined && options[byLetter[upper]]) {
-    return options[byLetter[upper]];
+    return upper;
   }
   const byIndex = Number(answer);
-  if (Number.isFinite(byIndex) && options[byIndex]) return options[byIndex];
-  const matched = options.find((option) => lowerText(option) === lowerText(answer));
-  return matched || "";
+  if (Number.isFinite(byIndex) && options[byIndex]) {
+    return Object.keys(byLetter)[byIndex] || "";
+  }
+  const matchedIndex = options.findIndex(
+    (option) => lowerText(option) === lowerText(answer)
+  );
+  if (matchedIndex >= 0) {
+    return Object.keys(byLetter)[matchedIndex] || "";
+  }
+  return "";
+};
+
+const toAnswerLetter = (rawAnswer = "", options = []) => {
+  const clean = trimText(rawAnswer);
+  if (!clean) return "";
+  const upper = clean.toUpperCase();
+  const byLetter = { A: 0, B: 1, C: 2, D: 3, E: 4, F: 5 };
+  if (byLetter[upper] !== undefined) return upper;
+  const byIndex = Number(clean);
+  if (Number.isFinite(byIndex) && byIndex >= 0 && byIndex < options.length) {
+    return Object.keys(byLetter)[byIndex] || "";
+  }
+  const matchedIndex = options.findIndex(
+    (option) => lowerText(option) === lowerText(clean)
+  );
+  if (matchedIndex >= 0) {
+    return Object.keys(byLetter)[matchedIndex] || "";
+  }
+  return "";
 };
 
 const normalizeQuestions = (questions = []) => {
@@ -121,15 +147,20 @@ const computeScore = (questions = [], answers = []) => {
     const questionId = trimText(answer.questionId);
     const question = byQuestion[questionId];
     const selectedAnswer = trimText(answer.selectedAnswer);
+    const selectedLetter = toAnswerLetter(selectedAnswer, question?.options || []);
+    const correctLetter = toAnswerLetter(question?.correctAnswer, question?.options || []);
     const marks = Math.max(1, toNumber(question?.marks, 1));
-    const isCorrect =
-      question && lowerText(selectedAnswer) === lowerText(question.correctAnswer);
+    const isCorrect = question && selectedLetter && correctLetter
+      ? selectedLetter === correctLetter
+      : question && lowerText(selectedAnswer) === lowerText(question.correctAnswer);
     const marksObtained = isCorrect ? marks : 0;
     score += marksObtained;
     return {
       questionId,
       selectedAnswer,
+      selectedLetter,
       correctAnswer: trimText(question?.correctAnswer),
+      correctLetter,
       marks,
       marksObtained,
       isCorrect,

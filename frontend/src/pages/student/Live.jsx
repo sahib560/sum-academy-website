@@ -198,7 +198,7 @@ function StudentLivePage() {
             <p className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-500">Student Live</p>
             <h2 className="mt-2 font-heading text-3xl text-slate-900">Live Sessions</h2>
             <p className="mt-2 text-sm text-slate-500">
-              Join window opens 10 minutes before shift time. After shift start, late join is blocked.
+              Join window opens 10 minutes before shift time and remains open until session end.
             </p>
           </div>
           <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
@@ -372,8 +372,8 @@ function StudentLivePage() {
             <p className="mt-1">Only 10 minutes before shift start until exact start time.</p>
           </div>
           <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
-            <p className="font-semibold">Late join blocked</p>
-            <p className="mt-1">If shift starts at 03:00, joining at 03:01 is not allowed.</p>
+            <p className="font-semibold">Late join support</p>
+            <p className="mt-1">Late join is allowed while the live session is still running.</p>
           </div>
           <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
             <p className="font-semibold">Playback lock</p>

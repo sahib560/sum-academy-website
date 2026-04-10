@@ -12,6 +12,18 @@ export const getStudentLiveSessions = () =>
 export const joinStudentLiveSession = (sessionId) =>
   api.post(`/student/live-sessions/${sessionId}/join`).then((r) => r.data.data);
 
+export const getStudentSessionById = (sessionId) =>
+  api.get(`/student/sessions/${sessionId}`).then((r) => r.data.data || {});
+
+export const joinStudentSession = (sessionId) =>
+  api.post(`/student/sessions/${sessionId}/join`).then((r) => r.data.data || {});
+
+export const getStudentSessionSync = (sessionId) =>
+  api.get(`/student/sessions/${sessionId}/sync`).then((r) => r.data.data || {});
+
+export const logStudentSessionViolation = (sessionId, payload) =>
+  api.post(`/student/sessions/${sessionId}/violation`, payload).then((r) => r.data.data || {});
+
 export const getCourseProgress = (courseId) =>
   api.get(`/student/courses/${courseId}/progress`).then((r) => r.data.data);
 

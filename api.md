@@ -7451,3 +7451,133 @@ Relevant APIs:
 
 ### GET `/api/student/tests/:testId/ranking/pdf`
 - Downloads ranking as PDF.
+
+## Live Session APIs (Updated)
+
+### GET `/api/student/sessions/:sessionId`
+- Auth: Bearer token (`student`)
+- Access: student must be enrolled in the target class.
+- Returns session details + join window.
+- Sample success:
+```json
+{
+  "success": true,
+  "data": {
+    "id": "session_doc_id",
+    "topic": "Biology Live - Cell Division",
+    "classId": "TR5HYHIIuuZ6Xlouoa5k",
+    "className": "Class XI Pre Medical",
+    "teacherId": "teacher_uid",
+    "teacherName": "Ahsan Ali",
+    "date": "2026-04-10",
+    "startTime": "13:00",
+    "endTime": "15:00",
+    "platform": "Zoom",
+    "meetingLink": "https://...",
+    "status": "upcoming",
+    "canJoin": true,
+    "joinWindow": {
+      "opensAt": "2026-04-10T12:50:00.000Z",
+      "closesAt": "2026-04-10T13:00:00.000Z"
+    },
+    "timing": {
+      "startAt": "2026-04-10T13:00:00.000Z",
+      "endAt": "2026-04-10T15:00:00.000Z"
+    }
+  },
+  "message": "Session fetched"
+}
+```
+
+### POST `/api/student/sessions/:sessionId/join`
+- Auth: Bearer token (`student`)
+- Rules:
+  - join allowed only from `startTime - 10 minutes` until session end.
+  - cancelled/completed/ended sessions cannot be joined.
+- Sample success:
+```json
+{
+  "success": true,
+  "data": {
+    "sessionId": "session_doc_id",
+    "waiting": false,
+    "canPlay": true,
+    "status": "active",
+    "startAt": "2026-04-10T13:00:00.000Z",
+    "endAt": "2026-04-10T15:00:00.000Z"
+  },
+  "message": "Joined live session"
+}
+```
+
+### GET `/api/student/sessions/:sessionId/sync`
+- Auth: Bearer token (`student`)
+- Purpose: late-join sync (session does not restart for late student).
+- Sample success:
+```json
+{
+  "success": true,
+  "data": {
+    "sessionId": "session_doc_id",
+    "startedAt": "2026-04-10T13:00:00.000Z",
+    "elapsedSeconds": 735,
+    "remainingSeconds": 5265,
+    "totalSeconds": 6000,
+    "isRunning": true,
+    "status": "active",
+    "meetingLink": "https://...",
+    "topic": "Biology Live - Cell Division",
+    "endTime": "15:00"
+  },
+  "message": "Session sync data"
+}
+```
+
+### POST `/api/student/sessions/:sessionId/violation`
+- Auth: Bearer token (`student`)
+- Body:
+```json
+{
+  "reason": "tab_switch",
+  "count": 2,
+  "timestamp": "2026-04-10T12:58:01.000Z"
+}
+```
+- Behavior:
+  - logs session violation.
+  - after 3 total session violations, student account is deactivated and deactivation email is sent.
+
+## Session Creation Conflict Rules
+- `POST /api/teacher/sessions`
+- New checks:
+  - class conflict: no overlapping sessions for same class/date.
+  - teacher conflict: no overlapping sessions for same teacher/date across classes.
+- Conflict error codes:
+  - `SESSION_CONFLICT`
+  - `TEACHER_CONFLICT`
+
+## APK Download Endpoint
+
+### GET `/download/app`
+- Public route (outside `/api`)
+- Downloads file from backend path: `backend/Sum Academy LMS.apk`
+- Error when missing:
+```json
+{
+  "success": false,
+  "message": "APK file not found"
+}
+```
+
+## Rate Limiting (Production)
+- Auth (`/api/auth/login`, `/api/auth/register`, `/api/auth/forgot-password`): `15 requests / 15 mins` (IP key)
+- Payments (`/api/payments*`): `10 requests / 15 mins` (user/IP key)
+- Uploads (`/api/upload`): `10 requests / 1 min` (user/IP key)
+- Admin dashboard (`/api/admin`): `300 requests / 1 min` (user/IP key)
+- Teacher dashboard (`/api/teacher`): `300 requests / 1 min` (user/IP key)
+- Student APIs (`/api/student`): `200 requests / 1 min` (user/IP key)
+- General fallback (`/api`): `1000 requests / 15 mins` (user/IP key)
+
+Cache policy:
+- successful `GET` responses are cached briefly with route-based TTL.
+- write requests (`POST/PUT/PATCH/DELETE`) invalidate related cache keys.

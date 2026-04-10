@@ -4111,6 +4111,15 @@ const calculateSessionDurationMinutes = (startTime, endTime) => {
   return endMinutes - startMinutes;
 };
 
+const isSessionTimeOverlapping = (startA, endA, startB, endB) => {
+  const aStart = getMinutesFromSessionTime(startA);
+  const aEnd = getMinutesFromSessionTime(endA);
+  const bStart = getMinutesFromSessionTime(startB);
+  const bEnd = getMinutesFromSessionTime(endB);
+  if (![aStart, aEnd, bStart, bEnd].every(Number.isFinite)) return false;
+  return aStart < bEnd && aEnd > bStart;
+};
+
 const combineSessionDateTime = (dateValue, timeValue = "00:00") => {
   const date = parseSessionDateOnly(dateValue);
   const time = normalizeSessionTime(timeValue);
@@ -4644,6 +4653,68 @@ export const createSession = async (req, res) => {
       return errorResponse(res, "You are not assigned to this class", 403);
     }
 
+    // Class-level conflicts: same class, same date, overlapping time
+    const existingClassSessionsSnap = await db
+      .collection(COLLECTIONS.SESSIONS)
+      .where("classId", "==", classId)
+      .where("date", "==", date)
+      .where("status", "not-in", ["cancelled", "completed"])
+      .get();
+
+    for (const doc of existingClassSessionsSnap.docs) {
+      const existing = doc.data() || {};
+      if (
+        isSessionTimeOverlapping(
+          startTime,
+          endTime,
+          normalizeSessionTime(existing.startTime),
+          normalizeSessionTime(existing.endTime)
+        )
+      ) {
+        return errorResponse(
+          res,
+          `Schedule conflict! Another session "${trimText(existing.topic) || "Session"}" is scheduled from ${normalizeSessionTime(existing.startTime)} to ${normalizeSessionTime(existing.endTime)} for this class on ${date}.`,
+          409,
+          {
+            code: "SESSION_CONFLICT",
+            conflictingSession: {
+              id: doc.id,
+              topic: trimText(existing.topic) || "Session",
+              startTime: normalizeSessionTime(existing.startTime),
+              endTime: normalizeSessionTime(existing.endTime),
+            },
+          }
+        );
+      }
+    }
+
+    // Teacher-level conflicts: same teacher, same date, overlapping time
+    const teacherConflictSnap = await db
+      .collection(COLLECTIONS.SESSIONS)
+      .where("teacherId", "==", uid)
+      .where("date", "==", date)
+      .where("status", "not-in", ["cancelled", "completed"])
+      .get();
+
+    for (const doc of teacherConflictSnap.docs) {
+      const existing = doc.data() || {};
+      if (
+        isSessionTimeOverlapping(
+          startTime,
+          endTime,
+          normalizeSessionTime(existing.startTime),
+          normalizeSessionTime(existing.endTime)
+        )
+      ) {
+        return errorResponse(
+          res,
+          `You already have a session "${trimText(existing.topic) || "Session"}" at this time for class "${trimText(existing.className) || "Class"}".`,
+          409,
+          { code: "TEACHER_CONFLICT" }
+        );
+      }
+    }
+
     let courseName = "";
     let courseData = {};
     if (courseId) {
@@ -4675,6 +4746,7 @@ export const createSession = async (req, res) => {
       platform,
       meetingLink,
       status: "upcoming",
+      sessionStartedAt: null,
       notifyStudents,
       attendanceCount: 0,
       studentsCount,

@@ -95,27 +95,19 @@ function Navbar() {
   const siteName = settings.general.siteName || "SUM Academy";
   const apkUrl = String(settings?.general?.apkUrl || "").trim();
   const apkFileName = String(settings?.general?.apkFileName || "SUM-Academy.apk");
+  const apiBase = String(import.meta.env.VITE_API_URL || "").replace(/\/api\/?$/, "");
+  const fallbackApkUrl = apiBase ? `${apiBase}/download/app` : "/download/app";
+  const resolvedApkUrl = apkUrl || fallbackApkUrl;
   const navbarLabels = {
     navbarLmsLabel: "LMS Login",
     navbarSignInLabel: "Sign In",
     navbarGetStartedLabel: "Get Started",
   };
 
-  const handleAppDownloadClick = () => {
-    if (!apkUrl) {
-      toast.success("Something is coming soon");
-      return;
-    }
-
-    const link = document.createElement("a");
-    link.href = apkUrl;
-    link.target = "_blank";
-    link.rel = "noopener noreferrer";
-    link.setAttribute("download", apkFileName);
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    toast.success("Downloading app...");
+  const handleAppDownloadFallback = (event) => {
+    if (resolvedApkUrl) return;
+    event.preventDefault();
+    toast.success("Something is coming soon");
   };
 
   return (
@@ -155,14 +147,15 @@ function Navbar() {
         </div>
 
         <div className="hidden items-center gap-3 lg:flex">
-          <button
-            type="button"
-            onClick={handleAppDownloadClick}
+          <a
+            href={resolvedApkUrl}
+            download={apkFileName}
+            onClick={handleAppDownloadFallback}
             className="inline-flex items-center gap-2 rounded-full border border-slate-200/80 bg-white/70 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-700 transition hover:-translate-y-0.5 hover:border-primary hover:text-primary dark:border-white/10 dark:bg-white/5 dark:text-white"
           >
             <FaDownload className="h-4 w-4" />
             Download App
-          </button>
+          </a>
           <Link to="/lms-login" className="btn-lms">
             {navbarLabels.navbarLmsLabel || "LMS Login"}
           </Link>
@@ -239,14 +232,15 @@ function Navbar() {
             ))}
           </div>
           <div className="mt-6 flex flex-col gap-3">
-            <button
-              type="button"
-              onClick={handleAppDownloadClick}
+            <a
+              href={resolvedApkUrl}
+              download={apkFileName}
+              onClick={handleAppDownloadFallback}
               className="inline-flex items-center justify-center gap-2 rounded-full border border-slate-200/80 bg-white/70 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-700 transition hover:-translate-y-0.5 hover:text-primary dark:border-white/10 dark:bg-white/10 dark:text-white"
             >
               <FaDownload className="h-4 w-4" />
               Download App
-            </button>
+            </a>
             <Link to="/lms-login" className="btn-lms" onClick={closeMenu}>
               {navbarLabels.navbarLmsLabel || "LMS Login"}
             </Link>
