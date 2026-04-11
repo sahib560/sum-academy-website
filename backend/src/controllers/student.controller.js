@@ -2522,7 +2522,8 @@ const buildStudentLiveSessions = async (uid) => {
       }
 
       const joinOpenAt = new Date(startAt.getTime() - 10 * 60 * 1000);
-      const joinCloseAt = startAt;
+      // Allow joining up to 10 minutes after the start time.
+      const joinCloseAt = new Date(startAt.getTime() + 10 * 60 * 1000);
       const sessionId = buildLiveSessionId({
         classId,
         shiftId,
@@ -2562,9 +2563,14 @@ const buildStudentLiveSessions = async (uid) => {
           canPlay = true;
         } else {
           status = "live";
-          // Join is intentionally closed after start time. Student must be in waiting room before start.
-          canJoin = false;
-          lockReason = "Join window has closed. You can no longer join after the session start time.";
+          // Join allowed only until joinCloseAt (10 min after start).
+          if (nowMs < joinCloseMs) {
+            canJoin = true;
+            lockReason = "Session is live now. Join to continue.";
+          } else {
+            canJoin = false;
+            lockReason = "Join window has closed. You can no longer join after 10 minutes from the session start time.";
+          }
         }
       } else {
         status = "ended";
@@ -2785,7 +2791,7 @@ export const joinStudentLiveSession = async (req, res) => {
       if (joinCloseMs && nowMs >= joinCloseMs) {
         return errorResponse(
           res,
-          "Join window has closed. You can no longer join after the session start time.",
+          "Join window has closed. You can no longer join after 10 minutes from the session start time.",
           403,
           { code: "JOIN_CLOSED" }
         );
@@ -2992,7 +2998,7 @@ export const joinStudentSession = async (req, res) => {
       if (joinCloseMs && nowMs >= joinCloseMs) {
         return errorResponse(
           res,
-          "Join window has closed. You can no longer join after the session start time.",
+          "Join window has closed. You can no longer join after 10 minutes from the session start time.",
           403,
           { code: "JOIN_CLOSED" }
         );

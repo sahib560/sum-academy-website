@@ -7657,6 +7657,10 @@ Cache policy:
 - Join a session: `POST /api/student/live-sessions/:sessionId/join`
 - The `/api/student/sessions/:sessionId/*` endpoints are **the same system** (they also read/write `liveSessionAccess`).
 
+Join window rule:
+- Opens: 10 minutes before `startAt`
+- Closes: 10 minutes after `startAt`
+
 #### GET `/api/student/sessions/:sessionId/status`
 - Auth: `Bearer`
 - Role: `student`
@@ -7726,7 +7730,7 @@ Error (`JOIN_CLOSED`):
 ```json
 {
   "success": false,
-  "message": "Join window has closed. You can no longer join after the session start time.",
+  "message": "Join window has closed. You can no longer join after 10 minutes from the session start time.",
   "errors": {
     "code": "JOIN_CLOSED"
   }

@@ -534,6 +534,20 @@ const parseLectureDurationToSeconds = (value) => {
   return 0;
 };
 
+const parseDate = (value) => {
+  if (!value) return null;
+  try {
+    if (typeof value?.toDate === "function") {
+      const parsed = value.toDate();
+      return parsed && !Number.isNaN(parsed.getTime()) ? parsed : null;
+    }
+  } catch {
+    // ignore
+  }
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
 const ACTIVE_ENROLLMENT_STATUSES = new Set([
   "active",
   "upcoming",
