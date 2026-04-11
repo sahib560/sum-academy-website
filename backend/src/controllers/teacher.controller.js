@@ -1688,12 +1688,23 @@ const resolveLectureVideoMeta = async ({
     }
   }
 
+  const durationSecFromLibrary = Math.max(
+    0,
+    toPositiveNumber(
+      selectedVideoRow?.durationSec ??
+        selectedVideoRow?.videoDurationSec ??
+        selectedVideoRow?.totalDurationSec,
+      0
+    )
+  );
+
   return {
     videoId: cleanVideoId || null,
     videoTitle: sourceTitle || null,
     videoUrl: sourceUrl,
     videoMode,
     isLiveSession,
+    durationSec: durationSecFromLibrary,
     isFirstLiveSession: Boolean(!hasExistingVideo && isLiveSession),
   };
 };
@@ -2494,7 +2505,8 @@ export const saveLectureContent = async (req, res) => {
       updates.durationSec = Math.max(
         parseLectureDurationToSeconds(durationSec ?? duration),
         parseLectureDurationToSeconds(currentData.durationSec ?? currentData.videoDurationSec),
-        parseLectureDurationToSeconds(currentData.videoDuration)
+        parseLectureDurationToSeconds(currentData.videoDuration),
+        Math.max(0, toPositiveNumber(resolvedVideo.durationSec, 0))
       );
       // Single source of truth: durationSec. Remove legacy string duration field if present.
       updates.videoDuration = admin.firestore.FieldValue.delete();

@@ -2585,10 +2585,12 @@ const buildStudentLiveSessions = async (uid) => {
     if (!classId) return;
     const classStatus = getClassStatus(classData);
     const shifts = Array.isArray(classData.shifts) ? classData.shifts : [];
+    const coveredSubjects = new Set();
     shifts.forEach((shift) => {
       const shiftId = trimText(shift?.id);
       const subjectId = trimText(shift?.subjectId || shift?.courseId);
       if (!subjectId || !paidByClassSubject.has(`${classId}::${subjectId}`)) return;
+      coveredSubjects.add(subjectId);
 
       const lecture = lectureMap[subjectId];
       if (!lecture) return;
@@ -2825,6 +2827,138 @@ const buildStudentLiveSessions = async (uid) => {
         }
       }
     });
+
+    // Fallback: if shifts are missing or not linked to a purchased subject, still surface
+    // scheduled live lectures that have explicit `liveStartAt` so students can join from Live page.
+    // This prevents "nothing showing" when class shift metadata is incomplete.
+    enrollments
+      .filter((row) => trimText(row.classId) === classId)
+      .filter((row) => ACTIVE_ENROLLMENT_STATUSES.has(lowerText(row.status || "active")))
+      .forEach((row) => {
+        const subjectId = trimText(row.subjectId || row.courseId);
+        if (!subjectId) return;
+        if (coveredSubjects.has(subjectId)) return;
+        if (!paidByClassSubject.has(`${classId}::${subjectId}`)) return;
+
+        const lecture = lectureMap[subjectId];
+        if (!lecture) return;
+
+        const scheduledStart = parseDate(lecture.liveStartAt);
+        if (!scheduledStart) return; // fallback mode only for explicit schedules
+
+        const scheduledEnd = parseDate(lecture.liveEndAt);
+        const durationSeconds = resolveLiveVideoDurationSeconds(lecture, {});
+        const startAt = scheduledStart;
+        const endAt =
+          scheduledEnd ||
+          new Date(scheduledStart.getTime() + Math.max(60, durationSeconds) * 1000);
+        const dateKey = formatSessionDate(startAt);
+
+        const joinOpenAt = new Date(startAt.getTime() - 10 * 60 * 1000);
+        const joinCloseAt = new Date(startAt.getTime() + 10 * 60 * 1000);
+        const sessionId = buildLiveSessionId({
+          classId,
+          shiftId: "no_shift",
+          subjectId,
+          lectureId: trimText(lecture.id),
+          dateKey,
+        });
+        const accessRow = liveAccessMap[sessionId] || null;
+        const joined = Boolean(accessRow) && accessRow.active !== false;
+
+        const nowMs = now.getTime();
+        const joinOpenMs = joinOpenAt.getTime();
+        const joinCloseMs = joinCloseAt.getTime();
+        const startMs = startAt.getTime();
+        const endMs = endAt.getTime();
+
+        let status = "scheduled";
+        let lockReason = "";
+        let canJoin = false;
+        let canPlay = false;
+        let waiting = false;
+
+        if (classStatus === "expired") {
+          status = "expired";
+          lockReason = "Class has ended.";
+        } else if (nowMs < joinOpenMs) {
+          status = "scheduled";
+          lockReason = "Join opens 10 minutes before the session start time.";
+        } else if (nowMs >= joinOpenMs && nowMs < startMs) {
+          status = joined ? "waiting" : "join_window_open";
+          lockReason = "Waiting for session start time.";
+          canJoin = !joined;
+          waiting = true;
+        } else if (nowMs >= startMs && nowMs < endMs) {
+          if (joined) {
+            status = "live";
+            canPlay = true;
+          } else if (nowMs < joinCloseMs) {
+            status = "live";
+            canJoin = true;
+            lockReason = "Session is live now. Join to continue.";
+          } else {
+            status = "live";
+            lockReason =
+              "Join window has closed. You can no longer join after 10 minutes from the session start time.";
+          }
+        } else {
+          status = "ended";
+          lockReason = "This live session has ended.";
+        }
+
+        sessions.push({
+          id: sessionId,
+          classId,
+          className: trimText(classData.name) || "Class",
+          batchCode: trimText(classData.batchCode),
+          classStatus,
+          shiftId: "no_shift",
+          shiftName: "Scheduled",
+          shiftDays: [],
+          shiftStartTime: "",
+          shiftEndTime: "",
+          subjectId,
+          courseId: subjectId,
+          subjectName: trimText(subjectMap[subjectId]?.title) || "Subject",
+          teacherId: trimText(subjectMap[subjectId]?.teacherId),
+          teacherName: trimText(subjectMap[subjectId]?.teacherName) || "Teacher",
+          lectureId: trimText(lecture.id),
+          lectureTitle: trimText(lecture.title) || "Live Session",
+          videoUrl:
+            trimText(
+              lecture.videoUrl ||
+                lecture.streamUrl ||
+                lecture.playbackUrl ||
+                lecture.signedUrl ||
+                lecture.videoSignedUrl
+            ) || null,
+          videoMode: trimText(lecture.videoMode || "live_session"),
+          isLiveSession: true,
+          sessionDate: dateKey,
+          joinWindow: {
+            opensAt: joinOpenAt.toISOString(),
+            closesAt: joinCloseAt.toISOString(),
+          },
+          timing: {
+            startAt: startAt.toISOString(),
+            endAt: endAt.toISOString(),
+            durationSeconds,
+            shiftDurationSeconds: 0,
+            videoDurationSeconds: Math.max(
+              parseDurationToSeconds(lecture.durationSec),
+              parseDurationToSeconds(lecture.videoDuration)
+            ),
+          },
+          status,
+          waiting,
+          canJoin,
+          canPlay,
+          isJoined: joined,
+          joinedAt: toIso(accessRow?.joinedAt) || null,
+          lockReason,
+        });
+      });
   });
 
   if (lectureFinalizePromises.length > 0) {
