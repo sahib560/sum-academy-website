@@ -2645,10 +2645,10 @@ const buildStudentLiveSessions = async (uid) => {
         lockReason = "Class has ended.";
       } else if (nowMs < joinOpenMs) {
         status = "scheduled";
-        lockReason = "Join opens 10 minutes before class shift start time.";
+        lockReason = "Join opens 10 minutes before the session start time.";
       } else if (nowMs >= joinOpenMs && nowMs < startMs) {
         status = joined ? "waiting" : "join_window_open";
-        lockReason = "Waiting for class shift start time.";
+        lockReason = "Waiting for session start time.";
         canJoin = !joined;
         waiting = true;
       } else if (nowMs >= startMs && nowMs < endMs) {
@@ -2887,18 +2887,18 @@ export const joinStudentLiveSession = async (req, res) => {
     const canResumeJoinedSession =
       Boolean(existingData) && existingData.active !== false && nowMs < endMs;
 
-    if (!canResumeJoinedSession) {
-      if (session.classStatus === "expired") {
-        return errorResponse(res, "Class has ended.", 403, { code: "CLASS_EXPIRED" });
-      }
-      if (nowMs < joinOpenMs) {
-        return errorResponse(
-          res,
-          "You can join only 10 minutes before class shift start time.",
-          403,
-          { code: "JOIN_NOT_OPEN" }
-        );
-      }
+      if (!canResumeJoinedSession) {
+        if (session.classStatus === "expired") {
+          return errorResponse(res, "Class has ended.", 403, { code: "CLASS_EXPIRED" });
+        }
+        if (nowMs < joinOpenMs) {
+          return errorResponse(
+            res,
+            "You can join only 10 minutes before the session start time.",
+            403,
+            { code: "JOIN_NOT_OPEN" }
+          );
+        }
       if (nowMs >= endMs) {
         return errorResponse(res, "This live session has ended.", 403, {
           code: "SESSION_ENDED",
@@ -2944,7 +2944,7 @@ export const joinStudentLiveSession = async (req, res) => {
         endAt: session.timing?.endAt || null,
       },
       nowMs < startMs
-        ? "Joined live waiting room. Playback starts at shift time."
+        ? "Joined live waiting room. Playback starts at the scheduled time."
         : "Joined live session"
     );
   } catch (error) {
@@ -3044,7 +3044,9 @@ export const getSessionStatus = async (req, res) => {
         status: normalizedStatus,
         topic: trimText(session.lectureTitle) || trimText(session.subjectName) || "Live Session",
         teacherName: trimText(session.teacherName) || "Teacher",
-        date: trimText(session.sessionDate) || formatSessionDate(session.sessionDate),
+        // NOTE: `timing.startAt/endAt` is the source of truth for schedule.
+        // The `date/startTime/endTime` fields are kept for legacy clients.
+        date: formatSessionDate(session.timing?.startAt || session.sessionDate),
         startTime: trimText(session.shiftStartTime),
         endTime: trimText(session.shiftEndTime),
         platform: "video",
@@ -3059,6 +3061,8 @@ export const getSessionStatus = async (req, res) => {
         canJoin,
         isLocked,
         recordingUrl: trimText(session.videoUrl || ""),
+        joinWindow: session.joinWindow || null,
+        timing: session.timing || null,
       },
       "Session status fetched"
     );
@@ -3221,7 +3225,9 @@ export const getSessionSync = async (req, res) => {
         status: session.status,
         videoUrl: trimText(session.videoUrl || ""),
         topic: trimText(session.lectureTitle) || "Live Session",
+        // Keep legacy endTime field, but also expose full timing object for clients.
         endTime: trimText(session.shiftEndTime),
+        timing: session.timing || { startAt: startAt.toISOString(), endAt: endAt.toISOString(), durationSeconds: totalSeconds },
       },
       "Session sync data"
     );

@@ -352,8 +352,10 @@ export default function LiveSession() {
               </div>
             </div>
             <h1 className="mt-5 font-heading text-3xl font-semibold">{session.lectureTitle || "Live Session"}</h1>
-            <p className="mt-2 text-sm text-slate-300">{formatLongDate(session.sessionDate, session.shiftStartTime)}</p>
-            <p className="text-sm text-slate-300">{session.shiftStartTime || "--:--"} - {session.shiftEndTime || "--:--"}</p>
+            <p className="mt-2 text-sm text-slate-300">
+              {startAt ? startAt.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" }) : "-"}
+            </p>
+            <p className="text-sm text-slate-200">{formatTimeHHMM(startAt)} - {formatTimeHHMM(endAt)}</p>
           </div>
 
           <div className="rounded-3xl border border-white/10 bg-[#111525] p-6 text-center">
@@ -416,9 +418,7 @@ export default function LiveSession() {
                 <h2 className="mt-2 text-3xl font-bold">{session.lectureTitle || "Live Session"}</h2>
                 <p className="mt-2 text-slate-300">{session.subjectName || "Subject"}</p>
                 <p className="mt-1 text-sm text-slate-300">Teacher: {session.teacherName || "Teacher"}</p>
-                <p className="mt-1 text-sm text-slate-200">
-                  {formatTimeHHMM(startAt)} - {formatTimeHHMM(endAt)}
-                </p>
+                <p className="mt-1 text-sm text-slate-200">{formatTimeHHMM(startAt)} - {formatTimeHHMM(endAt)}</p>
 
                 {!session.canPlay ? (
                   <div className="mt-5 rounded-2xl border border-white/10 bg-[#0d0f1a] p-5 text-left">
@@ -543,8 +543,8 @@ export default function LiveSession() {
               ) : null}
               <div className="mt-5 border-t border-white/10 pt-4 text-xs text-slate-300">
                 <p>Class: {session.className || "-"}</p>
-                <p>Shift: {session.shiftStartTime || "--:--"} - {session.shiftEndTime || "--:--"}</p>
-                <p>Session ends at {session.shiftEndTime || "--:--"}</p>
+                <p>Session time: {formatTimeHHMM(startAt)} - {formatTimeHHMM(endAt)}</p>
+                <p>Session ends at {formatTimeHHMM(endAt)}</p>
               </div>
             </div>
           </div>

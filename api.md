@@ -7670,6 +7670,10 @@ Join window rule:
 - Role: `student`
 - Purpose: Fetch live session state for pre/live/ended UI and counters.
 
+Notes:
+- The source of truth for schedule is `data.timing.startAt` / `data.timing.endAt` (ISO).
+- `date/startTime/endTime` are kept for legacy clients and may reflect class shift fields.
+
 Success:
 ```json
 {
@@ -7694,7 +7698,16 @@ Success:
     "remainingSeconds": 7200,
     "canJoin": false,
     "isLocked": false,
-    "recordingUrl": "https://storage.googleapis.com/.../live-lecture.mp4"
+    "recordingUrl": "https://storage.googleapis.com/.../live-lecture.mp4",
+    "joinWindow": {
+      "opensAt": "2026-04-11T07:50:00.000Z",
+      "closesAt": "2026-04-11T08:10:00.000Z"
+    },
+    "timing": {
+      "startAt": "2026-04-11T08:00:00.000Z",
+      "endAt": "2026-04-11T10:00:00.000Z",
+      "durationSeconds": 7200
+    }
   }
 }
 ```

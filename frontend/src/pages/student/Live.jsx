@@ -36,6 +36,19 @@ const formatDateTime = (value) => {
   });
 };
 
+const formatTimeRange = (startAt, endAt, fallbackStart = "-", fallbackEnd = "-") => {
+  const start = startAt ? new Date(startAt) : null;
+  const end = endAt ? new Date(endAt) : null;
+  const validStart = start && !Number.isNaN(start.getTime());
+  const validEnd = end && !Number.isNaN(end.getTime());
+  if (!validStart || !validEnd) {
+    return `${fallbackStart || "-"} - ${fallbackEnd || "-"}`;
+  }
+  const toHHMM = (d) =>
+    d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false });
+  return `${toHHMM(start)} - ${toHHMM(end)}`;
+};
+
 const toNumber = (value, fallback = 0) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
@@ -113,7 +126,7 @@ function StudentLivePage() {
             <p className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-500">Student Live</p>
             <h2 className="mt-2 font-heading text-3xl text-slate-900">Live Sessions</h2>
             <p className="mt-2 text-sm text-slate-500">
-              Join window opens 10 minutes before shift time and closes at the exact start time.
+              Join window opens 10 minutes before start time and closes 10 minutes after start time.
             </p>
           </div>
           <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
@@ -165,7 +178,14 @@ function StudentLivePage() {
                       </div>
                       <div className="flex items-center gap-2">
                         <FiClock className="h-3.5 w-3.5" />
-                        <span>{session.shiftStartTime || "-"} - {session.shiftEndTime || "-"}</span>
+                        <span>
+                          {formatTimeRange(
+                            session.timing?.startAt,
+                            session.timing?.endAt,
+                            session.shiftStartTime,
+                            session.shiftEndTime
+                          )}
+                        </span>
                       </div>
                     </div>
                   </button>
@@ -229,7 +249,7 @@ function StudentLivePage() {
                 <div className="space-y-3">
                   {joined && Number.isFinite(startMs) && nowMs < startMs ? (
                     <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-                      Live starts in {formatCountdown(countdownSec)}. Playback will auto-start at shift time.
+                      Live starts in {formatCountdown(countdownSec)}. Playback will auto-start at the scheduled time.
                     </div>
                   ) : null}
 
