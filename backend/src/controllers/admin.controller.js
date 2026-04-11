@@ -1107,6 +1107,7 @@ const normalizeVideoLibraryRow = (id, row = {}) => ({
   id,
   title: String(row.title || "").trim() || "Untitled Video",
   url: String(row.url || "").trim(),
+  hlsUrl: String(row.hlsUrl || "").trim(),
   courseId: String(row.courseId || "").trim(),
   subjectId: String(row.subjectId || row.courseId || "").trim(),
   courseName: String(row.courseName || row.subjectName || "").trim(),
@@ -3019,6 +3020,7 @@ export const createVideoLibraryItem = async (req, res) => {
     const {
       title = "",
       url = "",
+      hlsUrl = "",
       courseId = "",
       subjectId = "",
       courseName = "",
@@ -3091,6 +3093,7 @@ export const createVideoLibraryItem = async (req, res) => {
     const payload = {
       title: String(title).trim(),
       url: String(url).trim(),
+      hlsUrl: String(hlsUrl || "").trim(),
       courseId: cleanCourseId,
       subjectId: cleanCourseId,
       courseName: resolvedCourseName,
@@ -3303,10 +3306,12 @@ export const addCourseContent = async (req, res) => {
     if (resolvedIsLiveSession && liveStartAt && !resolvedLiveStart) {
       return errorResponse(res, "liveStartAt must be a valid ISO date", 400);
     }
-    const resolvedLiveEnd =
-      resolvedIsLiveSession && resolvedLiveStart
-        ? new Date(resolvedLiveStart.getTime() + Math.max(60, resolvedDurationSec || 0) * 1000)
-        : null;
+    const resolvedLiveEnd = 
+      resolvedIsLiveSession && resolvedLiveStart 
+        ? resolvedDurationSec > 0
+          ? new Date(resolvedLiveStart.getTime() + resolvedDurationSec * 1000)
+          : null
+        : null; 
 
     const formatPkDateTimeLocal = (date) => {
       if (!date) return null;

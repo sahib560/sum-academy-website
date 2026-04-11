@@ -4,6 +4,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import { FiCheckCircle, FiRadio, FiVolume2, FiVolumeX } from "react-icons/fi";
 import { setupMaxProtection } from "../../utils/maxProtection.js";
+import { HlsVideo } from "../../components/HlsVideo.jsx";
 import {
   getStudentSessionById,
   getStudentSessionStatus,
@@ -116,9 +117,13 @@ export default function LiveSession() {
   const sync = syncQuery.data || {};
 
   // Keep derived values used by hooks declared BEFORE any hook uses them.
+  const hlsUrlRaw = String(sync.hlsUrl || session.hlsUrl || "").trim();
   const videoUrlRaw = String(sync.videoUrl || session.videoUrl || "").trim();
   // Ensure any spaces are safely encoded (some stored URLs include spaces in filenames).
+  const hlsUrl = hlsUrlRaw ? encodeURI(hlsUrlRaw) : "";
   const videoUrl = videoUrlRaw ? encodeURI(videoUrlRaw) : "";
+  const playbackUrl = hlsUrl || videoUrl;
+  const isHlsPlayback = Boolean(hlsUrl) || /\.m3u8(\?|#|$)/i.test(videoUrl);
 
   const startAt = safeDate(session?.timing?.startAt) || toDateTime(session.sessionDate, session.shiftStartTime);
   const endAt = safeDate(session?.timing?.endAt) || toDateTime(session.sessionDate, session.shiftEndTime);
@@ -315,7 +320,7 @@ export default function LiveSession() {
   // Watchdog: if the video stays buffering with no progress, auto-retry a few times.
   useEffect(() => {
     if (!canPlayNow) return undefined;
-    if (!videoUrl) return undefined;
+    if (!playbackUrl) return undefined;
 
     retryCountRef.current = 0;
     lastProgressRef.current = { atMs: Date.now(), time: 0 };
@@ -343,7 +348,7 @@ export default function LiveSession() {
     }, 6000);
 
     return () => clearInterval(interval);
-  }, [canPlayNow, videoUrl, isBuffering]);
+  }, [canPlayNow, playbackUrl, isBuffering]);
 
   if (statusQuery.isLoading || sessionQuery.isLoading || uiState === "loading") {
     return <div className="rounded-3xl bg-[#0d0f1a] p-8 text-white">Loading live session...</div>;
@@ -482,7 +487,7 @@ export default function LiveSession() {
                   </div>
                 ) : (
                   <div className="relative mt-5 overflow-hidden rounded-2xl border border-white/10 bg-black">
-                    {!videoUrl ? (
+                    {!playbackUrl ? (
                       <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/80 px-4 text-center">
                         <div className="max-w-sm rounded-2xl border border-white/10 bg-[#0d0f1a] p-5">
                           <p className="text-sm text-slate-200">
@@ -513,7 +518,7 @@ export default function LiveSession() {
                               onClick={() => {
                                 // Fallback: open the MP4 directly in the same tab.
                                 // If the browser can play/download it, student still sees the content.
-                                if (videoUrl) window.location.href = videoUrl;
+                                if (playbackUrl) window.location.href = playbackUrl;
                               }}
                               className="w-full rounded-full bg-[#4a63f5] px-5 py-2 text-sm font-semibold text-white"
                             >
@@ -524,13 +529,16 @@ export default function LiveSession() {
                       </div>
                     ) : null}
                     <video
-                      key={`${videoUrl}_${videoKey}`}
+                      key={`${playbackUrl}_${videoKey}`}
                       ref={videoRef}
                       className="aspect-video w-full bg-black"
                       autoPlay
                       muted={muted}
-                      preload="auto"
+                      // Large Firebase MP4 files can buffer heavily with preload=auto.
+                      // Metadata preload is enough for duration/seek and avoids eager download.
+                      preload="metadata"
                       playsInline
+                      crossOrigin="anonymous"
                       controls={false}
                       disablePictureInPicture
                       controlsList="nodownload noplaybackrate noremoteplayback nofullscreen"
@@ -566,19 +574,45 @@ export default function LiveSession() {
                             ? "ABORTED"
                             : code === 2
                               ? "NETWORK"
-                              : code === 3
-                                ? "DECODE"
-                                : code === 4
-                                  ? "SRC_NOT_SUPPORTED"
-                                  : "UNKNOWN";
+                            : code === 3
+                              ? "DECODE"
+                            : code === 4
+                              ? "SRC_NOT_SUPPORTED"
+                              : "UNKNOWN";
                         setVideoError(
-                          `This live video could not be played in your browser. (${codeLabel})`
+                          codeLabel === "DECODE" || codeLabel === "SRC_NOT_SUPPORTED"
+                            ? `This live video could not be played in your browser (${codeLabel}). Convert it to H.264 + AAC (or upload an HLS .m3u8).`
+                            : `This live video could not be played in your browser. (${codeLabel})`
                         );
                         setNeedsUserStart(false);
                       }}
                     >
-                      <source src={videoUrl || ""} type="video/mp4" />
+                      {isHlsPlayback ? (
+                        <source src={playbackUrl || ""} type="application/vnd.apple.mpegurl" />
+                      ) : (
+                        <source src={playbackUrl || ""} type="video/mp4" />
+                      )}
                     </video>
+                    {isHlsPlayback ? (
+                      <HlsVideo
+                        src={playbackUrl}
+                        videoRef={videoRef}
+                        onReady={() => {
+                          setIsBuffering(false);
+                          lastProgressRef.current = { atMs: Date.now(), time: videoRef.current?.currentTime || 0 };
+                          // Autoplay best-effort (will be blocked on some browsers until user taps)
+                          try {
+                            const p = videoRef.current?.play?.();
+                            if (p && typeof p.catch === "function") p.catch(() => setNeedsUserStart(true));
+                          } catch {
+                            setNeedsUserStart(true);
+                          }
+                        }}
+                        onFatalError={(msg) => {
+                          setVideoError(msg || "Stream error. Please retry.");
+                        }}
+                      />
+                    ) : null}
 
                     {isBuffering ? (
                       <div className="absolute inset-x-3 bottom-3 rounded-xl border border-white/10 bg-black/60 px-3 py-2 text-xs text-slate-100">

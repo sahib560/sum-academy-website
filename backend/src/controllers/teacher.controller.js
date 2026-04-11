@@ -1120,6 +1120,7 @@ const serializeLecture = (id, data = {}) => {
     title: data.title || "",
     order: toPositiveNumber(data.order, 1),
     videoUrl: data.videoUrl || null,
+    hlsUrl: data.hlsUrl || null,
     videoTitle: data.videoTitle || null,
     videoId: data.videoId || null,
     videoMode: trimText(data.videoMode) || "recorded",
@@ -1701,10 +1702,24 @@ const resolveLectureVideoMeta = async ({
     parseLectureDurationToSeconds(selectedVideoRow?.videoDuration)
   );
 
+  // Optional HLS playlist for smoother playback on web (especially large files).
+  // If present, student live page will prefer `hlsUrl`.
+  const resolvedHlsUrl = (() => {
+    const hls = trimText(selectedVideoRow?.hlsUrl);
+    if (hls) return hls;
+    // Back-compat: some library items stored .m3u8 directly in url/streamUrl.
+    if (typeof sourceUrl === "string" && /\.m3u8(\?|#|$)/i.test(sourceUrl)) return sourceUrl;
+    if (typeof selectedVideoRow?.streamUrl === "string" && /\.m3u8(\?|#|$)/i.test(selectedVideoRow.streamUrl)) {
+      return trimText(selectedVideoRow.streamUrl);
+    }
+    return "";
+  })();
+
   return {
     videoId: cleanVideoId || null,
     videoTitle: sourceTitle || null,
     videoUrl: sourceUrl,
+    hlsUrl: resolvedHlsUrl || null,
     videoMode,
     isLiveSession,
     durationSec: durationSecFromLibrary,
@@ -2502,6 +2517,7 @@ export const saveLectureContent = async (req, res) => {
       }
       updates.videoId = resolvedVideo.videoId || null;
       updates.videoUrl = resolvedVideo.videoUrl;
+      updates.hlsUrl = trimText(resolvedVideo.hlsUrl) || null;
       updates.videoTitle = resolvedVideo.videoTitle;
       updates.videoMode = resolvedVideo.videoMode;
       updates.isLiveSession = resolvedVideo.isLiveSession;
@@ -2525,10 +2541,16 @@ export const saveLectureContent = async (req, res) => {
         const parsedStart = parseDate(liveStartAt);
         if (parsedStart) {
           const durationSec = Math.max(0, toPositiveNumber(updates.durationSec, 0));
-          const resolvedEnd = new Date(parsedStart.getTime() + Math.max(60, durationSec) * 1000);
           // Store as Pakistan-local datetime string (no Z) so Firestore shows the expected time.
           updates.liveStartAt = formatPkDateTimeLocal(parsedStart);
-          updates.liveEndAt = formatPkDateTimeLocal(resolvedEnd);
+          // Only auto-calculate end time when we know the true duration.
+          // If duration is missing, student live schedule will fall back to class shift.
+          if (durationSec > 0) {
+            const resolvedEnd = new Date(parsedStart.getTime() + durationSec * 1000);
+            updates.liveEndAt = formatPkDateTimeLocal(resolvedEnd);
+          } else {
+            updates.liveEndAt = null;
+          }
         } else if (liveStartAt !== undefined && liveStartAt !== null && trimText(liveStartAt)) {
           return errorResponse(res, "liveStartAt must be a valid ISO date", 400);
         }
@@ -2631,6 +2653,7 @@ export const deleteLectureContent = async (req, res) => {
       updates.videoUrl = null;
       updates.videoTitle = null;
       updates.videoId = null;
+      updates.hlsUrl = null;
       updates.videoMode = "recorded";
       updates.isLiveSession = false;
       updates.videoDuration = admin.firestore.FieldValue.delete();

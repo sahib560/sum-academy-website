@@ -2703,6 +2703,16 @@ const buildStudentLiveSessions = async (uid) => {
           trimText(shift?.teacherName || subjectMap[subjectId]?.teacherName) || "Teacher",
         lectureId: trimText(lecture.id),
         lectureTitle: trimText(lecture.title) || "Live Session",
+        hlsUrl:
+          trimText(
+            lecture.hlsUrl ||
+              (typeof lecture.streamUrl === "string" && /\.m3u8(\?|#|$)/i.test(lecture.streamUrl)
+                ? lecture.streamUrl
+                : "") ||
+              (typeof lecture.videoUrl === "string" && /\.m3u8(\?|#|$)/i.test(lecture.videoUrl)
+                ? lecture.videoUrl
+                : "")
+          ) || null,
         videoUrl:
           trimText(
             lecture.videoUrl ||
@@ -2925,6 +2935,18 @@ const buildStudentLiveSessions = async (uid) => {
           teacherName: trimText(subjectMap[subjectId]?.teacherName) || "Teacher",
           lectureId: trimText(lecture.id),
           lectureTitle: trimText(lecture.title) || "Live Session",
+          // Prefer an explicit HLS playlist if available (best playback for large files).
+          // Fallback is still `videoUrl` (MP4).
+          hlsUrl:
+            trimText(
+              lecture.hlsUrl ||
+                (typeof lecture.streamUrl === "string" && /\.m3u8(\?|#|$)/i.test(lecture.streamUrl)
+                  ? lecture.streamUrl
+                  : "") ||
+                (typeof lecture.videoUrl === "string" && /\.m3u8(\?|#|$)/i.test(lecture.videoUrl)
+                  ? lecture.videoUrl
+                  : "")
+            ) || null,
           videoUrl:
             trimText(
               lecture.videoUrl ||
@@ -2947,6 +2969,8 @@ const buildStudentLiveSessions = async (uid) => {
             shiftDurationSeconds: 0,
             videoDurationSeconds: Math.max(
               parseDurationToSeconds(lecture.durationSec),
+              // Back-compat for older lecture docs that stored strings like "10:30"
+              // (new writes should only use durationSec).
               parseDurationToSeconds(lecture.videoDuration)
             ),
           },
@@ -3202,6 +3226,8 @@ export const getSessionStatus = async (req, res) => {
         remainingSeconds,
         canJoin,
         isLocked,
+        // Preferred playback URL (HLS if available)
+        hlsUrl: trimText(session.hlsUrl || ""),
         recordingUrl: trimText(session.videoUrl || ""),
         joinWindow: session.joinWindow || null,
         timing: session.timing || null,
@@ -3365,6 +3391,8 @@ export const getSessionSync = async (req, res) => {
         totalSeconds,
         isRunning: session.status === "live" && remainingSeconds > 0,
         status: session.status,
+        // Preferred playback URL (HLS if available), then MP4.
+        hlsUrl: trimText(session.hlsUrl || ""),
         videoUrl: trimText(session.videoUrl || ""),
         topic: trimText(session.lectureTitle) || "Live Session",
         // Keep legacy endTime field, but also expose full timing object for clients.

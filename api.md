@@ -7577,6 +7577,8 @@ Error (400) example:
     "totalSeconds": 6000,
     "isRunning": true,
     "status": "active",
+    "hlsUrl": "https://storage.googleapis.com/.../master.m3u8",
+    "videoUrl": "https://storage.googleapis.com/.../live-lecture.mp4",
     "meetingLink": "https://...",
     "topic": "Biology Live - Cell Division",
     "endTime": "15:00"
@@ -7702,6 +7704,7 @@ Success:
     "remainingSeconds": 7200,
     "canJoin": false,
     "isLocked": false,
+    "hlsUrl": "https://storage.googleapis.com/.../master.m3u8",
     "recordingUrl": "https://storage.googleapis.com/.../live-lecture.mp4",
     "joinWindow": {
       "opensAt": "2026-04-11T07:50:00.000Z",

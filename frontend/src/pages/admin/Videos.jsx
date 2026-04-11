@@ -52,14 +52,15 @@ const getLocalVideoDurationSec = (file) =>
     }
   });
 
-function AdminVideos() {
-  const queryClient = useQueryClient();
-  const [title, setTitle] = useState("");
-  const [courseId, setCourseId] = useState("");
-  const [teacherId, setTeacherId] = useState("");
-  const [uploadedVideo, setUploadedVideo] = useState(null);
-  const [isLiveSession, setIsLiveSession] = useState(false);
-  const [durationSec, setDurationSec] = useState(0);
+function AdminVideos() { 
+  const queryClient = useQueryClient(); 
+  const [title, setTitle] = useState(""); 
+  const [courseId, setCourseId] = useState(""); 
+  const [teacherId, setTeacherId] = useState(""); 
+  const [uploadedVideo, setUploadedVideo] = useState(null); 
+  const [hlsUrl, setHlsUrl] = useState(""); 
+  const [isLiveSession, setIsLiveSession] = useState(false); 
+  const [durationSec, setDurationSec] = useState(0); 
 
   const videosQuery = useQuery({
     queryKey: ["admin-videos"],
@@ -91,38 +92,45 @@ function AdminVideos() {
 
   const createMutation = useMutation({
     mutationFn: createAdminVideo,
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["admin-videos"] });
-      toast.success("Video saved in library");
-      setTitle("");
-      setUploadedVideo(null);
-      setIsLiveSession(false);
-      setDurationSec(0);
-    },
+    onSuccess: async () => { 
+      await queryClient.invalidateQueries({ queryKey: ["admin-videos"] }); 
+      toast.success("Video saved in library"); 
+      setTitle(""); 
+      setUploadedVideo(null); 
+      setHlsUrl(""); 
+      setIsLiveSession(false); 
+      setDurationSec(0); 
+    }, 
     onError: (error) =>
       toast.error(error?.response?.data?.message || "Failed to save video"),
   });
 
-  const submitVideo = () => {
-    if (!title.trim()) return toast.error("Video title is required");
-    if (!courseId) return toast.error("Select subject");
-    if (!teacherId) return toast.error("Selected subject has no assigned teacher");
-    if (!uploadedVideo?.url) return toast.error("Upload video first");
-
-    createMutation.mutate({
-      title: title.trim(),
-      url: uploadedVideo.url,
-      courseId,
-      subjectId: courseId,
-      courseName: selectedCourse?.title || "",
-      teacherId,
-      teacherName: selectedTeacher?.fullName || "",
+  const submitVideo = () => { 
+    if (!title.trim()) return toast.error("Video title is required"); 
+    if (!courseId) return toast.error("Select subject"); 
+    if (!teacherId) return toast.error("Selected subject has no assigned teacher"); 
+    if (!uploadedVideo?.url) return toast.error("Upload video first"); 
+    if (isLiveSession && !(Number(durationSec) > 0)) { 
+      return toast.error( 
+        "Live sessions need a detected duration. Please re-upload a web-compatible MP4 (H.264 + AAC) or provide an HLS URL." 
+      ); 
+    } 
+ 
+    createMutation.mutate({ 
+      title: title.trim(), 
+      url: uploadedVideo.url, 
+      hlsUrl: String(hlsUrl || "").trim(), 
+      courseId, 
+      subjectId: courseId, 
+      courseName: selectedCourse?.title || "", 
+      teacherId, 
+      teacherName: selectedTeacher?.fullName || "", 
       isLiveSession,
       videoMode: isLiveSession ? "live_session" : "recorded",
       // Single source of truth: durationSec only (server computes a label when needed).
-      durationSec: Math.max(0, Number(durationSec || 0)),
-    });
-  };
+      durationSec: Math.max(0, Number(durationSec || 0)), 
+    }); 
+  }; 
 
   const videos = Array.isArray(videosQuery.data) ? videosQuery.data : [];
 
@@ -190,8 +198,8 @@ function AdminVideos() {
               className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2 text-sm text-slate-600"
             />
           </div>
-          <div className="md:col-span-2">
-            <label className="inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
+          <div className="md:col-span-2"> 
+            <label className="inline-flex items-center gap-2 text-sm font-semibold text-slate-700"> 
               <input
                 type="checkbox"
                 checked={isLiveSession}
@@ -200,8 +208,21 @@ function AdminVideos() {
               />
               Mark this gallery video as live session
             </label>
-          </div>
-        </div>
+          </div> 
+          <div className="md:col-span-2"> 
+            <label className="text-sm font-semibold text-slate-700">HLS URL (Optional)</label> 
+            <input 
+              type="text" 
+              value={hlsUrl} 
+              onChange={(event) => setHlsUrl(event.target.value)} 
+              className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10" 
+              placeholder="https://storage.googleapis.com/.../master.m3u8" 
+            /> 
+            <p className="mt-1 text-xs text-slate-500"> 
+              If you generated HLS output, paste the <code className="rounded bg-slate-100 px-1">master.m3u8</code> URL here for smoother playback on web. 
+            </p> 
+          </div> 
+        </div> 
 
         <div className="mt-4">
           <FileUploader
