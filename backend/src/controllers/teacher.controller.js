@@ -1695,7 +1695,10 @@ const resolveLectureVideoMeta = async ({
         selectedVideoRow?.videoDurationSec ??
         selectedVideoRow?.totalDurationSec,
       0
-    )
+    ),
+    // Backward compatibility: older library docs stored a string label (mm:ss / hh:mm:ss)
+    // instead of numeric seconds.
+    parseLectureDurationToSeconds(selectedVideoRow?.videoDuration)
   );
 
   return {

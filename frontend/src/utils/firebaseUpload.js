@@ -15,7 +15,14 @@ const sanitizeName = (value = "file") =>
 export const uploadToStorage = async ({ file, path, onProgress }) =>
   new Promise((resolve, reject) => {
     const storageRef = ref(storage, path);
-    const uploadTask = uploadBytesResumable(storageRef, file);
+    // Ensure correct metadata so browsers can stream videos reliably (especially on mobile).
+    const metadata = {
+      contentType: file?.type || "application/octet-stream",
+      contentDisposition: "inline",
+      // Small cache to reduce repeated fetches while still allowing updates.
+      cacheControl: "public, max-age=3600",
+    };
+    const uploadTask = uploadBytesResumable(storageRef, file, metadata);
 
     uploadTask.on(
       "state_changed",

@@ -491,10 +491,41 @@ export default function LiveSession() {
                         </div>
                       </div>
                     ) : null}
+                    {videoError ? (
+                      <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/70 px-4 text-center">
+                        <div className="max-w-sm rounded-2xl border border-white/10 bg-[#0d0f1a] p-5">
+                          <p className="text-sm text-slate-200">{videoError}</p>
+                          <div className="mt-4 grid gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setVideoError("");
+                                setNeedsUserStart(false);
+                                setIsBuffering(true);
+                                setVideoKey((v) => v + 1);
+                              }}
+                              className="w-full rounded-full bg-white/10 px-5 py-2 text-sm font-semibold text-white"
+                            >
+                              Retry Player
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                // Fallback: open the MP4 directly in the same tab.
+                                // If the browser can play/download it, student still sees the content.
+                                if (videoUrl) window.location.href = videoUrl;
+                              }}
+                              className="w-full rounded-full bg-[#4a63f5] px-5 py-2 text-sm font-semibold text-white"
+                            >
+                              Open Video Directly
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ) : null}
                     <video
                       key={`${videoUrl}_${videoKey}`}
                       ref={videoRef}
-                      src={videoUrl || ""}
                       className="aspect-video w-full bg-black"
                       autoPlay
                       muted={muted}
@@ -527,11 +558,27 @@ export default function LiveSession() {
                         statusQuery.refetch();
                         syncQuery.refetch();
                       }}
-                      onError={() => {
-                        setVideoError("This live video could not be played in your browser.");
+                      onError={(e) => {
+                        const media = e?.currentTarget;
+                        const code = media?.error?.code;
+                        const codeLabel =
+                          code === 1
+                            ? "ABORTED"
+                            : code === 2
+                              ? "NETWORK"
+                              : code === 3
+                                ? "DECODE"
+                                : code === 4
+                                  ? "SRC_NOT_SUPPORTED"
+                                  : "UNKNOWN";
+                        setVideoError(
+                          `This live video could not be played in your browser. (${codeLabel})`
+                        );
                         setNeedsUserStart(false);
                       }}
-                    />
+                    >
+                      <source src={videoUrl || ""} type="video/mp4" />
+                    </video>
 
                     {isBuffering ? (
                       <div className="absolute inset-x-3 bottom-3 rounded-xl border border-white/10 bg-black/60 px-3 py-2 text-xs text-slate-100">
@@ -567,26 +614,6 @@ export default function LiveSession() {
                             className="mt-4 w-full rounded-full bg-[#4a63f5] px-5 py-2 text-sm font-semibold"
                           >
                             Start Live Video
-                          </button>
-                        </div>
-                      </div>
-                    ) : null}
-
-                    {videoError ? (
-                      <div className="absolute inset-x-3 bottom-3 rounded-xl border border-rose-400/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-100">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <span>{videoError}</span>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setVideoError("");
-                              setIsBuffering(true);
-                              setVideoKey((v) => v + 1);
-                              setTimeout(() => setIsBuffering(false), 1200);
-                            }}
-                            className="pointer-events-auto rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-white"
-                          >
-                            Retry
                           </button>
                         </div>
                       </div>
