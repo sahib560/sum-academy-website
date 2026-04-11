@@ -39,6 +39,15 @@ const formatHHMMSS = (seconds = 0) => {
   return `${h}:${m}:${s}`;
 };
 
+const formatTimeHHMM = (dateObj) => {
+  if (!(dateObj instanceof Date) || Number.isNaN(dateObj.getTime())) return "--:--";
+  return dateObj.toLocaleTimeString("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+};
+
 const splitCountdown = (seconds = 0) => {
   const safe = Math.max(0, Math.floor(Number(seconds || 0)));
   const days = Math.floor(safe / 86400);
@@ -67,7 +76,11 @@ export default function LiveSession() {
   const navigate = useNavigate();
   const [overlayWarning, setOverlayWarning] = useState("");
   const [nowMs, setNowMs] = useState(Date.now());
-  const [muted, setMuted] = useState(false);
+  // Autoplay on desktop is blocked unless muted or initiated by user gesture.
+  const [muted, setMuted] = useState(true);
+  const [needsUserStart, setNeedsUserStart] = useState(false);
+  const [videoError, setVideoError] = useState("");
+  const [isBuffering, setIsBuffering] = useState(false);
   const videoRef = useRef(null);
   const seekLockRef = useRef(0);
 
@@ -112,10 +125,13 @@ export default function LiveSession() {
     return "pre";
   }, [session?.status, sessionId, status?.status]);
 
+  const canPlayNow = uiState === "live" && Boolean(session?.canPlay);
+
   const joinedMutation = useMutation({
     mutationFn: () => joinStudentSession(sessionId),
     onSuccess: () => {
       toast.success("Joined live session");
+      setVideoError("");
       sessionQuery.refetch();
       statusQuery.refetch();
       syncQuery.refetch();
@@ -150,7 +166,7 @@ export default function LiveSession() {
   }, []);
 
   useEffect(() => {
-    if (uiState !== "live") return undefined;
+    if (!canPlayNow) return undefined;
     window.history.pushState(null, "", window.location.href);
     const onPopState = () => {
       window.history.pushState(null, "", window.location.href);
@@ -158,35 +174,37 @@ export default function LiveSession() {
     };
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
-  }, [uiState]);
+  }, [canPlayNow]);
 
   useEffect(() => {
-    if (uiState !== "live") return undefined;
+    if (!canPlayNow) return undefined;
     const cleanup = setupMaxProtection({
       quizMode: true,
       maxViolations: 3,
       onViolation: (count, reason) => {
-        if (!["tab_switch", "window_blur"].includes(reason)) return;
-        const text =
-          reason === "tab_switch"
-            ? `Warning ${count}: Do not switch tabs during live session`
-            : `Warning ${count}: Do not minimize during live session`;
-        setOverlayWarning("You left the live session. Return immediately.");
-        toast.error(text, { duration: 4500 });
-        violationMutation.mutate({ reason, count });
+        // Always log every violation to backend so 3 violations actually deactivate.
+        // (Some reasons come from keyboard/printscreen/devtools, not just tab switches.)
+        const normalized = String(reason || "default");
+        if (["tab_switch", "window_blur"].includes(normalized)) {
+          setOverlayWarning("You left the live session. Return immediately.");
+          setTimeout(() => setOverlayWarning(""), 2200);
+        }
+        toast.error(`Warning ${count}: Security violation (${normalized.replaceAll("_", " ")})`, {
+          duration: 4500,
+        });
+        violationMutation.mutate({ reason: normalized, count });
         void reportStudentSecurityViolation({
-          reason,
-          page: "live",
+          reason: normalized,
+          page: "live_session",
           details: `Live session violation ${count}/3`,
         }).catch(() => null);
-        setTimeout(() => setOverlayWarning(""), 2200);
       },
       onMaxViolation: (count, reason) => {
         toast.error("3 violations detected. Account is being deactivated.");
         violationMutation.mutate({ reason: reason || "default", count: count || 3 });
         void reportStudentSecurityViolation({
           reason: reason || "default",
-          page: "live",
+          page: "live_session",
           details: `Live session violation ${count || 3}/3`,
         }).catch(() => null);
       },
@@ -194,7 +212,7 @@ export default function LiveSession() {
     return () => {
       if (typeof cleanup === "function") cleanup();
     };
-  }, [uiState, violationMutation]);
+  }, [canPlayNow, violationMutation]);
 
   useEffect(() => {
     if (uiState === "ended") {
@@ -205,7 +223,7 @@ export default function LiveSession() {
 
   // Hard lock: no pause/no seek during live playback.
   useEffect(() => {
-    if (uiState !== "live") return undefined;
+    if (!canPlayNow) return undefined;
 
     const preventLeave = (event) => {
       event.preventDefault();
@@ -214,10 +232,10 @@ export default function LiveSession() {
     };
     window.addEventListener("beforeunload", preventLeave);
     return () => window.removeEventListener("beforeunload", preventLeave);
-  }, [uiState]);
+  }, [canPlayNow]);
 
   useEffect(() => {
-    if (uiState !== "live") return;
+    if (!canPlayNow) return;
     const video = videoRef.current;
     if (!video) return;
     const elapsed = Math.max(0, Number(sync.elapsedSeconds || 0));
@@ -226,7 +244,12 @@ export default function LiveSession() {
         // Seek late joiners to current live position.
         video.currentTime = elapsed;
         seekLockRef.current = video.currentTime;
-        video.play().catch(() => null);
+        const playPromise = video.play();
+        if (playPromise && typeof playPromise.catch === "function") {
+          playPromise
+            .then(() => setNeedsUserStart(false))
+            .catch(() => setNeedsUserStart(true));
+        }
       } catch {
         // ignore
       }
@@ -236,17 +259,17 @@ export default function LiveSession() {
     video.addEventListener("loadedmetadata", onLoaded);
     applySeek();
     return () => video.removeEventListener("loadedmetadata", onLoaded);
-  }, [uiState, sync.elapsedSeconds]);
+  }, [canPlayNow, sync.elapsedSeconds]);
 
   const handlePause = () => {
-    if (uiState !== "live") return;
+    if (!canPlayNow) return;
     const video = videoRef.current;
     if (!video) return;
-    video.play().catch(() => null);
+    video.play().catch(() => setNeedsUserStart(true));
   };
 
   const handleSeeking = () => {
-    if (uiState !== "live") return;
+    if (!canPlayNow) return;
     const video = videoRef.current;
     if (!video) return;
     video.currentTime = seekLockRef.current;
@@ -256,6 +279,21 @@ export default function LiveSession() {
     const video = videoRef.current;
     if (!video) return;
     seekLockRef.current = video.currentTime;
+  };
+
+  const handleUserStart = async () => {
+    const video = videoRef.current;
+    if (!video) return;
+    try {
+      // Ensure it's muted for autoplay policies, then let student unmute manually.
+      video.muted = true;
+      setMuted(true);
+      await video.play();
+      setNeedsUserStart(false);
+      setVideoError("");
+    } catch {
+      setNeedsUserStart(true);
+    }
   };
 
   if (statusQuery.isLoading || sessionQuery.isLoading || uiState === "loading") {
@@ -274,7 +312,7 @@ export default function LiveSession() {
   const showDangerTimer = liveSeconds <= 10 * 60;
   const studentsOnline = Number(status.joinedCount || 0);
   const initials = getInitials(session.teacherName || "Teacher");
-  const canJoin = Boolean(session.canJoin) || Boolean(session.status === "live");
+  const canJoin = Boolean(session.canJoin) || Boolean(status.canJoin);
   const videoUrl = String(sync.videoUrl || session.videoUrl || "").trim();
   const totalDurationSeconds = Math.max(
     0,
@@ -357,7 +395,9 @@ export default function LiveSession() {
         <div className="space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-[#111525] px-4 py-3">
             <div className="text-sm font-semibold">SUM Academy</div>
-            <p className="text-center text-sm font-semibold">{status.topic || "Live Session"}</p>
+            <p className="max-w-[52vw] truncate text-center text-sm font-semibold text-white">
+              {status.topic || session.lectureTitle || "Live Session"}
+            </p>
             <div className="flex items-center gap-3 text-xs">
               <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/20 px-3 py-1 font-semibold text-emerald-300">
                 <FiRadio className="animate-pulse" /> LIVE
@@ -376,37 +416,109 @@ export default function LiveSession() {
                 <h2 className="mt-2 text-3xl font-bold">{session.lectureTitle || "Live Session"}</h2>
                 <p className="mt-2 text-slate-300">{session.subjectName || "Subject"}</p>
                 <p className="mt-1 text-sm text-slate-300">Teacher: {session.teacherName || "Teacher"}</p>
-                <p className="mt-1 text-sm text-slate-300">{session.shiftStartTime || "--:--"} - {session.shiftEndTime || "--:--"}</p>
+                <p className="mt-1 text-sm text-slate-200">
+                  {formatTimeHHMM(startAt)} - {formatTimeHHMM(endAt)}
+                </p>
 
-                <div className="relative mt-5 overflow-hidden rounded-2xl border border-white/10 bg-black">
-                  <video
-                    ref={videoRef}
-                    src={videoUrl || ""}
-                    className="aspect-video w-full bg-black"
-                    autoPlay
-                    muted={muted}
-                    playsInline
-                    controls={false}
-                    disablePictureInPicture
-                    controlsList="nodownload noplaybackrate noremoteplayback nofullscreen"
-                    onPause={handlePause}
-                    onSeeking={handleSeeking}
-                    onTimeUpdate={handleTimeUpdate}
-                  />
-                  <div className="pointer-events-none absolute left-3 top-3 inline-flex items-center gap-2 rounded-full bg-black/55 px-3 py-1 text-xs font-semibold text-white">
-                    <span className="h-2 w-2 rounded-full bg-rose-500" />
-                    LIVE
-                  </div>
-                  <div className="absolute bottom-3 right-3">
+                {!session.canPlay ? (
+                  <div className="mt-5 rounded-2xl border border-white/10 bg-[#0d0f1a] p-5 text-left">
+                    <p className="text-sm text-slate-300">{session.lockReason || "Join to continue."}</p>
                     <button
                       type="button"
-                      onClick={() => setMuted((prev) => !prev)}
-                      className="rounded-full bg-white/90 p-2 text-slate-700 shadow"
+                      disabled={!canJoin || joinedMutation.isPending}
+                      onClick={() => joinedMutation.mutate()}
+                      className="mt-4 inline-flex w-full items-center justify-center rounded-full bg-[#4a63f5] px-6 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                      {muted ? <FiVolumeX className="h-4 w-4" /> : <FiVolume2 className="h-4 w-4" />}
+                      {joinedMutation.isPending ? "Joining..." : "Join Live Session"}
                     </button>
                   </div>
-                </div>
+                ) : (
+                  <div className="relative mt-5 overflow-hidden rounded-2xl border border-white/10 bg-black">
+                    {!videoUrl ? (
+                      <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/80 px-4 text-center">
+                        <div className="max-w-sm rounded-2xl border border-white/10 bg-[#0d0f1a] p-5">
+                          <p className="text-sm text-slate-200">
+                            Live video URL is missing for this session. Please ask your teacher/admin to upload the live session video.
+                          </p>
+                        </div>
+                      </div>
+                    ) : null}
+                    <video
+                      ref={videoRef}
+                      src={videoUrl || ""}
+                      className="aspect-video w-full bg-black"
+                      crossOrigin="anonymous"
+                      autoPlay
+                      muted={muted}
+                      preload="metadata"
+                      playsInline
+                      controls={false}
+                      disablePictureInPicture
+                      controlsList="nodownload noplaybackrate noremoteplayback nofullscreen"
+                      onPause={handlePause}
+                      onSeeking={handleSeeking}
+                      onTimeUpdate={handleTimeUpdate}
+                      onWaiting={() => setIsBuffering(true)}
+                      onCanPlay={() => setIsBuffering(false)}
+                      onPlaying={() => setIsBuffering(false)}
+                      onEnded={() => {
+                        // End immediately when the live video ends (if shorter than shift).
+                        toast.success("Live session ended");
+                        leaveMutation.mutate();
+                        sessionQuery.refetch();
+                        statusQuery.refetch();
+                        syncQuery.refetch();
+                      }}
+                      onError={() => {
+                        setVideoError("This live video could not be played in your browser.");
+                        setNeedsUserStart(false);
+                      }}
+                    />
+
+                    {isBuffering ? (
+                      <div className="pointer-events-none absolute inset-x-3 bottom-3 rounded-xl border border-white/10 bg-black/60 px-3 py-2 text-xs text-slate-100">
+                        Loading live video... (buffering)
+                      </div>
+                    ) : null}
+
+                    {needsUserStart ? (
+                      <div className="absolute inset-0 flex items-center justify-center bg-black/70 px-4 text-center">
+                        <div className="max-w-sm rounded-2xl border border-white/10 bg-[#0d0f1a] p-5">
+                          <p className="text-sm text-slate-200">
+                            Tap to start the live video. (Desktop browsers require a click to start playback.)
+                          </p>
+                          <button
+                            type="button"
+                            onClick={handleUserStart}
+                            className="mt-4 w-full rounded-full bg-[#4a63f5] px-5 py-2 text-sm font-semibold"
+                          >
+                            Start Live Video
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {videoError ? (
+                      <div className="absolute inset-x-3 bottom-3 rounded-xl border border-rose-400/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-100">
+                        {videoError}
+                      </div>
+                    ) : null}
+
+                    <div className="pointer-events-none absolute left-3 top-3 inline-flex items-center gap-2 rounded-full bg-black/55 px-3 py-1 text-xs font-semibold text-white">
+                      <span className="h-2 w-2 rounded-full bg-rose-500" />
+                      LIVE
+                    </div>
+                    <div className="absolute bottom-3 right-3">
+                      <button
+                        type="button"
+                        onClick={() => setMuted((prev) => !prev)}
+                        className="rounded-full bg-white/90 p-2 text-slate-700 shadow"
+                      >
+                        {muted ? <FiVolumeX className="h-4 w-4" /> : <FiVolume2 className="h-4 w-4" />}
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="mt-4 rounded-xl border border-amber-400/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">

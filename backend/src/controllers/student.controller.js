@@ -224,7 +224,13 @@ const resolveLiveVideoDurationSeconds = (lecture = {}, shift = {}) => {
     parseDurationToSeconds(lecture.videoDurationSec)
   );
   const shiftDurationSec = resolveShiftDurationSeconds(shift);
-  return Math.max(videoDurationSec, shiftDurationSec, 60);
+
+  // Rule:
+  // - If live video duration exists, session ends when the video ends
+  //   (even if it's shorter than the shift).
+  // - If duration is missing, fall back to shift duration.
+  if (videoDurationSec > 0) return Math.max(videoDurationSec, 60);
+  return Math.max(shiftDurationSec, 60);
 };
 
 const buildLiveSessionId = ({
@@ -2424,20 +2430,27 @@ const buildStudentLiveSessions = async (uid) => {
     return acc;
   }, {});
   const lectureMap = lectureRowsBySubject.reduce((acc, row) => {
-    const liveLecture = (Array.isArray(row.lectures) ? row.lectures : [])
-      .filter(
-        (lecture) =>
-          Boolean(lecture?.isLiveSession) &&
-          trimText(
-            lecture?.videoUrl ||
-              lecture?.streamUrl ||
-              lecture?.playbackUrl ||
-              lecture?.signedUrl ||
-              lecture?.videoSignedUrl
-          )
-      )
-      .sort((a, b) => toNumber(a.order, 0) - toNumber(b.order, 0))[0];
-    acc[row.subjectId] = liveLecture || null;
+    const liveLectures = (Array.isArray(row.lectures) ? row.lectures : [])
+      .filter((lecture) => {
+        if (!lecture?.isLiveSession) return false;
+        const url = trimText(
+          lecture?.videoUrl ||
+            lecture?.streamUrl ||
+            lecture?.playbackUrl ||
+            lecture?.signedUrl ||
+            lecture?.videoSignedUrl
+        );
+        return Boolean(url);
+      })
+      .sort((a, b) => toNumber(a.order, 0) - toNumber(b.order, 0));
+
+    // Support multiple live lectures in the same subject/shift:
+    // Only schedule the "next" live lecture that has not ended yet (no premiereEndedAt).
+    // This keeps later live lectures locked until the earlier one finishes.
+    const nextLiveLecture =
+      liveLectures.find((lecture) => !lecture?.premiereEndedAt) || liveLectures[0] || null;
+
+    acc[row.subjectId] = nextLiveLecture || null;
     return acc;
   }, {});
 
@@ -2530,8 +2543,9 @@ const buildStudentLiveSessions = async (uid) => {
           canPlay = true;
         } else {
           status = "live";
-          canJoin = true;
-          lockReason = "Session is live now. Join to continue.";
+          // Join is intentionally closed after start time. Student must be in waiting room before start.
+          canJoin = false;
+          lockReason = "Join window has closed. You can no longer join after the session start time.";
         }
       } else {
         status = "ended";
@@ -2726,6 +2740,7 @@ export const joinStudentLiveSession = async (req, res) => {
     const now = new Date();
     const nowMs = now.getTime();
     const joinOpenMs = parseDate(session.joinWindow?.opensAt)?.getTime() || 0;
+    const joinCloseMs = parseDate(session.joinWindow?.closesAt)?.getTime() || 0;
     const startMs = parseDate(session.timing?.startAt)?.getTime() || 0;
     const endMs = parseDate(session.timing?.endAt)?.getTime() || 0;
     const canResumeJoinedSession =
@@ -2747,6 +2762,14 @@ export const joinStudentLiveSession = async (req, res) => {
         return errorResponse(res, "This live session has ended.", 403, {
           code: "SESSION_ENDED",
         });
+      }
+      if (joinCloseMs && nowMs >= joinCloseMs) {
+        return errorResponse(
+          res,
+          "Join window has closed. You can no longer join after the session start time.",
+          403,
+          { code: "JOIN_CLOSED" }
+        );
       }
     }
 
@@ -2923,6 +2946,7 @@ export const joinStudentSession = async (req, res) => {
     const now = new Date();
     const nowMs = now.getTime();
     const joinOpenMs = parseDate(session.joinWindow?.opensAt)?.getTime() || 0;
+    const joinCloseMs = parseDate(session.joinWindow?.closesAt)?.getTime() || 0;
     const startMs = parseDate(session.timing?.startAt)?.getTime() || 0;
     const endMs = parseDate(session.timing?.endAt)?.getTime() || 0;
     const canResumeJoinedSession =
@@ -2944,6 +2968,15 @@ export const joinStudentSession = async (req, res) => {
         return errorResponse(res, "This live session has ended.", 403, {
           code: "SESSION_ENDED",
         });
+      }
+      // Join is closed once the session start time hits.
+      if (joinCloseMs && nowMs >= joinCloseMs) {
+        return errorResponse(
+          res,
+          "Join window has closed. You can no longer join after the session start time.",
+          403,
+          { code: "JOIN_CLOSED" }
+        );
       }
     }
 
@@ -3084,7 +3117,14 @@ export const logSessionViolation = async (req, res) => {
       .collection("sessionViolations")
       .where("studentId", "==", uid)
       .get();
-    const totalViolations = violationSnap.size;
+    // We historically counted "records", but the frontend also sends a running `count`.
+    // Use the max of both so "Violation 3" always triggers deactivation even if a client
+    // only manages to report the last event.
+    const maxClientCount = (violationSnap.docs || []).reduce((acc, doc) => {
+      const row = doc.data() || {};
+      return Math.max(acc, Math.max(0, toNumber(row.count, 0)));
+    }, 0);
+    const totalViolations = Math.max(violationSnap.size, maxClientCount, count);
     let deactivated = false;
 
     if (totalViolations >= SECURITY_VIOLATION_LIMIT) {
@@ -3098,6 +3138,7 @@ export const logSessionViolation = async (req, res) => {
             status: "deactivated",
             securityViolationCount: totalViolations,
             securityDeactivationReason: "Session security violation limit reached",
+            lastSecurityViolationReason: reason,
             securityDeactivatedAt: serverTimestamp(),
             updatedAt: serverTimestamp(),
           },
@@ -3114,6 +3155,13 @@ export const logSessionViolation = async (req, res) => {
         ),
       ]);
       deactivated = true;
+
+      // Disable Firebase Auth account as well (best effort).
+      try {
+        await admin.auth().updateUser(uid, { disabled: true });
+      } catch {
+        // ignore
+      }
 
       try {
         const [userSnap, studentSnap] = await Promise.all([userRef.get(), studentRef.get()]);

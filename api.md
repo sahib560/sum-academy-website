@@ -7398,7 +7398,7 @@ Relevant APIs:
 {
   "title": "Weekly Biology Test",
   "description": "Chapter 1 to 3",
-  "scope": "class",
+  "scope" : "class",
   "classId": "TR5HYHIIuuZ6Xlouoa5k",
   "startAt": "2026-04-12T09:00:00.000Z",
   "endAt": "2026-04-12T11:00:00.000Z",
@@ -7638,6 +7638,11 @@ Cache policy:
 - The **actual live/recorded video URL** comes from the **lecture** document in `lectures` (`videoUrl` / `streamUrl` / `playbackUrl` / `signedUrl`).
 - `liveSessionAccess` does not store the video file; it stores join state and completion flags (example: `lectureCompleted`).
 
+**Live end-time rule**
+- If the live lecture has a known duration (`durationSec` / `videoDuration`), the live session **ends when the video ends**.
+- If duration is missing, the live session **falls back to shift duration**.
+- If the live video is longer than the shift, it can continue past shift end and will end when the video ends.
+
 **Important endpoints**
 - List live sessions: `GET /api/student/live-sessions`
 - Join a session: `POST /api/student/live-sessions/:sessionId/join`
@@ -7697,14 +7702,24 @@ Success:
 }
 ```
 
-Error (`NOT_STARTED`):
+Error (`JOIN_NOT_OPEN`):
 ```json
 {
   "success": false,
-  "message": "Session has not started yet",
+  "message": "You can join only 10 minutes before class shift start time.",
   "errors": {
-    "code": "NOT_STARTED",
-    "startsAt": "2026-04-11T08:00:00.000Z"
+    "code": "JOIN_NOT_OPEN"
+  }
+}
+```
+
+Error (`JOIN_CLOSED`):
+```json
+{
+  "success": false,
+  "message": "Join window has closed. You can no longer join after the session start time.",
+  "errors": {
+    "code": "JOIN_CLOSED"
   }
 }
 ```

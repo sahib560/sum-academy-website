@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import toast, { Toaster } from "react-hot-toast";
@@ -7,8 +7,6 @@ import {
   FiClock,
   FiPlayCircle,
   FiRadio,
-  FiVolume2,
-  FiVolumeX,
 } from "react-icons/fi";
 import { Skeleton } from "../../components/Skeleton.jsx";
 import {
@@ -56,11 +54,7 @@ const formatCountdown = (seconds) => {
 function StudentLivePage() {
   const navigate = useNavigate();
   const [selectedSessionId, setSelectedSessionId] = useState("");
-  const [joinedSessions, setJoinedSessions] = useState({});
-  const [isMuted, setIsMuted] = useState(false);
   const [nowMs, setNowMs] = useState(Date.now());
-  const videoRef = useRef(null);
-  const seekLockRef = useRef(0);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -85,11 +79,11 @@ function StudentLivePage() {
     if (!sessions.length) return;
     if (selectedSessionId && sessions.some((row) => row.id === selectedSessionId)) return;
     const preferred =
-      sessions.find((row) => row.status === "live" && (row.isJoined || joinedSessions[row.id])) ||
+      sessions.find((row) => row.status === "live" && row.isJoined) ||
       sessions.find((row) => row.canJoin) ||
       sessions[0];
     if (preferred?.id) setSelectedSessionId(preferred.id);
-  }, [sessions, selectedSessionId, joinedSessions]);
+  }, [sessions, selectedSessionId]);
 
   const selectedSession = useMemo(
     () => sessions.find((row) => row.id === selectedSessionId) || null,
@@ -99,79 +93,14 @@ function StudentLivePage() {
   const selectedTiming = selectedSession?.timing || {};
   const startMs = new Date(selectedTiming.startAt || "").getTime();
   const endMs = new Date(selectedTiming.endAt || "").getTime();
-  const joined = Boolean(
-    selectedSession &&
-      (selectedSession.isJoined || joinedSessions[selectedSession.id] === true)
-  );
-  const isWaiting = joined && Number.isFinite(startMs) && nowMs < startMs;
-  const isLive = joined && Number.isFinite(startMs) && Number.isFinite(endMs) && nowMs >= startMs && nowMs < endMs;
+  const joined = Boolean(selectedSession?.isJoined);
   const hasEnded = Number.isFinite(endMs) && nowMs >= endMs;
   const countdownSec = Number.isFinite(startMs) ? Math.max(0, Math.floor((startMs - nowMs) / 1000)) : 0;
-
-  useEffect(() => {
-    if (!selectedSession || !joined || !isLive) return;
-    const video = videoRef.current;
-    if (!video) return;
-    video.play().catch(() => null);
-  }, [selectedSession, joined, isLive]);
-
-  useEffect(() => {
-    if (!isLive) return undefined;
-
-    const preventLeave = (event) => {
-      event.preventDefault();
-      event.returnValue = "Live class is running. Leaving now will disconnect your session.";
-      return event.returnValue;
-    };
-
-    const preventBack = () => {
-      window.history.pushState(null, "", window.location.href);
-      toast.error("You cannot leave this page until the live session ends.");
-    };
-
-    window.history.pushState(null, "", window.location.href);
-    window.addEventListener("beforeunload", preventLeave);
-    window.addEventListener("popstate", preventBack);
-
-    return () => {
-      window.removeEventListener("beforeunload", preventLeave);
-      window.removeEventListener("popstate", preventBack);
-    };
-  }, [isLive]);
-
-  useEffect(() => {
-    if (!hasEnded || !selectedSession) return;
-    const video = videoRef.current;
-    if (video) {
-      video.pause();
-      video.currentTime = 0;
-    }
-  }, [hasEnded, selectedSession]);
 
   const onJoin = (session) => {
     if (!session?.id) return;
     toast.success("Opening secure live page...");
     navigate(`/student/live/${session.id}`);
-  };
-
-  const handlePause = () => {
-    if (!isLive) return;
-    const video = videoRef.current;
-    if (!video) return;
-    video.play().catch(() => null);
-  };
-
-  const handleSeeking = () => {
-    if (!isLive) return;
-    const video = videoRef.current;
-    if (!video) return;
-    video.currentTime = seekLockRef.current;
-  };
-
-  const handleTimeUpdate = () => {
-    const video = videoRef.current;
-    if (!video) return;
-    seekLockRef.current = video.currentTime;
   };
 
   return (
@@ -184,7 +113,7 @@ function StudentLivePage() {
             <p className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-500">Student Live</p>
             <h2 className="mt-2 font-heading text-3xl text-slate-900">Live Sessions</h2>
             <p className="mt-2 text-sm text-slate-500">
-              Join window opens 10 minutes before shift time and remains open until session end.
+              Join window opens 10 minutes before shift time and closes at the exact start time.
             </p>
           </div>
           <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
@@ -250,7 +179,7 @@ function StudentLivePage() {
           </div>
         </div>
 
-        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           {selectedSession ? (
             <div className="space-y-4">
               <div className="flex items-start justify-between gap-3">
@@ -283,10 +212,13 @@ function StudentLivePage() {
                   </p>
                   <button
                     type="button"
+                    disabled={!selectedSession.canJoin && selectedSession.status !== "live"}
                     onClick={() => onJoin(selectedSession)}
-                    className="btn-primary mt-4 px-5 py-2"
+                    className="btn-primary mt-4 px-5 py-2 disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    Open Live Page
+                    {selectedSession.canJoin || selectedSession.status === "live"
+                      ? "Open Live Page"
+                      : "Join Opens 10 Minutes Before"}
                   </button>
                 </div>
               ) : hasEnded ? (
@@ -295,46 +227,21 @@ function StudentLivePage() {
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {isWaiting ? (
+                  {joined && Number.isFinite(startMs) && nowMs < startMs ? (
                     <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
                       Live starts in {formatCountdown(countdownSec)}. Playback will auto-start at shift time.
                     </div>
                   ) : null}
 
-                  <div className="relative overflow-hidden rounded-2xl border border-slate-900 bg-black">
-                    <video
-                      ref={videoRef}
-                      src={selectedSession.videoUrl || ""}
-                      className="aspect-video w-full bg-black"
-                      autoPlay={isLive}
-                      muted={isMuted}
-                      playsInline
-                      controls={false}
-                      disablePictureInPicture
-                      controlsList="nodownload noplaybackrate noremoteplayback nofullscreen"
-                      onPause={handlePause}
-                      onSeeking={handleSeeking}
-                      onTimeUpdate={handleTimeUpdate}
-                    />
-                    <div className="pointer-events-none absolute left-3 top-3 inline-flex items-center gap-2 rounded-full bg-black/55 px-3 py-1 text-xs font-semibold text-white">
-                      <span className="h-2 w-2 rounded-full bg-rose-500" />
-                      LIVE
-                    </div>
-                    <div className="absolute bottom-3 right-3">
-                      <button
-                        type="button"
-                        onClick={() => setIsMuted((prev) => !prev)}
-                        className="rounded-full bg-white/90 p-2 text-slate-700 shadow"
-                      >
-                        {isMuted ? <FiVolumeX className="h-4 w-4" /> : <FiVolume2 className="h-4 w-4" />}
-                      </button>
-                    </div>
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+                    Live playback happens on the dedicated Live page to enforce security (violations, tab-switch blocking, etc).
+                    Click "Open Live Page" above to continue.
                   </div>
 
                   <div className="rounded-2xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700">
                     <p className="font-semibold">Live session rules</p>
                     <p className="mt-1">
-                      Pause, seek and leaving this page are blocked while session is live. Keep this page open until session ends.
+                      You must stay on the Live page during the session. Tab switching/minimizing will be counted as violations.
                     </p>
                   </div>
                 </div>
@@ -358,7 +265,7 @@ function StudentLivePage() {
           </div>
           <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
             <p className="font-semibold">Late join support</p>
-            <p className="mt-1">Late join is allowed while the live session is still running.</p>
+            <p className="mt-1">Late join is blocked. Students must join before the start time.</p>
           </div>
           <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
             <p className="font-semibold">Playback lock</p>
