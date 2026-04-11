@@ -115,6 +115,11 @@ export default function LiveSession() {
   const status = statusQuery.data || {};
   const sync = syncQuery.data || {};
 
+  // Keep derived values used by hooks declared BEFORE any hook uses them.
+  const videoUrlRaw = String(sync.videoUrl || session.videoUrl || "").trim();
+  // Ensure any spaces are safely encoded (some stored URLs include spaces in filenames).
+  const videoUrl = videoUrlRaw ? encodeURI(videoUrlRaw) : "";
+
   const startAt = safeDate(session?.timing?.startAt) || toDateTime(session.sessionDate, session.shiftStartTime);
   const endAt = safeDate(session?.timing?.endAt) || toDateTime(session.sessionDate, session.shiftEndTime);
   const preSeconds = startAt ? Math.max(0, Math.floor((startAt.getTime() - nowMs) / 1000)) : 0;
@@ -357,9 +362,6 @@ export default function LiveSession() {
   const studentsOnline = Number(status.joinedCount || 0);
   const initials = getInitials(session.teacherName || "Teacher");
   const canJoin = Boolean(session.canJoin) || Boolean(status.canJoin);
-  const videoUrlRaw = String(sync.videoUrl || session.videoUrl || "").trim();
-  // Ensure any spaces are safely encoded (some stored URLs include spaces in filenames).
-  const videoUrl = videoUrlRaw ? encodeURI(videoUrlRaw) : "";
   const totalDurationSeconds = Math.max(
     0,
     (startAt && endAt ? Math.floor((endAt.getTime() - startAt.getTime()) / 1000) : 0)
