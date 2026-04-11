@@ -2492,16 +2492,35 @@ const buildStudentLiveSessions = async (uid) => {
       if (!lecture) return;
 
       const durationSeconds = resolveLiveVideoDurationSeconds(lecture, shift);
-      const occurrence = findNextShiftOccurrence({
-        shift,
-        classData,
-        durationSeconds,
-        now,
-      });
-      if (!occurrence) return;
 
-      const startAt = occurrence.startAt;
-      const endAt = occurrence.endAt;
+      // If lecture has an explicit live schedule, prefer it over shift-based occurrence.
+      // This allows admin/teacher to pick a specific date/time for the live video.
+      const scheduledStart = parseDate(lecture.liveStartAt);
+      const scheduledEnd = parseDate(lecture.liveEndAt);
+
+      let startAt = null;
+      let endAt = null;
+      let dateKey = "";
+
+      if (scheduledStart) {
+        startAt = scheduledStart;
+        endAt =
+          scheduledEnd ||
+          new Date(scheduledStart.getTime() + Math.max(60, durationSeconds) * 1000);
+        dateKey = formatSessionDate(startAt);
+      } else {
+        const occurrence = findNextShiftOccurrence({
+          shift,
+          classData,
+          durationSeconds,
+          now,
+        });
+        if (!occurrence) return;
+        startAt = occurrence.startAt;
+        endAt = occurrence.endAt;
+        dateKey = occurrence.dateKey;
+      }
+
       const joinOpenAt = new Date(startAt.getTime() - 10 * 60 * 1000);
       const joinCloseAt = startAt;
       const sessionId = buildLiveSessionId({
@@ -2509,7 +2528,7 @@ const buildStudentLiveSessions = async (uid) => {
         shiftId,
         subjectId,
         lectureId: trimText(lecture.id),
-        dateKey: occurrence.dateKey,
+        dateKey,
       });
       const accessRow = liveAccessMap[sessionId] || null;
       const joined = Boolean(accessRow) && accessRow.active !== false;
@@ -2584,7 +2603,7 @@ const buildStudentLiveSessions = async (uid) => {
           ) || null,
         videoMode: trimText(lecture.videoMode || "live_session"),
         isLiveSession: true,
-        sessionDate: occurrence.dateKey,
+        sessionDate: dateKey,
         joinWindow: {
           opensAt: joinOpenAt.toISOString(),
           closesAt: joinCloseAt.toISOString(),

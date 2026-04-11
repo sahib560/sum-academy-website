@@ -1842,6 +1842,8 @@ export const createTeacherVideoLibraryItem = async (req, res) => {
       isActive = true,
       isLiveSession = false,
       videoMode = "",
+      videoDuration = "",
+      durationSec = 0,
     } = req.body || {};
 
     const cleanTitle = trimText(title);
@@ -1888,6 +1890,11 @@ export const createTeacherVideoLibraryItem = async (req, res) => {
       teacherName: resolvedTeacherName,
       videoMode: liveFlag ? "live_session" : "recorded",
       isLiveSession: liveFlag,
+      videoDuration: videoDuration === null || videoDuration === undefined ? null : trimText(videoDuration),
+      durationSec: Math.max(
+        0,
+        toPositiveNumber(durationSec ?? 0, 0)
+      ),
       isActive: isActive !== false,
       createdBy: uid,
       createdAt: serverTimestamp(),
@@ -2364,6 +2371,7 @@ export const saveLectureContent = async (req, res) => {
       videoId,
       videoMode,
       isLiveSession,
+      liveStartAt,
     } = req.body || {};
     if (!uid) return errorResponse(res, "Missing teacher uid", 400);
     if (!lectureId) return errorResponse(res, "lectureId is required", 400);
@@ -2426,6 +2434,25 @@ export const saveLectureContent = async (req, res) => {
       );
       updates.premiereEndedAt = resolvedVideo.isLiveSession ? null : currentData.premiereEndedAt || null;
       firstLiveSession = Boolean(resolvedVideo.isFirstLiveSession);
+
+      // Live session scheduling (only for live videos):
+      // UI provides a start datetime, end is auto-calculated from lecture duration.
+      // If not provided, student live schedule falls back to class shift occurrence.
+      if (resolvedVideo.isLiveSession) {
+        const parsedStart = parseDate(liveStartAt);
+        if (parsedStart) {
+          const durationSec = Math.max(0, toPositiveNumber(updates.durationSec, 0));
+          const resolvedEnd = new Date(parsedStart.getTime() + Math.max(60, durationSec) * 1000);
+          updates.liveStartAt = parsedStart.toISOString();
+          updates.liveEndAt = resolvedEnd.toISOString();
+        } else if (liveStartAt !== undefined && liveStartAt !== null && trimText(liveStartAt)) {
+          return errorResponse(res, "liveStartAt must be a valid ISO date", 400);
+        }
+      } else {
+        // Recorded video should not keep live schedule fields.
+        updates.liveStartAt = null;
+        updates.liveEndAt = null;
+      }
     }
 
     if (normalizedType === "pdf" || normalizedType === "book") {
@@ -2525,6 +2552,8 @@ export const deleteLectureContent = async (req, res) => {
       updates.videoDuration = null;
       updates.durationSec = 0;
       updates.premiereEndedAt = null;
+      updates.liveStartAt = null;
+      updates.liveEndAt = null;
     }
 
     if (normalizedType === "pdf") {

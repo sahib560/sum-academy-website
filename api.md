@@ -2430,7 +2430,9 @@ Relevant APIs:
 - Auth: Bearer token (teacher or admin)
 - Path Params: `lectureId`
 - Query Params: None
-- Body Keys: `duration`, `isLiveSession`, `size`, `title`, `url`, `videoId`, `videoMode`
+- Body Keys: `duration`, `isLiveSession`, `liveStartAt`, `size`, `title`, `type`, `url`, `videoId`, `videoMode`
+- Notes:
+  - If `isLiveSession=true` you can pass `liveStartAt` (ISO string). Backend auto-calculates `liveEndAt` from lecture duration and stores both on the lecture.
 - Error Messages: `Missing teacher uid`, `lectureId is required`, `type must be video, pdf or book`, `Either videoId or url is required for video content.`, `Content title must be at least 3 characters`, `Content url is required`, `Failed to save lecture content`
 - Sample Success Response:
 
@@ -7642,6 +7644,13 @@ Cache policy:
 - If the live lecture has a known duration (`durationSec` / `videoDuration`), the live session **ends when the video ends**.
 - If duration is missing, the live session **falls back to shift duration**.
 - If the live video is longer than the shift, it can continue past shift end and will end when the video ends.
+
+**Live schedule fields (lecture-level)**
+- When a lecture is attached with a gallery video marked as `isLiveSession=true`, admin/teacher can provide `liveStartAt` (ISO).
+- Backend auto-calculates and stores:
+  - `liveStartAt` (ISO)
+  - `liveEndAt` (ISO) = `liveStartAt + durationSec`
+- Student live schedule prefers `lecture.liveStartAt/liveEndAt` when present; otherwise it falls back to shift-based occurrence.
 
 **Important endpoints**
 - List live sessions: `GET /api/student/live-sessions`

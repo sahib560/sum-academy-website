@@ -22,6 +22,36 @@ const toDateText = (value) => {
   });
 };
 
+const formatDurationLabel = (seconds = 0) => {
+  const safe = Math.max(0, Math.floor(Number(seconds || 0)));
+  const h = Math.floor(safe / 3600);
+  const m = Math.floor((safe % 3600) / 60);
+  const s = safe % 60;
+  if (h > 0) return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  return `${m}:${String(s).padStart(2, "0")}`;
+};
+
+const getLocalVideoDurationSec = (file) =>
+  new Promise((resolve) => {
+    try {
+      const url = URL.createObjectURL(file);
+      const video = document.createElement("video");
+      video.preload = "metadata";
+      video.src = url;
+      video.onloadedmetadata = () => {
+        const duration = Number(video.duration || 0);
+        URL.revokeObjectURL(url);
+        resolve(Number.isFinite(duration) ? Math.floor(duration) : 0);
+      };
+      video.onerror = () => {
+        URL.revokeObjectURL(url);
+        resolve(0);
+      };
+    } catch {
+      resolve(0);
+    }
+  });
+
 function AdminVideos() {
   const queryClient = useQueryClient();
   const [title, setTitle] = useState("");
@@ -29,6 +59,7 @@ function AdminVideos() {
   const [teacherId, setTeacherId] = useState("");
   const [uploadedVideo, setUploadedVideo] = useState(null);
   const [isLiveSession, setIsLiveSession] = useState(false);
+  const [durationSec, setDurationSec] = useState(0);
 
   const videosQuery = useQuery({
     queryKey: ["admin-videos"],
@@ -66,6 +97,7 @@ function AdminVideos() {
       setTitle("");
       setUploadedVideo(null);
       setIsLiveSession(false);
+      setDurationSec(0);
     },
     onError: (error) =>
       toast.error(error?.response?.data?.message || "Failed to save video"),
@@ -87,6 +119,8 @@ function AdminVideos() {
       teacherName: selectedTeacher?.fullName || "",
       isLiveSession,
       videoMode: isLiveSession ? "live_session" : "recorded",
+      durationSec: Math.max(0, Number(durationSec || 0)),
+      videoDuration: durationSec > 0 ? formatDurationLabel(durationSec) : "",
     });
   };
 
@@ -177,6 +211,8 @@ function AdminVideos() {
             hint="MP4, AVI, MOV - max 2GB"
             onUpload={async (file, { onProgress }) => {
               if (!courseId) throw new Error("Select subject first");
+              const duration = await getLocalVideoDurationSec(file);
+              setDurationSec(duration);
               const path = `videos/library/${courseId}/${Date.now()}-${file.name}`;
               const result = await uploadToStorage({ file, path, onProgress });
               setUploadedVideo(result);
@@ -184,6 +220,12 @@ function AdminVideos() {
             }}
           />
         </div>
+
+        {durationSec > 0 ? (
+          <p className="mt-2 text-xs text-slate-500">
+            Detected duration: <span className="font-semibold text-slate-700">{formatDurationLabel(durationSec)}</span>
+          </p>
+        ) : null}
 
         <div className="mt-4 flex justify-end">
           <button

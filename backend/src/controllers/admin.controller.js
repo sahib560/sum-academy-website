@@ -3016,6 +3016,8 @@ export const createVideoLibraryItem = async (req, res) => {
       isActive = true,
       isLiveSession = false,
       videoMode = "",
+      videoDuration = "",
+      durationSec = 0,
     } = req.body || {};
 
     if (String(title).trim().length < 3) {
@@ -3087,6 +3089,8 @@ export const createVideoLibraryItem = async (req, res) => {
       teacherName: resolvedTeacherName,
       videoMode: isLiveFlag ? "live_session" : "recorded",
       isLiveSession: isLiveFlag,
+      videoDuration: videoDuration === null || videoDuration === undefined ? null : String(videoDuration).trim(),
+      durationSec: Math.max(0, toSafeNumber(durationSec, 0)),
       isActive: isActive !== false,
       createdBy: req.user?.uid || "",
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
