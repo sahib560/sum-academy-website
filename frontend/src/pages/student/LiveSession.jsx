@@ -84,6 +84,8 @@ export default function LiveSession() {
   const [videoKey, setVideoKey] = useState(0);
   const videoRef = useRef(null);
   const seekLockRef = useRef(0);
+  const lastProgressRef = useRef({ atMs: 0, time: 0 });
+  const retryCountRef = useRef(0);
 
   const sessionQuery = useQuery({
     queryKey: ["student-session", sessionId],
@@ -287,6 +289,7 @@ export default function LiveSession() {
     const video = videoRef.current;
     if (!video) return;
     seekLockRef.current = video.currentTime;
+    lastProgressRef.current = { atMs: Date.now(), time: video.currentTime };
   };
 
   const handleUserStart = async () => {
@@ -303,6 +306,39 @@ export default function LiveSession() {
       setNeedsUserStart(true);
     }
   };
+
+  // Watchdog: if the video stays buffering with no progress, auto-retry a few times.
+  useEffect(() => {
+    if (!canPlayNow) return undefined;
+    if (!videoUrl) return undefined;
+
+    retryCountRef.current = 0;
+    lastProgressRef.current = { atMs: Date.now(), time: 0 };
+
+    const interval = setInterval(() => {
+      const video = videoRef.current;
+      if (!video) return;
+      const now = Date.now();
+      const last = lastProgressRef.current?.atMs || 0;
+      const stuck = Boolean(isBuffering) && now - last > 12000;
+      if (!stuck) return;
+
+      retryCountRef.current += 1;
+      if (retryCountRef.current <= 3) {
+        setVideoError("");
+        setNeedsUserStart(false);
+        setIsBuffering(true);
+        setVideoKey((v) => v + 1);
+      } else {
+        setVideoError(
+          "Live video is still buffering on desktop. Please check your internet, then press Retry."
+        );
+        setIsBuffering(false);
+      }
+    }, 6000);
+
+    return () => clearInterval(interval);
+  }, [canPlayNow, videoUrl, isBuffering]);
 
   if (statusQuery.isLoading || sessionQuery.isLoading || uiState === "loading") {
     return <div className="rounded-3xl bg-[#0d0f1a] p-8 text-white">Loading live session...</div>;
@@ -321,7 +357,9 @@ export default function LiveSession() {
   const studentsOnline = Number(status.joinedCount || 0);
   const initials = getInitials(session.teacherName || "Teacher");
   const canJoin = Boolean(session.canJoin) || Boolean(status.canJoin);
-  const videoUrl = String(sync.videoUrl || session.videoUrl || "").trim();
+  const videoUrlRaw = String(sync.videoUrl || session.videoUrl || "").trim();
+  // Ensure any spaces are safely encoded (some stored URLs include spaces in filenames).
+  const videoUrl = videoUrlRaw ? encodeURI(videoUrlRaw) : "";
   const totalDurationSeconds = Math.max(
     0,
     (startAt && endAt ? Math.floor((endAt.getTime() - startAt.getTime()) / 1000) : 0)
@@ -458,7 +496,7 @@ export default function LiveSession() {
                       className="aspect-video w-full bg-black"
                       autoPlay
                       muted={muted}
-                      preload="metadata"
+                      preload="auto"
                       playsInline
                       controls={false}
                       disablePictureInPicture
@@ -467,8 +505,18 @@ export default function LiveSession() {
                       onSeeking={handleSeeking}
                       onTimeUpdate={handleTimeUpdate}
                       onWaiting={() => setIsBuffering(true)}
-                      onCanPlay={() => setIsBuffering(false)}
-                      onPlaying={() => setIsBuffering(false)}
+                      onStalled={() => setIsBuffering(true)}
+                      onLoadedData={() => {
+                        lastProgressRef.current = { atMs: Date.now(), time: videoRef.current?.currentTime || 0 };
+                      }}
+                      onCanPlay={() => {
+                        setIsBuffering(false);
+                        lastProgressRef.current = { atMs: Date.now(), time: videoRef.current?.currentTime || 0 };
+                      }}
+                      onPlaying={() => {
+                        setIsBuffering(false);
+                        lastProgressRef.current = { atMs: Date.now(), time: videoRef.current?.currentTime || 0 };
+                      }}
                       onEnded={() => {
                         // End immediately when the live video ends (if shorter than shift).
                         toast.success("Live session ended");
@@ -484,8 +532,24 @@ export default function LiveSession() {
                     />
 
                     {isBuffering ? (
-                      <div className="pointer-events-none absolute inset-x-3 bottom-3 rounded-xl border border-white/10 bg-black/60 px-3 py-2 text-xs text-slate-100">
-                        Loading live video... (buffering)
+                      <div className="absolute inset-x-3 bottom-3 rounded-xl border border-white/10 bg-black/60 px-3 py-2 text-xs text-slate-100">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span>
+                            Loading live video... (buffering)
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setVideoError("");
+                              setNeedsUserStart(false);
+                              setIsBuffering(true);
+                              setVideoKey((v) => v + 1);
+                            }}
+                            className="rounded-full bg-white/10 px-3 py-1 text-[11px] font-semibold text-white"
+                          >
+                            Retry
+                          </button>
+                        </div>
                       </div>
                     ) : null}
 
