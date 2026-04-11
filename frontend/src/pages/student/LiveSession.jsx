@@ -81,6 +81,7 @@ export default function LiveSession() {
   const [needsUserStart, setNeedsUserStart] = useState(false);
   const [videoError, setVideoError] = useState("");
   const [isBuffering, setIsBuffering] = useState(false);
+  const [videoKey, setVideoKey] = useState(0);
   const videoRef = useRef(null);
   const seekLockRef = useRef(0);
 
@@ -242,7 +243,14 @@ export default function LiveSession() {
     const applySeek = () => {
       try {
         // Seek late joiners to current live position.
-        video.currentTime = elapsed;
+        // Clamp to actual media duration to avoid instantly triggering `ended` on desktop
+        // when elapsedSeconds > media duration (or when metadata reports a shorter duration).
+        const mediaDuration = Number.isFinite(video.duration) ? video.duration : null;
+        const targetTime =
+          mediaDuration && mediaDuration > 0
+            ? Math.min(elapsed, Math.max(0, mediaDuration - 0.25))
+            : elapsed;
+        video.currentTime = targetTime;
         seekLockRef.current = video.currentTime;
         const playPromise = video.play();
         if (playPromise && typeof playPromise.catch === "function") {
@@ -411,7 +419,7 @@ export default function LiveSession() {
             </div>
           </div>
 
-          <div className="grid gap-4 xl:grid-cols-[1.8fr_1fr]">
+          <div className="grid gap-4 lg:grid-cols-[1.8fr_1fr]">
             <div className="rounded-3xl border border-white/10 bg-[#111525] p-6">
               <div className="rounded-2xl border border-white/10 bg-[#171b2f] p-6 text-center">
                 <p className="text-sm text-slate-300">Live Premiere</p>
@@ -444,10 +452,10 @@ export default function LiveSession() {
                       </div>
                     ) : null}
                     <video
+                      key={`${videoUrl}_${videoKey}`}
                       ref={videoRef}
                       src={videoUrl || ""}
                       className="aspect-video w-full bg-black"
-                      crossOrigin="anonymous"
                       autoPlay
                       muted={muted}
                       preload="metadata"
@@ -500,7 +508,21 @@ export default function LiveSession() {
 
                     {videoError ? (
                       <div className="absolute inset-x-3 bottom-3 rounded-xl border border-rose-400/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-100">
-                        {videoError}
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span>{videoError}</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setVideoError("");
+                              setIsBuffering(true);
+                              setVideoKey((v) => v + 1);
+                              setTimeout(() => setIsBuffering(false), 1200);
+                            }}
+                            className="pointer-events-auto rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-white"
+                          >
+                            Retry
+                          </button>
+                        </div>
                       </div>
                     ) : null}
 

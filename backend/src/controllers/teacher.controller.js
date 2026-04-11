@@ -2325,7 +2325,6 @@ export const addLecture = async (req, res) => {
       order: finalOrder,
       videoUrl: null,
       videoTitle: null,
-      videoDuration: null,
       durationSec: 0,
       premiereEndedAt: null,
       pdfNotes: [],
@@ -2499,6 +2498,8 @@ export const saveLectureContent = async (req, res) => {
       );
       // Single source of truth: durationSec. Remove legacy string duration field if present.
       updates.videoDuration = admin.firestore.FieldValue.delete();
+      // If a video is attached, lecture becomes publishable/visible.
+      updates.isPublished = true;
       updates.premiereEndedAt = resolvedVideo.isLiveSession ? null : currentData.premiereEndedAt || null;
       firstLiveSession = Boolean(resolvedVideo.isFirstLiveSession);
 
