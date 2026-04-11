@@ -290,6 +290,8 @@ function Courses() {
     title: "",
     file: null,
     libraryVideoId: "",
+    liveStartDate: "",
+    liveStartTime: "",
     saveToGallery: false,
     isLiveSession: false,
     progress: 0,
@@ -686,6 +688,27 @@ function Courses() {
       return;
     }
 
+    const isLive = Boolean(selectedLibraryVideo.isLiveSession);
+    if (isLive) {
+      if (!String(videoState.liveStartDate || "").trim()) {
+        setVideoState((prev) => ({ ...prev, error: "Select live session start date." }));
+        return;
+      }
+      if (!String(videoState.liveStartTime || "").trim()) {
+        setVideoState((prev) => ({ ...prev, error: "Select live session start time." }));
+        return;
+      }
+    }
+
+    const liveStartAtIso = (() => {
+      if (!isLive) return "";
+      const date = String(videoState.liveStartDate || "").trim();
+      const time = String(videoState.liveStartTime || "").trim();
+      const parsed = new Date(`${date}T${time}`);
+      if (Number.isNaN(parsed.getTime())) return "";
+      return parsed.toISOString();
+    })();
+
     setVideoState((prev) => ({
       ...prev,
       status: "processing",
@@ -707,6 +730,7 @@ function Courses() {
           videoMode: selectedLibraryVideo.videoMode || (selectedLibraryVideo.isLiveSession ? "live_session" : "recorded"),
           size: Number(selectedLibraryVideo.size || 0),
           subjectId: activeSubject.id,
+          ...(liveStartAtIso ? { liveStartAt: liveStartAtIso } : {}),
         },
       });
 
@@ -714,6 +738,8 @@ function Courses() {
         title: "",
         file: null,
         libraryVideoId: "",
+        liveStartDate: "",
+        liveStartTime: "",
         saveToGallery: false,
         isLiveSession: false,
         progress: 100,
@@ -1641,6 +1667,60 @@ function Courses() {
             )}
             <FieldError message={videoState.error} />
           </div>
+
+          {(() => {
+            const selectedLibraryVideo = courseVideoLibrary.find(
+              (row) => String(row.id) === String(videoState.libraryVideoId || "")
+            );
+            if (!selectedLibraryVideo?.isLiveSession) return null;
+
+            const durationSec = Number(selectedLibraryVideo.durationSec || 0);
+            const startPreview = videoState.liveStartDate && videoState.liveStartTime
+              ? new Date(`${videoState.liveStartDate}T${videoState.liveStartTime}`)
+              : null;
+            const endPreview =
+              startPreview && Number.isFinite(startPreview.getTime()) && durationSec > 0
+                ? new Date(startPreview.getTime() + durationSec * 1000)
+                : null;
+
+            return (
+              <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
+                <p className="text-xs font-semibold text-blue-900">
+                  Live Session Schedule (required)
+                </p>
+                <div className="mt-3 grid gap-3 md:grid-cols-2">
+                  <div>
+                    <label className="text-xs font-semibold text-blue-900">Start Date</label>
+                    <input
+                      type="date"
+                      value={videoState.liveStartDate}
+                      onChange={(e) =>
+                        setVideoState((p) => ({ ...p, liveStartDate: e.target.value, error: "" }))
+                      }
+                      className="mt-1 w-full rounded-2xl border border-blue-200 bg-white px-4 py-3 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-blue-900">Start Time</label>
+                    <input
+                      type="time"
+                      value={videoState.liveStartTime}
+                      onChange={(e) =>
+                        setVideoState((p) => ({ ...p, liveStartTime: e.target.value, error: "" }))
+                      }
+                      className="mt-1 w-full rounded-2xl border border-blue-200 bg-white px-4 py-3 text-sm"
+                    />
+                  </div>
+                </div>
+                <p className="mt-2 text-[11px] text-blue-800">
+                  End time is auto-calculated from video length.
+                  {endPreview
+                    ? ` Ends at: ${endPreview.toLocaleString()}`
+                    : ""}
+                </p>
+              </div>
+            );
+          })()}
           {videoState.status !== "idle" ? (
             <div className="rounded-xl border border-slate-200 p-3">
               <div className="flex items-center justify-between text-xs text-slate-500">

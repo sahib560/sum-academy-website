@@ -3123,6 +3123,7 @@ export const addCourseContent = async (req, res) => {
       title,
       url,
       videoId,
+      liveStartAt,
       size = 0,
       contentType = "",
       noteType = "",
@@ -3216,6 +3217,14 @@ export const addCourseContent = async (req, res) => {
       resolvedVideoMeta = {
         videoMode: String(videoData.videoMode || "").trim().toLowerCase(),
         isLiveSession: Boolean(videoData.isLiveSession),
+        durationSec: Math.max(
+          0,
+          toSafeNumber(
+            videoData.durationSec ?? videoData.videoDurationSec ?? videoData.totalDurationSec,
+            0
+          )
+        ),
+        videoDuration: String(videoData.videoDuration || "").trim(),
       };
     }
 
@@ -3229,6 +3238,8 @@ export const addCourseContent = async (req, res) => {
 
     let videoMode = "recorded";
     let resolvedIsLiveSession = false;
+    let resolvedDurationSec = 0;
+    let resolvedVideoDuration = "";
     if (type === "video") {
       const requestedLive = parseNullableBoolean(isLiveSession);
       const requestedMode = String(requestedVideoMode || "").trim().toLowerCase();
@@ -3263,7 +3274,25 @@ export const addCourseContent = async (req, res) => {
         resolvedIsLiveSession = preferredLive === true;
         videoMode = resolvedIsLiveSession ? "live_session" : "recorded";
       }
+
+      resolvedDurationSec = Math.max(0, toSafeNumber(resolvedVideoMeta?.durationSec, 0));
+      resolvedVideoDuration = String(resolvedVideoMeta?.videoDuration || "").trim();
     }
+
+    const parseDateValue = (value) => {
+      if (!value) return null;
+      const parsed = new Date(value);
+      return Number.isNaN(parsed.getTime()) ? null : parsed;
+    };
+
+    const resolvedLiveStart = resolvedIsLiveSession ? parseDateValue(liveStartAt) : null;
+    if (resolvedIsLiveSession && liveStartAt && !resolvedLiveStart) {
+      return errorResponse(res, "liveStartAt must be a valid ISO date", 400);
+    }
+    const resolvedLiveEnd =
+      resolvedIsLiveSession && resolvedLiveStart
+        ? new Date(resolvedLiveStart.getTime() + Math.max(60, resolvedDurationSec || 0) * 1000)
+        : null;
 
     const contentData = {
       id: uuidv4(),
@@ -3274,6 +3303,11 @@ export const addCourseContent = async (req, res) => {
       videoId: resolvedVideoId || null,
       videoMode,
       isLiveSession: resolvedIsLiveSession,
+      durationSec: resolvedDurationSec,
+      videoDuration: resolvedVideoDuration || "",
+      liveStartAt: resolvedLiveStart ? resolvedLiveStart.toISOString() : null,
+      liveEndAt: resolvedLiveEnd ? resolvedLiveEnd.toISOString() : null,
+      premiereEndedAt: null,
       size: toSafeNumber(size, 0),
       contentType: contentType || "",
       noteType: noteType || "",

@@ -4542,7 +4542,10 @@ Relevant APIs:
 - Auth: Bearer token (admin)
 - Path Params: `subjectId`
 - Query Params: None
-- Body Keys: `contentType`, `isLiveSession`, `noteType`, `size`, `title`, `type`, `url`, `videoId`
+- Body Keys: `contentType`, `isLiveSession`, `liveStartAt`, `noteType`, `size`, `title`, `type`, `url`, `videoId`
+- Notes:
+  - If the selected gallery video is a Live Session (`isLiveSession=true`), you can pass `liveStartAt` (ISO string).
+  - Backend stores `liveStartAt` and auto-calculates `liveEndAt` using the gallery video `durationSec`.
 - Success Messages: `Content added`
 - Error Messages: `type is required`, `Invalid content type`, `Course not found`, `Subject not found`, `Video not found in library`, `Selected video has no URL`, `title and url are required (or pass valid videoId)`, `Failed to add content`
 - Sample Success Response:

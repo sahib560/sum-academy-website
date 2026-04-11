@@ -2393,7 +2393,7 @@ const buildStudentLiveSessions = async (uid) => {
     });
   });
 
-  const [subjectSnaps, liveAccessSnap, lectureRowsBySubject, progressSnap] = await Promise.all([
+  const [subjectSnaps, liveAccessSnap, lectureRowsBySubject, liveContentBySubject, progressSnap] = await Promise.all([
     Promise.all(
       [...subjectIds].map(async (subjectId) => {
         const [subjectSnap, courseSnap] = await Promise.all([
@@ -2418,6 +2418,42 @@ const buildStudentLiveSessions = async (uid) => {
         lectures: await getCourseLectures(subjectId),
       }))
     ),
+    Promise.all(
+      [...subjectIds].map(async (subjectId) => {
+        try {
+          const [subjectSnap, courseSnap] = await Promise.all([
+            db.collection(COLLECTIONS.SUBJECTS).doc(subjectId).get(),
+            db.collection(COLLECTIONS.COURSES).doc(subjectId).get(),
+          ]);
+          const parentRef = subjectSnap.exists ? subjectSnap.ref : courseSnap.exists ? courseSnap.ref : null;
+          if (!parentRef) return { subjectId, videos: [] };
+          const snap = await parentRef.collection("content").get();
+          const videos = snap.docs
+            .map((doc) => ({ id: doc.id, ...(doc.data() || {}) }))
+            .filter((row) => lowerText(row.type) === "video" && row.isLiveSession === true)
+            .filter((row) => Boolean(trimText(row.url)))
+            .map((row) => ({
+              id: trimText(row.id),
+              title: trimText(row.title) || "Live Session",
+              url: trimText(row.url),
+              videoMode: trimText(row.videoMode || "live_session"),
+              isLiveSession: true,
+              durationSec: Math.max(
+                0,
+                toNumber(row.durationSec ?? row.videoDurationSec ?? row.totalDurationSec, 0)
+              ),
+              videoDuration: trimText(row.videoDuration),
+              liveStartAt: trimText(row.liveStartAt),
+              liveEndAt: trimText(row.liveEndAt),
+              premiereEndedAt: row.premiereEndedAt || null,
+              parentType: subjectSnap.exists ? "subject" : "course",
+            }));
+          return { subjectId, videos };
+        } catch {
+          return { subjectId, videos: [] };
+        }
+      })
+    ),
     db
       .collection(COLLECTIONS.PROGRESS)
       .where("studentId", "==", uid)
@@ -2429,6 +2465,27 @@ const buildStudentLiveSessions = async (uid) => {
     acc[row.id] = row.data || {};
     return acc;
   }, {});
+  const contentLiveMap = (Array.isArray(liveContentBySubject) ? liveContentBySubject : []).reduce(
+    (acc, row) => {
+      const subjectId = trimText(row.subjectId);
+      if (!subjectId) return acc;
+      const videos = Array.isArray(row.videos) ? row.videos : [];
+      const nowMs = now.getTime();
+      const next = videos
+        .filter((video) => {
+          if (!video.liveStartAt) return false;
+          if (video.premiereEndedAt) return false;
+          const end = parseDate(video.liveEndAt);
+          if (end && end.getTime() <= nowMs) return false;
+          return true;
+        })
+        .sort((a, b) => (parseDate(a.liveStartAt)?.getTime() || 0) - (parseDate(b.liveStartAt)?.getTime() || 0))[0];
+      acc[subjectId] = next || null;
+      return acc;
+    },
+    {}
+  );
+
   const lectureMap = lectureRowsBySubject.reduce((acc, row) => {
     const liveLectures = (Array.isArray(row.lectures) ? row.lectures : [])
       .filter((lecture) => {
@@ -2450,7 +2507,42 @@ const buildStudentLiveSessions = async (uid) => {
     const nextLiveLecture =
       liveLectures.find((lecture) => !lecture?.premiereEndedAt) || liveLectures[0] || null;
 
-    acc[row.subjectId] = nextLiveLecture || null;
+    const subjectId = trimText(row.subjectId);
+    const contentLive = contentLiveMap[subjectId] || null;
+
+    if (nextLiveLecture) {
+      // If lecture doesn't have explicit schedule, but admin subject-content has it, use that schedule for live session.
+      if (!nextLiveLecture.liveStartAt && contentLive?.liveStartAt) {
+        acc[subjectId] = {
+          ...nextLiveLecture,
+          liveStartAt: contentLive.liveStartAt,
+          liveEndAt: contentLive.liveEndAt || null,
+        };
+      } else {
+        acc[subjectId] = nextLiveLecture;
+      }
+      return acc;
+    }
+
+    if (contentLive) {
+      acc[subjectId] = {
+        id: `content_${contentLive.id}`,
+        title: contentLive.title,
+        videoUrl: contentLive.url,
+        videoMode: contentLive.videoMode || "live_session",
+        isLiveSession: true,
+        durationSec: contentLive.durationSec,
+        videoDuration: contentLive.videoDuration,
+        liveStartAt: contentLive.liveStartAt,
+        liveEndAt: contentLive.liveEndAt,
+        premiereEndedAt: contentLive.premiereEndedAt || null,
+        __source: "subject_content",
+        __contentId: contentLive.id,
+      };
+      return acc;
+    }
+
+    acc[subjectId] = null;
     return acc;
   }, {});
 
@@ -2692,13 +2784,35 @@ const buildStudentLiveSessions = async (uid) => {
         lowerText(lecture?.videoMode || "") === "live_session" &&
         !lecture?.premiereEndedAt
       ) {
-        lectureFinalizePromises.push(
-          db
-            .collection(COLLECTIONS.LECTURES)
-            .doc(trimText(lecture.id))
-            .set({ premiereEndedAt: serverTimestamp(), updatedAt: serverTimestamp() }, { merge: true })
-            .catch(() => null)
-        );
+        if (lecture.__source === "subject_content" && lecture.__contentId) {
+          // Best-effort: mark content live session ended so next one can become active.
+          lectureFinalizePromises.push(
+            (async () => {
+              try {
+                const [subjectSnap, courseSnap] = await Promise.all([
+                  db.collection(COLLECTIONS.SUBJECTS).doc(subjectId).get(),
+                  db.collection(COLLECTIONS.COURSES).doc(subjectId).get(),
+                ]);
+                const parentRef = subjectSnap.exists ? subjectSnap.ref : courseSnap.exists ? courseSnap.ref : null;
+                if (!parentRef) return;
+                await parentRef
+                  .collection("content")
+                  .doc(trimText(lecture.__contentId))
+                  .set({ premiereEndedAt: serverTimestamp(), updatedAt: serverTimestamp() }, { merge: true });
+              } catch {
+                // ignore
+              }
+            })()
+          );
+        } else {
+          lectureFinalizePromises.push(
+            db
+              .collection(COLLECTIONS.LECTURES)
+              .doc(trimText(lecture.id))
+              .set({ premiereEndedAt: serverTimestamp(), updatedAt: serverTimestamp() }, { merge: true })
+              .catch(() => null)
+          );
+        }
       }
     });
   });
