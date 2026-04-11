@@ -7639,6 +7639,7 @@ Cache policy:
 
 **Important collections**
 - Live schedule is computed from `classes.shifts` + the first lecture marked `isLiveSession=true` (with a valid `videoUrl`) inside each subject.
+- If a live lecture (or subject content live video) has `liveStartAt/liveEndAt`, the system will use that exact schedule instead of the shift time.
 - **Student join/attendance** state is stored in Firestore collection `liveSessionAccess` (one doc per student per session id).
 - The **actual live/recorded video URL** comes from the **lecture** document in `lectures` (`videoUrl` / `streamUrl` / `playbackUrl` / `signedUrl`).
 - `liveSessionAccess` does not store the video file; it stores join state and completion flags (example: `lectureCompleted`).

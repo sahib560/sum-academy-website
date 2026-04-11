@@ -2465,6 +2465,9 @@ const buildStudentLiveSessions = async (uid) => {
     acc[row.id] = row.data || {};
     return acc;
   }, {});
+
+  // "now" is needed for filtering upcoming/active live content sessions.
+  const now = new Date();
   const contentLiveMap = (Array.isArray(liveContentBySubject) ? liveContentBySubject : []).reduce(
     (acc, row) => {
       const subjectId = trimText(row.subjectId);
@@ -2567,7 +2570,6 @@ const buildStudentLiveSessions = async (uid) => {
     return acc;
   }, {});
 
-  const now = new Date();
   const sessions = [];
 
   classRows.forEach((classData) => {
