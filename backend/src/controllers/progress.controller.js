@@ -692,6 +692,7 @@ export const buildCourseContentForStudent = async (
       const completionLocked = enrollmentCompleted && !manualAccess;
       const completedLectureLocked = isCompleted && !manualAccess;
       const missingVideoLocked = !hasVideoSource;
+      const livePremiereLocked = isPremiereLive;
       const permanentlyLocked = permanentlyCompleted;
 
       let isLocked = false;
@@ -708,6 +709,9 @@ export const buildCourseContentForStudent = async (
       } else if (manualLock) {
         isLocked = true;
         lockReason = "Locked by teacher/admin";
+      } else if (livePremiereLocked) {
+        isLocked = true;
+        lockReason = "This is a scheduled live session. Join it from the Live page during class time.";
       } else if (missingVideoLocked) {
         isLocked = true;
         lockReason = "Lecture video is not uploaded yet";
@@ -777,6 +781,7 @@ export const buildCourseContentForStudent = async (
             (completionLocked || permanentlyLocked) &&
             !isPaymentLockedByState &&
             !isClassLockedByState,
+          isLiveLocked: livePremiereLocked,
           manuallyUnlocked: manualAccess && !permanentlyLocked,
         },
         lockAfterCompletion: enrollmentCompleted || permanentlyCompleted,

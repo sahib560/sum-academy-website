@@ -4997,6 +4997,41 @@ export const markSessionComplete = async (req, res) => {
   }
 };
 
+export const unlockSession = async (req, res) => {
+  try {
+    const uid = trimText(req.user?.uid);
+    const role = lowerText(req.user?.role);
+    const sessionId = trimText(req.params?.sessionId);
+    if (!uid) return errorResponse(res, "Missing user uid", 400);
+    if (!sessionId) return errorResponse(res, "sessionId is required", 400);
+
+    const sessionRef = db.collection(COLLECTIONS.SESSIONS).doc(sessionId);
+    const sessionSnap = await sessionRef.get();
+    if (!sessionSnap.exists) return errorResponse(res, "Session not found", 404);
+
+    const sessionData = sessionSnap.data() || {};
+    if (role !== "admin" && trimText(sessionData.teacherId) !== uid) {
+      return errorResponse(res, "Forbidden", 403);
+    }
+
+    await sessionRef.set(
+      {
+        isLocked: false,
+        sessionLocked: false,
+        unlockedBy: uid,
+        unlockedAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    );
+
+    return successResponse(res, { sessionId }, "Session unlocked");
+  } catch (error) {
+    console.error("unlockSession error:", error);
+    return errorResponse(res, "Failed to unlock session", 500);
+  }
+};
+
 export const getSessionAttendance = async (req, res) => {
   try {
     const uid = trimText(req.user?.uid);

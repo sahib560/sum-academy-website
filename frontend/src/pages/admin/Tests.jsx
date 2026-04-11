@@ -1,6 +1,8 @@
 import TestsManager from "../../components/tests/TestsManager.jsx";
 import {
+  bulkUploadAdminTest,
   createAdminTest,
+  downloadAdminTestTemplate,
   getAdminTestById,
   getAdminTests,
   getClasses,
@@ -14,6 +16,8 @@ function AdminTests() {
       createTest={createAdminTest}
       fetchClasses={getClasses}
       fetchTestById={getAdminTestById}
+      bulkUploadTest={bulkUploadAdminTest}
+      downloadTestTemplate={downloadAdminTestTemplate}
     />
   );
 }

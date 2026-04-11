@@ -404,9 +404,15 @@ function StudentQuizAttempt() {
   }, [submittedResult]);
 
   if (submittedResult && resultSummary) {
+    const isPassed = Boolean(submittedResult.isPassed);
+    const studentName =
+      userProfile?.fullName ||
+      userProfile?.name ||
+      userProfile?.displayName ||
+      "Student";
     return (
       <div
-        className="protected-zone quiz-content relative min-h-screen bg-slate-50 px-4 py-8 protected-content"
+        className="protected-zone quiz-content relative min-h-screen bg-slate-950 px-4 py-8 protected-content"
         style={{ position: "relative" }}
       >
         <Toaster position="top-right" />
@@ -419,126 +425,78 @@ function StudentQuizAttempt() {
           }
           email={String(userProfile?.email || "")}
         />
-        <div className="mx-auto max-w-3xl space-y-6">
+        <div className="mx-auto max-w-3xl">
           <Motion.section
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
-            className="relative overflow-hidden rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-sm"
+            className="relative mx-auto max-w-xl overflow-hidden rounded-[24px] border border-[#252a45] bg-gradient-to-br from-[#0d0f1a] to-[#12162b] p-8 text-center"
           >
-            <div className="pointer-events-none absolute inset-0">
-              {Array.from({ length: 28 }).map((_, index) => (
-                <span
-                  key={`result-confetti-${index}`}
-                  className="absolute h-2 w-2 animate-bounce rounded-full"
-                  style={{
-                    left: `${(index * 13) % 95}%`,
-                    top: `${(index * 17) % 90}%`,
-                    backgroundColor: "#4a63f5",
-                    opacity: 0.7,
-                    animationDelay: `${(index % 7) * 0.08}s`,
-                  }}
-                />
+            <div
+              className={`pointer-events-none absolute right-0 top-0 h-[120px] w-[120px] ${
+                isPassed ? "bg-emerald-600/10" : "bg-rose-600/10"
+              }`}
+              style={{ borderRadius: "0 24px 0 120px" }}
+            />
+
+            <div className="mx-auto mb-5 flex h-11 w-11 items-center justify-center rounded-xl bg-[#4a63f5]">
+              <span className="text-sm font-bold text-white">S</span>
+            </div>
+
+            <div
+              className={`mx-auto mb-6 inline-flex items-center gap-1 rounded-full border px-5 py-1 text-xs font-bold ${
+                isPassed
+                  ? "border-emerald-500 bg-emerald-500/15 text-emerald-400"
+                  : "border-rose-500 bg-rose-500/15 text-rose-400"
+              }`}
+            >
+              {isPassed ? "PASSED" : "FAILED"}
+            </div>
+
+            <div
+              className={`mx-auto mb-6 flex h-36 w-36 flex-col items-center justify-center rounded-full border-[6px] ${
+                isPassed
+                  ? "border-emerald-500 bg-emerald-500/10"
+                  : "border-rose-500 bg-rose-500/10"
+              }`}
+            >
+              <span className={`text-4xl font-extrabold ${isPassed ? "text-emerald-400" : "text-rose-400"}`}>
+                {animatedPercent}%
+              </span>
+              <span className="text-xs text-slate-400">score</span>
+            </div>
+
+            <h2 className="text-xl font-bold text-white">{studentName}</h2>
+            <p className="mt-1 text-xs text-slate-400">{quiz.title}</p>
+
+            <div className="mt-6 grid grid-cols-3 gap-2">
+              {[
+                {
+                  label: "Score",
+                  value: `${toNumber(submittedResult.autoScore, 0)}/${toNumber(submittedResult.totalMarks, 0)}`,
+                },
+                { label: "Your Rank", value: `#${submittedResult.rank || "—"}` },
+                { label: "Pass Mark", value: `${toNumber(quiz.passScore, 50)}%` },
+              ].map((item) => (
+                <div key={item.label} className="rounded-xl bg-slate-800/80 px-2 py-3">
+                  <p className="text-sm font-bold text-[#4a63f5]">{item.value}</p>
+                  <p className="text-[11px] text-slate-400">{item.label}</p>
+                </div>
               ))}
             </div>
 
-            <div className="mx-auto flex h-36 w-36 items-center justify-center rounded-full border-[10px] border-primary/20">
-              <span className="text-3xl font-semibold text-slate-900">
-                {animatedPercent}%
-              </span>
-            </div>
-
-            <p className="mt-4 text-lg font-semibold text-primary">Result Summary</p>
-            <p className="mt-2 text-sm text-slate-600">
-              Score: {resultSummary.totalScore} / {resultSummary.totalMarks} marks (
-              {Math.round(resultSummary.percentage)}%)
-            </p>
-
-            <div className="mt-6 grid gap-3 sm:grid-cols-3">
-              <div className="rounded-2xl border border-slate-200 p-3">
-                <p className="text-xs text-slate-500">Correct</p>
-                <p className="mt-1 text-xl font-semibold text-emerald-600">
-                  {resultSummary.correct}
-                </p>
+            {toNumber(submittedResult.shortAnswerPending, 0) > 0 ? (
+              <div className="mt-5 rounded-xl border border-[#ff6f0f] bg-[#ff6f0f]/10 px-3 py-2 text-xs text-[#ff6f0f]">
+                {toNumber(submittedResult.shortAnswerPending, 0)} short answer(s) pending teacher review. Final score may change.
               </div>
-              <div className="rounded-2xl border border-slate-200 p-3">
-                <p className="text-xs text-slate-500">Wrong</p>
-                <p className="mt-1 text-xl font-semibold text-rose-600">
-                  {resultSummary.wrong}
-                </p>
-              </div>
-              <div className="rounded-2xl border border-slate-200 p-3">
-                <p className="text-xs text-slate-500">Pending Review</p>
-                <p className="mt-1 text-xl font-semibold text-amber-600">
-                  {resultSummary.pending}
-                </p>
-              </div>
-            </div>
+            ) : null}
 
-            {resultSummary.pending > 0 && (
-              <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">
-                Your short answer questions are pending teacher review. Final score may
-                change.
-              </div>
-            )}
-
-            <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
-              <button className="btn-outline" onClick={() => setShowReview((prev) => !prev)}>
-                {showReview ? "Hide Review" : "Review Answers"}
-              </button>
-              <Link className="btn-primary" to="/student/quizzes">
+            <p className="mt-4 text-xs text-slate-500">Submitted: {new Date().toLocaleString()}</p>
+            <div className="mt-5">
+              <Link className="inline-flex rounded-full bg-[#4a63f5] px-6 py-2 text-sm font-semibold text-white" to="/student/quizzes">
                 Back to Quizzes
               </Link>
             </div>
           </Motion.section>
-
-          {showReview && (
-            <Motion.section
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="space-y-3"
-            >
-              {questions.map((question, index) => {
-                const row = resultSummary.rows.find(
-                  (item) => item.questionId === question.questionId
-                );
-                const answerValue = answers[question.questionId];
-                const isShort = question.type === "short_answer";
-                const statusText = isShort
-                  ? "Pending teacher review"
-                  : row?.isCorrect === true
-                    ? "Correct"
-                    : row?.isCorrect === false
-                      ? "Wrong"
-                      : "Not answered";
-                const statusClass = isShort
-                  ? "bg-amber-50 text-amber-700"
-                  : row?.isCorrect === true
-                    ? "bg-emerald-50 text-emerald-600"
-                    : row?.isCorrect === false
-                      ? "bg-rose-50 text-rose-600"
-                      : "bg-slate-100 text-slate-600";
-
-                return (
-                  <div
-                    key={question.questionId}
-                    className="rounded-2xl border border-slate-200 bg-white p-4"
-                  >
-                    <div className="flex flex-wrap items-start justify-between gap-2">
-                      <p className="font-semibold text-slate-900">
-                        Q{index + 1}. {question.questionText}
-                      </p>
-                      <span className={`rounded-full px-3 py-1 text-xs font-semibold ${statusClass}`}>
-                        {statusText}
-                      </span>
-                    </div>
-                    <p className="mt-2 text-sm text-slate-600">
-                      Your answer: {answerValue === undefined ? "Not answered" : String(answerValue)}
-                    </p>
-                  </div>
-                );
-              })}
-            </Motion.section>
-          )}
         </div>
       </div>
     );

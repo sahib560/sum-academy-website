@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import toast, { Toaster } from "react-hot-toast";
 import {
   FiCalendar,
@@ -12,7 +13,6 @@ import {
 import { Skeleton } from "../../components/Skeleton.jsx";
 import {
   getStudentLiveSessions,
-  joinStudentLiveSession,
 } from "../../services/student.service.js";
 
 const STATUS_STYLES = {
@@ -54,6 +54,7 @@ const formatCountdown = (seconds) => {
 };
 
 function StudentLivePage() {
+  const navigate = useNavigate();
   const [selectedSessionId, setSelectedSessionId] = useState("");
   const [joinedSessions, setJoinedSessions] = useState({});
   const [isMuted, setIsMuted] = useState(false);
@@ -94,22 +95,6 @@ function StudentLivePage() {
     () => sessions.find((row) => row.id === selectedSessionId) || null,
     [sessions, selectedSessionId]
   );
-
-  const joinMutation = useMutation({
-    mutationFn: (sessionId) => joinStudentLiveSession(sessionId),
-    onSuccess: (payload, sessionId) => {
-      setJoinedSessions((prev) => ({ ...prev, [sessionId]: true }));
-      if (payload?.waiting) {
-        toast.success("Joined waiting room. Live starts at shift time.");
-      } else {
-        toast.success("Joined live session.");
-      }
-      liveQuery.refetch();
-    },
-    onError: (error) => {
-      toast.error(error?.response?.data?.message || "Failed to join live session");
-    },
-  });
 
   const selectedTiming = selectedSession?.timing || {};
   const startMs = new Date(selectedTiming.startAt || "").getTime();
@@ -165,7 +150,8 @@ function StudentLivePage() {
 
   const onJoin = (session) => {
     if (!session?.id) return;
-    joinMutation.mutate(session.id);
+    toast.success("Opening secure live page...");
+    navigate(`/student/live/${session.id}`);
   };
 
   const handlePause = () => {
@@ -298,10 +284,9 @@ function StudentLivePage() {
                   <button
                     type="button"
                     onClick={() => onJoin(selectedSession)}
-                    disabled={!selectedSession.canJoin || joinMutation.isPending}
-                    className="btn-primary mt-4 px-5 py-2 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="btn-primary mt-4 px-5 py-2"
                   >
-                    {joinMutation.isPending ? "Joining..." : "Join Live Session"}
+                    Open Live Page
                   </button>
                 </div>
               ) : hasEnded ? (

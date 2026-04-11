@@ -463,6 +463,8 @@ const syncSessionLifecycle = async () => {
         doc.ref,
         {
           status: "completed",
+          sessionLocked: true,
+          isLocked: true,
           autoEnded: true,
           autoEndedAt: admin.firestore.FieldValue.serverTimestamp(),
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),

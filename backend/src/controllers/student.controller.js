@@ -1509,11 +1509,18 @@ const gradeObjectiveAnswer = (question = {}, rawAnswer) => {
   const answerText = trimText(rawAnswer);
   const letterMap = { A: 0, B: 1, C: 2, D: 3 };
   const answerUpper = answerText.toUpperCase();
+  const correctUpper = correctRaw.toUpperCase();
   const selectedByLetter =
     letterMap[answerUpper] !== undefined ? trimText(options[letterMap[answerUpper]]) : "";
+  const correctByLetter =
+    letterMap[correctUpper] !== undefined ? trimText(options[letterMap[correctUpper]]) : "";
   const normalizedSubmitted = lowerText(selectedByLetter || answerText);
-  const normalizedCorrect = lowerText(correctRaw);
-  const isCorrect = Boolean(normalizedSubmitted) && normalizedSubmitted === normalizedCorrect;
+  const normalizedCorrect = lowerText(correctByLetter || correctRaw);
+  const isCorrect =
+    (letterMap[answerUpper] !== undefined &&
+      letterMap[correctUpper] !== undefined &&
+      answerUpper === correctUpper) ||
+    (Boolean(normalizedSubmitted) && normalizedSubmitted === normalizedCorrect);
 
   return {
     isCorrect,
@@ -2380,7 +2387,7 @@ const buildStudentLiveSessions = async (uid) => {
     });
   });
 
-  const [subjectSnaps, liveAccessSnap, lectureRowsBySubject] = await Promise.all([
+  const [subjectSnaps, liveAccessSnap, lectureRowsBySubject, progressSnap] = await Promise.all([
     Promise.all(
       [...subjectIds].map(async (subjectId) => {
         const [subjectSnap, courseSnap] = await Promise.all([
@@ -2405,6 +2412,11 @@ const buildStudentLiveSessions = async (uid) => {
         lectures: await getCourseLectures(subjectId),
       }))
     ),
+    db
+      .collection(COLLECTIONS.PROGRESS)
+      .where("studentId", "==", uid)
+      .get()
+      .catch(() => ({ docs: [] })),
   ]);
 
   const subjectMap = subjectSnaps.reduce((acc, row) => {
@@ -2426,6 +2438,20 @@ const buildStudentLiveSessions = async (uid) => {
       )
       .sort((a, b) => toNumber(a.order, 0) - toNumber(b.order, 0))[0];
     acc[row.subjectId] = liveLecture || null;
+    return acc;
+  }, {});
+
+  // Lazily finalize premiere (unlock recorded controls) after live window ends.
+  // This keeps CoursePlayer consistent: live lecture is locked until premiere ends.
+  const lectureFinalizePromises = [];
+  const progressFinalizePromises = [];
+  const progressByKey = (progressSnap?.docs || []).reduce((acc, doc) => {
+    const row = doc.data() || {};
+    const lectureId = trimText(row.lectureId);
+    if (!lectureId) return acc;
+    const courseId = trimText(row.subjectId || row.courseId);
+    if (!courseId) return acc;
+    acc[`${courseId}::${lectureId}`] = { ref: doc.ref, row };
     return acc;
   }, {});
   const liveAccessMap = (liveAccessSnap.docs || []).reduce((acc, doc) => {
@@ -2567,8 +2593,85 @@ const buildStudentLiveSessions = async (uid) => {
         joinedAt: toIso(accessRow?.joinedAt) || null,
         lockReason,
       });
+
+      // When the live window ends and the student joined, mark the live lecture completed.
+      // This unlocks the next lecture/quiz in sequential flow.
+      if (status === "ended" && joined && accessRow && accessRow.lectureCompleted !== true) {
+        const liveLectureId = trimText(lecture.id);
+        const liveCourseId = subjectId;
+        const durationSec = Math.max(
+          parseDurationToSeconds(lecture.durationSec),
+          parseDurationToSeconds(lecture.videoDuration),
+          parseDurationToSeconds(lecture.videoDurationSec),
+          0
+        );
+        const progressKey = `${liveCourseId}::${liveLectureId}`;
+        const existingProgress = progressByKey[progressKey] || null;
+        progressFinalizePromises.push(
+          (async () => {
+            try {
+              const payload = {
+                studentId: uid,
+                subjectId: liveCourseId,
+                courseId: liveCourseId,
+                lectureId: liveLectureId,
+                isCompleted: true,
+                watchedPercent: 100,
+                durationSec: durationSec,
+                currentTimeSec: durationSec,
+                completedAt: serverTimestamp(),
+                updatedAt: serverTimestamp(),
+              };
+              if (!existingProgress) {
+                payload.createdAt = serverTimestamp();
+                await db.collection(COLLECTIONS.PROGRESS).add(payload);
+              } else if (!existingProgress.row?.isCompleted) {
+                await existingProgress.ref.set(payload, { merge: true });
+              }
+
+              await db
+                .collection(LIVE_ACCESS_COLLECTION)
+                .doc(`${uid}__${sessionId}`)
+                .set(
+                  {
+                    lectureCompleted: true,
+                    lectureCompletedAt: serverTimestamp(),
+                    updatedAt: serverTimestamp(),
+                  },
+                  { merge: true }
+                );
+            } catch {
+              // best-effort
+            }
+          })()
+        );
+      }
+
+      if (
+        status === "ended" &&
+        Boolean(lecture?.isLiveSession) &&
+        lowerText(lecture?.videoMode || "") === "live_session" &&
+        !lecture?.premiereEndedAt
+      ) {
+        lectureFinalizePromises.push(
+          db
+            .collection(COLLECTIONS.LECTURES)
+            .doc(trimText(lecture.id))
+            .set({ premiereEndedAt: serverTimestamp(), updatedAt: serverTimestamp() }, { merge: true })
+            .catch(() => null)
+        );
+      }
     });
   });
+
+  if (lectureFinalizePromises.length > 0) {
+    // Fire-and-forget (best effort); do not block response.
+    void Promise.allSettled(lectureFinalizePromises);
+  }
+  if (progressFinalizePromises.length > 0) {
+    // Fire-and-forget (best effort); do not block response.
+    void Promise.allSettled(progressFinalizePromises);
+  }
 
   return sessions.sort(
     (a, b) =>
@@ -2693,54 +2796,111 @@ export const getStudentSessionById = async (req, res) => {
     if (!uid) return errorResponse(res, "Missing student uid", 400);
     if (!sessionId) return errorResponse(res, "sessionId is required", 400);
 
-    const access = await getStudentSessionAccess({ studentId: uid, sessionId });
-    if (access.error) return errorResponse(res, access.error, access.status || 403);
-
-    const { sessionData, classData } = access;
-    const runtime = resolveSessionRuntimeState(sessionData);
-    const joinOpenAt = runtime.startAt
-      ? new Date(runtime.startAt.getTime() - 10 * 60 * 1000)
-      : null;
-    const canJoin =
-      runtime.status !== "cancelled" &&
-      runtime.status !== "completed" &&
-      joinOpenAt &&
-      runtime.endAt &&
-      Date.now() >= joinOpenAt.getTime() &&
-      Date.now() < runtime.endAt.getTime();
+    const sessions = await buildStudentLiveSessions(uid);
+    const session = sessions.find((row) => trimText(row.id) === sessionId) || null;
+    if (!session) return errorResponse(res, "Live session not found", 404);
 
     return successResponse(
       res,
       {
-        id: sessionId,
-        topic: trimText(sessionData.topic) || "Live Session",
-        description: trimText(sessionData.description),
-        classId: trimText(sessionData.classId),
-        className: trimText(sessionData.className || classData.name) || "Class",
-        teacherId: trimText(sessionData.teacherId),
-        teacherName: trimText(sessionData.teacherName) || "Teacher",
-        date: formatSessionDate(sessionData.date),
-        startTime: trimText(sessionData.startTime),
-        endTime: trimText(sessionData.endTime),
-        duration: toNumber(sessionData.duration, 0),
-        platform: trimText(sessionData.platform),
-        meetingLink: trimText(sessionData.meetingLink),
-        status: runtime.status,
-        canJoin,
-        joinWindow: {
-          opensAt: joinOpenAt ? joinOpenAt.toISOString() : null,
-          closesAt: runtime.startAt ? runtime.startAt.toISOString() : null,
-        },
-        timing: {
-          startAt: runtime.startAt ? runtime.startAt.toISOString() : null,
-          endAt: runtime.endAt ? runtime.endAt.toISOString() : null,
-        },
+        ...session,
       },
       "Session fetched"
     );
   } catch (error) {
     console.error("getStudentSessionById error:", error);
     return errorResponse(res, "Failed to fetch session", 500);
+  }
+};
+
+export const getSessionStatus = async (req, res) => {
+  try {
+    const uid = trimText(req.user?.uid);
+    const sessionId = trimText(req.params?.sessionId);
+    if (!uid) return errorResponse(res, "Missing student uid", 400);
+    if (!sessionId) return errorResponse(res, "sessionId is required", 400);
+
+    const sessions = await buildStudentLiveSessions(uid);
+    const session = sessions.find((row) => trimText(row.id) === sessionId) || null;
+    if (!session) return errorResponse(res, "Live session not found", 404);
+
+    const now = new Date();
+    const startAt = parseDate(session.timing?.startAt) || now;
+    const endAt = parseDate(session.timing?.endAt) || now;
+    const elapsedSeconds = Math.max(0, Math.floor((now.getTime() - startAt.getTime()) / 1000));
+    const remainingSeconds = Math.max(0, Math.floor((endAt.getTime() - now.getTime()) / 1000));
+
+    let joinedCount = 0;
+    try {
+      const joinedSnap = await db
+        .collection(LIVE_ACCESS_COLLECTION)
+        .where("sessionId", "==", sessionId)
+        .where("active", "==", true)
+        .get();
+      joinedCount = joinedSnap.size;
+    } catch {
+      const joinedSnap = await db
+        .collection(LIVE_ACCESS_COLLECTION)
+        .where("sessionId", "==", sessionId)
+        .get();
+      joinedCount = joinedSnap.docs.filter((doc) => Boolean(doc.data()?.active)).length;
+    }
+
+    let totalStudents = 0;
+    try {
+      const classSnap = await db.collection(COLLECTIONS.CLASSES).doc(trimText(session.classId)).get();
+      if (classSnap.exists) {
+        const classData = classSnap.data() || {};
+        totalStudents = Math.max(
+          0,
+          Number(
+            classData?.capacity ||
+              classData?.studentLimit ||
+              (Array.isArray(classData?.students) ? classData.students.length : 0) ||
+              0
+          )
+        );
+      }
+    } catch {
+      totalStudents = 0;
+    }
+    const normalizedStatus =
+      session.status === "live"
+        ? "live"
+        : session.status === "ended" || session.status === "expired"
+          ? "ended"
+          : "upcoming";
+    const canJoin = Boolean(session.canJoin);
+    const isLocked = Boolean(session.status === "ended");
+
+    return successResponse(
+      res,
+      {
+        sessionId,
+        status: normalizedStatus,
+        topic: trimText(session.lectureTitle) || trimText(session.subjectName) || "Live Session",
+        teacherName: trimText(session.teacherName) || "Teacher",
+        date: trimText(session.sessionDate) || formatSessionDate(session.sessionDate),
+        startTime: trimText(session.shiftStartTime),
+        endTime: trimText(session.shiftEndTime),
+        platform: "video",
+        meetingLink: "",
+        classId: trimText(session.classId),
+        className: trimText(session.className),
+        batchCode: trimText(session.batchCode),
+        joinedCount,
+        totalStudents,
+        elapsedSeconds,
+        remainingSeconds,
+        canJoin,
+        isLocked,
+        recordingUrl: trimText(session.videoUrl || ""),
+      },
+      "Session status fetched"
+    );
+  } catch (error) {
+    console.error("getSessionStatus error:", error);
+    return errorResponse(res, "Failed to fetch session status", 500);
   }
 };
 
@@ -2751,42 +2911,57 @@ export const joinStudentSession = async (req, res) => {
     if (!uid) return errorResponse(res, "Missing student uid", 400);
     if (!sessionId) return errorResponse(res, "sessionId is required", 400);
 
-    const access = await getStudentSessionAccess({ studentId: uid, sessionId });
-    if (access.error) return errorResponse(res, access.error, access.status || 403);
-    const { sessionData } = access;
-    const runtime = resolveSessionRuntimeState(sessionData);
-
-    if (runtime.status === "cancelled") {
-      return errorResponse(res, "Session is cancelled", 403, { code: "SESSION_CANCELLED" });
-    }
-    if (runtime.status === "completed" || !runtime.endAt || Date.now() >= runtime.endAt.getTime()) {
-      return errorResponse(res, "Session has ended", 403, { code: "SESSION_ENDED" });
-    }
-
-    const joinOpenAt = runtime.startAt
-      ? new Date(runtime.startAt.getTime() - 10 * 60 * 1000)
-      : null;
-    if (joinOpenAt && Date.now() < joinOpenAt.getTime()) {
-      return errorResponse(
-        res,
-        "You can join only 10 minutes before class shift start time.",
-        403,
-        { code: "JOIN_NOT_OPEN" }
-      );
+    const sessions = await buildStudentLiveSessions(uid);
+    const session = sessions.find((row) => trimText(row.id) === sessionId);
+    if (!session) {
+      return errorResponse(res, "Live session not found", 404);
     }
 
     const accessRef = db.collection(LIVE_ACCESS_COLLECTION).doc(`${uid}__${sessionId}`);
+    const existingSnap = await accessRef.get();
+    const existingData = existingSnap.exists ? existingSnap.data() || {} : null;
+    const now = new Date();
+    const nowMs = now.getTime();
+    const joinOpenMs = parseDate(session.joinWindow?.opensAt)?.getTime() || 0;
+    const startMs = parseDate(session.timing?.startAt)?.getTime() || 0;
+    const endMs = parseDate(session.timing?.endAt)?.getTime() || 0;
+    const canResumeJoinedSession =
+      Boolean(existingData) && existingData.active !== false && nowMs < endMs;
+
+    if (!canResumeJoinedSession) {
+      if (session.classStatus === "expired") {
+        return errorResponse(res, "Class has ended.", 403, { code: "CLASS_EXPIRED" });
+      }
+      if (nowMs < joinOpenMs) {
+        return errorResponse(
+          res,
+          "You can join only 10 minutes before class shift start time.",
+          403,
+          { code: "JOIN_NOT_OPEN" }
+        );
+      }
+      if (nowMs >= endMs) {
+        return errorResponse(res, "This live session has ended.", 403, {
+          code: "SESSION_ENDED",
+        });
+      }
+    }
+
     await accessRef.set(
       {
         sessionId,
         studentId: uid,
-        classId: trimText(sessionData.classId),
-        courseId: trimText(sessionData.courseId),
-        joinedAt: serverTimestamp(),
+        classId: session.classId,
+        shiftId: session.shiftId,
+        subjectId: session.subjectId,
+        courseId: session.courseId,
+        lectureId: session.lectureId,
+        sessionDate: session.sessionDate,
+        joinedAt: existingData?.joinedAt || serverTimestamp(),
         lastSeenAt: serverTimestamp(),
         active: true,
-        startAt: runtime.startAt ? runtime.startAt.toISOString() : null,
-        endAt: runtime.endAt ? runtime.endAt.toISOString() : null,
+        startAt: session.timing?.startAt || null,
+        endAt: session.timing?.endAt || null,
         updatedAt: serverTimestamp(),
       },
       { merge: true }
@@ -2796,17 +2971,42 @@ export const joinStudentSession = async (req, res) => {
       res,
       {
         sessionId,
-        waiting: Boolean(runtime.startAt && Date.now() < runtime.startAt.getTime()),
-        canPlay: runtime.status === "active",
-        status: runtime.status,
-        startAt: runtime.startAt ? runtime.startAt.toISOString() : null,
-        endAt: runtime.endAt ? runtime.endAt.toISOString() : null,
+        waiting: nowMs < startMs,
+        canPlay: nowMs >= startMs && nowMs < endMs,
+        startAt: session.timing?.startAt || null,
+        endAt: session.timing?.endAt || null,
       },
-      "Joined live session"
+      nowMs < startMs
+        ? "Joined live waiting room. Playback starts at shift time."
+        : "Joined live session"
     );
   } catch (error) {
     console.error("joinStudentSession error:", error);
     return errorResponse(res, "Failed to join session", 500);
+  }
+};
+
+export const leaveSession = async (req, res) => {
+  try {
+    const uid = trimText(req.user?.uid);
+    const sessionId = trimText(req.params?.sessionId);
+    if (!uid) return errorResponse(res, "Missing student uid", 400);
+    if (!sessionId) return errorResponse(res, "sessionId is required", 400);
+
+    const accessRef = db.collection(LIVE_ACCESS_COLLECTION).doc(`${uid}__${sessionId}`);
+    await accessRef.set(
+      {
+        active: false,
+        leftAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    );
+
+    return successResponse(res, { sessionId }, "Left session");
+  } catch (error) {
+    console.error("leaveSession error:", error);
+    return errorResponse(res, "Failed to leave session", 500);
   }
 };
 
@@ -2817,21 +3017,13 @@ export const getSessionSync = async (req, res) => {
     if (!uid) return errorResponse(res, "Missing student uid", 400);
     if (!sessionId) return errorResponse(res, "sessionId is required", 400);
 
-    const access = await getStudentSessionAccess({ studentId: uid, sessionId });
-    if (access.error) return errorResponse(res, access.error, access.status || 403);
+    const sessions = await buildStudentLiveSessions(uid);
+    const session = sessions.find((row) => trimText(row.id) === sessionId) || null;
+    if (!session) return errorResponse(res, "Live session not found", 404);
 
-    const { sessionRef, sessionData } = access;
-    const runtime = resolveSessionRuntimeState(sessionData);
-    const startAt =
-      parseDate(sessionData.sessionStartedAt) ||
-      runtime.startAt ||
-      new Date();
-    const endAt = runtime.endAt || new Date(startAt.getTime() + 60 * 60 * 1000);
+    const startAt = parseDate(session.timing?.startAt) || new Date();
+    const endAt = parseDate(session.timing?.endAt) || new Date(startAt.getTime() + 60 * 60 * 1000);
     const now = new Date();
-
-    if (!sessionData.sessionStartedAt && runtime.status === "active" && runtime.startAt) {
-      await sessionRef.set({ sessionStartedAt: serverTimestamp() }, { merge: true });
-    }
 
     const elapsedSeconds = Math.max(0, Math.floor((now.getTime() - startAt.getTime()) / 1000));
     const totalSeconds = Math.max(
@@ -2851,11 +3043,11 @@ export const getSessionSync = async (req, res) => {
         elapsedSeconds,
         remainingSeconds,
         totalSeconds,
-        isRunning: runtime.status === "active" && remainingSeconds > 0,
-        status: runtime.status,
-        meetingLink: trimText(sessionData.meetingLink),
-        topic: trimText(sessionData.topic) || "Live Session",
-        endTime: trimText(sessionData.endTime),
+        isRunning: session.status === "live" && remainingSeconds > 0,
+        status: session.status,
+        videoUrl: trimText(session.videoUrl || ""),
+        topic: trimText(session.lectureTitle) || "Live Session",
+        endTime: trimText(session.shiftEndTime),
       },
       "Session sync data"
     );
@@ -4486,6 +4678,25 @@ export const submitQuizAttempt = async (req, res) => {
       updatedAt: serverTimestamp(),
     });
 
+    let rank = null;
+    try {
+      const allResultsSnap = await db
+        .collection(COLLECTIONS.QUIZ_RESULTS)
+        .where("quizId", "==", quizId)
+        .get();
+      const scores = allResultsSnap.docs
+        .map((doc) => Number(doc.data()?.percentage || 0))
+        .filter((score) => Number.isFinite(score))
+        .sort((a, b) => b - a);
+      const studentScore = Number(percentage || 0);
+      const foundIndex = scores.findIndex((score) => studentScore >= score);
+      rank = foundIndex >= 0 ? foundIndex + 1 : scores.length + 1;
+      await resultRef.set({ rank, updatedAt: serverTimestamp() }, { merge: true });
+    } catch (rankError) {
+      console.error("submitQuizAttempt rank error:", rankError);
+      rank = null;
+    }
+
     let certificateIssued = false;
     let certificatePending = false;
     let certificateBlockedByFinalQuiz = false;
@@ -4622,6 +4833,7 @@ export const submitQuizAttempt = async (req, res) => {
         status,
         percentage,
         isPassed,
+        rank,
         certificateIssued,
         certificatePending,
         certificateBlockedByFinalQuiz,

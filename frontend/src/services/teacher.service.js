@@ -161,6 +161,35 @@ export const getTeacherTestById = (testId) =>
 export const getTeacherTestRanking = (testId) =>
   api.get(`/teacher/tests/${testId}/ranking`).then((r) => r.data.data || {});
 
+export const bulkUploadTeacherTest = (file, onUploadProgress) => {
+  const formData = new FormData();
+  formData.append("file", file);
+  return api
+    .post("/teacher/tests/bulk-upload", formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+      onUploadProgress,
+    })
+    .then((r) => r.data);
+};
+
+export const downloadTeacherTestTemplate = async () => {
+  const response = await api.get("/teacher/tests/template", {
+    responseType: "blob",
+  });
+  const disposition = String(response.headers?.["content-disposition"] || "");
+  const utfMatch = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+  const plainMatch = disposition.match(/filename="?([^"]+)"?/i);
+  const rawName = utfMatch?.[1] || plainMatch?.[1] || "test_template.csv";
+  let filename = String(rawName).trim();
+  try {
+    filename = decodeURIComponent(filename);
+  } catch {
+    filename = String(rawName).trim();
+  }
+
+  return { blob: response.data, filename };
+};
+
 export const getTeacherQuizById = (quizId) =>
   api.get(`/teacher/quizzes/${quizId}`).then((r) => r.data.data);
 

@@ -7418,6 +7418,53 @@ Relevant APIs:
 }
 ```
 
+### GET `/api/teacher/tests/template`
+### GET `/api/admin/tests/template`
+- Auth: Bearer token (`teacher`/`admin`)
+- Returns: CSV bulk template for creating one test with many MCQ questions.
+- Content-Type: `text/csv`
+
+### POST `/api/teacher/tests/bulk-upload`
+### POST `/api/admin/tests/bulk-upload`
+- Auth: Bearer token (`teacher`/`admin`)
+- Content-Type: `multipart/form-data`
+- Form field: `file` (CSV)
+- Notes:
+  - Each row = one MCQ question for the SAME test
+  - `correctAnswer` must be `A|B|C|D`
+
+Success (201):
+```json
+{
+  "success": true,
+  "message": "Test bulk uploaded successfully",
+  "data": {
+    "id": "test_123",
+    "title": "Biology Weekly Test 1",
+    "scope": "class",
+    "classId": "CLASS_ID",
+    "className": "Class XI",
+    "totalMarks": 20,
+    "questionsCount": 20,
+    "startAt": "2026-04-11T10:00:00.000Z",
+    "endAt": "2026-04-11T12:00:00.000Z"
+  }
+}
+```
+
+Error (400) example:
+```json
+{
+  "success": false,
+  "message": "CSV has validation errors",
+  "errors": {
+    "errors": [
+      "Row 3: correctAnswer must be A, B, C or D, got \"E\""
+    ]
+  }
+}
+```
+
 ### GET `/api/student/tests`
 - Returns tests available for logged-in student (class tests + center tests).
 
@@ -7581,3 +7628,199 @@ Relevant APIs:
 Cache policy:
 - successful `GET` responses are cached briefly with route-based TTL.
 - write requests (`POST/PUT/PATCH/DELETE`) invalidate related cache keys.
+## 2026-04-11 Updates
+
+### Student Live Session APIs
+
+**Important collections**
+- Live schedule is computed from `classes.shifts` + the first lecture marked `isLiveSession=true` (with a valid `videoUrl`) inside each subject.
+- **Student join/attendance** state is stored in Firestore collection `liveSessionAccess` (one doc per student per session id).
+- The **actual live/recorded video URL** comes from the **lecture** document in `lectures` (`videoUrl` / `streamUrl` / `playbackUrl` / `signedUrl`).
+- `liveSessionAccess` does not store the video file; it stores join state and completion flags (example: `lectureCompleted`).
+
+**Important endpoints**
+- List live sessions: `GET /api/student/live-sessions`
+- Join a session: `POST /api/student/live-sessions/:sessionId/join`
+- The `/api/student/sessions/:sessionId/*` endpoints are **the same system** (they also read/write `liveSessionAccess`).
+
+#### GET `/api/student/sessions/:sessionId/status`
+- Auth: `Bearer`
+- Role: `student`
+- Purpose: Fetch live session state for pre/live/ended UI and counters.
+
+Success:
+```json
+{
+  "success": true,
+  "message": "Session status fetched",
+  "data": {
+    "sessionId": "abc123",
+    "status": "upcoming",
+    "topic": "Physics - Live Lecture 1",
+    "teacherName": "Ahsan Ali",
+    "date": "2026-04-11",
+    "startTime": "13:00",
+    "endTime": "15:00",
+    "platform": "video",
+    "meetingLink": "",
+    "classId": "class_1",
+    "className": "Class XI",
+    "batchCode": "CLAS-15940",
+    "joinedCount": 12,
+    "totalStudents": 30,
+    "elapsedSeconds": 0,
+    "remainingSeconds": 7200,
+    "canJoin": false,
+    "isLocked": false,
+    "recordingUrl": "https://storage.googleapis.com/.../live-lecture.mp4"
+  }
+}
+```
+
+#### POST `/api/student/sessions/:sessionId/join`
+- Auth: `Bearer`
+- Role: `student`
+- Purpose: Join live session (stored in `liveSessionAccess`) during join window / live window.
+
+Success:
+```json
+{
+  "success": true,
+  "message": "Joined live session",
+  "data": {
+    "sessionId": "abc123",
+    "waiting": true,
+    "canPlay": false,
+    "startAt": "2026-04-11T08:00:00.000Z",
+    "endAt": "2026-04-11T10:00:00.000Z"
+  }
+}
+```
+
+Error (`NOT_STARTED`):
+```json
+{
+  "success": false,
+  "message": "Session has not started yet",
+  "errors": {
+    "code": "NOT_STARTED",
+    "startsAt": "2026-04-11T08:00:00.000Z"
+  }
+}
+```
+
+Error (`SESSION_ENDED`):
+```json
+{
+  "success": false,
+  "message": "This session has ended",
+  "errors": {
+    "code": "SESSION_ENDED"
+  }
+}
+```
+
+#### POST `/api/student/sessions/:sessionId/leave`
+- Auth: `Bearer`
+- Role: `student`
+- Purpose: Mark `leftAt` in attendance.
+
+Success:
+```json
+{
+  "success": true,
+  "message": "Left session",
+  "data": {
+    "sessionId": "abc123"
+  }
+}
+```
+
+#### POST `/api/student/sessions/:sessionId/violation`
+- Auth: `Bearer`
+- Role: `student`
+- Body:
+```json
+{
+  "reason": "tab_switch",
+  "count": 2,
+  "timestamp": "2026-04-11T08:25:00.000Z"
+}
+```
+- Behavior: logs violation; account deactivates at threshold.
+
+---
+
+### Session Unlock APIs
+
+#### PATCH `/api/teacher/sessions/:sessionId/unlock`
+#### PATCH `/api/admin/sessions/:sessionId/unlock`
+- Auth: `Bearer`
+- Role: `teacher` (own session) or `admin` (any session)
+- Purpose: unlock ended/locked session recording access.
+
+Success:
+```json
+{
+  "success": true,
+  "message": "Session unlocked",
+  "data": {
+    "sessionId": "abc123"
+  }
+}
+```
+
+---
+
+### Student Quiz Submit (Rank Included)
+
+#### POST `/api/student/quizzes/:quizId/submit`
+- Response now includes `rank`.
+
+Success:
+```json
+{
+  "success": true,
+  "message": "Quiz submitted successfully",
+  "data": {
+    "resultId": "res_1",
+    "quizId": "quiz_1",
+    "isFinalQuiz": false,
+    "autoScore": 18,
+    "totalMarks": 20,
+    "shortAnswerPending": 0,
+    "status": "completed",
+    "percentage": 90,
+    "isPassed": true,
+    "rank": 2
+  }
+}
+```
+
+---
+
+### Bulk Quiz CSV Format (Updated)
+
+Used by:
+- `GET /api/teacher/quizzes/template`
+- `POST /api/teacher/quizzes/bulk-upload`
+
+Required columns:
+`scope,courseId,subjectId,chapterId,quizTitle,quizDescription,passScore,questionType,questionText,optionA,optionB,optionC,optionD,correctAnswer,expectedAnswer,marks`
+
+Validation rules:
+- `mcq`: `correctAnswer` must be `A|B|C|D`
+- `true_false`: `correctAnswer` must be `TRUE|FALSE`
+- `short_answer`: `expectedAnswer` required, `correctAnswer` empty
+
+Validation error response:
+```json
+{
+  "success": false,
+  "message": "CSV has validation errors",
+  "errors": [
+    "Row 3: MCQ correctAnswer must be A B C or D",
+    "Row 7: Short answer must have expectedAnswer"
+  ]
+}
+```

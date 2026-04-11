@@ -18,6 +18,12 @@ export const getStudentSessionById = (sessionId) =>
 export const joinStudentSession = (sessionId) =>
   api.post(`/student/sessions/${sessionId}/join`).then((r) => r.data.data || {});
 
+export const getStudentSessionStatus = (sessionId) =>
+  api.get(`/student/sessions/${sessionId}/status`).then((r) => r.data.data || {});
+
+export const leaveStudentSession = (sessionId) =>
+  api.post(`/student/sessions/${sessionId}/leave`).then((r) => r.data.data || {});
+
 export const getStudentSessionSync = (sessionId) =>
   api.get(`/student/sessions/${sessionId}/sync`).then((r) => r.data.data || {});
 

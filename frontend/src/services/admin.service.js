@@ -371,6 +371,34 @@ export const getAdminTestById = (testId) =>
 export const getAdminTestRanking = (testId) =>
   api.get(`/admin/tests/${testId}/ranking`).then((r) => r.data.data || {});
 
+export const bulkUploadAdminTest = (file, onUploadProgress) => {
+  const formData = new FormData();
+  formData.append("file", file);
+  return api
+    .post("/admin/tests/bulk-upload", formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+      onUploadProgress,
+    })
+    .then((r) => r.data);
+};
+
+export const downloadAdminTestTemplate = async () => {
+  const response = await api.get("/admin/tests/template", {
+    responseType: "blob",
+  });
+  const disposition = String(response.headers?.["content-disposition"] || "");
+  const utfMatch = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+  const plainMatch = disposition.match(/filename="?([^"]+)"?/i);
+  const rawName = utfMatch?.[1] || plainMatch?.[1] || "test_template.csv";
+  let filename = String(rawName).trim();
+  try {
+    filename = decodeURIComponent(filename);
+  } catch {
+    filename = String(rawName).trim();
+  }
+  return { blob: response.data, filename };
+};
+
 export const getAdminQuizById = (quizId) =>
   api.get(`/admin/quizzes/${quizId}`).then((r) => r.data.data);
 

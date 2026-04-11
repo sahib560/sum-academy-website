@@ -7,9 +7,11 @@ import {
 } from "../controllers/announcement.controller.js";
 import {
   createTest,
+  downloadTestBulkTemplate,
   getManagedTests,
   getManagedTestById,
   getManagedTestRanking,
+  bulkUploadManagedTest,
 } from "../controllers/tests.controller.js";
 import {
   getTeacherQuizzes,
@@ -56,6 +58,7 @@ import {
   updateSession,
   cancelSession,
   markSessionComplete,
+  unlockSession,
   getSessionAttendance,
   saveSessionAttendance,
   getTeacherClasses,
@@ -116,6 +119,7 @@ router.post("/sessions", createSession);
 router.put("/sessions/:sessionId", updateSession);
 router.patch("/sessions/:sessionId/cancel", cancelSession);
 router.patch("/sessions/:sessionId/complete", markSessionComplete);
+router.patch("/sessions/:sessionId/unlock", unlockSession);
 router.get("/sessions/:sessionId/attendance", getSessionAttendance);
 router.post("/sessions/:sessionId/attendance", saveSessionAttendance);
 
@@ -140,6 +144,8 @@ router.patch(
 );
 router.get("/tests", getManagedTests);
 router.post("/tests", createTest);
+router.get("/tests/template", downloadTestBulkTemplate);
+router.post("/tests/bulk-upload", upload.single("file"), bulkUploadManagedTest);
 router.get("/tests/:testId", getManagedTestById);
 router.get("/tests/:testId/ranking", getManagedTestRanking);
 router.get("/settings/profile", getTeacherSettingsProfile);

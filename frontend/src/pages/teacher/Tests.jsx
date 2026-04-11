@@ -1,6 +1,8 @@
 import TestsManager from "../../components/tests/TestsManager.jsx";
 import {
+  bulkUploadTeacherTest,
   createTeacherTest,
+  downloadTeacherTestTemplate,
   getTeacherClasses,
   getTeacherTestById,
   getTeacherTests,
@@ -14,6 +16,8 @@ function TeacherTests() {
       createTest={createTeacherTest}
       fetchClasses={getTeacherClasses}
       fetchTestById={getTeacherTestById}
+      bulkUploadTest={bulkUploadTeacherTest}
+      downloadTestTemplate={downloadTeacherTestTemplate}
     />
   );
 }

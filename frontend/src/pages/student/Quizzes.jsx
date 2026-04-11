@@ -72,7 +72,12 @@ function StudentQuizzes() {
   const quizzes = useMemo(
     () =>
       (Array.isArray(data) ? data : []).map((quiz, index) => {
-        const displayStatus = resolveDisplayStatus(quiz);
+        const now = new Date();
+        const dueDateRaw =
+          quiz?.dueDate || quiz?.dueAt || quiz?.assignment?.dueAt || quiz?.lastAttempt?.dueAt || "";
+        const dueDate = dueDateRaw ? new Date(dueDateRaw) : null;
+        const dueExpired = dueDate && !Number.isNaN(dueDate.getTime()) && now > dueDate;
+        const displayStatus = dueExpired ? "expired" : resolveDisplayStatus(quiz);
         const lastScore = toNumber(quiz.lastAttempt?.score, 0);
         const passScore = toNumber(quiz.passScore, 50);
         const scorePercent = toNumber(quiz.lastAttempt?.percentage, lastScore);
@@ -86,6 +91,7 @@ function StudentQuizzes() {
           totalMarks: Math.max(0, toNumber(quiz.totalMarks, 0)),
           passScore,
           displayStatus,
+          dueDate: dueDate && !Number.isNaN(dueDate.getTime()) ? dueDate.toISOString() : null,
           isPastDue: Boolean(quiz.isPastDue),
           lastAttempt: quiz.lastAttempt || null,
           scorePercent,
@@ -232,7 +238,7 @@ function StudentQuizzes() {
                     {isExpired && !quiz.lastAttempt ? (
                       <div className="mt-3">
                         <span className="rounded-full bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-700">
-                          Quiz deadline has passed
+                          Quiz ended {quiz.dueDate ? new Date(quiz.dueDate).toLocaleString() : "already"}
                         </span>
                       </div>
                     ) : null}
@@ -253,18 +259,27 @@ function StudentQuizzes() {
                           Pending Review
                         </button>
                       ) : isExpired ? (
-                        <button
-                          className="inline-flex cursor-not-allowed rounded-full bg-rose-100 px-4 py-2 text-xs font-semibold text-rose-700"
-                          disabled
-                        >
-                          Expired
-                        </button>
+                        quiz.lastAttempt ? (
+                          <button
+                            className="inline-flex rounded-full border border-slate-300 px-4 py-2 text-xs font-semibold text-slate-700"
+                            onClick={() => setResultPreview(quiz)}
+                          >
+                            View Result
+                          </button>
+                        ) : (
+                          <button
+                            className="inline-flex cursor-not-allowed rounded-full bg-rose-100 px-4 py-2 text-xs font-semibold text-rose-700"
+                            disabled
+                          >
+                            Expired
+                          </button>
+                        )
                       ) : (
                         <button
                           className="inline-flex rounded-full border border-slate-300 px-4 py-2 text-xs font-semibold text-slate-700"
                           onClick={() => setResultPreview(quiz)}
                         >
-                          View Results
+                          View Result
                         </button>
                       )}
                     </div>

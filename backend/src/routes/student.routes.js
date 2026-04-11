@@ -7,6 +7,8 @@ import {
   joinStudentLiveSession,
   getStudentSessionById,
   joinStudentSession,
+  getSessionStatus,
+  leaveSession,
   getSessionSync,
   logSessionViolation,
   getStudentCourseProgress,
@@ -52,6 +54,8 @@ router.get("/live-sessions", getStudentLiveSessions);
 router.post("/live-sessions/:sessionId/join", joinStudentLiveSession);
 router.get("/sessions/:sessionId", getStudentSessionById);
 router.post("/sessions/:sessionId/join", joinStudentSession);
+router.get("/sessions/:sessionId/status", getSessionStatus);
+router.post("/sessions/:sessionId/leave", leaveSession);
 router.get("/sessions/:sessionId/sync", getSessionSync);
 router.post("/sessions/:sessionId/violation", logSessionViolation);
 router.get("/courses/:courseId/progress", getStudentCourseProgress);

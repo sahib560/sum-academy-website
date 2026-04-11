@@ -31,6 +31,8 @@ function StudentTestAttempt() {
   const [selectedAnswer, setSelectedAnswer] = useState("");
   const [timeLeft, setTimeLeft] = useState(0);
   const autoFinishRef = useRef(false);
+  const [securityDeactivatedInfo, setSecurityDeactivatedInfo] = useState(null);
+  const lastViolationRef = useRef({ reason: "", count: 0, at: 0 });
 
   const detailQuery = useQuery({
     queryKey: ["student-test-by-id", testId],
@@ -153,11 +155,29 @@ function StudentTestAttempt() {
 
   const reportViolation = useCallback(async (count, reason) => {
     try {
-      await reportStudentSecurityViolation({
+      const now = Date.now();
+      if (
+        lastViolationRef.current.reason === reason &&
+        lastViolationRef.current.count === count &&
+        now - lastViolationRef.current.at < 1200
+      ) {
+        return;
+      }
+      lastViolationRef.current = { reason, count, at: now };
+      const result = await reportStudentSecurityViolation({
         reason,
         page: "test",
         details: `Test violation ${count}/3`,
       });
+      if (result?.deactivated) {
+        setSecurityDeactivatedInfo({
+          deactivated: true,
+          count: Number(result.count || 3),
+          limit: Number(result.limit || 3),
+          reason: result.reason || reason,
+        });
+        toast.error("Account deactivated due to repeated violations.");
+      }
     } catch {
       // best-effort logging
     }
@@ -169,11 +189,31 @@ function StudentTestAttempt() {
       quizMode: true,
       maxViolations: 3,
       onViolation: (count, reason) => {
+        const messages = {
+          tab_switch: "Do not switch tabs during test",
+          window_blur: "Do not minimize or switch windows",
+          printscreen: "Screenshots are not allowed",
+          screenshot: "Screenshots are not allowed",
+          devtools: "Developer tools are not allowed",
+          screen_record: "Screen recording is blocked",
+        };
         reportViolation(count, reason);
+        if (count < 3) {
+          toast.error(`Warning ${count}/3: ${messages[reason] || "Security violation detected"}`, {
+            duration: 4200,
+          });
+        }
         if (count >= 3 && !autoFinishRef.current) {
           autoFinishRef.current = true;
           finishMutation.mutate("violation");
         }
+      },
+      onMaxViolation: (count, reason) => {
+        if (autoFinishRef.current) return;
+        autoFinishRef.current = true;
+        void reportViolation(count || 3, reason || "default");
+        toast.error("3 violations detected. Test will be submitted automatically.");
+        finishMutation.mutate("violation");
       },
     });
     return () => {
@@ -225,6 +265,12 @@ function StudentTestAttempt() {
 
   return (
     <div className="space-y-6">
+      {securityDeactivatedInfo?.deactivated ? (
+        <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
+          Access blocked after {securityDeactivatedInfo.count}/{securityDeactivatedInfo.limit} violations.
+          Reason: {securityDeactivatedInfo.reason || "Security policy violation"}.
+        </div>
+      ) : null}
       <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
         <h1 className="font-heading text-2xl text-slate-900">{test?.title || "Test"}</h1>
         <p className="mt-1 text-sm text-slate-500">{headerMeta}</p>

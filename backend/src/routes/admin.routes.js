@@ -26,12 +26,15 @@ import {
   getFinalQuizRequests,
   updateFinalQuizRequestStatus,
   updateCourseRewatchAccess,
+  unlockSession,
 } from "../controllers/teacher.controller.js";
 import {
   createTest,
+  downloadTestBulkTemplate,
   getManagedTests,
   getManagedTestById,
   getManagedTestRanking,
+  bulkUploadManagedTest,
 } from "../controllers/tests.controller.js";
 
 const router = Router();
@@ -123,6 +126,8 @@ router.patch("/quizzes/:quizId/assign", adminOnly, assignQuizToStudents);
 router.get("/quizzes/:quizId/submissions", adminOnly, getQuizSubmissions);
 router.get("/tests", adminOnly, getManagedTests);
 router.post("/tests", adminOnly, createTest);
+router.get("/tests/template", adminOnly, downloadTestBulkTemplate);
+router.post("/tests/bulk-upload", adminOnly, upload.single("file"), bulkUploadManagedTest);
 router.get("/tests/:testId", adminOnly, getManagedTestById);
 router.get("/tests/:testId/ranking", adminOnly, getManagedTestRanking);
 router.get("/final-quiz-requests", adminOnly, getFinalQuizRequests);
@@ -131,6 +136,7 @@ router.patch(
   adminOnly,
   updateFinalQuizRequestStatus
 );
+router.patch("/sessions/:sessionId/unlock", adminOnly, unlockSession);
 
 router.get("/courses", adminOnly, adminController.getCourses);
 router.get("/subjects", adminOnly, adminController.getCourses);

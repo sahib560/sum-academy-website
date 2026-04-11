@@ -45,8 +45,9 @@ const previewHeaders = [
   "courseid",
   "subjectid",
   "chapterid",
-  "title",
-  "description",
+  "quiztitle",
+  "quizdescription",
+  "passscore",
   "questiontype",
   "questiontext",
   "optiona",
@@ -61,12 +62,15 @@ const previewHeaders = [
 const scoreColors = ["#4a63f5", "#8090ff", "#a3b0ff", "#c8d0ff", "#e2e7ff"];
 
 const createDefaultQuestion = () => ({
+  id: crypto?.randomUUID ? crypto.randomUUID() : `q_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
   questionText: "",
+  questionType: "mcq",
   optionA: "",
   optionB: "",
   optionC: "",
   optionD: "",
-  correctAnswer: "A",
+  correctAnswer: "",
+  expectedAnswer: "",
   marks: 1,
 });
 
@@ -195,8 +199,9 @@ const parseCsvForPreview = (csvText = "") => {
     courseId: trimText(row.courseid),
     subjectId: trimText(row.subjectid),
     chapterId: trimText(row.chapterid),
-    title: trimText(row.title),
-    description: trimText(row.description),
+    title: trimText(row.quiztitle || row.title),
+    description: trimText(row.quizdescription || row.description),
+    passScore: trimText(row.passscore),
     questionType: trimText(row.questiontype),
     questionText: trimText(row.questiontext),
     optionA: trimText(row.optiona),
@@ -252,9 +257,6 @@ const parseCsvForPreview = (csvText = "") => {
 
     if (!row.questionText) rowErrors.push("questionText is required");
     if (!questionType) rowErrors.push("questionType is required");
-    if (questionType !== "mcq") {
-      rowErrors.push("questionType must be mcq");
-    }
     if (!row.marks || !Number.isFinite(marksNumber) || marksNumber <= 0) {
       rowErrors.push("marks must be a positive number");
     }
@@ -267,12 +269,24 @@ const parseCsvForPreview = (csvText = "") => {
         rowErrors.push("MCQ correctAnswer must be A, B, C, or D");
       }
     }
+    if (questionType === "true_false") {
+      if (!["TRUE", "FALSE"].includes(row.correctAnswer.toUpperCase())) {
+        rowErrors.push("True/False correctAnswer must be TRUE or FALSE");
+      }
+    }
+    if (questionType === "short_answer") {
+      if (!row.expectedAnswer) {
+        rowErrors.push("Short answer requires expectedAnswer");
+      }
+    }
 
     return {
       rowNo: row.rowNo,
       questionType: questionType || row.questionType,
       questionText: row.questionText,
       marks: row.marks,
+      correctAnswer: row.correctAnswer,
+      expectedAnswer: row.expectedAnswer,
       errors: rowErrors,
     };
   });
@@ -680,7 +694,7 @@ function TeacherQuizzes() {
       }
       const correctLetter = String(row.correctAnswer || "").toUpperCase();
       if (!["A", "B", "C", "D"].includes(correctLetter)) {
-        rowError = `Question ${rowNo}: correct answer must be A, B, C, or D`;
+        rowError = `Question ${rowNo}: Please select the correct answer`;
         break;
       }
       const optionMap = {
@@ -705,20 +719,18 @@ function TeacherQuizzes() {
     if (!validateCreateForm()) return;
 
     const payloadQuestions = questions.map((row) => {
-      const options = [row.optionA, row.optionB, row.optionC, row.optionD]
-        .map((option) => option.trim())
-        .filter(Boolean);
       const optionMap = {
-        A: options[0],
-        B: options[1],
-        C: options[2],
-        D: options[3],
+        A: trimText(row.optionA),
+        B: trimText(row.optionB),
+        C: trimText(row.optionC),
+        D: trimText(row.optionD),
       };
       return {
-        type: "mcq",
+        questionType: "mcq",
         questionText: row.questionText,
-        options,
-        correctAnswer: optionMap[String(row.correctAnswer || "A").toUpperCase()] || "",
+        options: optionMap,
+        correctAnswer: String(row.correctAnswer || "").toUpperCase(),
+        expectedAnswer: "",
         marks: Number(row.marks) || 1,
       };
     });
@@ -1151,18 +1163,36 @@ function TeacherQuizzes() {
                       onUpdateQuestion(index, "optionD", event.target.value)
                     }
                   />
-                  <select
-                    className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                    value={String(question.correctAnswer || "A").toUpperCase()}
-                    onChange={(event) =>
-                      onUpdateQuestion(index, "correctAnswer", event.target.value)
-                    }
-                  >
-                    <option value="A">Correct: A</option>
-                    <option value="B">Correct: B</option>
-                    <option value="C">Correct: C</option>
-                    <option value="D">Correct: D</option>
-                  </select>
+                  <div className="grid gap-2">
+                    {["A", "B", "C", "D"].map((opt) => (
+                      <label
+                        key={`${question.id || index}-${opt}`}
+                        className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm ${
+                          String(question.correctAnswer || "").toUpperCase() === opt
+                            ? "border-emerald-500 bg-emerald-500/10"
+                            : "border-slate-200 bg-slate-50"
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name={`correct_${question.id || index}`}
+                          value={opt}
+                          checked={String(question.correctAnswer || "").toUpperCase() === opt}
+                          onChange={(event) =>
+                            onUpdateQuestion(index, "correctAnswer", event.target.value)
+                          }
+                        />
+                        <span className="text-slate-800">
+                          Option {opt}: {question[`option${opt}`] || "(empty)"}
+                        </span>
+                        {String(question.correctAnswer || "").toUpperCase() === opt ? (
+                          <span className="ml-auto text-xs font-semibold text-emerald-600">
+                            ✓ Correct
+                          </span>
+                        ) : null}
+                      </label>
+                    ))}
+                  </div>
                 </div>
               </div>
             ))}
@@ -1388,6 +1418,7 @@ function TeacherQuizzes() {
                             <th className="px-3 py-2">Row</th>
                             <th className="px-3 py-2">questionType</th>
                             <th className="px-3 py-2">questionText</th>
+                            <th className="px-3 py-2">answer key</th>
                             <th className="px-3 py-2">marks</th>
                             <th className="px-3 py-2">errors</th>
                           </tr>
@@ -1405,6 +1436,17 @@ function TeacherQuizzes() {
                               <td className="px-3 py-2 text-slate-500">{row.rowNo}</td>
                               <td className="px-3 py-2 text-slate-700">{row.questionType}</td>
                               <td className="px-3 py-2 text-slate-700">{row.questionText}</td>
+                              <td className="px-3 py-2">
+                                {row.questionType === "short_answer" ? (
+                                  <span className="text-xs text-amber-700">
+                                    Expected: {row.expectedAnswer || "-"}
+                                  </span>
+                                ) : (
+                                  <span className="text-xs font-semibold text-emerald-700">
+                                    Correct: {row.correctAnswer || "-"}
+                                  </span>
+                                )}
+                              </td>
                               <td className="px-3 py-2 text-slate-700">{row.marks}</td>
                               <td className="px-3 py-2 text-rose-600">
                                 {row.errors.join(", ") || "-"}

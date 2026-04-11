@@ -33,9 +33,13 @@ export default function TestsManager({
   createTest,
   fetchClasses,
   fetchTestById,
+  bulkUploadTest,
+  downloadTestTemplate,
 }) {
   const queryClient = useQueryClient();
   const [selectedTestId, setSelectedTestId] = useState("");
+  const [bulkFile, setBulkFile] = useState(null);
+  const [bulkErrors, setBulkErrors] = useState([]);
   const [form, setForm] = useState({
     title: "",
     description: "",
@@ -88,6 +92,48 @@ export default function TestsManager({
     },
   });
 
+  const bulkMutation = useMutation({
+    mutationFn: async (file) => {
+      if (!bulkUploadTest) throw new Error("Bulk upload not supported");
+      return bulkUploadTest(file);
+    },
+    onSuccess: () => {
+      setBulkErrors([]);
+      setBulkFile(null);
+      toast.success("Test created from CSV");
+      queryClient.invalidateQueries({ queryKey: [`${actor}-tests`] });
+    },
+    onError: (error) => {
+      const errs = error?.response?.data?.errors?.errors;
+      if (Array.isArray(errs) && errs.length) {
+        setBulkErrors(errs);
+        toast.error("CSV has validation errors");
+        return;
+      }
+      toast.error(error?.response?.data?.message || "Failed to upload CSV");
+    },
+  });
+
+  const downloadTemplate = async () => {
+    try {
+      if (!downloadTestTemplate) {
+        toast.error("Template download is not available");
+        return;
+      }
+      const { blob, filename } = await downloadTestTemplate();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename || "test_template.csv";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      toast.error(error?.response?.data?.message || "Failed to download template");
+    }
+  };
+
   const tests = Array.isArray(testsQuery.data) ? testsQuery.data : [];
   const classes = Array.isArray(classesQuery.data) ? classesQuery.data : [];
   const selected = detailsQuery.data || null;
@@ -136,6 +182,70 @@ export default function TestsManager({
 
   return (
     <div className="space-y-6">
+      {bulkUploadTest && downloadTestTemplate ? (
+        <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h2 className="font-heading text-xl text-slate-900">Bulk Create Test (CSV)</h2>
+              <p className="mt-1 text-sm text-slate-500">
+                Upload one CSV to create one test with many MCQ questions. Correct answer must be A/B/C/D.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={downloadTemplate}
+              className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700"
+            >
+              Download Template
+            </button>
+          </div>
+
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <input
+              type="file"
+              accept=".csv"
+              onChange={(e) => {
+                const file = e.target.files?.[0] || null;
+                setBulkErrors([]);
+                setBulkFile(file);
+              }}
+              className="text-sm"
+            />
+            <button
+              type="button"
+              disabled={!bulkFile || bulkMutation.isPending}
+              onClick={() => {
+                if (!bulkFile) return;
+                if (!bulkFile.name.toLowerCase().endsWith(".csv")) {
+                  toast.error("Please select a .csv file");
+                  return;
+                }
+                bulkMutation.mutate(bulkFile);
+              }}
+              className="rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {bulkMutation.isPending ? "Uploading..." : "Upload CSV"}
+            </button>
+          </div>
+
+          {Array.isArray(bulkErrors) && bulkErrors.length > 0 ? (
+            <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 p-4">
+              <p className="text-sm font-semibold text-rose-700">Fix these CSV errors and re-upload:</p>
+              <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-rose-700">
+                {bulkErrors.slice(0, 20).map((msg) => (
+                  <li key={msg}>{msg}</li>
+                ))}
+              </ul>
+              {bulkErrors.length > 20 ? (
+                <p className="mt-2 text-xs text-rose-700">
+                  Showing first 20 of {bulkErrors.length} errors
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+        </section>
+      ) : null}
+
       <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
         <h2 className="font-heading text-xl text-slate-900">Create Test</h2>
         <div className="mt-4 grid gap-3 md:grid-cols-2">

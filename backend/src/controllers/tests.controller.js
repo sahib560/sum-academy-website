@@ -32,6 +32,106 @@ const chunkArray = (items = [], size = 10) => {
   return chunks;
 };
 
+// ---------------------------
+// Bulk CSV helpers (Tests)
+// ---------------------------
+const TEST_CSV_HEADERS = [
+  "scope",
+  "classid",
+  "title",
+  "description",
+  "startat",
+  "endat",
+  "durationminutes",
+  "maxviolations",
+  "questiontext",
+  "optiona",
+  "optionb",
+  "optionc",
+  "optiond",
+  "correctanswer",
+  "marks",
+];
+
+const parseCsvLine = (line = "") => {
+  const row = [];
+  let current = "";
+  let insideQuotes = false;
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index];
+    if (char === '"') {
+      if (insideQuotes && line[index + 1] === '"') {
+        current += '"';
+        index += 1;
+      } else {
+        insideQuotes = !insideQuotes;
+      }
+      continue;
+    }
+    if (char === "," && !insideQuotes) {
+      row.push(current);
+      current = "";
+      continue;
+    }
+    current += char;
+  }
+  row.push(current);
+  return row.map((cell) => trimText(cell));
+};
+
+const parseCsvToRows = (csvText = "") => {
+  const rawLines = String(csvText || "").split(/\r?\n/);
+  if (!rawLines.length) {
+    return { headers: [], rows: [], commentRows: [] };
+  }
+
+  let headers = [];
+  let headerFound = false;
+  const rows = [];
+  const commentRows = [];
+
+  rawLines.forEach((rawLine, index) => {
+    const lineNo = index + 1;
+    const trimmedLine = trimText(rawLine);
+    if (!trimmedLine) return;
+
+    if (trimmedLine.startsWith("#")) {
+      commentRows.push(lineNo);
+      return;
+    }
+
+    if (!headerFound) {
+      headers = parseCsvLine(rawLine).map((header) => lowerText(header));
+      headerFound = true;
+      return;
+    }
+
+    const values = parseCsvLine(rawLine);
+    const row = { __row: lineNo };
+    headers.forEach((header, cellIndex) => {
+      row[header] = values[cellIndex] ?? "";
+    });
+
+    const hasAnyValue = headers.some((header) => trimText(row[header]));
+    if (!hasAnyValue) return;
+    rows.push(row);
+  });
+
+  return { headers, rows, commentRows };
+};
+
+const csvEscapeCell = (value = "") => {
+  const raw = String(value ?? "");
+  if (!/[",\r\n]/.test(raw)) return raw;
+  return `"${raw.replace(/"/g, '""')}"`;
+};
+
+const makeCsv = (rows = []) =>
+  rows.map((row) => row.map((cell) => csvEscapeCell(cell)).join(",")).join("\n");
+
+const safeFilePart = (value = "") =>
+  trimText(value).replace(/[^\w-]+/g, "_").slice(0, 80) || "test";
+
 const getTestStatus = (testData = {}, now = new Date()) => {
   const startAt = parseDate(testData.startAt);
   const endAt = parseDate(testData.endAt);
@@ -560,6 +660,242 @@ export const createTest = async (req, res) => {
   } catch (error) {
     console.error("createTest error:", error);
     return errorResponse(res, error.message || "Failed to create test", 400);
+  }
+};
+
+export const downloadTestBulkTemplate = async (req, res) => {
+  try {
+    const now = new Date();
+    const inOneHour = new Date(now.getTime() + 60 * 60 * 1000);
+    const inTwoHours = new Date(now.getTime() + 2 * 60 * 60 * 1000);
+
+    const commentRows = [
+      "# INSTRUCTIONS:",
+      "# 1) correctAnswer must be A, B, C, or D",
+      "# 2) Each CSV row is ONE MCQ question for the SAME test",
+      "# 3) scope must be class or center",
+      "# 4) If scope=class then classId is required",
+      "# Delete these comment rows before uploading",
+      "",
+    ].join("\n");
+
+    const headerRow = TEST_CSV_HEADERS;
+    const sampleRows = [
+      {
+        scope: "class",
+        classId: "CLASS_ID_HERE",
+        title: "Biology Weekly Test 1",
+        description: "Practice test for the week",
+        startAt: inOneHour.toISOString(),
+        endAt: inTwoHours.toISOString(),
+        durationMinutes: "60",
+        maxViolations: "3",
+        questionText: "What is 2 + 2?",
+        optionA: "3",
+        optionB: "4",
+        optionC: "5",
+        optionD: "6",
+        correctAnswer: "B",
+        marks: "1",
+      },
+      {
+        scope: "class",
+        classId: "CLASS_ID_HERE",
+        title: "Biology Weekly Test 1",
+        description: "Practice test for the week",
+        startAt: inOneHour.toISOString(),
+        endAt: inTwoHours.toISOString(),
+        durationMinutes: "60",
+        maxViolations: "3",
+        questionText: "The human heart has how many chambers?",
+        optionA: "2",
+        optionB: "3",
+        optionC: "4",
+        optionD: "5",
+        correctAnswer: "C",
+        marks: "1",
+      },
+    ];
+
+    const csvRows = sampleRows.map((row) => [
+      row.scope,
+      row.classId,
+      row.title,
+      row.description,
+      row.startAt,
+      row.endAt,
+      row.durationMinutes,
+      row.maxViolations,
+      row.questionText,
+      row.optionA,
+      row.optionB,
+      row.optionC,
+      row.optionD,
+      row.correctAnswer,
+      row.marks,
+    ]);
+
+    const csvContent = [commentRows, makeCsv([headerRow, ...csvRows])].join("\n");
+    const filename = `Test_Bulk_Template_${safeFilePart("SUM_Academy")}.csv`;
+    res.setHeader("Content-Type", "text/csv");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    return res.status(200).send(csvContent);
+  } catch (error) {
+    console.error("downloadTestBulkTemplate error:", error);
+    return errorResponse(res, "Failed to download test template", 500);
+  }
+};
+
+export const bulkUploadManagedTest = async (req, res) => {
+  try {
+    const uid = trimText(req.user?.uid);
+    const role = lowerText(req.user?.role || "teacher");
+    if (!uid) return errorResponse(res, "Missing user uid", 400);
+
+    const fileBuffer = req.file?.buffer;
+    const csvText = fileBuffer
+      ? fileBuffer.toString("utf8")
+      : trimText(req.body?.csvText || "");
+    if (!csvText) return errorResponse(res, "CSV file is required", 400);
+
+    const parsed = parseCsvToRows(csvText);
+    const headers = parsed.headers || [];
+    const rows = parsed.rows || [];
+    if (!headers.length) return errorResponse(res, "CSV header row is missing", 400);
+    if (!rows.length) return errorResponse(res, "CSV has no data rows", 400);
+
+    const required = new Set(TEST_CSV_HEADERS);
+    const missingHeaders = [...required].filter((h) => !headers.includes(h));
+    if (missingHeaders.length) {
+      return errorResponse(res, "CSV headers are invalid", 400, {
+        code: "CSV_HEADERS_INVALID",
+        missing: missingHeaders,
+        required: TEST_CSV_HEADERS,
+      });
+    }
+
+    const first = rows[0] || {};
+    const cleanScope = lowerText(first.scope || "class");
+    if (!["class", "center"].includes(cleanScope)) {
+      return errorResponse(res, "scope must be class or center", 400);
+    }
+    const cleanTitle = trimText(first.title);
+    if (cleanTitle.length < 3) {
+      return errorResponse(res, "title is required (min 3 chars)", 400);
+    }
+
+    const parsedStart = parseDate(first.startat || first.startAt);
+    const parsedEnd = parseDate(first.endat || first.endAt);
+    if (!parsedStart || !parsedEnd) {
+      return errorResponse(res, "startAt and endAt are required", 400);
+    }
+    if (parsedEnd.getTime() <= parsedStart.getTime()) {
+      return errorResponse(res, "endAt must be after startAt", 400);
+    }
+
+    let resolvedClassId = "";
+    let resolvedClassName = "Entire Center";
+    if (cleanScope === "class") {
+      const cleanClassId = trimText(first.classid || first.classId);
+      if (!cleanClassId) return errorResponse(res, "classId is required for class scope", 400);
+
+      const classSnap = await db.collection(COLLECTIONS.CLASSES).doc(cleanClassId).get();
+      if (!classSnap.exists) return errorResponse(res, "Class not found", 404);
+      const classData = classSnap.data() || {};
+
+      if (role !== "admin" && !isTeacherAssignedToClass(uid, classData)) {
+        return errorResponse(res, "You are not assigned to this class", 403);
+      }
+
+      resolvedClassId = cleanClassId;
+      resolvedClassName = trimText(classData.name) || "Class";
+    }
+
+    const durationMinutes = Math.max(
+      5,
+      toNumber(first.durationminutes || first.durationMinutes, 60)
+    );
+    const maxViolations = Math.max(
+      1,
+      toNumber(first.maxviolations || first.maxViolations, 3)
+    );
+
+    const errors = [];
+    const questions = rows.map((row, idx) => {
+      const rowNum = Number(row.__row || idx + 2);
+      const correct = trimText(row.correctanswer || row.correctAnswer).toUpperCase();
+      if (!["A", "B", "C", "D"].includes(correct)) {
+        errors.push(
+          `Row ${rowNum}: correctAnswer must be A, B, C or D, got "${trimText(
+            row.correctanswer || row.correctAnswer
+          )}"`
+        );
+      }
+      return {
+        questionText: trimText(row.questiontext || row.questionText),
+        optionA: trimText(row.optiona || row.optionA),
+        optionB: trimText(row.optionb || row.optionB),
+        optionC: trimText(row.optionc || row.optionC),
+        optionD: trimText(row.optiond || row.optionD),
+        correctAnswer: correct,
+        marks: toNumber(row.marks, 1),
+      };
+    });
+
+    if (errors.length) {
+      return errorResponse(res, "CSV has validation errors", 400, { errors });
+    }
+
+    const normalizedQuestions = normalizeQuestions(questions);
+    const totalMarks = normalizedQuestions.reduce(
+      (sum, question) => sum + Math.max(1, toNumber(question.marks, 1)),
+      0
+    );
+
+    const createdByName = await getActorDisplayName(uid, req.user?.name || "Teacher");
+    const testRef = db.collection(COLLECTIONS.TESTS).doc();
+
+    await testRef.set({
+      title: cleanTitle,
+      description: trimText(first.description),
+      scope: cleanScope,
+      classId: resolvedClassId,
+      className: resolvedClassName,
+      startAt: parsedStart,
+      endAt: parsedEnd,
+      durationMinutes,
+      maxViolations,
+      questions: normalizedQuestions,
+      totalMarks,
+      questionsCount: normalizedQuestions.length,
+      createdBy: uid,
+      createdByRole: role,
+      createdByName,
+      status: "active",
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      bulkUploaded: true,
+    });
+
+    return successResponse(
+      res,
+      {
+        id: testRef.id,
+        title: cleanTitle,
+        scope: cleanScope,
+        classId: resolvedClassId,
+        className: resolvedClassName,
+        totalMarks,
+        questionsCount: normalizedQuestions.length,
+        startAt: parsedStart.toISOString(),
+        endAt: parsedEnd.toISOString(),
+      },
+      "Test bulk uploaded successfully",
+      201
+    );
+  } catch (error) {
+    console.error("bulkUploadManagedTest error:", error);
+    return errorResponse(res, error?.message || "Failed to bulk upload test", 500);
   }
 };
 

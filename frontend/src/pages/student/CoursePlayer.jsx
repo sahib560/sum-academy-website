@@ -23,6 +23,7 @@ import { Skeleton } from "../../components/Skeleton.jsx";
 import { useAuth } from "../../hooks/useAuth.js";
 import {
   getFinalQuizRequestStatus,
+  getStudentLiveSessions,
   requestFinalQuizForCourse,
   reportStudentSecurityViolation,
 } from "../../services/student.service.js";
@@ -368,6 +369,26 @@ function StudentCoursePlayer() {
     normalized.access?.completionMessage ||
     "This class or subject is completed. Your certificate is generated. Thank you for joining us. Keep exploring our other subjects and classes. Thank you.";
   const isLivePremiere = Boolean(currentLecture?.isPremiereLive);
+
+  // Ensure live premiere auto-finalization runs even if student goes directly to CoursePlayer.
+  // This triggers backend logic that sets `lectures.premiereEndedAt` once the live window ends,
+  // so the lecture becomes a normal recorded video afterwards.
+  useEffect(() => {
+    if (!courseId) return undefined;
+    let cancelled = false;
+    (async () => {
+      try {
+        await getStudentLiveSessions();
+      } catch {
+        // ignore
+      }
+      if (cancelled) return;
+      queryClient.invalidateQueries({ queryKey: ["student-course-content", courseId] });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [courseId, queryClient]);
 
   const watchedPercent = useMemo(() => {
     if (duration <= 0) return 0;

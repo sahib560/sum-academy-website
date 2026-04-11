@@ -42,15 +42,16 @@ const makeId = () => {
 };
 
 const QUIZ_SCOPE = new Set(["chapter", "subject"]);
-const QUESTION_TYPES = new Set(["mcq"]);
+const QUESTION_TYPES = new Set(["mcq", "true_false", "short_answer"]);
 const ASSIGNMENT_TARGET_TYPES = new Set(["students", "course", "class"]);
 const CSV_HEADERS = [
   "scope",
   "courseid",
   "subjectid",
   "chapterid",
-  "title",
-  "description",
+  "quiztitle",
+  "quizdescription",
+  "passscore",
   "questiontype",
   "questiontext",
   "optiona",
@@ -177,6 +178,12 @@ const mapQuestionType = (value = "") => {
   if (["mcq", "multiple_choice", "multiple-choice", "quiz"].includes(normalized)) {
     return "mcq";
   }
+  if (["true_false", "truefalse", "tf", "boolean"].includes(normalized)) {
+    return "true_false";
+  }
+  if (["short_answer", "shortanswer", "short", "subjective"].includes(normalized)) {
+    return "short_answer";
+  }
   return normalized;
 };
 
@@ -184,16 +191,16 @@ const normalizeMcqCorrectAnswer = (rawAnswer, options = []) => {
   const answer = trimText(rawAnswer);
   if (!answer) return "";
   const upper = answer.toUpperCase();
-  const letterMap = { A: 0, B: 1, C: 2, D: 3, E: 4, F: 5 };
+  const letterMap = { A: 0, B: 1, C: 2, D: 3 };
   if (letterMap[upper] !== undefined && options[letterMap[upper]]) {
-    return options[letterMap[upper]];
+    return upper;
   }
 
-  const index = Number(answer);
-  if (Number.isFinite(index) && options[index]) return options[index];
-
-  const exact = options.find((option) => lowerText(option) === lowerText(answer));
-  return exact || "";
+  const exactIndex = options.findIndex((option) => lowerText(option) === lowerText(answer));
+  if (exactIndex >= 0 && exactIndex <= 3) {
+    return ["A", "B", "C", "D"][exactIndex];
+  }
+  return "";
 };
 
 const normalizeQuestionInput = (questionInput = {}, rowRef = 1) => {
@@ -205,7 +212,7 @@ const normalizeQuestionInput = (questionInput = {}, rowRef = 1) => {
   const rowLabel = Number.isFinite(Number(rowRef)) ? Number(rowRef) : rowRef;
 
   if (!QUESTION_TYPES.has(type)) {
-    throw new Error(`Only mcq questionType is allowed (row ${rowLabel})`);
+    throw new Error(`Invalid questionType at row ${rowLabel}`);
   }
   if (questionText.length < 3) {
     throw new Error(`Question text too short at row ${rowLabel}`);
@@ -244,16 +251,23 @@ const normalizeQuestionInput = (questionInput = {}, rowRef = 1) => {
       questionInput.correctAnswer,
       options
     );
-    if (!correctAnswer) {
+    if (!correctAnswer || !["A", "B", "C", "D"].includes(correctAnswer)) {
       throw new Error(`MCQ correct answer mismatch at row ${rowLabel}`);
     }
+
+    const optionMap = {
+      A: options[0] || "",
+      B: options[1] || "",
+      C: options[2] || "",
+      D: options[3] || "",
+    };
 
     return {
       questionId: trimText(questionInput.questionId) || makeId(),
       type: "mcq",
       questionType: "mcq",
       questionText,
-      options,
+      options: optionMap,
       correctAnswer,
       expectedAnswer: "",
       marks,
@@ -262,7 +276,45 @@ const normalizeQuestionInput = (questionInput = {}, rowRef = 1) => {
     };
   }
 
-  throw new Error(`Invalid mcq row ${rowLabel}`);
+  if (type === "true_false") {
+    const correctAnswer = trimText(questionInput.correctAnswer).toUpperCase();
+    if (!["TRUE", "FALSE"].includes(correctAnswer)) {
+      throw new Error(`True/False correctAnswer must be TRUE or FALSE at row ${rowLabel}`);
+    }
+    return {
+      questionId: trimText(questionInput.questionId) || makeId(),
+      type: "true_false",
+      questionType: "true_false",
+      questionText,
+      options: { A: "TRUE", B: "FALSE" },
+      correctAnswer,
+      expectedAnswer: "",
+      marks,
+      requiresManualReview: false,
+      order: Number.isFinite(Number(rowRef)) ? Number(rowRef) : 1,
+    };
+  }
+
+  if (type === "short_answer") {
+    const expectedAnswer = trimText(questionInput.expectedAnswer);
+    if (!expectedAnswer) {
+      throw new Error(`Short answer must have expectedAnswer at row ${rowLabel}`);
+    }
+    return {
+      questionId: trimText(questionInput.questionId) || makeId(),
+      type: "short_answer",
+      questionType: "short_answer",
+      questionText,
+      options: {},
+      correctAnswer: "",
+      expectedAnswer,
+      marks,
+      requiresManualReview: true,
+      order: Number.isFinite(Number(rowRef)) ? Number(rowRef) : 1,
+    };
+  }
+
+  throw new Error(`Invalid row ${rowLabel}`);
 };
 
 const getTeacherCourseSubjectContext = async (
@@ -695,6 +747,7 @@ const buildQuizDocument = ({
   chapterId,
   chapterTitle,
   questions,
+  passScore = 70,
   isFinalQuiz = false,
 }) => {
   const normalizedQuestions = questions.map((question, index) => ({
@@ -723,6 +776,7 @@ const buildQuizDocument = ({
     chapterId: scope === "chapter" ? chapterId : "",
     chapterTitle: scope === "chapter" ? chapterTitle : "",
     isFinalQuiz: Boolean(isFinalQuiz),
+    passScore: Math.max(1, Math.min(100, toPositiveNumber(passScore, 70))),
     questionCount: normalizedQuestions.length,
     totalMarks,
     questions: normalizedQuestions,
@@ -782,9 +836,9 @@ const evaluateQuizAnswersInternal = (quizData = {}, submittedAnswers = {}) => {
     }
 
     if (type === "true_false") {
-      const correct = Boolean(question.correctAnswer);
-      const submitted = parseBooleanLike(submittedRaw);
-      const isCorrect = submitted !== null && submitted === correct;
+      const correctAnswer = trimText(question.correctAnswer).toUpperCase();
+      const submitted = trimText(submittedRaw).toUpperCase();
+      const isCorrect = Boolean(submitted) && submitted === correctAnswer;
       const marksAwarded = isCorrect ? marks : 0;
       objectiveScore += marksAwarded;
       return {
@@ -793,7 +847,7 @@ const evaluateQuizAnswersInternal = (quizData = {}, submittedAnswers = {}) => {
         questionText: trimText(question.questionText),
         submittedAnswer: submitted,
         expectedAnswer: "",
-        correctAnswer: correct,
+        correctAnswer,
         isCorrect,
         marksAwarded,
         maxMarks: marks,
@@ -802,9 +856,26 @@ const evaluateQuizAnswersInternal = (quizData = {}, submittedAnswers = {}) => {
       };
     }
 
-    const correctAnswer = trimText(question.correctAnswer);
     const submitted = trimText(submittedRaw);
-    const isCorrect = lowerText(submitted) === lowerText(correctAnswer);
+    const submittedUpper = submitted.toUpperCase();
+    const correctAnswer = trimText(question.correctAnswer).toUpperCase();
+    const optionsObj =
+      question.options && typeof question.options === "object" && !Array.isArray(question.options)
+        ? question.options
+        : {};
+    const submittedOptionText =
+      ["A", "B", "C", "D"].includes(submittedUpper)
+        ? trimText(optionsObj[submittedUpper])
+        : submitted;
+    const correctOptionText =
+      ["A", "B", "C", "D"].includes(correctAnswer)
+        ? trimText(optionsObj[correctAnswer])
+        : "";
+    const isCorrect =
+      (["A", "B", "C", "D"].includes(submittedUpper) && submittedUpper === correctAnswer) ||
+      (Boolean(submittedOptionText) &&
+        Boolean(correctOptionText) &&
+        lowerText(submittedOptionText) === lowerText(correctOptionText));
     const marksAwarded = isCorrect ? marks : 0;
     objectiveScore += marksAwarded;
     return {
@@ -813,7 +884,7 @@ const evaluateQuizAnswersInternal = (quizData = {}, submittedAnswers = {}) => {
       questionText: trimText(question.questionText),
       submittedAnswer: submitted,
       expectedAnswer: "",
-      correctAnswer,
+      correctAnswer: ["A", "B", "C", "D"].includes(correctAnswer) ? correctAnswer : "",
       isCorrect,
       marksAwarded,
       maxMarks: marks,
@@ -1367,6 +1438,7 @@ export const createTeacherQuiz = async (req, res) => {
     const courseId = trimText(req.body?.courseId);
     const subjectId = trimText(req.body?.subjectId);
     const chapterId = trimText(req.body?.chapterId);
+    const passScore = Math.max(1, Math.min(100, toPositiveNumber(req.body?.passScore, 70)));
     const questionInput = Array.isArray(req.body?.questions) ? req.body.questions : [];
     const isFinalQuiz = req.body?.isFinalQuiz === true;
     const createTargetType = lowerText(
@@ -1428,6 +1500,7 @@ export const createTeacherQuiz = async (req, res) => {
       chapterId,
       chapterTitle: trimText(context.chapterData?.title),
       questions,
+      passScore,
       isFinalQuiz,
     });
 
@@ -1572,7 +1645,7 @@ export const downloadQuizBulkTemplate = async (req, res) => {
     const chapterName =
       requestedChapterName || trimText(context.chapterData?.title) || "Chapter";
     const chapterValue = scope === "chapter" ? chapterId : "";
-    const quizTitle = scope === "chapter" ? "Chapter Quiz Sample" : "Subject Quiz Sample";
+    const quizTitle = scope === "chapter" ? "Chapter 1 Quiz" : "Subject Quiz";
     const description =
       scope === "chapter" ? "Practice for this chapter" : "Practice for this subject";
 
@@ -1584,6 +1657,7 @@ export const downloadQuizBulkTemplate = async (req, res) => {
         chapterValue,
         quizTitle,
         description,
+        "70",
         "mcq",
         "What is 2 + 2?",
         "3",
@@ -1601,66 +1675,34 @@ export const downloadQuizBulkTemplate = async (req, res) => {
         chapterValue,
         quizTitle,
         description,
-        "mcq",
+        "70",
+        "true_false",
         "Sun rises from the east.",
-        "True",
-        "False",
         "",
         "",
-        "A",
-        "",
-        "1",
-      ],
-      [
-        scope,
-        courseId,
-        subjectId,
-        chapterValue,
-        quizTitle,
-        description,
-        "mcq",
-        "Define osmosis.",
-        "Movement of water",
-        "Cell division",
-        "Gravity",
-        "Mitosis",
-        "A",
-        "",
-        "2",
-      ],
-      [
-        scope,
-        courseId,
-        subjectId,
-        chapterValue,
-        quizTitle,
-        description,
-        "mcq",
-        "Which option is correct?",
-        "Option 1",
-        "Option 2",
-        "Option 3",
-        "Option 4",
-        "A",
-        "",
-        "2",
-      ],
-      [
-        scope,
-        courseId,
-        subjectId,
-        chapterValue,
-        quizTitle,
-        description,
-        "mcq",
-        "Water boils at 100C at sea level.",
-        "True",
-        "False",
         "",
         "",
-        "A",
+        "TRUE",
         "",
         "1",
+      ],
+      [
+        scope,
+        courseId,
+        subjectId,
+        chapterValue,
+        quizTitle,
+        description,
+        "70",
+        "short_answer",
+        "Define photosynthesis in one sentence.",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "Process by which plants make food using sunlight",
+        "5",
       ],
     ];
 
@@ -1669,8 +1711,9 @@ export const downloadQuizBulkTemplate = async (req, res) => {
       "courseId",
       "subjectId",
       "chapterId",
-      "title",
-      "description",
+      "quizTitle",
+      "quizDescription",
+      "passScore",
       "questionType",
       "questionText",
       "optionA",
@@ -1682,14 +1725,14 @@ export const downloadQuizBulkTemplate = async (req, res) => {
       "marks",
     ];
 
-    const commentRow =
-      "# scope: chapter or subject | courseId/subjectId/chapterId: DO NOT EDIT | questionType: mcq only | correctAnswer for mcq: A B C or D | marks: number of marks for this question";
-    const guidanceRow =
-      "# DO NOT EDIT columns A-D (scope courseId subjectId chapterId). Fill questions from column E onwards. Delete comment rows before uploading.";
+    const commentRow = "# INSTRUCTIONS: correctAnswer for MCQ must be A B C or D";
+    const guidanceRow = "# correctAnswer for true_false must be TRUE or FALSE";
+    const guidanceRow2 = "# Delete this comment row before uploading";
 
     const csvContent = [
       commentRow,
       guidanceRow,
+      guidanceRow2,
       makeCsv([headerRow, ...csvRows]),
     ].join("\n");
 
@@ -1748,8 +1791,9 @@ export const bulkUploadTeacherQuiz = async (req, res) => {
       courseId: trimText(row.courseid),
       subjectId: trimText(row.subjectid),
       chapterId: trimText(row.chapterid),
-      title: trimText(row.title),
-      description: trimText(row.description),
+      title: trimText(row.quiztitle || row.title),
+      description: trimText(row.quizdescription || row.description),
+      passScore: trimText(row.passscore),
       questionType: row.questiontype,
       questionText: row.questiontext,
       optionA: row.optiona,
@@ -1852,11 +1896,15 @@ export const bulkUploadTeacherQuiz = async (req, res) => {
         const existing = groupedByTitle.get(titleKey) || {
           title: row.title,
           description: row.description,
+          passScore: Number(row.passScore) > 0 ? Number(row.passScore) : 50,
           questions: [],
         };
 
         if (!existing.description && row.description) {
           existing.description = row.description;
+        }
+        if (!existing.passScore && Number(row.passScore) > 0) {
+          existing.passScore = Number(row.passScore);
         }
         existing.questions.push(question);
         groupedByTitle.set(titleKey, existing);
@@ -1869,7 +1917,11 @@ export const bulkUploadTeacherQuiz = async (req, res) => {
     });
 
     if (rowErrors.length) {
-      return errorResponse(res, "Validation failed for CSV rows", 400, rowErrors);
+      return res.status(400).json({
+        success: false,
+        message: "CSV has validation errors",
+        errors: rowErrors.map((row) => `Row ${row.row}: ${row.message}`),
+      });
     }
     if (!groupedByTitle.size) {
       return errorResponse(res, "No valid questions found in CSV", 400);
@@ -1894,6 +1946,7 @@ export const bulkUploadTeacherQuiz = async (req, res) => {
         scope,
         title: group.title,
         description: group.description,
+        passScore: Number(group.passScore) > 0 ? Number(group.passScore) : 50,
         courseId,
         courseName,
         subjectId,
