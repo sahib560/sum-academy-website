@@ -7655,6 +7655,10 @@ Cache policy:
   - `liveStartAt` (ISO)
   - `liveEndAt` (ISO) = `liveStartAt + durationSec`
 - Student live schedule prefers `lecture.liveStartAt/liveEndAt` when present; otherwise it falls back to shift-based occurrence.
+ 
+Timezone note:
+- `liveStartAt/liveEndAt` are stored as **Pakistan local datetime strings** (no trailing `Z`) like `2026-04-11T14:34:00`.
+- Backend parses these consistently as `Asia/Karachi` to avoid UTC confusion in Firestore.
 
 **Important endpoints**
 - List live sessions: `GET /api/student/live-sessions`

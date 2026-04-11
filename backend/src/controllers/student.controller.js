@@ -45,7 +45,15 @@ const normalizeEmailAddress = (value = "") => {
 const parseDate = (value) => {
   if (!value) return null;
   if (typeof value?.toDate === "function") return value.toDate();
-  const parsed = new Date(value);
+  const raw = String(value || "").trim();
+  // If stored as local datetime without timezone (no Z / no offset),
+  // interpret it as Pakistan time (Asia/Karachi) to avoid server-timezone drift.
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(raw) && !/Z$|[+-]\d{2}:\d{2}$/.test(raw)) {
+    const normalized = raw.length === 16 ? `${raw}:00` : raw;
+    const parsedPk = new Date(`${normalized}+05:00`);
+    return Number.isNaN(parsedPk.getTime()) ? null : parsedPk;
+  }
+  const parsed = new Date(raw);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 };
 

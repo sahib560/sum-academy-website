@@ -544,8 +544,42 @@ const parseDate = (value) => {
   } catch {
     // ignore
   }
-  const parsed = new Date(value);
+  const raw = trimText(value);
+  // If stored/sent without timezone (no Z / no offset), treat as Pakistan time to avoid
+  // "random" UTC shifts when converting to ISO.
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(raw) && !/Z$|[+-]\d{2}:\d{2}$/.test(raw)) {
+    const normalized = raw.length === 16 ? `${raw}:00` : raw; // add seconds if missing
+    const parsedPk = new Date(`${normalized}+05:00`);
+    return Number.isNaN(parsedPk.getTime()) ? null : parsedPk;
+  }
+  const parsed = new Date(raw);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const PK_DATE_TIME_FORMATTER = new Intl.DateTimeFormat("en-US", {
+  timeZone: "Asia/Karachi",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hour12: false,
+  hourCycle: "h23",
+});
+
+const formatPkDateTimeLocal = (value) => {
+  const parsed = parseDate(value);
+  if (!parsed) return null;
+  const parts = PK_DATE_TIME_FORMATTER.formatToParts(parsed);
+  const year = parts.find((p) => p.type === "year")?.value;
+  const month = parts.find((p) => p.type === "month")?.value;
+  const day = parts.find((p) => p.type === "day")?.value;
+  const hour = parts.find((p) => p.type === "hour")?.value;
+  const minute = parts.find((p) => p.type === "minute")?.value;
+  const second = parts.find((p) => p.type === "second")?.value;
+  if (!year || !month || !day || !hour || !minute || !second) return null;
+  return `${year}-${month}-${day}T${hour}:${minute}:${second}`;
 };
 
 const ACTIVE_ENROLLMENT_STATUSES = new Set([
@@ -1062,35 +1096,45 @@ const serializeChapter = (id, data = {}) => ({
   updatedAt: toIso(data.updatedAt),
 });
 
-const serializeLecture = (id, data = {}) => ({
-  id,
-  chapterId: data.chapterId || "",
-  courseId: data.courseId || "",
-  subjectId: data.subjectId || "",
-  title: data.title || "",
-  order: toPositiveNumber(data.order, 1),
-  videoUrl: data.videoUrl || null,
-  videoTitle: data.videoTitle || null,
-  videoId: data.videoId || null,
-  videoMode: trimText(data.videoMode) || "recorded",
-  isLiveSession: Boolean(data.isLiveSession),
-  videoDuration:
-    data.videoDuration === null || data.videoDuration === undefined
-      ? null
-      : data.videoDuration,
-  durationSec: Math.max(
+const serializeLecture = (id, data = {}) => {
+  const durationSec = Math.max(
     parseLectureDurationToSeconds(
       data.durationSec ?? data.videoDurationSec ?? data.videoDuration ?? data.duration
     ),
     0
-  ),
-  premiereEndedAt: toIso(data.premiereEndedAt),
-  pdfNotes: Array.isArray(data.pdfNotes) ? data.pdfNotes : [],
-  books: Array.isArray(data.books) ? data.books : [],
-  isPublished: Boolean(data.isPublished),
-  createdAt: toIso(data.createdAt),
-  updatedAt: toIso(data.updatedAt),
-});
+  );
+  const videoDuration = (() => {
+    if (!durationSec) return null;
+    const h = Math.floor(durationSec / 3600);
+    const m = Math.floor((durationSec % 3600) / 60);
+    const s = durationSec % 60;
+    if (h > 0) return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+    return `${m}:${String(s).padStart(2, "0")}`;
+  })();
+
+  return {
+    id,
+    chapterId: data.chapterId || "",
+    courseId: data.courseId || "",
+    subjectId: data.subjectId || "",
+    title: data.title || "",
+    order: toPositiveNumber(data.order, 1),
+    videoUrl: data.videoUrl || null,
+    videoTitle: data.videoTitle || null,
+    videoId: data.videoId || null,
+    videoMode: trimText(data.videoMode) || "recorded",
+    isLiveSession: Boolean(data.isLiveSession),
+    // Do not rely on stored string duration. Single source of truth is durationSec.
+    videoDuration,
+    durationSec,
+    premiereEndedAt: toIso(data.premiereEndedAt),
+    pdfNotes: Array.isArray(data.pdfNotes) ? data.pdfNotes : [],
+    books: Array.isArray(data.books) ? data.books : [],
+    isPublished: Boolean(data.isPublished),
+    createdAt: toIso(data.createdAt),
+    updatedAt: toIso(data.updatedAt),
+  };
+};
 
 const getTeacherDisplayName = async (uid, email = "") => {
   const [teacherSnap, userSnap] = await Promise.all([
@@ -1471,6 +1515,16 @@ const normalizeVideoLibraryRow = (id, data = {}) => ({
       ? "live_session"
       : "recorded",
   isLiveSession: Boolean(data.isLiveSession),
+  durationSec: Math.max(0, toPositiveNumber(data.durationSec ?? data.videoDurationSec ?? data.totalDurationSec, 0)),
+  videoDuration: (() => {
+    const seconds = Math.max(0, toPositiveNumber(data.durationSec ?? data.videoDurationSec ?? data.totalDurationSec, 0));
+    if (!seconds) return "";
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = seconds % 60;
+    if (h > 0) return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+    return `${m}:${String(s).padStart(2, "0")}`;
+  })(),
   isActive: data.isActive !== false,
   createdAt: toIso(data.createdAt),
   updatedAt: toIso(data.updatedAt),
@@ -1856,7 +1910,6 @@ export const createTeacherVideoLibraryItem = async (req, res) => {
       isActive = true,
       isLiveSession = false,
       videoMode = "",
-      videoDuration = "",
       durationSec = 0,
     } = req.body || {};
 
@@ -1904,7 +1957,6 @@ export const createTeacherVideoLibraryItem = async (req, res) => {
       teacherName: resolvedTeacherName,
       videoMode: liveFlag ? "live_session" : "recorded",
       isLiveSession: liveFlag,
-      videoDuration: videoDuration === null || videoDuration === undefined ? null : trimText(videoDuration),
       durationSec: Math.max(
         0,
         toPositiveNumber(durationSec ?? 0, 0)
@@ -2382,6 +2434,7 @@ export const saveLectureContent = async (req, res) => {
       url,
       size = 0,
       duration,
+      durationSec,
       videoId,
       videoMode,
       isLiveSession,
@@ -2439,13 +2492,13 @@ export const saveLectureContent = async (req, res) => {
       updates.videoTitle = resolvedVideo.videoTitle;
       updates.videoMode = resolvedVideo.videoMode;
       updates.isLiveSession = resolvedVideo.isLiveSession;
-      updates.videoDuration =
-        duration !== undefined && duration !== null ? duration : currentData.videoDuration ?? "";
       updates.durationSec = Math.max(
-        parseLectureDurationToSeconds(duration),
+        parseLectureDurationToSeconds(durationSec ?? duration),
         parseLectureDurationToSeconds(currentData.durationSec ?? currentData.videoDurationSec),
         parseLectureDurationToSeconds(currentData.videoDuration)
       );
+      // Single source of truth: durationSec. Remove legacy string duration field if present.
+      updates.videoDuration = admin.firestore.FieldValue.delete();
       updates.premiereEndedAt = resolvedVideo.isLiveSession ? null : currentData.premiereEndedAt || null;
       firstLiveSession = Boolean(resolvedVideo.isFirstLiveSession);
 
@@ -2457,8 +2510,9 @@ export const saveLectureContent = async (req, res) => {
         if (parsedStart) {
           const durationSec = Math.max(0, toPositiveNumber(updates.durationSec, 0));
           const resolvedEnd = new Date(parsedStart.getTime() + Math.max(60, durationSec) * 1000);
-          updates.liveStartAt = parsedStart.toISOString();
-          updates.liveEndAt = resolvedEnd.toISOString();
+          // Store as Pakistan-local datetime string (no Z) so Firestore shows the expected time.
+          updates.liveStartAt = formatPkDateTimeLocal(parsedStart);
+          updates.liveEndAt = formatPkDateTimeLocal(resolvedEnd);
         } else if (liveStartAt !== undefined && liveStartAt !== null && trimText(liveStartAt)) {
           return errorResponse(res, "liveStartAt must be a valid ISO date", 400);
         }
@@ -2563,7 +2617,7 @@ export const deleteLectureContent = async (req, res) => {
       updates.videoId = null;
       updates.videoMode = "recorded";
       updates.isLiveSession = false;
-      updates.videoDuration = null;
+      updates.videoDuration = admin.firestore.FieldValue.delete();
       updates.durationSec = 0;
       updates.premiereEndedAt = null;
       updates.liveStartAt = null;

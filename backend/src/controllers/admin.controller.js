@@ -1118,6 +1118,17 @@ const normalizeVideoLibraryRow = (id, row = {}) => ({
       ? "live_session"
       : "recorded",
   isLiveSession: Boolean(row.isLiveSession),
+  // Single source of truth: durationSec. We compute a human label for clients.
+  durationSec: Math.max(0, toSafeNumber(row.durationSec ?? row.videoDurationSec ?? row.totalDurationSec, 0)),
+  videoDuration: (() => {
+    const seconds = Math.max(0, toSafeNumber(row.durationSec ?? row.videoDurationSec ?? row.totalDurationSec, 0));
+    if (!seconds) return "";
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = seconds % 60;
+    if (h > 0) return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+    return `${m}:${String(s).padStart(2, "0")}`;
+  })(),
   isActive: row.isActive !== false,
   createdAt: toIsoOrNull(row.createdAt),
   updatedAt: toIsoOrNull(row.updatedAt),
@@ -3016,7 +3027,6 @@ export const createVideoLibraryItem = async (req, res) => {
       isActive = true,
       isLiveSession = false,
       videoMode = "",
-      videoDuration = "",
       durationSec = 0,
     } = req.body || {};
 
@@ -3089,7 +3099,6 @@ export const createVideoLibraryItem = async (req, res) => {
       teacherName: resolvedTeacherName,
       videoMode: isLiveFlag ? "live_session" : "recorded",
       isLiveSession: isLiveFlag,
-      videoDuration: videoDuration === null || videoDuration === undefined ? null : String(videoDuration).trim(),
       durationSec: Math.max(0, toSafeNumber(durationSec, 0)),
       isActive: isActive !== false,
       createdBy: req.user?.uid || "",
@@ -3224,7 +3233,6 @@ export const addCourseContent = async (req, res) => {
             0
           )
         ),
-        videoDuration: String(videoData.videoDuration || "").trim(),
       };
     }
 
@@ -3239,7 +3247,6 @@ export const addCourseContent = async (req, res) => {
     let videoMode = "recorded";
     let resolvedIsLiveSession = false;
     let resolvedDurationSec = 0;
-    let resolvedVideoDuration = "";
     if (type === "video") {
       const requestedLive = parseNullableBoolean(isLiveSession);
       const requestedMode = String(requestedVideoMode || "").trim().toLowerCase();
@@ -3276,12 +3283,19 @@ export const addCourseContent = async (req, res) => {
       }
 
       resolvedDurationSec = Math.max(0, toSafeNumber(resolvedVideoMeta?.durationSec, 0));
-      resolvedVideoDuration = String(resolvedVideoMeta?.videoDuration || "").trim();
     }
 
     const parseDateValue = (value) => {
       if (!value) return null;
-      const parsed = new Date(value);
+      const raw = String(value || "").trim();
+      // Accept local Pakistan datetime strings without timezone ("2026-04-11T14:34:00")
+      // and interpret them as Asia/Karachi.
+      if (/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}/.test(raw) && !/Z$|[+-]\\d{2}:\\d{2}$/.test(raw)) {
+        const normalized = raw.length === 16 ? `${raw}:00` : raw;
+        const parsedPk = new Date(`${normalized}+05:00`);
+        return Number.isNaN(parsedPk.getTime()) ? null : parsedPk;
+      }
+      const parsed = new Date(raw);
       return Number.isNaN(parsed.getTime()) ? null : parsed;
     };
 
@@ -3294,6 +3308,30 @@ export const addCourseContent = async (req, res) => {
         ? new Date(resolvedLiveStart.getTime() + Math.max(60, resolvedDurationSec || 0) * 1000)
         : null;
 
+    const formatPkDateTimeLocal = (date) => {
+      if (!date) return null;
+      const formatter = new Intl.DateTimeFormat("en-US", {
+        timeZone: "Asia/Karachi",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false,
+        hourCycle: "h23",
+      });
+      const parts = formatter.formatToParts(date);
+      const year = parts.find((p) => p.type === "year")?.value;
+      const month = parts.find((p) => p.type === "month")?.value;
+      const day = parts.find((p) => p.type === "day")?.value;
+      const hour = parts.find((p) => p.type === "hour")?.value;
+      const minute = parts.find((p) => p.type === "minute")?.value;
+      const second = parts.find((p) => p.type === "second")?.value;
+      if (!year || !month || !day || !hour || !minute || !second) return null;
+      return `${year}-${month}-${day}T${hour}:${minute}:${second}`;
+    };
+
     const contentData = {
       id: uuidv4(),
       subjectId: resolvedSubjectId,
@@ -3304,9 +3342,9 @@ export const addCourseContent = async (req, res) => {
       videoMode,
       isLiveSession: resolvedIsLiveSession,
       durationSec: resolvedDurationSec,
-      videoDuration: resolvedVideoDuration || "",
-      liveStartAt: resolvedLiveStart ? resolvedLiveStart.toISOString() : null,
-      liveEndAt: resolvedLiveEnd ? resolvedLiveEnd.toISOString() : null,
+      // Single source of truth: durationSec. Do not store a second duration string field.
+      liveStartAt: resolvedLiveStart ? formatPkDateTimeLocal(resolvedLiveStart) : null,
+      liveEndAt: resolvedLiveEnd ? formatPkDateTimeLocal(resolvedLiveEnd) : null,
       premiereEndedAt: null,
       size: toSafeNumber(size, 0),
       contentType: contentType || "",

@@ -119,8 +119,8 @@ function AdminVideos() {
       teacherName: selectedTeacher?.fullName || "",
       isLiveSession,
       videoMode: isLiveSession ? "live_session" : "recorded",
+      // Single source of truth: durationSec only (server computes a label when needed).
       durationSec: Math.max(0, Number(durationSec || 0)),
-      videoDuration: durationSec > 0 ? formatDurationLabel(durationSec) : "",
     });
   };
 

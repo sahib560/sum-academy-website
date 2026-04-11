@@ -700,13 +700,14 @@ function Courses() {
       }
     }
 
-    const liveStartAtIso = (() => {
+    const liveStartAtLocal = (() => {
       if (!isLive) return "";
       const date = String(videoState.liveStartDate || "").trim();
       const time = String(videoState.liveStartTime || "").trim();
-      const parsed = new Date(`${date}T${time}`);
-      if (Number.isNaN(parsed.getTime())) return "";
-      return parsed.toISOString();
+      if (!date || !time) return "";
+      // Store as local datetime WITHOUT Z to avoid Firestore showing "random" UTC times.
+      // Backend parses this as Asia/Karachi consistently.
+      return `${date}T${time}:00`;
     })();
 
     setVideoState((prev) => ({
@@ -730,7 +731,8 @@ function Courses() {
           videoMode: selectedLibraryVideo.videoMode || (selectedLibraryVideo.isLiveSession ? "live_session" : "recorded"),
           size: Number(selectedLibraryVideo.size || 0),
           subjectId: activeSubject.id,
-          ...(liveStartAtIso ? { liveStartAt: liveStartAtIso } : {}),
+          durationSec: Number(selectedLibraryVideo.durationSec || 0),
+          ...(liveStartAtLocal ? { liveStartAt: liveStartAtLocal } : {}),
         },
       });
 

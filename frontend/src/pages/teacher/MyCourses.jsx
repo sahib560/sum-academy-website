@@ -271,14 +271,14 @@ function MyCourses() {
     try {
       setVideoUpload((prev) => ({ ...prev, uploading: true, stage: "Processing..." }));
 
-      const liveStartAtIso = (() => {
+      const liveStartAtLocal = (() => {
         if (!isLive) return "";
         const date = String(videoUpload.liveStartDate || "").trim();
         const time = String(videoUpload.liveStartTime || "").trim();
         if (!date || !time) return "";
-        const parsed = new Date(`${date}T${time}`);
-        if (Number.isNaN(parsed.getTime())) return "";
-        return parsed.toISOString();
+        // Store as local "Asia/Karachi" style datetime WITHOUT Z to avoid confusion in Firestore.
+        // Backend will parse this consistently as Pakistan time.
+        return `${date}T${time}:00`;
       })();
       await saveLectureContentMutation.mutateAsync({
         lectureId: selectedLecture.lectureId,
@@ -293,8 +293,9 @@ function MyCourses() {
             selectedVideo.videoMode ||
             (selectedVideo.isLiveSession ? "live_session" : "recorded"),
           size: Number(selectedVideo.size || 0),
-          duration: selectedVideo.videoDuration || selectedVideo.durationSec || selectedVideo.duration || "",
-          ...(liveStartAtIso ? { liveStartAt: liveStartAtIso } : {}),
+          // Single source of truth: durationSec (number of seconds)
+          durationSec: Number(selectedVideo.durationSec || 0),
+          ...(liveStartAtLocal ? { liveStartAt: liveStartAtLocal } : {}),
         },
       });
       await invalidateCourse(contentCourseId);
