@@ -108,8 +108,17 @@ export const uploadCourseVideo = async (req, res) => {
     if (!req.file) return errorResponse(res, "No file uploaded", 400);
 
     const { courseId = "", subjectId = "", lectureId = "", title = "" } = req.body || {};
-    if (!courseId || !subjectId) {
-      return errorResponse(res, "courseId and subjectId are required", 400);
+    let effectiveCourseId = String(courseId || "").trim();
+    let effectiveSubjectId = String(subjectId || "").trim();
+
+    // Allow gallery uploads without course/subject binding.
+    if (!effectiveCourseId || !effectiveSubjectId) {
+      if (lectureId) {
+        return errorResponse(res, "courseId and subjectId are required", 400);
+      }
+      const owner = String(req.user?.uid || "library").trim();
+      effectiveCourseId = `library-${owner}`;
+      effectiveSubjectId = "general";
     }
 
     const originalPath = tempPath || path.join(os.tmpdir(), `sum-upload-${Date.now()}`);
@@ -131,7 +140,7 @@ export const uploadCourseVideo = async (req, res) => {
       uploadPath,
       req.file.originalname,
       targetMime,
-      `courses/${courseId}/subjects/${subjectId}`
+      `courses/${effectiveCourseId}/subjects/${effectiveSubjectId}`
     );
 
     if (lectureId) {
