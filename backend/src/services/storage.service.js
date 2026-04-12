@@ -24,6 +24,22 @@ const ALLOWED_VIDEO_TYPES = [
   "application/octet-stream",
 ];
 
+const VIDEO_MIME_BY_EXT = {
+  ".mp4": "video/mp4",
+  ".m4v": "video/mp4",
+  ".mov": "video/quicktime",
+  ".avi": "video/x-msvideo",
+  ".webm": "video/webm",
+  ".mkv": "video/x-matroska",
+};
+
+const normalizeVideoMime = (mimeType = "", originalName = "") => {
+  const safeMime = String(mimeType || "").trim().toLowerCase();
+  if (safeMime) return safeMime;
+  const ext = path.extname(originalName || "").toLowerCase();
+  return VIDEO_MIME_BY_EXT[ext] || "video/mp4";
+};
+
 const ALLOWED_APK_TYPES = [
   "application/vnd.android.package-archive",
   "application/x-android-package",
@@ -208,13 +224,14 @@ export const uploadVideo = async (
   mimeType,
   subfolder = ""
 ) => {
-  if (!ALLOWED_VIDEO_TYPES.includes(mimeType)) {
+  const safeMime = normalizeVideoMime(mimeType, originalName);
+  if (!ALLOWED_VIDEO_TYPES.includes(safeMime)) {
     throw new Error("Only MP4, AVI, MOV videos allowed");
   }
   return uploadFile({
     fileBuffer,
     originalName,
-    mimeType,
+    mimeType: safeMime,
     folder: `videos/${sanitizeFolder(subfolder)}`,
     maxSize: MAX_SIZES.video,
   });
@@ -229,7 +246,8 @@ export const uploadVideoFromPath = async (
   if (!localPath) {
     throw new Error("Video temp file path is required");
   }
-  if (!ALLOWED_VIDEO_TYPES.includes(mimeType)) {
+  const safeMime = normalizeVideoMime(mimeType, originalName);
+  if (!ALLOWED_VIDEO_TYPES.includes(safeMime)) {
     throw new Error("Only MP4, AVI, MOV videos allowed");
   }
 
@@ -242,7 +260,7 @@ export const uploadVideoFromPath = async (
     destination: filePath,
     resumable: false,
     metadata: {
-      contentType: mimeType,
+      contentType: safeMime,
       cacheControl: "public,max-age=31536000,immutable",
       metadata: {
         originalName,

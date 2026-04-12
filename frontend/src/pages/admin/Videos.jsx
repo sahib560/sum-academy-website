@@ -243,6 +243,13 @@ function AdminVideos() {
                 }
               );
               const data = response?.data || response || {};
+              if (!data?.url) {
+                const message =
+                  data?.message ||
+                  "Upload failed. Please try again or upload a valid MP4 file.";
+                toast.error(message);
+                throw new Error(message);
+              }
               setUploadedVideo({
                 url: data.url,
                 filePath: data.filePath,
