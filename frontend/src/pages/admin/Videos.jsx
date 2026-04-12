@@ -110,12 +110,6 @@ function AdminVideos() {
     if (!courseId) return toast.error("Select subject"); 
     if (!teacherId) return toast.error("Selected subject has no assigned teacher"); 
     if (!uploadedVideo?.url) return toast.error("Upload video first"); 
-    if (isLiveSession && !(Number(durationSec) > 0)) { 
-      return toast.error( 
-        "Live sessions need a detected duration. Please re-upload a web-compatible MP4 (H.264 + AAC) or provide an HLS URL." 
-      ); 
-    } 
- 
     createMutation.mutate({ 
       title: title.trim(), 
       url: uploadedVideo.url, 
