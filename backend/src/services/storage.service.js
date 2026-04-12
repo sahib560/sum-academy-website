@@ -216,6 +216,58 @@ export const uploadVideo = async (
   });
 };
 
+export const uploadVideoFromPath = async (
+  localPath,
+  originalName,
+  mimeType,
+  subfolder = ""
+) => {
+  if (!localPath) {
+    throw new Error("Video temp file path is required");
+  }
+  if (!ALLOWED_VIDEO_TYPES.includes(mimeType)) {
+    throw new Error("Only MP4, AVI, MOV videos allowed");
+  }
+
+  const extension = path.extname(originalName) || ".mp4";
+  const fileName = `${Date.now()}-${uuidv4()}${extension}`;
+  const filePath = `videos/${sanitizeFolder(subfolder)}/${fileName}`;
+  const downloadToken = uuidv4();
+
+  await bucket.upload(localPath, {
+    destination: filePath,
+    resumable: false,
+    metadata: {
+      contentType: mimeType,
+      metadata: {
+        originalName,
+        uploadedAt: new Date().toISOString(),
+        firebaseStorageDownloadTokens: downloadToken,
+      },
+    },
+  });
+
+  const remote = bucket.file(filePath);
+  let url = buildGoogleApisUrl(bucket.name, filePath);
+  try {
+    await remote.makePublic();
+  } catch (error) {
+    console.warn(
+      "makePublic failed for video, using token URL:",
+      error?.message || error
+    );
+    url = buildFirebaseTokenUrl(bucket.name, filePath, downloadToken);
+  }
+
+  return {
+    url,
+    fileName,
+    filePath,
+    originalName,
+    mimeType,
+  };
+};
+
 export const uploadReceipt = async (fileBuffer, originalName, mimeType) => {
   if (![...ALLOWED_IMAGE_TYPES, "application/pdf"].includes(mimeType)) {
     throw new Error("Only JPG, PNG, WEBP or PDF receipts allowed");

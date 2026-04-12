@@ -1,6 +1,7 @@
 import express from "express";
 import {
   upload,
+  videoUpload,
   apkUpload,
   uploadThumbnail,
   uploadCoursePDF,
@@ -37,7 +38,7 @@ router.post("/upload/pdf", adminOrTeacher, upload.single("file"), uploadCoursePD
 router.post(
   "/upload/video",
   adminOrTeacher,
-  upload.single("file"),
+  videoUpload.single("file"),
   uploadCourseVideo
 );
 

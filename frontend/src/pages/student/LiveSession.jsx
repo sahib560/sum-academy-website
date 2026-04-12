@@ -147,11 +147,15 @@ export default function LiveSession() {
     if (!sessionId) return "loading";
     const raw = String(session?.status || status?.status || "scheduled").toLowerCase();
     if (raw === "ended" || raw === "expired") return "ended";
+    // If timing says we are past end, force ended.
+    if (endAt && nowMs >= endAt.getTime()) return "ended";
+    // If timing says we are within window, show live.
+    if (startAt && endAt && nowMs >= startAt.getTime() && nowMs < endAt.getTime()) return "live";
     if (raw === "live") return "live";
     return "pre";
-  }, [session?.status, sessionId, status?.status]);
+  }, [endAt, nowMs, session?.status, sessionId, startAt, status?.status]);
 
-  const canPlayNow = uiState === "live" && Boolean(session?.canPlay);
+  const canPlayNow = uiState === "live" && Boolean(session?.canPlay || status?.canPlay);
 
   const joinedMutation = useMutation({
     mutationFn: () => joinStudentSession(sessionId),
@@ -434,7 +438,21 @@ export default function LiveSession() {
   const showDangerTimer = liveSeconds <= 10 * 60;
   const studentsOnline = Number(status.joinedCount || 0);
   const initials = getInitials(session.teacherName || "Teacher");
-  const canJoin = Boolean(session.canJoin) || Boolean(status.canJoin);
+  const joinWindow =
+    status?.joinWindow ||
+    session?.joinWindow ||
+    (startAt
+      ? {
+          opensAt: new Date(startAt.getTime() - 10 * 60 * 1000).toISOString(),
+          closesAt: new Date(startAt.getTime() + 10 * 60 * 1000).toISOString(),
+        }
+      : null);
+  const joinOpenMs = joinWindow?.opensAt ? new Date(joinWindow.opensAt).getTime() : 0;
+  const joinCloseMs = joinWindow?.closesAt ? new Date(joinWindow.closesAt).getTime() : 0;
+  const canJoin =
+    Boolean(session.canJoin) ||
+    Boolean(status.canJoin) ||
+    (joinOpenMs > 0 && nowMs >= joinOpenMs && (joinCloseMs === 0 || nowMs < joinCloseMs));
   const totalDurationSeconds = Math.max(
     0,
     (startAt && endAt ? Math.floor((endAt.getTime() - startAt.getTime()) / 1000) : 0)

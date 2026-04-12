@@ -2,6 +2,9 @@ import multer from "multer";
 import os from "os";
 import path from "path";
 import { promises as fs } from "fs";
+import ffmpeg from "fluent-ffmpeg";
+import ffmpegInstaller from "@ffmpeg-installer/ffmpeg";
+import ffprobeInstaller from "@ffprobe-installer/ffprobe";
 import { admin, db } from "../config/firebase.js";
 import { COLLECTIONS } from "../config/collections.js";
 import { successResponse, errorResponse } from "../utils/response.utils.js";
@@ -9,6 +12,7 @@ import {
   uploadFile,
   uploadImage,
   uploadVideo,
+  uploadVideoFromPath,
   uploadReceipt,
   uploadLogo as uploadLogoFile,
   uploadAPK,
@@ -23,6 +27,57 @@ export const upload = multer({
   storage,
   limits: { fileSize: MAX_SIZES.video },
 });
+
+const videoDiskStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, os.tmpdir()),
+  filename: (_req, file, cb) => {
+    const ext = path.extname(file?.originalname || "") || ".mp4";
+    cb(null, `sum-video-${Date.now()}${ext}`);
+  },
+});
+
+export const videoUpload = multer({
+  storage: videoDiskStorage,
+  limits: { fileSize: MAX_SIZES.video },
+});
+
+ffmpeg.setFfmpegPath(ffmpegInstaller.path);
+ffmpeg.setFfprobePath(ffprobeInstaller.path);
+
+const formatDuration = (seconds = 0) => {
+  const safe = Math.max(0, Math.floor(Number(seconds || 0)));
+  const h = Math.floor(safe / 3600);
+  const m = Math.floor((safe % 3600) / 60);
+  const s = safe % 60;
+  if (h > 0) return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  return `${m}:${String(s).padStart(2, "0")}`;
+};
+
+const probeVideo = async (filePath) =>
+  new Promise((resolve, reject) => {
+    ffmpeg.ffprobe(filePath, (err, data) => {
+      if (err) return reject(err);
+      resolve(data || {});
+    });
+  });
+
+const transcodeToMp4 = async (inputPath) =>
+  new Promise((resolve, reject) => {
+    const outputPath = path.join(os.tmpdir(), `sum-transcoded-${Date.now()}.mp4`);
+    ffmpeg(inputPath)
+      .videoCodec("libx264")
+      .audioCodec("aac")
+      .audioBitrate("128k")
+      .outputOptions([
+        "-profile:v high",
+        "-level 4.1",
+        "-pix_fmt yuv420p",
+        "-movflags +faststart",
+      ])
+      .on("end", () => resolve(outputPath))
+      .on("error", (err) => reject(err))
+      .save(outputPath);
+  });
 
 const apkDiskStorage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, os.tmpdir()),
@@ -88,6 +143,7 @@ export const uploadCoursePDF = async (req, res) => {
 };
 
 export const uploadCourseVideo = async (req, res) => {
+  const tempPath = req.file?.path || "";
   try {
     if (!req.file) return errorResponse(res, "No file uploaded", 400);
 
@@ -96,10 +152,42 @@ export const uploadCourseVideo = async (req, res) => {
       return errorResponse(res, "courseId and subjectId are required", 400);
     }
 
-    const result = await uploadVideo(
-      req.file.buffer,
+    const shouldTranscode = String(process.env.TRANSCODE_VIDEOS || "true").toLowerCase() !== "false";
+    const originalPath = tempPath || path.join(os.tmpdir(), `sum-upload-${Date.now()}`);
+
+    if (!tempPath && req.file?.buffer) {
+      await fs.writeFile(originalPath, req.file.buffer);
+    }
+
+    let uploadPath = originalPath;
+    let targetMime = req.file.mimetype || "video/mp4";
+
+    if (shouldTranscode) {
+      try {
+        uploadPath = await transcodeToMp4(originalPath);
+        targetMime = "video/mp4";
+      } catch (err) {
+        console.error("Video transcode failed:", err?.message || err);
+        return errorResponse(
+          res,
+          "Video could not be converted to a web-friendly format. Please upload H.264/AAC or try again.",
+          400
+        );
+      }
+    }
+
+    let durationSec = 0;
+    try {
+      const meta = await probeVideo(uploadPath);
+      durationSec = Number(meta?.format?.duration || 0) || 0;
+    } catch (err) {
+      console.warn("Video duration probe failed:", err?.message || err);
+    }
+
+    const result = await uploadVideoFromPath(
+      uploadPath,
       req.file.originalname,
-      req.file.mimetype,
+      targetMime,
       `courses/${courseId}/subjects/${subjectId}`
     );
 
@@ -112,7 +200,8 @@ export const uploadCourseVideo = async (req, res) => {
             videoUrl: result.url,
             videoPath: result.filePath,
             videoTitle: title || req.file.originalname,
-            videoDuration: "",
+            videoDuration: durationSec ? formatDuration(durationSec) : "",
+            durationSec: durationSec || null,
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
           },
           { merge: true }
@@ -125,12 +214,16 @@ export const uploadCourseVideo = async (req, res) => {
         url: result.url,
         filePath: result.filePath,
         name: req.file.originalname,
-        size: result.size,
+        durationSec: durationSec || 0,
       },
       "Video uploaded"
     );
   } catch (error) {
     return errorResponse(res, error?.message || "Failed to upload video", 400);
+  } finally {
+    if (tempPath) {
+      await fs.unlink(tempPath).catch(() => {});
+    }
   }
 };
 
