@@ -23,16 +23,7 @@ const normalizeBucketName = (value = "", projectId = "") => {
     normalized = urlMatch[1];
   }
 
-  // Some hosts mistakenly set FIREBASE_STORAGE_BUCKET to firebasestorage.app domain
-  if (normalized.toLowerCase().includes("firebasestorage.app")) {
-    const safeProject = String(projectId || "")
-      .trim()
-      .toLowerCase();
-    if (safeProject) {
-      normalized = `${safeProject}.appspot.com`;
-    }
-  }
-
+  // Accept Firebase new bucket domain (firebasestorage.app) as-is.
   return normalized.toLowerCase();
 };
 
