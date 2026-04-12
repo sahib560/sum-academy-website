@@ -411,7 +411,19 @@ app.get("/download/app", (req, res) => {
 });
 
 const frontendDist = path.join(__dirname, "../frontend-dist");
-app.use(express.static(frontendDist));
+app.use(
+  express.static(frontendDist, {
+    setHeaders: (res, filePath) => {
+      // Prevent stale index.html across browsers/CDN
+      if (filePath.endsWith(".html")) {
+        res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+      } else {
+        // Cache static assets aggressively (hashed filenames)
+        res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+      }
+    },
+  })
+);
 app.get("/{*path}", (req, res) => {
   res.sendFile(path.join(frontendDist, "index.html"));
 });
