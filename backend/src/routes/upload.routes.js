@@ -38,6 +38,11 @@ router.post("/upload/pdf", adminOrTeacher, upload.single("file"), uploadCoursePD
 router.post(
   "/upload/video",
   adminOrTeacher,
+  (req, res, next) => {
+    req.setTimeout(0);
+    res.setTimeout(0);
+    next();
+  },
   videoUpload.single("file"),
   uploadCourseVideo
 );

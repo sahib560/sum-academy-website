@@ -239,6 +239,7 @@ export const uploadVideoFromPath = async (
     resumable: false,
     metadata: {
       contentType: mimeType,
+      cacheControl: "public,max-age=31536000,immutable",
       metadata: {
         originalName,
         uploadedAt: new Date().toISOString(),

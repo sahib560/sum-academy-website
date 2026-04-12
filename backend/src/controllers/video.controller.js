@@ -86,6 +86,29 @@ export const getVideoStreamUrl = async (req, res) => {
     }
     const lecture = access.lecture || {};
 
+    if (toText(lecture.hlsUrl)) {
+      const studentSnap = await db
+        .collection(COLLECTIONS.STUDENTS)
+        .doc(studentId)
+        .get();
+      const studentName = studentSnap.exists
+        ? toText(studentSnap.data()?.fullName || studentSnap.data()?.name || "")
+        : "";
+
+      return successResponse(
+        res,
+        {
+          streamUrl: toText(lecture.hlsUrl),
+          lectureId,
+          title: toText(lecture.title || lecture.videoTitle || ""),
+          duration: toText(lecture.videoDuration || ""),
+          watermarkText: `${studentName} | SUM Academy`,
+          expiresIn: 7200,
+        },
+        "Stream URL generated"
+      );
+    }
+
     const videoPath =
       toText(lecture.videoPath) || extractStoragePath(lecture.videoUrl);
     if (!videoPath) {

@@ -619,7 +619,7 @@ export default function LiveSession() {
                       ref={videoRef}
                       src={isHlsPlayback ? undefined : playbackUrl}
                       className="aspect-video w-full bg-black"
-                      autoPlay
+                      autoPlay={false}
                       muted={muted}
                       // Large Firebase MP4 files can buffer heavily with preload=auto.
                       // Metadata preload is enough for duration/seek and avoids eager download.
@@ -640,6 +640,13 @@ export default function LiveSession() {
                       onCanPlay={() => {
                         setIsBuffering(false);
                         lastProgressRef.current = { atMs: Date.now(), time: videoRef.current?.currentTime || 0 };
+                        // Autoplay only when ready (canplay)
+                        if (canPlayNow) {
+                          const attempt = videoRef.current?.play?.();
+                          if (attempt && typeof attempt.catch === "function") {
+                            attempt.catch(() => setNeedsUserStart(true));
+                          }
+                        }
                       }}
                       onPlaying={() => {
                         setIsBuffering(false);

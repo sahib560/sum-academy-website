@@ -5,7 +5,8 @@ import { promises as fs } from "fs";
 import ffmpeg from "fluent-ffmpeg";
 import ffmpegInstaller from "@ffmpeg-installer/ffmpeg";
 import ffprobeInstaller from "@ffprobe-installer/ffprobe";
-import { admin, db } from "../config/firebase.js";
+import { v4 as uuidv4 } from "uuid";
+import { admin, db, bucket } from "../config/firebase.js";
 import { COLLECTIONS } from "../config/collections.js";
 import { successResponse, errorResponse } from "../utils/response.utils.js";
 import {
@@ -78,6 +79,115 @@ const transcodeToMp4 = async (inputPath) =>
       .on("error", (err) => reject(err))
       .save(outputPath);
   });
+
+const generateHlsVariants = async (inputPath, outputDir) =>
+  new Promise((resolve, reject) => {
+    const masterName = "master.m3u8";
+    ffmpeg(inputPath)
+      .outputOptions([
+        "-preset veryfast",
+        "-g 48",
+        "-sc_threshold 0",
+        "-hls_time 6",
+        "-hls_playlist_type vod",
+        "-hls_flags independent_segments",
+        "-hls_segment_filename",
+        `${outputDir}/v%v/segment_%03d.ts`,
+        "-master_pl_name",
+        masterName,
+        "-var_stream_map",
+        "v:0,a:0 v:1,a:1 v:2,a:2",
+      ])
+      .complexFilter([
+        "[0:v]split=3[v240][v480][v720]",
+        "[v240]scale=w=426:h=240:force_original_aspect_ratio=decrease[v240out]",
+        "[v480]scale=w=854:h=480:force_original_aspect_ratio=decrease[v480out]",
+        "[v720]scale=w=1280:h=720:force_original_aspect_ratio=decrease[v720out]",
+      ])
+      .outputOptions([
+        "-map",
+        "[v240out]",
+        "-map",
+        "0:a?",
+        "-c:v:0",
+        "libx264",
+        "-b:v:0",
+        "400k",
+        "-maxrate:v:0",
+        "500k",
+        "-bufsize:v:0",
+        "800k",
+        "-c:a:0",
+        "aac",
+        "-b:a:0",
+        "96k",
+        "-map",
+        "[v480out]",
+        "-map",
+        "0:a?",
+        "-c:v:1",
+        "libx264",
+        "-b:v:1",
+        "1000k",
+        "-maxrate:v:1",
+        "1200k",
+        "-bufsize:v:1",
+        "1800k",
+        "-c:a:1",
+        "aac",
+        "-b:a:1",
+        "128k",
+        "-map",
+        "[v720out]",
+        "-map",
+        "0:a?",
+        "-c:v:2",
+        "libx264",
+        "-b:v:2",
+        "2500k",
+        "-maxrate:v:2",
+        "3000k",
+        "-bufsize:v:2",
+        "4500k",
+        "-c:a:2",
+        "aac",
+        "-b:a:2",
+        "128k",
+      ])
+      .output(`${outputDir}/v%v/prog_index.m3u8`)
+      .on("end", () => resolve({ masterName }))
+      .on("error", (err) => reject(err))
+      .run();
+  });
+
+const listFilesRecursively = async (dir) => {
+  const entries = await fs.readdir(dir, { withFileTypes: true });
+  const files = [];
+  for (const entry of entries) {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...(await listFilesRecursively(fullPath)));
+    } else {
+      files.push(fullPath);
+    }
+  }
+  return files;
+};
+
+const buildFirebaseTokenUrl = (bucketName, filePath, token) =>
+  `https://firebasestorage.googleapis.com/v0/b/${bucketName}/o/${encodeURIComponent(
+    filePath
+  )}?alt=media&token=${token}`;
+
+const rewritePlaylistUrls = async (playlistPath, filePathMap) => {
+  const raw = await fs.readFile(playlistPath, "utf8");
+  const lines = raw.split(/\r?\n/).map((line) => {
+    if (!line || line.startsWith("#")) return line;
+    const mapped = filePathMap.get(line.trim());
+    return mapped || line;
+  });
+  await fs.writeFile(playlistPath, lines.join("\n"));
+};
 
 const apkDiskStorage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, os.tmpdir()),
@@ -152,7 +262,10 @@ export const uploadCourseVideo = async (req, res) => {
       return errorResponse(res, "courseId and subjectId are required", 400);
     }
 
-    const shouldTranscode = String(process.env.TRANSCODE_VIDEOS || "true").toLowerCase() !== "false";
+    const shouldTranscode =
+      String(process.env.TRANSCODE_VIDEOS || "true").toLowerCase() !== "false";
+    const shouldGenerateHls =
+      String(process.env.HLS_TRANSCODE || "true").toLowerCase() !== "false";
     const originalPath = tempPath || path.join(os.tmpdir(), `sum-upload-${Date.now()}`);
 
     if (!tempPath && req.file?.buffer) {
@@ -191,6 +304,77 @@ export const uploadCourseVideo = async (req, res) => {
       `courses/${courseId}/subjects/${subjectId}`
     );
 
+    let hlsUrl = "";
+    if (shouldGenerateHls) {
+      const hlsToken = uuidv4();
+      const hlsRoot = path.join(os.tmpdir(), `sum-hls-${Date.now()}`);
+      await fs.mkdir(hlsRoot, { recursive: true });
+      await generateHlsVariants(uploadPath, hlsRoot);
+
+      const files = await listFilesRecursively(hlsRoot);
+      const filePathMap = new Map();
+      const hlsFolder = `videos/hls/courses/${courseId}/subjects/${subjectId}/${lectureId || uuidv4()}`;
+
+      for (const filePath of files) {
+        const relative = path.relative(hlsRoot, filePath).replace(/\\/g, "/");
+        const destination = `${hlsFolder}/${relative}`;
+        const isPlaylist = relative.endsWith(".m3u8");
+        const cacheControl = isPlaylist
+          ? "public,max-age=300"
+          : "public,max-age=31536000,immutable";
+
+        await bucket.upload(filePath, {
+          destination,
+          resumable: false,
+          metadata: {
+            contentType: isPlaylist ? "application/vnd.apple.mpegurl" : "video/mp2t",
+            cacheControl,
+            metadata: {
+              firebaseStorageDownloadTokens: hlsToken,
+              originalName: req.file.originalname,
+              uploadedAt: new Date().toISOString(),
+            },
+          },
+        });
+
+        const publicUrl = buildFirebaseTokenUrl(bucket.name, destination, hlsToken);
+        filePathMap.set(relative, publicUrl);
+      }
+
+      // Rewrite playlists with absolute URLs (tokenized)
+      const playlistFiles = files.filter((filePath) => filePath.endsWith(".m3u8"));
+      for (const playlistPath of playlistFiles) {
+        await rewritePlaylistUrls(playlistPath, filePathMap);
+      }
+
+      // Re-upload playlists after rewriting
+      for (const playlistPath of playlistFiles) {
+        const relative = path.relative(hlsRoot, playlistPath).replace(/\\/g, "/");
+        const destination = `${hlsFolder}/${relative}`;
+        await bucket.upload(playlistPath, {
+          destination,
+          resumable: false,
+          metadata: {
+            contentType: "application/vnd.apple.mpegurl",
+            cacheControl: "public,max-age=300",
+            metadata: {
+              firebaseStorageDownloadTokens: hlsToken,
+              originalName: req.file.originalname,
+              uploadedAt: new Date().toISOString(),
+            },
+          },
+        });
+      }
+
+      hlsUrl = buildFirebaseTokenUrl(
+        bucket.name,
+        `${hlsFolder}/master.m3u8`,
+        hlsToken
+      );
+
+      await fs.rm(hlsRoot, { recursive: true, force: true }).catch(() => {});
+    }
+
     if (lectureId) {
       await db
         .collection(COLLECTIONS.LECTURES)
@@ -202,6 +386,7 @@ export const uploadCourseVideo = async (req, res) => {
             videoTitle: title || req.file.originalname,
             videoDuration: durationSec ? formatDuration(durationSec) : "",
             durationSec: durationSec || null,
+            hlsUrl: hlsUrl || "",
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
           },
           { merge: true }
@@ -215,6 +400,7 @@ export const uploadCourseVideo = async (req, res) => {
         filePath: result.filePath,
         name: req.file.originalname,
         durationSec: durationSec || 0,
+        hlsUrl,
       },
       "Video uploaded"
     );
