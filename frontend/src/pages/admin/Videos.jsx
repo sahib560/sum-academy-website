@@ -8,8 +8,8 @@ import {
   getAdminVideos,
   getCourses,
   getTeachers,
+  uploadAdminVideoFile,
 } from "../../services/admin.service.js";
-import { uploadToStorage } from "../../utils/firebaseUpload.js";
 
 const toDateText = (value) => {
   if (!value) return "-";
@@ -226,18 +226,36 @@ function AdminVideos() {
 
         <div className="mt-4">
           <FileUploader
-            accept="video/mp4,video/avi,video/x-msvideo,video/quicktime,.mov"
+            accept="video/mp4,video/avi,video/x-msvideo,video/quicktime,video/webm,video/x-matroska,.mov,.mkv,.webm"
             maxSize={2048}
             label="Upload Course Video"
             hint="MP4, AVI, MOV - max 2GB"
             onUpload={async (file, { onProgress }) => {
               if (!courseId) throw new Error("Select subject first");
-              const duration = await getLocalVideoDurationSec(file);
-              setDurationSec(duration);
-              const path = `videos/library/${courseId}/${Date.now()}-${file.name}`;
-              const result = await uploadToStorage({ file, path, onProgress });
-              setUploadedVideo(result);
-              return result;
+              const response = await uploadAdminVideoFile(
+                file,
+                courseId,
+                courseId,
+                (event) => {
+                  if (!event?.total) return;
+                  const pct = Math.round((event.loaded / event.total) * 100);
+                  if (typeof onProgress === "function") onProgress(pct);
+                }
+              );
+              const data = response?.data || response || {};
+              setUploadedVideo({
+                url: data.url,
+                filePath: data.filePath,
+                name: file.name,
+                size: file.size,
+                type: file.type,
+              });
+              setDurationSec(Number(data.durationSec || 0) || 0);
+              setHlsUrl(String(data.hlsUrl || "").trim());
+              if (data.hlsError) {
+                toast.error(`HLS conversion failed: ${data.hlsError}`);
+              }
+              return data;
             }}
           />
         </div>

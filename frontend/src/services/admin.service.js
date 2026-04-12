@@ -535,6 +535,24 @@ export const uploadApkFile = (file) => {
     .then((r) => r.data);
 };
 
+export const uploadAdminVideoFile = (
+  file,
+  courseId,
+  subjectId,
+  onUploadProgress
+) => {
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("courseId", courseId || "");
+  formData.append("subjectId", subjectId || "");
+  return api
+    .post("/upload/video", formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+      onUploadProgress,
+    })
+    .then((r) => r.data);
+};
+
 export const updateSiteSettings = (data) => {
   if (data?.general) return updateGeneralSettings(data.general);
   if (data?.email) return updateEmailSettings(data.email);
