@@ -86,10 +86,12 @@ export default function VideoPlayer({
     if (!isHls) {
       video.src = streamUrl;
     }
-    video.preload = "metadata";
+    video.muted = true;
+    video.preload = isHls ? "metadata" : "auto";
     video.crossOrigin = "anonymous";
     video.controlsList = "nodownload";
     video.disablePictureInPicture = true;
+    video.load();
 
     const onLoadedMetadata = () => {
       setDuration(video.duration || 0);
@@ -122,11 +124,18 @@ export default function VideoPlayer({
       const errors = {
         1: "Video loading aborted",
         2: "Network error while loading video",
-        3: "Video decoding failed — try refreshing",
+        3: "Video decoding failed - try refreshing",
         4: "Video format not supported by your browser",
       };
       const code = video.error?.code;
       const message = errors[code] || "Video failed to load. Please refresh.";
+      console.error("[VideoPlayer] MediaError", {
+        code,
+        message,
+        url: streamUrl,
+        networkState: video.networkState,
+        readyState: video.readyState,
+      });
       setError(message);
       if (typeof onErrorChange === "function") onErrorChange(message);
     };
@@ -138,6 +147,10 @@ export default function VideoPlayer({
     const onCanPlay = () => {
       setLoading(false);
       if (typeof onLoadingChange === "function") onLoadingChange(false);
+      // Autoplay only when muted (mobile friendly)
+      if (video.muted) {
+        video.play().catch(() => {});
+      }
     };
     const onPlaying = () => {
       setLoading(false);

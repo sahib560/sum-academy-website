@@ -99,6 +99,7 @@ export const getVideoStreamUrl = async (req, res) => {
         res,
         {
           streamUrl: toText(lecture.hlsUrl),
+          streamType: "hls",
           lectureId,
           title: toText(lecture.title || lecture.videoTitle || ""),
           duration: toText(lecture.videoDuration || ""),
@@ -140,6 +141,7 @@ export const getVideoStreamUrl = async (req, res) => {
       res,
       {
         streamUrl: signedUrl,
+        streamType: "mp4",
         lectureId,
         title: toText(lecture.title || lecture.videoTitle || ""),
         duration: toText(lecture.videoDuration || ""),

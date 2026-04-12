@@ -18,6 +18,10 @@ const ALLOWED_VIDEO_TYPES = [
   "video/x-msvideo",
   "video/quicktime",
   "video/mov",
+  "video/webm",
+  "video/x-matroska",
+  "video/mkv",
+  "application/octet-stream",
 ];
 
 const ALLOWED_APK_TYPES = [

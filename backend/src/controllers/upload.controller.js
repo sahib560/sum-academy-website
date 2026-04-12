@@ -305,72 +305,77 @@ export const uploadCourseVideo = async (req, res) => {
     );
 
     let hlsUrl = "";
+    let hlsError = "";
     if (shouldGenerateHls) {
       const hlsToken = uuidv4();
       const hlsRoot = path.join(os.tmpdir(), `sum-hls-${Date.now()}`);
       await fs.mkdir(hlsRoot, { recursive: true });
-      await generateHlsVariants(uploadPath, hlsRoot);
+      try {
+        await generateHlsVariants(uploadPath, hlsRoot);
+      } catch (err) {
+        hlsError = err?.message || "HLS conversion failed";
+      }
 
-      const files = await listFilesRecursively(hlsRoot);
-      const filePathMap = new Map();
-      const hlsFolder = `videos/hls/courses/${courseId}/subjects/${subjectId}/${lectureId || uuidv4()}`;
+      if (!hlsError) {
+        const files = await listFilesRecursively(hlsRoot);
+        const filePathMap = new Map();
+        const hlsFolder = `videos/hls/courses/${courseId}/subjects/${subjectId}/${lectureId || uuidv4()}`;
 
-      for (const filePath of files) {
-        const relative = path.relative(hlsRoot, filePath).replace(/\\/g, "/");
-        const destination = `${hlsFolder}/${relative}`;
-        const isPlaylist = relative.endsWith(".m3u8");
-        const cacheControl = isPlaylist
-          ? "public,max-age=300"
-          : "public,max-age=31536000,immutable";
+        for (const filePath of files) {
+          const relative = path.relative(hlsRoot, filePath).replace(/\\/g, "/");
+          const destination = `${hlsFolder}/${relative}`;
+          const isPlaylist = relative.endsWith(".m3u8");
+          const cacheControl = isPlaylist
+            ? "public,max-age=300"
+            : "public,max-age=31536000,immutable";
 
-        await bucket.upload(filePath, {
-          destination,
-          resumable: false,
-          metadata: {
-            contentType: isPlaylist ? "application/vnd.apple.mpegurl" : "video/mp2t",
-            cacheControl,
+          await bucket.upload(filePath, {
+            destination,
+            resumable: false,
             metadata: {
-              firebaseStorageDownloadTokens: hlsToken,
-              originalName: req.file.originalname,
-              uploadedAt: new Date().toISOString(),
+              contentType: isPlaylist ? "application/vnd.apple.mpegurl" : "video/mp2t",
+              cacheControl,
+              metadata: {
+                firebaseStorageDownloadTokens: hlsToken,
+                originalName: req.file.originalname,
+                uploadedAt: new Date().toISOString(),
+              },
             },
-          },
-        });
+          });
 
-        const publicUrl = buildFirebaseTokenUrl(bucket.name, destination, hlsToken);
-        filePathMap.set(relative, publicUrl);
-      }
+          const publicUrl = buildFirebaseTokenUrl(bucket.name, destination, hlsToken);
+          filePathMap.set(relative, publicUrl);
+        }
 
-      // Rewrite playlists with absolute URLs (tokenized)
-      const playlistFiles = files.filter((filePath) => filePath.endsWith(".m3u8"));
-      for (const playlistPath of playlistFiles) {
-        await rewritePlaylistUrls(playlistPath, filePathMap);
-      }
+        const playlistFiles = files.filter((filePath) => filePath.endsWith(".m3u8"));
+        for (const playlistPath of playlistFiles) {
+          await rewritePlaylistUrls(playlistPath, filePathMap);
+        }
 
-      // Re-upload playlists after rewriting
-      for (const playlistPath of playlistFiles) {
-        const relative = path.relative(hlsRoot, playlistPath).replace(/\\/g, "/");
-        const destination = `${hlsFolder}/${relative}`;
-        await bucket.upload(playlistPath, {
-          destination,
-          resumable: false,
-          metadata: {
-            contentType: "application/vnd.apple.mpegurl",
-            cacheControl: "public,max-age=300",
+        for (const playlistPath of playlistFiles) {
+          const relative = path.relative(hlsRoot, playlistPath).replace(/\\/g, "/");
+          const destination = `${hlsFolder}/${relative}`;
+          await bucket.upload(playlistPath, {
+            destination,
+            resumable: false,
             metadata: {
-              firebaseStorageDownloadTokens: hlsToken,
-              originalName: req.file.originalname,
-              uploadedAt: new Date().toISOString(),
+              contentType: "application/vnd.apple.mpegurl",
+              cacheControl: "public,max-age=300",
+              metadata: {
+                firebaseStorageDownloadTokens: hlsToken,
+                originalName: req.file.originalname,
+                uploadedAt: new Date().toISOString(),
+              },
             },
-          },
-        });
-      }
+          });
+        }
 
-      hlsUrl = buildFirebaseTokenUrl(
-        bucket.name,
-        `${hlsFolder}/master.m3u8`,
-        hlsToken
-      );
+        hlsUrl = buildFirebaseTokenUrl(
+          bucket.name,
+          `${hlsFolder}/master.m3u8`,
+          hlsToken
+        );
+      }
 
       await fs.rm(hlsRoot, { recursive: true, force: true }).catch(() => {});
     }
@@ -387,6 +392,8 @@ export const uploadCourseVideo = async (req, res) => {
             videoDuration: durationSec ? formatDuration(durationSec) : "",
             durationSec: durationSec || null,
             hlsUrl: hlsUrl || "",
+            hlsGeneratedAt: hlsUrl ? admin.firestore.FieldValue.serverTimestamp() : null,
+            hlsError: hlsError || null,
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
           },
           { merge: true }
@@ -401,6 +408,7 @@ export const uploadCourseVideo = async (req, res) => {
         name: req.file.originalname,
         durationSec: durationSec || 0,
         hlsUrl,
+        hlsError: hlsError || undefined,
       },
       "Video uploaded"
     );
