@@ -75,19 +75,22 @@ function Footer() {
   const socialLinks = settings.general?.socialLinks || {};
   const apkUrl = String(settings?.general?.apkUrl || "").trim();
   const apkFileName = String(settings?.general?.apkFileName || "SUM-Academy.apk");
+  const apiBase = String(import.meta.env.VITE_API_URL || "").replace(/\/api\/?$/, "");
+  const fallbackApkUrl = apiBase ? `${apiBase}/download/app` : "/download/app";
+  const resolvedApkUrl = apkUrl || fallbackApkUrl;
   const contactPhone =
     normalizePakistanPhone(settings.general?.contactPhone || "") ||
     settings.general?.contactPhone ||
     "+92 300 0000000";
 
   const handleAppDownloadClick = () => {
-    if (!apkUrl) {
+    if (!resolvedApkUrl) {
       toast.success("Something is coming soon");
       return;
     }
 
     const link = document.createElement("a");
-    link.href = apkUrl;
+    link.href = resolvedApkUrl;
     link.target = "_blank";
     link.rel = "noopener noreferrer";
     link.setAttribute("download", apkFileName);

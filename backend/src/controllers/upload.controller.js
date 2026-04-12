@@ -42,8 +42,21 @@ export const videoUpload = multer({
   limits: { fileSize: MAX_SIZES.video },
 });
 
-ffmpeg.setFfmpegPath(ffmpegInstaller.path);
-ffmpeg.setFfprobePath(ffprobeInstaller.path);
+const resolveFfmpegPath = () =>
+  process.env.FFMPEG_PATH ||
+  process.env.FFMPEG_BIN ||
+  ffmpegInstaller.path ||
+  "";
+const resolveFfprobePath = () =>
+  process.env.FFPROBE_PATH ||
+  process.env.FFPROBE_BIN ||
+  ffprobeInstaller.path ||
+  "";
+
+const ffmpegPath = resolveFfmpegPath();
+const ffprobePath = resolveFfprobePath();
+if (ffmpegPath) ffmpeg.setFfmpegPath(ffmpegPath);
+if (ffprobePath) ffmpeg.setFfprobePath(ffprobePath);
 
 const formatDuration = (seconds = 0) => {
   const safe = Math.max(0, Math.floor(Number(seconds || 0)));
@@ -280,12 +293,12 @@ export const uploadCourseVideo = async (req, res) => {
         uploadPath = await transcodeToMp4(originalPath);
         targetMime = "video/mp4";
       } catch (err) {
-        console.error("Video transcode failed:", err?.message || err);
-        return errorResponse(
-          res,
-          "Video could not be converted to a web-friendly format. Please upload H.264/AAC or try again.",
-          400
-        );
+        const msg = err?.message || String(err);
+        console.error("Video transcode failed:", msg);
+        // Fallback: still upload original video so uploads don't break.
+        // Mark hlsError so admin can re-encode later.
+        uploadPath = originalPath;
+        targetMime = req.file.mimetype || "video/mp4";
       }
     }
 
@@ -306,7 +319,7 @@ export const uploadCourseVideo = async (req, res) => {
 
     let hlsUrl = "";
     let hlsError = "";
-    if (shouldGenerateHls) {
+    if (shouldGenerateHls && uploadPath !== originalPath) {
       const hlsToken = uuidv4();
       const hlsRoot = path.join(os.tmpdir(), `sum-hls-${Date.now()}`);
       await fs.mkdir(hlsRoot, { recursive: true });
@@ -393,7 +406,7 @@ export const uploadCourseVideo = async (req, res) => {
             durationSec: durationSec || null,
             hlsUrl: hlsUrl || "",
             hlsGeneratedAt: hlsUrl ? admin.firestore.FieldValue.serverTimestamp() : null,
-            hlsError: hlsError || null,
+            hlsError: hlsError || (uploadPath === originalPath ? "FFmpeg unavailable. Saved original MP4." : null),
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
           },
           { merge: true }
@@ -408,7 +421,7 @@ export const uploadCourseVideo = async (req, res) => {
         name: req.file.originalname,
         durationSec: durationSec || 0,
         hlsUrl,
-        hlsError: hlsError || undefined,
+        hlsError: hlsError || (uploadPath === originalPath ? "FFmpeg unavailable. Saved original MP4." : undefined),
       },
       "Video uploaded"
     );

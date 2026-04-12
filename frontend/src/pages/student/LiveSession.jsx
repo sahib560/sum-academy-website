@@ -6,6 +6,7 @@ import { FiCheckCircle, FiRadio, FiVolume2, FiVolumeX } from "react-icons/fi";
 import { setupMaxProtection } from "../../utils/maxProtection.js";
 import { HlsVideo } from "../../components/HlsVideo.jsx";
 import api from "../../api/axios.js";
+import { useSettings } from "../../hooks/useSettings.js";
 import {
   getStudentSessionById,
   getStudentSessionStatus,
@@ -76,6 +77,7 @@ const safeDate = (value) => {
 export default function LiveSession() {
   const { sessionId } = useParams();
   const navigate = useNavigate();
+  const { settings } = useSettings();
   const [overlayWarning, setOverlayWarning] = useState("");
   const [nowMs, setNowMs] = useState(Date.now());
   // Autoplay on desktop is blocked unless muted or initiated by user gesture.
@@ -457,9 +459,33 @@ export default function LiveSession() {
     0,
     (startAt && endAt ? Math.floor((endAt.getTime() - startAt.getTime()) / 1000) : 0)
   );
+  const apkUrl = String(settings?.general?.apkUrl || "").trim();
+  const apkFileName = String(settings?.general?.apkFileName || "SUM-Academy.apk");
+  const apiBase = String(import.meta.env.VITE_API_URL || "").replace(/\/api\/?$/, "");
+  const fallbackApkUrl = apiBase ? `${apiBase}/download/app` : "/download/app";
+  const resolvedApkUrl = apkUrl || fallbackApkUrl;
 
   return (
     <div className="relative min-h-[85vh] rounded-3xl bg-[#0d0f1a] p-4 text-white sm:p-8">
+      <div className="mb-4 rounded-2xl border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+        Live sessions are best viewed in the SUM Academy Android app. Some browsers may not support live playback.
+        <button
+          type="button"
+          className="ml-3 inline-flex items-center rounded-full bg-amber-400/20 px-3 py-1 text-xs font-semibold text-amber-100"
+          onClick={() => {
+            if (!resolvedApkUrl) {
+              toast.success("App is coming soon.");
+              return;
+            }
+            const link = document.createElement("a");
+            link.href = resolvedApkUrl;
+            link.setAttribute("download", apkFileName);
+            link.click();
+          }}
+        >
+          Download APK
+        </button>
+      </div>
       {overlayWarning ? (
         <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/70 px-4">
           <div className="rounded-2xl border border-amber-400/40 bg-[#171a2a] px-6 py-5 text-center text-amber-200">
