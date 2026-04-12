@@ -9,11 +9,32 @@ dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const normalizeBucketName = (value = "") =>
-  String(value || "")
+const normalizeBucketName = (value = "", projectId = "") => {
+  let normalized = String(value || "")
     .trim()
     .replace(/^gs:\/\//i, "")
     .replace(/\/+$/, "");
+
+  if (!normalized) return "";
+
+  // Handle full Firebase Storage URLs
+  const urlMatch = normalized.match(/\/b\/([^/]+)/i);
+  if (urlMatch?.[1]) {
+    normalized = urlMatch[1];
+  }
+
+  // Some hosts mistakenly set FIREBASE_STORAGE_BUCKET to firebasestorage.app domain
+  if (normalized.toLowerCase().includes("firebasestorage.app")) {
+    const safeProject = String(projectId || "")
+      .trim()
+      .toLowerCase();
+    if (safeProject) {
+      normalized = `${safeProject}.appspot.com`;
+    }
+  }
+
+  return normalized.toLowerCase();
+};
 
 const loadServiceAccount = () => {
   // Priority 1: Base64 env var (hosting friendly)
@@ -68,8 +89,8 @@ const loadServiceAccount = () => {
 
 const serviceAccount = loadServiceAccount();
 const bucketName =
-  normalizeBucketName(process.env.FIREBASE_STORAGE_BUCKET) ||
-  normalizeBucketName(`${serviceAccount.project_id}.appspot.com`);
+  normalizeBucketName(process.env.FIREBASE_STORAGE_BUCKET, serviceAccount.project_id) ||
+  normalizeBucketName(`${serviceAccount.project_id}.appspot.com`, serviceAccount.project_id);
 
 if (!admin.apps.length) {
   admin.initializeApp({
