@@ -5,12 +5,17 @@
       "https://sumacademy.net",
       "https://www.sumacademy.net"
     ],
-    "method": ["GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS"],
+    "method": ["GET", "HEAD", "OPTIONS"],
     "maxAgeSeconds": 3600,
     "responseHeader": [
       "Content-Type",
+      "Content-Length",
+      "Accept-Ranges",
+      "Content-Range",
+      "Range",
       "Authorization",
-      "Content-Length"
+      "Cache-Control",
+      "X-Requested-With"
     ]
   }
 ]

@@ -91,7 +91,7 @@ export const uploadCourseVideo = async (req, res) => {
   try {
     if (!req.file) return errorResponse(res, "No file uploaded", 400);
 
-    const { courseId = "", subjectId = "" } = req.body || {};
+    const { courseId = "", subjectId = "", lectureId = "", title = "" } = req.body || {};
     if (!courseId || !subjectId) {
       return errorResponse(res, "courseId and subjectId are required", 400);
     }
@@ -103,10 +103,27 @@ export const uploadCourseVideo = async (req, res) => {
       `courses/${courseId}/subjects/${subjectId}`
     );
 
+    if (lectureId) {
+      await db
+        .collection(COLLECTIONS.LECTURES)
+        .doc(lectureId)
+        .set(
+          {
+            videoUrl: result.url,
+            videoPath: result.filePath,
+            videoTitle: title || req.file.originalname,
+            videoDuration: "",
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
+    }
+
     return successResponse(
       res,
       {
         url: result.url,
+        filePath: result.filePath,
         name: req.file.originalname,
         size: result.size,
       },

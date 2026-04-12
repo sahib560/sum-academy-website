@@ -20,6 +20,7 @@ import {
   FiVolumeX,
 } from "react-icons/fi";
 import { Skeleton } from "../../components/Skeleton.jsx";
+import VideoPlayer from "../../components/VideoPlayer.jsx";
 import { useAuth } from "../../hooks/useAuth.js";
 import {
   getFinalQuizRequestStatus,
@@ -32,8 +33,6 @@ import {
   markLectureComplete,
   saveWatchProgress,
 } from "../../services/progress.service.js";
-import api from "../../api/axios.js";
-import { WatermarkOverlay } from "../../utils/security.js";
 import { getViolationCount, setupMaxProtection } from "../../utils/maxProtection.js";
 
 const VIDEO_VIOLATION_LIMIT = 3;
@@ -672,65 +671,23 @@ function StudentCoursePlayer() {
   }, [flushWatchProgress]);
 
   useEffect(() => {
-    let cancelled = false;
-    const cleanupObjectUrl = () => {
-      if (objectUrlRef.current) {
-        URL.revokeObjectURL(objectUrlRef.current);
-        objectUrlRef.current = "";
-      }
-    };
-
-    const loadSecureVideo = async () => {
-      cleanupObjectUrl();
-      setVideoSrc("");
-      setVideoLoadError("");
-      setCurrentTime(0);
-      setDuration(0);
-      setMaxWatchedSeconds(0);
-      currentTimeRef.current = 0;
-      durationRef.current = 0;
-      watchedPercentRef.current = 0;
-      setLastSavedWatchPercent(clamp(toNumber(currentLecture?.watchedPercent, 0), 0, 100));
-      lastWatchSaveAtRef.current = 0;
-      setIsPlaying(false);
-
-      if (!currentLecture || currentLecture.isLocked) return;
-
-      const secureUrl = getLectureSource(currentLecture);
-      if (!secureUrl) return;
-
-      setIsLoadingVideo(true);
-      try {
-        const isAbsolute = /^https?:\/\//i.test(secureUrl);
-
-        if (isAbsolute) {
-          if (cancelled) return;
-          setVideoSrc(secureUrl);
-          return;
-        } else {
-          const response = await api.get(secureUrl, { responseType: "blob" });
-          if (cancelled) return;
-          const objectUrl = URL.createObjectURL(response.data);
-          objectUrlRef.current = objectUrl;
-          setVideoSrc(objectUrl);
-        }
-      } catch {
-        if (!cancelled) {
-          setVideoSrc("");
-          setVideoLoadError("Unable to load this video right now.");
-        }
-      } finally {
-        if (!cancelled) setIsLoadingVideo(false);
-      }
-    };
-
-    loadSecureVideo();
-
-    return () => {
-      cancelled = true;
-      cleanupObjectUrl();
-    };
-  }, [currentLecture]);
+    if (objectUrlRef.current) {
+      URL.revokeObjectURL(objectUrlRef.current);
+      objectUrlRef.current = "";
+    }
+    setVideoSrc("");
+    setVideoLoadError("");
+    setCurrentTime(0);
+    setDuration(0);
+    setMaxWatchedSeconds(0);
+    currentTimeRef.current = 0;
+    durationRef.current = 0;
+    watchedPercentRef.current = 0;
+    setLastSavedWatchPercent(clamp(toNumber(currentLecture?.watchedPercent, 0), 0, 100));
+    lastWatchSaveAtRef.current = 0;
+    setIsPlaying(false);
+    setIsLoadingVideo(false);
+  }, [currentLecture?.lectureId, currentLecture?.isLocked]);
 
   useEffect(() => {
     if (!isPlaying) return undefined;
@@ -1004,134 +961,62 @@ function StudentCoursePlayer() {
               style={{ position: "relative" }}
             >
               <div className="aspect-video">
-                <video
-                  ref={videoRef}
-                  src={videoSrc || undefined}
-                  className="h-full w-full object-cover"
-                  style={{
-                    pointerEvents: showLockedOverlay ? "none" : "auto",
-                    filter: "contrast(1.05) saturate(1.12)",
-                  }}
-                  controls={useNativeRecordedControls}
-                  controlsList="nodownload nofullscreen"
-                  disablePictureInPicture
-                  disableRemotePlayback
-                  onContextMenu={(event) => event.preventDefault()}
-                  onLoadedMetadata={(event) => {
-                    const media = event.currentTarget;
-                    const loadedDuration = toNumber(media.duration, 0);
-                    setDuration(loadedDuration);
-                    media.volume = volume;
-                    media.playbackRate = playbackRate;
-                    const savedResume = clamp(
-                      toNumber(currentLecture?.resumeAtSeconds, 0),
-                      0,
-                      Math.max(0, loadedDuration > 1 ? loadedDuration - 1 : loadedDuration)
-                    );
-                    const existingPercent = clamp(
-                      toNumber(currentLecture?.watchedPercent, 0),
-                      0,
-                      100
-                    );
-                    let initialSeek = 0;
-                    if (savedResume > 0) {
-                      initialSeek = savedResume;
-                    } else if (loadedDuration > 0 && existingPercent > 0) {
-                      initialSeek = (loadedDuration * existingPercent) / 100;
+                {lectureHasVideo ? (
+                  <VideoPlayer
+                    lectureId={currentLecture?.lectureId}
+                    title={currentLecture?.title}
+                    videoRef={videoRef}
+                    studentName={
+                      userProfile?.fullName ||
+                      userProfile?.name ||
+                      userProfile?.displayName ||
+                      "Student"
                     }
-                    if (initialSeek > 0 && loadedDuration > 0) {
-                      media.currentTime = initialSeek;
-                      setCurrentTime(initialSeek);
-                      setMaxWatchedSeconds(initialSeek);
-                    } else if (loadedDuration > 0 && existingPercent > 0) {
-                      setMaxWatchedSeconds((loadedDuration * existingPercent) / 100);
-                    }
-                  }}
-                  onTimeUpdate={(event) => {
-                    const media = event.currentTarget;
-                    const nextTime = toNumber(media.currentTime, 0);
-                    setCurrentTime(nextTime);
-                    setMaxWatchedSeconds((previous) => Math.max(previous, nextTime));
-                  }}
-                  onPlay={() => setIsPlaying(true)}
-                  onPause={() => {
-                    setIsPlaying(false);
-                    void flushWatchProgress({ force: true });
-                  }}
-                  onEnded={(event) => {
-                    const media = event.currentTarget;
-                    const mediaDuration = Math.max(
-                      0,
-                      toNumber(media.duration, 0)
-                    );
-                    const mediaCurrent = Math.max(
-                      0,
-                      toNumber(media.currentTime, 0)
-                    );
-                    const endTime = Math.max(
-                      mediaDuration,
-                      mediaCurrent,
-                      Math.max(0, toNumber(durationRef.current, 0))
-                    );
-                    setIsPlaying(false);
-                    setCurrentTime(endTime);
-                    setMaxWatchedSeconds((previous) => Math.max(previous, endTime));
-                    currentTimeRef.current = endTime;
-                    durationRef.current = Math.max(
-                      toNumber(durationRef.current, 0),
-                      endTime,
-                      1
-                    );
-                    watchedPercentRef.current = 100;
-                    void flushWatchProgress({ force: true });
-
-                    if (
-                      !courseId ||
-                      !currentLecture?.lectureId ||
-                      classCompletionLocked ||
-                      securityLocked ||
-                      currentLecture.isLocked ||
-                      currentLecture.isCompleted ||
-                      markCompleteMutation.isPending
-                    ) {
-                      return;
-                    }
-
-                    const autoKey = `${courseId}:${currentLecture.lectureId}`;
-                    if (autoCompletedLectureRef.current === autoKey) {
-                      return;
-                    }
-                    autoCompletedLectureRef.current = autoKey;
-
-                    markCompleteMutation.mutate({
-                      courseId,
-                      lectureId: currentLecture.lectureId,
-                      watchedPercent: 100,
-                      currentTimeSec: Math.round(
-                        Math.max(0, toNumber(currentTimeRef.current, 0))
-                      ),
-                      durationSec: Math.round(
-                        Math.max(1, toNumber(durationRef.current, 0))
-                      ),
-                    });
-                  }}
-                  onError={() => {
-                    setVideoLoadError("Unable to play this video right now.");
-                    setVideoSrc("");
-                    setIsPlaying(false);
-                  }}
-                />
+                    studentEmail={userProfile?.email || ""}
+                    onStreamReady={(url) => {
+                      setVideoSrc(url || "");
+                    }}
+                    onLoadingChange={(loading) => {
+                      setIsLoadingVideo(Boolean(loading));
+                    }}
+                    onErrorChange={(message) => {
+                      setVideoLoadError(message || "");
+                      if (message) setVideoSrc("");
+                    }}
+                    onTimeUpdate={(time, total) => {
+                      const safeTime = Math.max(0, toNumber(time, 0));
+                      const safeDuration = Math.max(
+                        0,
+                        toNumber(total, 0),
+                        parseDurationInputToSeconds(currentLecture?.duration)
+                      );
+                      setCurrentTime(safeTime);
+                      setDuration(safeDuration);
+                      setMaxWatchedSeconds((previous) => Math.max(previous, safeTime));
+                    }}
+                    onProgress={(pct, time, total) => {
+                      const safeTime = Math.max(0, toNumber(time, 0));
+                      const safeDuration = Math.max(
+                        0,
+                        toNumber(total, 0),
+                        parseDurationInputToSeconds(currentLecture?.duration)
+                      );
+                      if (safeDuration > 0) setDuration(safeDuration);
+                      setMaxWatchedSeconds((previous) => Math.max(previous, safeTime));
+                    }}
+                    onPlayState={(playing) => setIsPlaying(Boolean(playing))}
+                    onComplete={() => {
+                      const endTime = Math.max(1, toNumber(durationRef.current, 0));
+                      setCurrentTime(endTime);
+                      setMaxWatchedSeconds((previous) => Math.max(previous, endTime));
+                      currentTimeRef.current = endTime;
+                      watchedPercentRef.current = 100;
+                      void flushWatchProgress({ force: true });
+                    }}
+                    disableSeeking={isLivePremiere || currentLecture?.disableSeeking}
+                  />
+                ) : null}
               </div>
-
-              <WatermarkOverlay
-                studentName={
-                  userProfile?.fullName ||
-                  userProfile?.name ||
-                  userProfile?.displayName ||
-                  "Student"
-                }
-                email={userProfile?.email || ""}
-              />
 
               {showLockedOverlay && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-slate-900/75 text-center text-white backdrop-blur-sm">

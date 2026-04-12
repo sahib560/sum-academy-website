@@ -5,6 +5,7 @@ import toast from "react-hot-toast";
 import { FiCheckCircle, FiRadio, FiVolume2, FiVolumeX } from "react-icons/fi";
 import { setupMaxProtection } from "../../utils/maxProtection.js";
 import { HlsVideo } from "../../components/HlsVideo.jsx";
+import api from "../../api/axios.js";
 import {
   getStudentSessionById,
   getStudentSessionStatus,
@@ -83,6 +84,9 @@ export default function LiveSession() {
   const [videoError, setVideoError] = useState("");
   const [isBuffering, setIsBuffering] = useState(false);
   const [videoKey, setVideoKey] = useState(0);
+  const [recordingUrl, setRecordingUrl] = useState("");
+  const [recordingError, setRecordingError] = useState("");
+  const [recordingLoading, setRecordingLoading] = useState(false);
   const videoRef = useRef(null);
   const seekLockRef = useRef(0);
   const lastProgressRef = useRef({ atMs: 0, time: 0 });
@@ -233,6 +237,33 @@ export default function LiveSession() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [uiState]);
+
+  useEffect(() => {
+    if (uiState !== "ended" || !sessionId) return;
+    let cancelled = false;
+    setRecordingLoading(true);
+    setRecordingError("");
+    setRecordingUrl("");
+    api
+      .get(`/sessions/${sessionId}/recording`)
+      .then((res) => {
+        if (cancelled) return;
+        const url = res?.data?.data?.streamUrl || "";
+        setRecordingUrl(url);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setRecordingError(
+          err?.response?.data?.message || "Recording not available yet."
+        );
+      })
+      .finally(() => {
+        if (!cancelled) setRecordingLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId, uiState]);
 
   // Hard lock: no pause/no seek during live playback.
   useEffect(() => {
@@ -708,9 +739,26 @@ export default function LiveSession() {
           <p className="mt-1 text-sm text-slate-300">
             Duration: {formatHHMMSS(totalDurationSeconds)}
           </p>
-          <p className="mt-2 text-sm text-slate-300">
-            You can now watch the recorded lecture from your course player.
-          </p>
+          {recordingLoading ? (
+            <p className="mt-2 text-sm text-slate-300">Loading recording...</p>
+          ) : recordingUrl ? (
+            <div className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-black">
+              <video
+                src={recordingUrl}
+                controls
+                playsInline
+                preload="metadata"
+                controlsList="nodownload"
+                disablePictureInPicture
+                className="h-full w-full"
+                onContextMenu={(event) => event.preventDefault()}
+              />
+            </div>
+          ) : (
+            <p className="mt-2 text-sm text-slate-300">
+              {recordingError || "Recording is not available yet."}
+            </p>
+          )}
           <button
             type="button"
             className="mt-6 rounded-full bg-white px-6 py-2 text-sm font-semibold text-slate-900"

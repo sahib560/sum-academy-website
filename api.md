@@ -7870,9 +7870,56 @@ Validation error response:
 {
   "success": false,
   "message": "CSV has validation errors",
-  "errors": [
-    "Row 3: MCQ correctAnswer must be A B C or D",
-    "Row 7: Short answer must have expectedAnswer"
-  ]
+  "errors": [ 
+    "Row 3: MCQ correctAnswer must be A B C or D", 
+    "Row 7: Short answer must have expectedAnswer" 
+  ] 
+} 
+```
+
+---
+
+## Video Streaming APIs
+
+### GET `/api/video/:lectureId/stream-url`
+- Auth: `Bearer` (student)
+- Purpose: get a signed streaming URL (2 hours) for large lecture videos.
+
+Success:
+```json
+{
+  "success": true,
+  "message": "Stream URL generated",
+  "data": {
+    "streamUrl": "https://storage.googleapis.com/...signed...",
+    "lectureId": "lecture_doc_id",
+    "title": "Lecture Title",
+    "duration": "12:30",
+    "watermarkText": "Student Name | SUM Academy",
+    "expiresIn": 7200
+  }
+}
+```
+
+### GET `/api/video/:lectureId/stream`
+- Auth: `Bearer` (student)
+- Purpose: proxy stream with Range support for seeking (video element can use this).
+- Response: binary stream with `Accept-Ranges` and `Content-Range`.
+
+### GET `/api/sessions/:sessionId/recording`
+- Auth: `Bearer` (student)
+- Purpose: signed URL for a live session recording (if unlocked).
+
+Success:
+```json
+{
+  "success": true,
+  "message": "Session recording URL generated",
+  "data": {
+    "streamUrl": "https://storage.googleapis.com/...signed...",
+    "sessionId": "session_doc_id",
+    "topic": "Live Topic",
+    "duration": "90"
+  }
 }
 ```

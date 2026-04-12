@@ -23,6 +23,7 @@ import teacherRoutes from "./routes/teacher.routes.js";
 import studentRoutes from "./routes/student.routes.js";
 import uploadRoutes from "./routes/upload.routes.js";
 import progressRoutes from "./routes/progress.routes.js";
+import videoRoutes from "./routes/video.routes.js";
 import { verifyToken } from "./middlewares/auth.middleware.js";
 import { validatePromoCode } from "./controllers/admin.controller.js";
 import { exploreCourses, getPublicTeachers } from "./controllers/student.controller.js";
@@ -41,6 +42,18 @@ const PORT = process.env.PORT || 5000;
 app.disable("etag");
 app.set("trust proxy", 1);
 
+// const allowedOrigins = new Set([
+//   "https://sumacademy.net",
+//   "https://www.sumacademy.net",
+//   "http://localhost:5173",
+//   "http://localhost:3000",
+//   "http://localhost",
+//   "https://localhost",
+//   "capacitor://localhost",
+//   "ionic://localhost",
+//   "null",
+// ]);
+// / ✅ UPDATE LINES 33-40 to this:
 const allowedOrigins = new Set([
   "https://sumacademy.net",
   "https://www.sumacademy.net",
@@ -51,14 +64,28 @@ const allowedOrigins = new Set([
   "capacitor://localhost",
   "ionic://localhost",
   "null",
+  // 👇 ADD THESE LINES:
+  "https://cornflowerblue-wren-894067.hostingersite.com",
+  "https://*.hostingersite.com", // wildcard for other Hostinger previews
 ]);
 
+// const allowedOriginPatterns = [
+//   /^https?:\/\/([a-z0-9-]+\.)*sumacademy\.net(?::\d+)?$/i,
+//   /^https?:\/\/localhost(?::\d+)?$/i,
+//   /^capacitor:\/\/localhost$/i,
+//   /^ionic:\/\/localhost$/i,
+//   /^file:\/\//i,
+// ];
+
+// ✅ UPDATE LINES 42-47 to this:
 const allowedOriginPatterns = [
   /^https?:\/\/([a-z0-9-]+\.)*sumacademy\.net(?::\d+)?$/i,
   /^https?:\/\/localhost(?::\d+)?$/i,
   /^capacitor:\/\/localhost$/i,
   /^ionic:\/\/localhost$/i,
   /^file:\/\//i,
+  // 👇 ADD THIS LINE for Hostinger:
+  /^https?:\/\/[a-z0-9-]+\.hostingersite\.com(?::\d+)?$/i,
 ];
 
 const normalizeOrigin = (origin = "") => String(origin || "").trim().replace(/\/+$/, "");
@@ -96,9 +123,27 @@ app.use(
 app.use(cors(corsOptions));
 app.options("/{*path}", cors(corsOptions));
 
-app.use(express.json({ limit: "10mb" }));
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 app.use(cookieParser());
+
+// Increase timeout for large streaming routes
+app.use((req, res, next) => {
+  if (String(req.path || "").includes("/stream")) {
+    req.setTimeout(0);
+    res.setTimeout(0);
+  }
+  next();
+});
+
+// Streaming-specific socket tuning
+app.use("/api/video", (req, res, next) => {
+  req.socket.setTimeout(0);
+  req.socket.setNoDelay(true);
+  req.socket.setKeepAlive(true);
+  res.setHeader("Transfer-Encoding", "chunked");
+  next();
+});
 
 if (process.env.NODE_ENV !== "production") {
   app.use(morgan("dev"));
@@ -312,6 +357,7 @@ app.use("/api", progressRoutes);
 app.use("/api/student", studentRoutes);
 app.use("/api", publicSettingsRoutes);
 app.use("/api", uploadRoutes);
+app.use("/api", videoRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/admin", adminPaymentRoutes);
 app.use("/api/classes", classesPublicRoutes);
