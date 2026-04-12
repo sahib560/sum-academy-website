@@ -18,9 +18,10 @@ import {
 import {
   getRevenueChart,
   getPayments,
-  getTopCourses,
+  getTopClasses,
   getRecentEnrollments,
   getCourses,
+  getClassPerformance,
   getTeachers,
   getStudents,
 } from "../../services/admin.service.js";
@@ -99,7 +100,7 @@ const sortRows = (rows, sort) =>
 function Analytics() {
   const [range, setRange] = useState("7 Days");
   const [view, setView] = useState("Daily");
-  const [sortCourse, setSortCourse] = useState({ key: "revenue", dir: "desc" });
+  const [sortClass, setSortClass] = useState({ key: "revenue", dir: "desc" });
   const [sortTeacher, setSortTeacher] = useState({
     key: "revenue",
     dir: "desc",
@@ -144,12 +145,12 @@ function Analytics() {
   });
 
   const {
-    data: topCoursesResponse,
-    isLoading: topCoursesLoading,
-    error: topCoursesError,
+    data: topClassesResponse,
+    isLoading: topClassesLoading,
+    error: topClassesError,
   } = useQuery({
-    queryKey: ["admin", "analytics-top-courses"],
-    queryFn: getTopCourses,
+    queryKey: ["admin", "analytics-top-classes"],
+    queryFn: getTopClasses,
     staleTime: 30000,
     retry: 2,
   });
@@ -172,6 +173,17 @@ function Analytics() {
   } = useQuery({
     queryKey: ["admin", "analytics-courses"],
     queryFn: getCourses,
+    staleTime: 30000,
+    retry: 2,
+  });
+
+  const {
+    data: classPerformanceResponse,
+    isLoading: classPerformanceLoading,
+    error: classPerformanceError,
+  } = useQuery({
+    queryKey: ["admin", "analytics-class-performance"],
+    queryFn: getClassPerformance,
     staleTime: 30000,
     retry: 2,
   });
@@ -295,10 +307,10 @@ function Analytics() {
       .filter((item) => item.amount > 0);
   }, [paidPayments]);
 
-  const topCourses = useMemo(() => {
-    const data = topCoursesResponse?.data ?? topCoursesResponse ?? [];
+  const topClasses = useMemo(() => {
+    const data = topClassesResponse?.data ?? topClassesResponse ?? [];
     return Array.isArray(data) ? data : [];
-  }, [topCoursesResponse]);
+  }, [topClassesResponse]);
 
   const enrollments = useMemo(() => {
     const data = enrollmentsResponse?.data ?? enrollmentsResponse ?? [];
@@ -320,13 +332,32 @@ function Analytics() {
     return Array.isArray(data) ? data : [];
   }, [studentsResponse]);
 
-  const enrollmentsByCourse = useMemo(
+  const enrollmentsByClass = useMemo(
     () =>
-      topCourses.map((course) => ({
-        name: course.title || course.name || "Untitled",
-        value: Number(course.enrollmentCount || 0),
+      topClasses.map((row) => ({
+        name: row.className || row.title || "Class",
+        value: Number(row.enrollmentCount || 0),
       })),
-    [topCourses]
+    [topClasses]
+  );
+
+  const classPerformance = useMemo(() => {
+    const data = classPerformanceResponse?.data ?? classPerformanceResponse ?? [];
+    return Array.isArray(data) ? data : [];
+  }, [classPerformanceResponse]);
+
+  const mappedClassPerformance = useMemo(
+    () =>
+      classPerformance.map((row) => ({
+        name: row.className || "Class",
+        batchCode: row.batchCode || "-",
+        teacher: row.teacherName || "Teacher",
+        enrolled: Number(row.enrolled || 0),
+        completed: Number(row.completed || 0),
+        rate: Number(row.completionRate || 0),
+        revenue: Number(row.revenue || 0),
+      })),
+    [classPerformance]
   );
 
   const enrollmentsTrend = useMemo(() => {
@@ -348,11 +379,11 @@ function Analytics() {
 
   const totalEnrollments = useMemo(
     () =>
-      courses.reduce(
-        (sum, course) => sum + Number(course.enrollmentCount || 0),
+      mappedClassPerformance.reduce(
+        (sum, row) => sum + Number(row.enrolled || 0),
         0
       ),
-    [courses]
+    [mappedClassPerformance]
   );
 
   const newEnrollmentsThisMonth = useMemo(() => {
@@ -422,29 +453,6 @@ function Analytics() {
     return `${avg} mins`;
   }, [students]);
 
-  const coursePerformance = useMemo(
-    () =>
-      courses.map((course) => {
-        const enrolled = Number(course.enrollmentCount || course.enrolled || 0);
-        const completed = Number(
-          course.completedCount || course.completed || 0
-        );
-        const rate = enrolled ? Math.round((completed / enrolled) * 100) : 0;
-        const ratingValue = Number(course.rating || course.avgRating || 0);
-        return {
-          name: course.title || course.name || "Untitled",
-          teacher: course.teacherName || "Unknown",
-          enrolled,
-          completed,
-          rate,
-          revenue: Number(course.revenue || 0),
-          rating: ratingValue,
-          ratingLabel: ratingValue ? ratingValue.toFixed(1) : "N/A",
-        };
-      }),
-    [courses]
-  );
-
   const teacherPerformance = useMemo(() => {
     return teachers.map((teacher) => {
       const teacherId = teacher.uid || teacher.id;
@@ -486,9 +494,9 @@ function Analytics() {
     });
   }, [teachers, courses]);
 
-  const sortedCoursePerformance = useMemo(
-    () => sortRows(coursePerformance, sortCourse),
-    [coursePerformance, sortCourse]
+  const sortedClassPerformance = useMemo(
+    () => sortRows(mappedClassPerformance, sortClass),
+    [mappedClassPerformance, sortClass]
   );
 
   const sortedTeacherPerformance = useMemo(
@@ -501,11 +509,12 @@ function Analytics() {
   const showBreakdownEmpty =
     !paymentsLoading && (paymentsError || breakdownData.length === 0);
   const showEnrollmentsEmpty =
-    !topCoursesLoading && (topCoursesError || enrollmentsByCourse.length === 0);
+    !topClassesLoading && (topClassesError || enrollmentsByClass.length === 0);
   const showEnrollmentsTrendEmpty =
     !enrollmentsLoading && (enrollmentsError || enrollmentsTrend.length === 0);
-  const showCoursesEmpty =
-    !coursesLoading && (coursesError || coursePerformance.length === 0);
+  const showClassesEmpty =
+    !classPerformanceLoading &&
+    (classPerformanceError || mappedClassPerformance.length === 0);
   const showTeachersEmpty =
     !teachersLoading && (teachersError || teacherPerformance.length === 0);
   const showStudentsEmpty =
@@ -717,14 +726,14 @@ function Analytics() {
             Enrollment Analytics
           </h3>
           <p className="text-sm text-slate-500">
-            Track enrollments by course and daily trends.
+            Track enrollments by class and daily trends.
           </p>
         </div>
         <div className="grid gap-6 lg:grid-cols-[1.2fr_1fr]">
           <div className="glass-card min-w-0">
-            <h4 className="text-sm font-semibold text-slate-500">Top Courses</h4>
+            <h4 className="text-sm font-semibold text-slate-500">Top Classes</h4>
             <div className="mt-4">
-              {topCoursesLoading ? (
+              {topClassesLoading ? (
                 <div className="skeleton h-64 w-full rounded-2xl" />
               ) : showEnrollmentsEmpty ? (
                 <div className="flex h-64 items-center justify-center text-sm text-slate-500">
@@ -735,7 +744,7 @@ function Analytics() {
                   <div className="h-72 sm:hidden">
                     <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={260}>
                       <BarChart
-                        data={enrollmentsByCourse}
+                        data={enrollmentsByClass}
                         layout="vertical"
                         margin={{ top: 8, right: 12, left: 12, bottom: 8 }}
                       >
@@ -756,7 +765,7 @@ function Analytics() {
                   </div>
                   <div className="hidden h-64 sm:block">
                     <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={240}>
-                      <BarChart data={enrollmentsByCourse}>
+                      <BarChart data={enrollmentsByClass}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                         <XAxis dataKey="name" tickLine={false} axisLine={false} />
                         <YAxis tickLine={false} axisLine={false} />
@@ -796,7 +805,7 @@ function Analytics() {
           </div>
         </div>
         <div className="grid gap-4 sm:grid-cols-3">
-          {coursesLoading || enrollmentsLoading ? (
+          {classPerformanceLoading || enrollmentsLoading ? (
             Array.from({ length: 3 }).map((_, index) => (
               <div key={`kpi-skeleton-${index}`} className="glass-card space-y-2">
                 <div className="skeleton h-4 w-1/3" />
@@ -925,64 +934,63 @@ function Analytics() {
         <div className="glass-card">
           <div className="flex items-center justify-between">
             <h3 className="font-heading text-xl text-slate-900">
-              Course Performance
+              Class Performance
             </h3>
             <span className="text-xs text-slate-400">Sortable</span>
           </div>
           <div className="mt-4">
-            {coursesLoading ? (
+            {classPerformanceLoading ? (
               <div className="space-y-3">
                 {Array.from({ length: 3 }).map((_, index) => (
                   <div
-                    key={`course-card-skeleton-${index}`}
+                    key={`class-card-skeleton-${index}`}
                     className="skeleton h-20 w-full rounded-2xl"
                   />
                 ))}
               </div>
-            ) : showCoursesEmpty ? (
-              <div className="text-sm text-slate-500">No course data yet.</div>
+            ) : showClassesEmpty ? (
+              <div className="text-sm text-slate-500">No class data yet.</div>
             ) : (
               <>
                 <div className="space-y-3 sm:hidden">
-                  {sortedCoursePerformance.map((course) => (
+                  {sortedClassPerformance.map((row) => (
                     <div
-                      key={course.name}
+                      key={`${row.name}-${row.batchCode}`}
                       className="rounded-2xl border border-slate-100 bg-white/80 p-4 text-sm shadow-sm"
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div>
                           <p className="font-semibold text-slate-900">
-                            {course.name}
+                            {row.name}
                           </p>
-                          <p className="text-xs text-slate-500">{course.teacher}</p>
+                          <p className="text-xs text-slate-500">
+                            {row.teacher} {row.batchCode ? `(${row.batchCode})` : ""}
+                          </p>
                         </div>
-                        <span className="rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-600">
-                          {course.ratingLabel}
-                        </span>
                       </div>
                       <div className="mt-3 grid grid-cols-2 gap-3 text-xs text-slate-600">
                         <div>
                           <p className="text-slate-400">Enrolled</p>
                           <p className="font-semibold text-slate-900">
-                            {course.enrolled}
+                            {row.enrolled}
                           </p>
                         </div>
                         <div>
                           <p className="text-slate-400">Completed</p>
                           <p className="font-semibold text-slate-900">
-                            {course.completed}
+                            {row.completed}
                           </p>
                         </div>
                         <div>
                           <p className="text-slate-400">Completion</p>
                           <p className="font-semibold text-slate-900">
-                            {course.rate}%
+                            {row.rate}%
                           </p>
                         </div>
                         <div>
                           <p className="text-slate-400">Revenue</p>
                           <p className="font-semibold text-slate-900">
-                            PKR {course.revenue.toLocaleString()}
+                            PKR {row.revenue.toLocaleString()}
                           </p>
                         </div>
                       </div>
@@ -995,19 +1003,19 @@ function Analytics() {
                     <thead className="border-b border-slate-200 text-xs uppercase text-slate-400">
                       <tr>
                         {[
-                          { label: "Course Name", key: "name" },
+                          { label: "Class Name", key: "name" },
+                          { label: "Batch", key: "batchCode" },
                           { label: "Teacher", key: "teacher" },
                           { label: "Enrolled", key: "enrolled" },
                           { label: "Completed", key: "completed" },
                           { label: "Completion Rate %", key: "rate" },
                           { label: "Revenue PKR", key: "revenue" },
-                          { label: "Avg Rating", key: "rating" },
                         ].map((col) => (
                           <th
                             key={col.key}
                             className="cursor-pointer pb-3 pr-4 whitespace-nowrap"
                             onClick={() =>
-                              setSortCourse((prev) => ({
+                              setSortClass((prev) => ({
                                 key: col.key,
                                 dir:
                                   prev.key === col.key && prev.dir === "asc"
@@ -1022,21 +1030,21 @@ function Analytics() {
                       </tr>
                     </thead>
                     <tbody>
-                      {sortedCoursePerformance.map((course) => (
-                        <tr key={course.name} className="border-b border-slate-100">
+                      {sortedClassPerformance.map((row) => (
+                        <tr key={`${row.name}-${row.batchCode}`} className="border-b border-slate-100">
                           <td className="py-3 pr-4 font-semibold text-slate-900">
-                            {course.name}
+                            {row.name}
                           </td>
+                          <td className="py-3 pr-4">{row.batchCode}</td>
                           <td className="py-3 pr-4 text-slate-600">
-                            {course.teacher}
+                            {row.teacher}
                           </td>
-                          <td className="py-3 pr-4">{course.enrolled}</td>
-                          <td className="py-3 pr-4">{course.completed}</td>
-                          <td className="py-3 pr-4">{course.rate}%</td>
+                          <td className="py-3 pr-4">{row.enrolled}</td>
+                          <td className="py-3 pr-4">{row.completed}</td>
+                          <td className="py-3 pr-4">{row.rate}%</td>
                           <td className="py-3 pr-4 whitespace-nowrap">
-                            PKR {course.revenue.toLocaleString()}
+                            PKR {row.revenue.toLocaleString()}
                           </td>
-                          <td className="py-3 pr-4">{course.ratingLabel}</td>
                         </tr>
                       ))}
                     </tbody>

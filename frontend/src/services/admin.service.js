@@ -24,6 +24,12 @@ export const getRecentEnrollments = () =>
 export const getTopCourses = () =>
   api.get("/admin/top-courses").then((r) => r.data.data);
 
+export const getTopClasses = () =>
+  api.get("/admin/top-classes").then((r) => r.data.data);
+
+export const getClassPerformance = () =>
+  api.get("/admin/class-performance").then((r) => r.data.data);
+
 export const getRecentActivity = () =>
   api.get("/admin/recent-activity").then((r) => r.data.data);
 

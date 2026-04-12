@@ -24,7 +24,7 @@ import {
 import {
   getDashboardStats,
   getRecentEnrollments,
-  getTopCourses,
+  getTopClasses,
   getRecentActivity,
   getRevenueChart,
 } from "../../services/admin.service.js";
@@ -169,12 +169,12 @@ function Dashboard() {
   });
 
   const {
-    data: topCoursesResponse,
-    isLoading: topCoursesLoading,
-    error: topCoursesError,
+    data: topClassesResponse,
+    isLoading: topClassesLoading,
+    error: topClassesError,
   } = useQuery({
-    queryKey: ["admin", "top-courses"],
-    queryFn: getTopCourses,
+    queryKey: ["admin", "top-classes"],
+    queryFn: getTopClasses,
     staleTime: 30000,
     retry: 2,
   });
@@ -208,16 +208,16 @@ function Dashboard() {
         prefix: "PKR ",
       },
       {
-        label: "Active Courses",
-        value: Number(stats.totalCourses || 0),
-        color: "text-accent",
-        icon: "book",
-      },
-      {
-        label: "Enrollments Today",
-        value: Number(stats.enrollmentsToday || 0),
+        label: "Total Enrollments",
+        value: Number(stats.totalEnrollments || stats.activeEnrollments || 0),
         color: "text-purple-500",
         icon: "user-plus",
+      },
+      {
+        label: "Total Classes",
+        value: Number(stats.totalClasses || 0),
+        color: "text-accent",
+        icon: "book",
       },
     ];
 
@@ -262,10 +262,10 @@ function Dashboard() {
     return Array.isArray(data) ? data : [];
   }, [enrollmentsResponse]);
 
-  const topCourses = useMemo(() => {
-    const data = topCoursesResponse?.data ?? topCoursesResponse ?? [];
+  const topClasses = useMemo(() => {
+    const data = topClassesResponse?.data ?? topClassesResponse ?? [];
     return Array.isArray(data) ? data : [];
-  }, [topCoursesResponse]);
+  }, [topClassesResponse]);
 
   const activityFeed = useMemo(() => {
     const data = activityResponse?.data ?? activityResponse ?? [];
@@ -273,8 +273,8 @@ function Dashboard() {
   }, [activityResponse]);
 
   const maxEnroll =
-    topCourses.length > 0
-      ? Math.max(...topCourses.map((course) => Number(course.enrollmentCount || 0)))
+    topClasses.length > 0
+      ? Math.max(...topClasses.map((row) => Number(row.enrollmentCount || 0)))
       : 0;
 
   const ranges = [
@@ -551,29 +551,29 @@ function Dashboard() {
         </div>
 
         <div className="glass-card">
-          <h3 className="font-heading text-xl text-slate-900">Top Courses</h3>
+          <h3 className="font-heading text-xl text-slate-900">Top Classes</h3>
           <div className="mt-6 space-y-4">
-            {topCoursesLoading ? (
+            {topClassesLoading ? (
               Array.from({ length: 5 }).map((_, index) => (
                 <div key={`top-skeleton-${index}`} className="space-y-2">
                   <div className="skeleton h-4 w-3/4" />
                   <div className="skeleton h-2 w-full" />
                 </div>
               ))
-            ) : topCoursesError ? (
+            ) : topClassesError ? (
               <div className="rounded-2xl border border-rose-100 bg-rose-50 p-4 text-sm text-rose-600">
-                Failed to load top courses.
+                Failed to load top classes.
               </div>
-            ) : topCourses.length === 0 ? (
-              <div className="text-sm text-slate-500">No courses yet.</div>
+            ) : topClasses.length === 0 ? (
+              <div className="text-sm text-slate-500">No classes yet.</div>
             ) : (
-              topCourses.map((course, index) => {
-                const enrolled = Number(course.enrollmentCount || 0);
+              topClasses.map((row, index) => {
+                const enrolled = Number(row.enrollmentCount || 0);
                 return (
-                  <div key={course.id} className="space-y-2">
+                  <div key={row.id} className="space-y-2">
                     <div className="flex items-center justify-between text-sm">
                       <span className="font-semibold text-slate-900">
-                        {index + 1}. {course.title || "Untitled"}
+                        {index + 1}. {row.className || row.title || "Class"}
                       </span>
                       <span className="text-slate-500">{enrolled} enrolled</span>
                     </div>
@@ -586,7 +586,7 @@ function Dashboard() {
                       />
                     </div>
                     <div className="text-xs text-slate-500">
-                      PKR {Number(course.revenue || 0).toLocaleString()}
+                      PKR {Number(row.revenue || 0).toLocaleString()}
                     </div>
                   </div>
                 );

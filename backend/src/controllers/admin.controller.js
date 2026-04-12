@@ -1075,6 +1075,24 @@ export const getTopCourses = async (req, res) => {
   }
 };
 
+export const getTopClasses = async (req, res) => {
+  try {
+    const data = await adminService.getTopClasses(5);
+    return successResponse(res, data, "Top classes fetched");
+  } catch (e) {
+    return errorResponse(res, "Failed to fetch classes", 500);
+  }
+};
+
+export const getClassPerformance = async (req, res) => {
+  try {
+    const data = await adminService.getClassPerformance();
+    return successResponse(res, data, "Class performance fetched");
+  } catch (e) {
+    return errorResponse(res, "Failed to fetch class performance", 500);
+  }
+};
+
 export const getRecentActivity = async (req, res) => {
   try {
     const data = await adminService.getRecentActivity(10);
@@ -5771,10 +5789,12 @@ export const updateSiteSettings = async (req, res) => {
 export const getAnalyticsReport = async (req, res) => {
   try {
     const { days } = req.query;
-    const [stats, revenue, enrollments] = await Promise.all([
+    const [stats, revenue, enrollments, topClasses, classPerformance] = await Promise.all([
       adminService.getDashboardStats(),
       adminService.getRevenueChart(Number(days) || 30),
       adminService.getRecentEnrollments(50),
+      adminService.getTopClasses(5),
+      adminService.getClassPerformance(),
     ]);
 
     return successResponse(
@@ -5783,6 +5803,8 @@ export const getAnalyticsReport = async (req, res) => {
         stats,
         revenue,
         enrollments,
+        topClasses,
+        classPerformance,
         generatedAt: new Date().toISOString(),
       },
       "Analytics report fetched"

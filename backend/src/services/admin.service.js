@@ -251,6 +251,7 @@ export const getDashboardStats = async () => {
     classesSnap,
     paymentsSnap,
     enrollmentsSnap,
+    totalEnrollmentsSnap,
     pendingPaymentsSnap,
     pendingApprovalsSnap,
   ] = await Promise.all([
@@ -265,6 +266,7 @@ export const getDashboardStats = async () => {
       .where("status", "in", ["active", "upcoming"])
       .count()
       .get(),
+    db.collection(COLLECTIONS.ENROLLMENTS).count().get(),
     db
       .collection(COLLECTIONS.PAYMENTS)
       .where("status", "==", "pending")
@@ -300,6 +302,7 @@ export const getDashboardStats = async () => {
         : coursesSnap.data().count,
     totalClasses: classesSnap.data().count,
     totalRevenue,
+    totalEnrollments: totalEnrollmentsSnap.data().count,
     activeEnrollments: enrollmentsSnap.data().count,
     enrollmentsToday,
     pendingBankTransfers: pendingPaymentsSnap.data().count,
@@ -387,6 +390,121 @@ export const getTopCourses = async (limit = 5) => {
   return rows
     .sort((a, b) => toNumber(b.enrollmentCount, 0) - toNumber(a.enrollmentCount, 0))
     .slice(0, limit);
+};
+
+const resolveClassTeacherName = (classData = {}) => {
+  const direct =
+    trimText(classData.teacherName) ||
+    trimText(classData.classTeacherName) ||
+    trimText(classData.teacherFullName);
+  if (direct) return direct;
+  const shifts = Array.isArray(classData.shifts) ? classData.shifts : [];
+  for (const shift of shifts) {
+    const name = trimText(shift?.teacherName);
+    if (name) return name;
+  }
+  return "Teacher";
+};
+
+const buildClassEnrollmentStats = (enrollmentRows = []) => {
+  return enrollmentRows.reduce((acc, row) => {
+    const classId = trimText(row.classId);
+    if (!classId) return acc;
+    const status = lowerText(row.status || "");
+    const entry = acc[classId] || { enrolled: 0, completed: 0 };
+    if (ACTIVE_ENROLLMENT_STATUSES.has(status)) {
+      entry.enrolled += 1;
+    }
+    if (status === "completed") {
+      entry.completed += 1;
+    }
+    acc[classId] = entry;
+    return acc;
+  }, {});
+};
+
+const buildClassRevenueStats = (paymentRows = []) => {
+  return paymentRows.reduce((acc, row) => {
+    if (lowerText(row.status || "") !== "paid") return acc;
+    const classId = trimText(row.classId);
+    if (!classId) return acc;
+    acc[classId] = (acc[classId] || 0) + toNumber(row.amount, 0);
+    return acc;
+  }, {});
+};
+
+export const getTopClasses = async (limit = 5) => {
+  const [classesSnap, enrollmentsSnap, paymentsSnap] = await Promise.all([
+    db.collection(COLLECTIONS.CLASSES).get(),
+    db.collection(COLLECTIONS.ENROLLMENTS).get(),
+    db.collection(COLLECTIONS.PAYMENTS).get(),
+  ]);
+
+  const classRows = classesSnap.docs.map((doc) => ({ id: doc.id, ...(doc.data() || {}) }));
+  const enrollmentRows = enrollmentsSnap.docs.map((doc) => doc.data() || {});
+  const paymentRows = paymentsSnap.docs.map((doc) => doc.data() || {});
+
+  const enrollmentStats = buildClassEnrollmentStats(enrollmentRows);
+  const revenueStats = buildClassRevenueStats(paymentRows);
+
+  const mapped = classRows.map((row) => {
+    const entry = enrollmentStats[row.id] || { enrolled: 0, completed: 0 };
+    const fallbackCount =
+      Array.isArray(row.students) ? row.students.length : toNumber(row.studentCount, 0);
+    const enrolled = entry.enrolled || fallbackCount || 0;
+    return {
+      id: row.id,
+      className: trimText(row.name) || "Class",
+      title: trimText(row.name) || "Class",
+      batchCode: trimText(row.batchCode),
+      teacherName: resolveClassTeacherName(row),
+      enrollmentCount: enrolled,
+      completedCount: entry.completed,
+      revenue: toNumber(revenueStats[row.id], 0),
+    };
+  });
+
+  return mapped
+    .sort((a, b) => {
+      const diff = toNumber(b.enrollmentCount, 0) - toNumber(a.enrollmentCount, 0);
+      if (diff !== 0) return diff;
+      return toNumber(b.revenue, 0) - toNumber(a.revenue, 0);
+    })
+    .slice(0, limit);
+};
+
+export const getClassPerformance = async () => {
+  const [classesSnap, enrollmentsSnap, paymentsSnap] = await Promise.all([
+    db.collection(COLLECTIONS.CLASSES).get(),
+    db.collection(COLLECTIONS.ENROLLMENTS).get(),
+    db.collection(COLLECTIONS.PAYMENTS).get(),
+  ]);
+
+  const classRows = classesSnap.docs.map((doc) => ({ id: doc.id, ...(doc.data() || {}) }));
+  const enrollmentRows = enrollmentsSnap.docs.map((doc) => doc.data() || {});
+  const paymentRows = paymentsSnap.docs.map((doc) => doc.data() || {});
+
+  const enrollmentStats = buildClassEnrollmentStats(enrollmentRows);
+  const revenueStats = buildClassRevenueStats(paymentRows);
+
+  return classRows.map((row) => {
+    const entry = enrollmentStats[row.id] || { enrolled: 0, completed: 0 };
+    const fallbackCount =
+      Array.isArray(row.students) ? row.students.length : toNumber(row.studentCount, 0);
+    const enrolled = entry.enrolled || fallbackCount || 0;
+    const completed = entry.completed || 0;
+    const completionRate = enrolled ? Math.round((completed / enrolled) * 100) : 0;
+    return {
+      id: row.id,
+      className: trimText(row.name) || "Class",
+      batchCode: trimText(row.batchCode),
+      teacherName: resolveClassTeacherName(row),
+      enrolled,
+      completed,
+      completionRate,
+      revenue: toNumber(revenueStats[row.id], 0),
+    };
+  });
 };
 
 export const getRecentActivity = async (limit = 10) => {

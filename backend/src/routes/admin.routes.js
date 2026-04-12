@@ -62,6 +62,16 @@ router.get(
   adminController.getTopCourses
 );
 router.get(
+  "/top-classes",
+  adminOnly,
+  adminController.getTopClasses
+);
+router.get(
+  "/class-performance",
+  adminOnly,
+  adminController.getClassPerformance
+);
+router.get(
   "/recent-activity",
   adminOnly,
   adminController.getRecentActivity
