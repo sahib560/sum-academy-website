@@ -59,6 +59,10 @@ router.post("/sessions/:sessionId/leave", leaveSession);
 router.get("/sessions/:sessionId/sync", getSessionSync);
 router.post("/sessions/:sessionId/violation", logSessionViolation);
 router.get("/courses/:courseId/progress", getStudentCourseProgress);
+router.get("/subjects/:subjectId/progress", (req, res, next) => {
+  req.params.courseId = req.params.subjectId;
+  return getStudentCourseProgress(req, res, next);
+});
 router.get("/courses/:courseId/final-quiz-request", getFinalQuizRequestStatus);
 router.post("/courses/:courseId/final-quiz-request", requestFinalQuizForCourse);
 router.post("/courses/:courseId/lectures/:lectureId/complete", markLectureComplete);

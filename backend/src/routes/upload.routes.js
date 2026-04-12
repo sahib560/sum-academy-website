@@ -49,7 +49,17 @@ router.post(
 
 router.post("/upload/logo", adminOnly, upload.single("file"), uploadLogo);
 
-router.post("/upload/apk", adminOnly, apkUpload.single("file"), uploadAndroidApk);
+router.post(
+  "/upload/apk",
+  adminOnly,
+  (req, res, next) => {
+    req.setTimeout(0);
+    res.setTimeout(0);
+    next();
+  },
+  apkUpload.single("file"),
+  uploadAndroidApk
+);
 
 router.post(
   "/payments/:paymentId/receipt",

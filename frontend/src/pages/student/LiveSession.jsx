@@ -468,7 +468,7 @@ export default function LiveSession() {
   return (
     <div className="relative min-h-[85vh] rounded-3xl bg-[#0d0f1a] p-4 text-white sm:p-8">
       <div className="mb-4 rounded-2xl border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
-        Live sessions are best viewed in the SUM Academy Android app. Some browsers may not support live playback.
+        Live sessions are best viewed in the SUM Academy Android app. This browser may not support live playback.
         <button
           type="button"
           className="ml-3 inline-flex items-center rounded-full bg-amber-400/20 px-3 py-1 text-xs font-semibold text-amber-100"

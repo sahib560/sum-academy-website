@@ -449,7 +449,7 @@ function SiteSettings() {
     return uploaded;
   };
 
-  const handleApkUpload = async (file) => {
+  const handleApkUpload = async (file, { onProgress } = {}) => {
     const fileName = String(file?.name || "").toLowerCase();
     const mimeType = String(file?.type || "").toLowerCase();
     const allowedMimeTypes = [
@@ -473,7 +473,11 @@ function SiteSettings() {
       throw new Error("APK max size is 300MB");
     }
 
-    const response = await uploadApkFile(file);
+    const response = await uploadApkFile(file, (event) => {
+      if (!event?.total) return;
+      const pct = Math.round((event.loaded / event.total) * 100);
+      if (typeof onProgress === "function") onProgress(pct);
+    });
     const data = response?.data || {};
     const apkUrl = data?.url || "";
 

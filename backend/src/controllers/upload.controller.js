@@ -282,7 +282,12 @@ export const uploadCourseVideo = async (req, res) => {
     const originalPath = tempPath || path.join(os.tmpdir(), `sum-upload-${Date.now()}`);
 
     if (!tempPath && req.file?.buffer) {
-      await fs.writeFile(originalPath, req.file.buffer);
+      try {
+        await fs.writeFile(originalPath, req.file.buffer);
+      } catch (err) {
+        console.error("Temp write failed:", err?.message || err);
+        return errorResponse(res, "Server storage write failed", 500);
+      }
     }
 
     let uploadPath = originalPath;

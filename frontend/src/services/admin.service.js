@@ -525,12 +525,13 @@ export const getEmailTemplates = () =>
 export const updateEmailTemplate = (data) =>
   api.put("/admin/settings/templates", data).then((r) => r.data);
 
-export const uploadApkFile = (file) => {
+export const uploadApkFile = (file, onUploadProgress) => {
   const formData = new FormData();
   formData.append("file", file);
   return api
     .post("/upload/apk", formData, {
       headers: { "Content-Type": "multipart/form-data" },
+      onUploadProgress,
     })
     .then((r) => r.data);
 };

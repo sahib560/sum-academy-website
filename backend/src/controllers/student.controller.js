@@ -3528,7 +3528,7 @@ export const getStudentCourseProgress = async (req, res) => {
     if (!uid) return errorResponse(res, "Missing student uid", 400);
     if (!courseId) return errorResponse(res, "courseId is required", 400);
 
-    const enrolledIds = await getStudentEnrolledCourseIds(uid, false);
+    const enrolledIds = await getStudentEnrolledCourseIds(uid, true);
     if (!enrolledIds.includes(courseId)) {
       const pendingPayments = await getStudentPendingPayments(uid, courseId);
       if (pendingPayments.length > 0) {
