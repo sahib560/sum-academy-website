@@ -3220,6 +3220,7 @@ export const getSessionStatus = async (req, res) => {
         classId: trimText(session.classId),
         className: trimText(session.className),
         batchCode: trimText(session.batchCode),
+        lectureId: trimText(session.lectureId),
         joinedCount,
         totalStudents,
         elapsedSeconds,
@@ -3394,6 +3395,7 @@ export const getSessionSync = async (req, res) => {
         // Preferred playback URL (HLS if available), then MP4.
         hlsUrl: trimText(session.hlsUrl || ""),
         videoUrl: trimText(session.videoUrl || ""),
+        lectureId: trimText(session.lectureId),
         topic: trimText(session.lectureTitle) || "Live Session",
         // Keep legacy endTime field, but also expose full timing object for clients.
         endTime: trimText(session.shiftEndTime),

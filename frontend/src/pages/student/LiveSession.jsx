@@ -84,6 +84,8 @@ export default function LiveSession() {
   const [videoError, setVideoError] = useState("");
   const [isBuffering, setIsBuffering] = useState(false);
   const [videoKey, setVideoKey] = useState(0);
+  const [streamUrl, setStreamUrl] = useState("");
+  const [streamLoading, setStreamLoading] = useState(false);
   const [recordingUrl, setRecordingUrl] = useState("");
   const [recordingError, setRecordingError] = useState("");
   const [recordingLoading, setRecordingLoading] = useState(false);
@@ -121,13 +123,20 @@ export default function LiveSession() {
   const sync = syncQuery.data || {};
 
   // Keep derived values used by hooks declared BEFORE any hook uses them.
-  const hlsUrlRaw = String(sync.hlsUrl || session.hlsUrl || "").trim();
-  const videoUrlRaw = String(sync.videoUrl || session.videoUrl || "").trim();
+  const hlsUrlRaw = String(sync.hlsUrl || status.hlsUrl || session.hlsUrl || "").trim();
+  const videoUrlRaw = String(sync.videoUrl || status.videoUrl || session.videoUrl || "").trim();
   // Ensure any spaces are safely encoded (some stored URLs include spaces in filenames).
   const hlsUrl = hlsUrlRaw ? encodeURI(hlsUrlRaw) : "";
   const videoUrl = videoUrlRaw ? encodeURI(videoUrlRaw) : "";
-  const playbackUrl = hlsUrl || videoUrl;
-  const isHlsPlayback = Boolean(hlsUrl) || /\.m3u8(\?|#|$)/i.test(videoUrl);
+  const playbackUrl = hlsUrl || streamUrl || videoUrl;
+  const isHlsPlayback = Boolean(hlsUrl) || /\.m3u8(\?|#|$)/i.test(playbackUrl || "");
+  const lectureId =
+    String(
+      session?.lectureId ||
+        status?.lectureId ||
+        sync?.lectureId ||
+        ""
+    ).trim();
 
   const startAt = safeDate(session?.timing?.startAt) || toDateTime(session.sessionDate, session.shiftStartTime);
   const endAt = safeDate(session?.timing?.endAt) || toDateTime(session.sessionDate, session.shiftEndTime);
@@ -230,6 +239,34 @@ export default function LiveSession() {
       if (typeof cleanup === "function") cleanup();
     };
   }, [canPlayNow, violationMutation]);
+
+  useEffect(() => {
+    if (!canPlayNow) return;
+    if (!lectureId) return;
+    if (hlsUrl) return;
+
+    let cancelled = false;
+    setStreamLoading(true);
+    setStreamUrl("");
+    api
+      .get(`/video/${lectureId}/stream-url`)
+      .then((res) => {
+        if (cancelled) return;
+        const url = res?.data?.data?.streamUrl || "";
+        setStreamUrl(url);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setStreamUrl("");
+      })
+      .finally(() => {
+        if (!cancelled) setStreamLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [canPlayNow, lectureId, hlsUrl]);
 
   useEffect(() => {
     if (uiState === "ended") {
@@ -562,12 +599,13 @@ export default function LiveSession() {
                     <video
                       key={`${playbackUrl}_${videoKey}`}
                       ref={videoRef}
+                      src={isHlsPlayback ? undefined : playbackUrl}
                       className="aspect-video w-full bg-black"
                       autoPlay
                       muted={muted}
                       // Large Firebase MP4 files can buffer heavily with preload=auto.
                       // Metadata preload is enough for duration/seek and avoids eager download.
-                      preload="metadata"
+                      preload={isHlsPlayback ? "metadata" : "auto"}
                       playsInline
                       crossOrigin="anonymous"
                       controls={false}
@@ -617,13 +655,7 @@ export default function LiveSession() {
                         );
                         setNeedsUserStart(false);
                       }}
-                    >
-                      {isHlsPlayback ? (
-                        <source src={playbackUrl || ""} type="application/vnd.apple.mpegurl" />
-                      ) : (
-                        <source src={playbackUrl || ""} type="video/mp4" />
-                      )}
-                    </video>
+                    />
                     {isHlsPlayback ? (
                       <HlsVideo
                         src={playbackUrl}

@@ -59,13 +59,15 @@ export function HlsVideo({
         const hls = new Hls({
           enableWorker: true,
           lowLatencyMode: false,
-          backBufferLength: 30,
-          maxBufferLength: 30,
-          maxMaxBufferLength: 60,
-          maxBufferSize: 60 * 1000 * 1000,
-          fragLoadingTimeOut: 20000,
-          manifestLoadingTimeOut: 20000,
-          levelLoadingTimeOut: 20000,
+          // Buffer more aggressively to reduce rebuffering on large files.
+          backBufferLength: 60,
+          maxBufferLength: 60,
+          maxMaxBufferLength: 180,
+          maxBufferSize: 150 * 1000 * 1000,
+          // Slightly longer timeouts for slow mobile networks.
+          fragLoadingTimeOut: 30000,
+          manifestLoadingTimeOut: 30000,
+          levelLoadingTimeOut: 30000,
         });
         hlsRef.current = hls;
 
@@ -120,4 +122,3 @@ export function HlsVideo({
 
   return null;
 }
-
