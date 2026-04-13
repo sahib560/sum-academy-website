@@ -109,6 +109,15 @@ const corsOptions = {
   allowedHeaders: [
     "Content-Type",
     "Authorization",
+    // Some clients/browsers (and axios) send these, which trigger CORS preflight.
+    "Cache-Control",
+    "Pragma",
+    "Expires",
+    "If-Modified-Since",
+    "If-None-Match",
+    "X-Requested-With",
+    "Accept",
+    "Accept-Language",
     "x-device-fingerprint",
     "x-screen-resolution",
     "x-platform",
