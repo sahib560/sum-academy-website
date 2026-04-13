@@ -100,7 +100,6 @@ function Navbar() {
   const resolvedApkUrl = apkUrl || fallbackApkUrl;
   const navbarLabels = {
     navbarLmsLabel: "LMS Login",
-    navbarSignInLabel: "Sign In",
     navbarGetStartedLabel: "Get Started",
   };
 
@@ -132,7 +131,7 @@ function Navbar() {
           </span>
         </Link>
 
-        <div className="hidden items-center gap-8 lg:flex">
+        <div className="hidden items-center gap-6 lg:flex xl:gap-8">
           {navLinks.map((link) => (
             <NavLink
               key={link.to}
@@ -146,12 +145,12 @@ function Navbar() {
           ))}
         </div>
 
-        <div className="hidden items-center gap-3 lg:flex">
+        <div className="hidden shrink-0 flex-nowrap items-center gap-2 lg:flex xl:gap-3">
           <a
             href={resolvedApkUrl}
             download={apkFileName}
             onClick={handleAppDownloadFallback}
-            className="inline-flex items-center gap-2 rounded-full border border-slate-200/80 bg-white/70 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-700 transition hover:-translate-y-0.5 hover:border-primary hover:text-primary dark:border-white/10 dark:bg-white/5 dark:text-white"
+            className="inline-flex h-10 shrink-0 items-center gap-2 whitespace-nowrap rounded-full border border-slate-200/80 bg-white/70 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-700 transition hover:-translate-y-0.5 hover:border-primary hover:text-primary dark:border-white/10 dark:bg-white/5 dark:text-white"
           >
             <FaDownload className="h-4 w-4" />
             Download App
@@ -162,14 +161,11 @@ function Navbar() {
           <button
             type="button"
             onClick={toggleTheme}
-            className="inline-flex items-center justify-center rounded-full border border-slate-200/80 bg-white/70 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-700 transition hover:-translate-y-0.5 hover:text-primary dark:border-white/10 dark:bg-white/5 dark:text-white"
+            className="inline-flex h-10 shrink-0 items-center justify-center whitespace-nowrap rounded-full border border-slate-200/80 bg-white/70 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-700 transition hover:-translate-y-0.5 hover:text-primary dark:border-white/10 dark:bg-white/5 dark:text-white"
             aria-label="Toggle theme"
           >
             {theme === "dark" ? "Light" : "Dark"}
           </button>
-          <Link to="/lms-login" className="btn-outline">
-            {navbarLabels.navbarSignInLabel || "Sign In"}
-          </Link>
           <Link to="/register" className="btn-primary">
             {navbarLabels.navbarGetStartedLabel || "Get Started"}
           </Link>
@@ -236,28 +232,25 @@ function Navbar() {
               href={resolvedApkUrl}
               download={apkFileName}
               onClick={handleAppDownloadFallback}
-              className="inline-flex items-center justify-center gap-2 rounded-full border border-slate-200/80 bg-white/70 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-700 transition hover:-translate-y-0.5 hover:text-primary dark:border-white/10 dark:bg-white/10 dark:text-white"
+              className="inline-flex h-11 w-full items-center justify-center gap-2 whitespace-nowrap rounded-full border border-slate-200/80 bg-white/70 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-700 transition hover:-translate-y-0.5 hover:text-primary dark:border-white/10 dark:bg-white/10 dark:text-white"
             >
               <FaDownload className="h-4 w-4" />
               Download App
             </a>
-            <Link to="/lms-login" className="btn-lms" onClick={closeMenu}>
+            <Link to="/lms-login" className="btn-lms w-full" onClick={closeMenu}>
               {navbarLabels.navbarLmsLabel || "LMS Login"}
             </Link>
             <button
               type="button"
               onClick={toggleTheme}
-              className={`inline-flex items-center justify-center rounded-full border border-slate-200/80 bg-white/70 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-700 transition hover:-translate-y-0.5 hover:text-primary dark:border-white/10 dark:bg-white/5 dark:text-white ${
+              className={`inline-flex h-11 w-full items-center justify-center whitespace-nowrap rounded-full border border-slate-200/80 bg-white/70 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-700 transition hover:-translate-y-0.5 hover:text-primary dark:border-white/10 dark:bg-white/5 dark:text-white ${
                 isDark ? "border-white/10 bg-white/10 text-white" : ""
               }`}
               aria-label="Toggle theme"
             >
               {theme === "dark" ? "Light" : "Dark"}
             </button>
-            <Link to="/login" className="btn-outline" onClick={closeMenu}>
-              {navbarLabels.navbarSignInLabel || "Sign In"}
-            </Link>
-            <Link to="/register" className="btn-primary" onClick={closeMenu}>
+            <Link to="/register" className="btn-primary w-full" onClick={closeMenu}>
               {navbarLabels.navbarGetStartedLabel || "Get Started"}
             </Link>
           </div>

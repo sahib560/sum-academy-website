@@ -26,6 +26,7 @@ const MotionDiv = motion.div;
 const MotionAside = motion.aside;
 
 const CATEGORIES = [
+  "General",
   "Math",
   "Science",
   "English",
@@ -282,7 +283,11 @@ function Courses() {
 
   const [drawerCourseId, setDrawerCourseId] = useState(null);
   const [activeSubjectId, setActiveSubjectId] = useState("");
-  const [subjectEditor, setSubjectEditor] = useState({ name: "", teacherId: "" });
+  const [subjectEditor, setSubjectEditor] = useState({
+    name: "",
+    teacherId: "",
+    teacherIds: [],
+  });
 
   const [showVideoModal, setShowVideoModal] = useState(false);
   const [videoState, setVideoState] = useState({
@@ -449,9 +454,16 @@ function Courses() {
 
   useEffect(() => {
     if (!activeSubject) return;
+    const teacherIds = Array.isArray(activeSubject.teacherIds) && activeSubject.teacherIds.length > 0
+      ? activeSubject.teacherIds
+      : activeSubject.teacherId
+        ? [activeSubject.teacherId]
+        : [];
+    const primaryId = teacherIds[0] || activeSubject.teacherId || "";
     setSubjectEditor({
       name: activeSubject.name || "",
-      teacherId: activeSubject.teacherId || "",
+      teacherId: primaryId,
+      teacherIds,
     });
   }, [activeSubject]);
 
@@ -653,15 +665,29 @@ function Courses() {
       toast.error("Title is required.");
       return;
     }
-    if (!subjectEditor.teacherId) {
-      toast.error("Teacher is required.");
+    const teacherIds = Array.isArray(subjectEditor.teacherIds)
+      ? subjectEditor.teacherIds.filter(Boolean)
+      : [];
+    if (!teacherIds.length) {
+      toast.error("At least one teacher is required.");
       return;
     }
+    const primaryTeacherId = teacherIds[0] || subjectEditor.teacherId || "";
     updateMutation.mutate({
       id: drawerCourse.id,
       data: {
         title: subjectEditor.name.trim(),
-        teacherId: subjectEditor.teacherId,
+        teacherId: primaryTeacherId,
+        teacherName:
+          teachersMap[primaryTeacherId]?.fullName ||
+          teachersMap[primaryTeacherId]?.name ||
+          activeSubject.teacherName ||
+          "",
+        teacherIds,
+        teachers: teacherIds.map((id) => ({
+          teacherId: id,
+          teacherName: teachersMap[id]?.fullName || teachersMap[id]?.name || "",
+        })),
       },
     });
   };
@@ -1256,30 +1282,51 @@ function Courses() {
                 Select one or more teachers for this subject.
               </p>
               <div className="mt-3">
-                <label className="text-xs font-semibold text-slate-500">Teacher</label>
-                <select
-                  multiple
-                  value={form.teacherIds}
-                  onChange={(e) => {
-                    const selected = Array.from(e.target.selectedOptions).map(
-                      (opt) => opt.value
+                <label className="text-xs font-semibold text-slate-500">Teachers</label>
+                <div className="mt-2 max-h-64 space-y-2 overflow-auto rounded-xl border border-slate-200 bg-white p-3">
+                  {teachers.map((t) => {
+                    const checked = (form.teacherIds || []).includes(t.id);
+                    return (
+                      <label
+                        key={t.id}
+                        className="flex cursor-pointer items-center gap-3 rounded-lg px-2 py-2 text-sm hover:bg-slate-50"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(e) => {
+                            const nextChecked = e.target.checked;
+                            setForm((prev) => {
+                              const current = Array.isArray(prev.teacherIds)
+                                ? prev.teacherIds
+                                : [];
+                              const next = nextChecked
+                                ? [...current, t.id]
+                                : current.filter((id) => id !== t.id);
+                              const primaryId = next[0] || "";
+                              return {
+                                ...prev,
+                                teacherIds: next,
+                                teacherId: primaryId,
+                                teacherName:
+                                  teachersMap[primaryId]?.fullName ||
+                                  prev.teacherName,
+                              };
+                            });
+                          }}
+                        />
+                        <div className="flex-1">
+                          <p className="font-semibold text-slate-800">{t.fullName}</p>
+                          <p className="text-xs text-slate-500">{t.email}</p>
+                        </div>
+                      </label>
                     );
-                    setForm((prev) => ({
-                      ...prev,
-                      teacherIds: selected,
-                      teacherId: selected[0] || "",
-                      teacherName: teachersMap[selected[0]]?.fullName || prev.teacherName,
-                    }));
-                  }}
-                  className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
-                >
-                  {teachers.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.fullName}
-                    </option>
-                  ))}
-                </select>
+                  })}
+                </div>
                 <FieldError message={touched.teacherId ? basicErrors.teacherId : ""} />
+                <p className="mt-2 text-[11px] text-slate-500">
+                  The first selected teacher becomes the primary teacher for legacy views.
+                </p>
               </div>
             </div>
 
@@ -1415,8 +1462,8 @@ function Courses() {
                     </div>
                   ) : (
                     <div className="space-y-6">
-                      <div className="rounded-2xl border border-slate-200 p-4">
-                        <div className="grid gap-3 md:grid-cols-[1fr_1fr_auto_auto]">
+                        <div className="rounded-2xl border border-slate-200 p-4">
+                        <div className="grid gap-3 md:grid-cols-[1fr_1fr_auto]">
                           <input
                             type="text"
                             value={subjectEditor.name}
@@ -1425,18 +1472,46 @@ function Courses() {
                             }
                             className="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
                           />
-                          <select
-                            value={subjectEditor.teacherId}
-                            onChange={(e) =>
-                              setSubjectEditor((p) => ({ ...p, teacherId: e.target.value }))
-                            }
-                            className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                          >
-                            <option value="">Select teacher</option>
-                            {teachers.map((t) => (
-                              <option key={t.id} value={t.id}>{t.fullName}</option>
-                            ))}
-                          </select>
+                          <div>
+                            <p className="mb-1 text-xs font-semibold text-slate-500">
+                              Teachers ({Array.isArray(subjectEditor.teacherIds) ? subjectEditor.teacherIds.length : 0})
+                            </p>
+                            <div className="max-h-28 space-y-2 overflow-auto rounded-xl border border-slate-200 bg-white p-2">
+                              {teachers.map((t) => {
+                                const checked = (subjectEditor.teacherIds || []).includes(t.id);
+                                return (
+                                  <label
+                                    key={t.id}
+                                    className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1 text-xs hover:bg-slate-50"
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={checked}
+                                      onChange={(e) => {
+                                        const nextChecked = e.target.checked;
+                                        setSubjectEditor((prev) => {
+                                          const current = Array.isArray(prev.teacherIds)
+                                            ? prev.teacherIds
+                                            : [];
+                                          const next = nextChecked
+                                            ? [...current, t.id]
+                                            : current.filter((id) => id !== t.id);
+                                          return {
+                                            ...prev,
+                                            teacherIds: next,
+                                            teacherId: next[0] || "",
+                                          };
+                                        });
+                                      }}
+                                    />
+                                    <span className="truncate font-semibold text-slate-800">
+                                      {t.fullName}
+                                    </span>
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          </div>
                           <button
                             type="button"
                             onClick={updateActiveSubject}

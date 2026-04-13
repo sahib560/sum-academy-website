@@ -2694,6 +2694,8 @@ export const getCourses = async (req, res) => {
         id: doc.id,
         title: String(row.title || "").trim(),
         description: String(row.description || "").trim(),
+        category: String(row.category || "General").trim() || "General",
+        level: String(row.level || "beginner").trim() || "beginner",
         price: toSafeNumber(row.price, 0),
         discountPercent: Math.max(
           0,
@@ -2703,7 +2705,12 @@ export const getCourses = async (req, res) => {
         thumbnail: row.thumbnail || null,
         teacherId: String(row.teacherId || "").trim(),
         teacherName: String(row.teacherName || "").trim(),
+        teachers: Array.isArray(row.teachers) ? row.teachers : [],
+        teacherIds: Array.isArray(row.teacherIds)
+          ? row.teacherIds.map((v) => String(v || "").trim()).filter(Boolean)
+          : [],
         status: String(row.status || "published").trim().toLowerCase(),
+        hasCertificate: row.hasCertificate !== false,
         enrollmentCount: toSafeNumber(row.enrollmentCount, 0),
         source: "subjects",
         createdAt: row.createdAt || null,
