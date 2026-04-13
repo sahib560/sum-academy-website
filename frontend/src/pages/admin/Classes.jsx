@@ -567,6 +567,7 @@ function ShiftFormFields({
   index,
   courses,
   assignedTeacher,
+  teacherOptions = [],
   classStartDate = "",
   lockCourseSelection = false,
   onChange,
@@ -580,7 +581,10 @@ function ShiftFormFields({
   const selectedCourseName =
     courses.find((course) => course.courseId === shift.courseId)?.courseName ||
     "Assigned Subject";
-  const selectedTeacherName = assignedTeacher?.fullName || "No assigned teacher";
+  const selectedTeacherName =
+    teacherOptions.find((t) => t.id === shift.teacherId)?.fullName ||
+    assignedTeacher?.fullName ||
+    "No assigned teacher";
 
   const toggleDay = (day) => {
     const nextDays = shift.days.includes(day)
@@ -668,9 +672,24 @@ function ShiftFormFields({
           <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
             Teacher
           </label>
-          <div className="mt-1 rounded-xl border border-slate-200 bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-700">
-            {selectedTeacherName}
-          </div>
+          {teacherOptions.length > 1 ? (
+            <select
+              value={shift.teacherId}
+              onChange={(event) => onChange(index, "teacherId", event.target.value)}
+              className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+            >
+              <option value="">Select teacher</option>
+              {teacherOptions.map((teacher) => (
+                <option key={teacher.id} value={teacher.id}>
+                  {teacher.fullName}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <div className="mt-1 rounded-xl border border-slate-200 bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-700">
+              {selectedTeacherName}
+            </div>
+          )}
           <FieldError message={errors[`${prefix}-teacherId`]} />
         </div>
 
@@ -829,6 +848,47 @@ function Classes() {
       }, {}),
     [activeTeachers]
   );
+  const getTeacherOptionsForCourse = (courseId) => {
+    const normalizedId = String(courseId || "").trim();
+    if (!normalizedId) return [];
+    const subject = courses.find((item) => item.id === normalizedId);
+    if (!subject) return [];
+
+    const rawIds = [];
+    if (Array.isArray(subject.teacherIds) && subject.teacherIds.length > 0) {
+      rawIds.push(...subject.teacherIds);
+    } else if (Array.isArray(subject.teachers) && subject.teachers.length > 0) {
+      rawIds.push(
+        ...subject.teachers.map((row) => row?.teacherId || row?.id || row?.uid)
+      );
+    } else if (subject.teacherId) {
+      rawIds.push(subject.teacherId);
+    }
+
+    const uniqueIds = Array.from(
+      new Set(rawIds.map((v) => String(v || "").trim()).filter(Boolean))
+    );
+
+    return uniqueIds
+      .map((id) => {
+        const teacher = activeTeachersById[id] || teachersById[id];
+        if (!teacher || teacher.isActive === false) return null;
+        return {
+          id,
+          fullName:
+            teacher.fullName || teacher.teacherName || teacher.name || "Teacher",
+        };
+      })
+      .filter(Boolean);
+  };
+  const resolveDefaultTeacherId = (courseId, currentTeacherId = "") => {
+    const options = getTeacherOptionsForCourse(courseId);
+    if (options.length === 1) return options[0].id;
+    if (currentTeacherId && options.some((t) => t.id === currentTeacherId)) {
+      return currentTeacherId;
+    }
+    return "";
+  };
   const getAssignedTeacherForCourse = (courseId) => {
     if (!courseId) return null;
     const subject = courses.find((item) => item.id === courseId);
@@ -838,12 +898,8 @@ function Classes() {
   const selectableCourseIdsForClass = useMemo(() => {
     const selectable = new Set();
     courses.forEach((subject) => {
-      const assignedTeacher = resolveAssignedTeacher(
-        subject,
-        activeTeachersById,
-        teachersById
-      );
-      if (assignedTeacher?.id) {
+      const options = getTeacherOptionsForCourse(subject.id);
+      if (options.length > 0) {
         selectable.add(subject.id);
       }
     });
@@ -1085,7 +1141,9 @@ function Classes() {
   const getCourseMetaById = (courseId) => {
     const course = courses.find((item) => item.id === courseId);
     if (!course) return null;
-    const assignedTeacher = getAssignedTeacherForCourse(course.id);
+    const options = getTeacherOptionsForCourse(course.id);
+    const primaryTeacherId = options[0]?.id || "";
+    const primaryTeacherName = options[0]?.fullName || "";
     return {
       courseId: course.id,
       courseName: course.title || "Untitled Subject",
@@ -1093,27 +1151,20 @@ function Classes() {
         Array.isArray(course.subjects) && course.subjects[0]?.name
           ? course.subjects[0].name
           : course.category || "",
-      teacherId: assignedTeacher?.id || "",
-      teacherName: assignedTeacher?.fullName || "",
+      teacherId: primaryTeacherId,
+      teacherName: primaryTeacherName,
     };
   };
 
   useEffect(() => {
     if (classForm.assignedCourses.length !== 1) return;
     const onlyCourseId = classForm.assignedCourses[0].courseId;
-    const assignedTeacher = getAssignedTeacherForCourse(onlyCourseId);
     setClassForm((prev) => {
       const nextShifts = prev.shifts.map((shift) => {
-        if (
-          shift.courseId === onlyCourseId &&
-          shift.teacherId === (assignedTeacher?.id || "")
-        ) {
-          return shift;
-        }
         return {
           ...shift,
           courseId: onlyCourseId,
-          teacherId: assignedTeacher?.id || "",
+          teacherId: resolveDefaultTeacherId(onlyCourseId, shift.teacherId),
         };
       });
       const changed = nextShifts.some((shift, index) => shift !== prev.shifts[index]);
@@ -1245,7 +1296,7 @@ function Classes() {
       const current = { ...nextShifts[index] };
       current[field] = value;
       if (field === "courseId") {
-        current.teacherId = getAssignedTeacherForCourse(value)?.id || "";
+        current.teacherId = resolveDefaultTeacherId(value, current.teacherId);
       }
       nextShifts[index] = current;
       return {
@@ -1257,7 +1308,7 @@ function Classes() {
 
   const addShiftToForm = (preferredCourseId = "") => {
     const normalizedCourseId = String(preferredCourseId || "").trim();
-    const assignedTeacher = getAssignedTeacherForCourse(normalizedCourseId);
+    const defaultTeacherId = resolveDefaultTeacherId(normalizedCourseId, "");
     setClassForm((prev) => ({
       ...prev,
       shifts: [
@@ -1265,11 +1316,19 @@ function Classes() {
         {
           ...emptyShift(),
           courseId: normalizedCourseId,
-          teacherId: assignedTeacher?.id || "",
+          teacherId: defaultTeacherId,
         },
       ],
     }));
   };
+
+  useEffect(() => {
+    if (!isShiftModalOpen) return;
+    if (!shiftForm.courseId) return;
+    const nextTeacherId = resolveDefaultTeacherId(shiftForm.courseId, shiftForm.teacherId);
+    if (nextTeacherId === shiftForm.teacherId) return;
+    setShiftForm((prev) => ({ ...prev, teacherId: nextTeacherId }));
+  }, [isShiftModalOpen, shiftForm.courseId, shiftForm.teacherId]);
 
   const removeShiftFromForm = (index) => {
     setClassForm((prev) => {
@@ -1509,6 +1568,7 @@ function Classes() {
       ? getCurrentTimeInput()
       : undefined;
   const shiftModalAssignedTeacher = getAssignedTeacherForCourse(shiftForm.courseId);
+  const shiftModalTeacherOptions = getTeacherOptionsForCourse(shiftForm.courseId);
 
   useEffect(() => {
     if (!enrollShiftId) return;
@@ -2012,6 +2072,7 @@ function Classes() {
                   index={index}
                   courses={classForm.assignedCourses}
                   assignedTeacher={getAssignedTeacherForCourse(shift.courseId)}
+                  teacherOptions={getTeacherOptionsForCourse(shift.courseId)}
                   classStartDate={classForm.startDate}
                   lockCourseSelection={classForm.assignedCourses.length === 1}
                   onChange={updateShiftInForm}
@@ -2790,11 +2851,10 @@ function Classes() {
                   onChange={(event) =>
                     setShiftForm((prev) => {
                       const nextCourseId = event.target.value;
-                      const assignedTeacher = getAssignedTeacherForCourse(nextCourseId);
                       return {
                         ...prev,
                         courseId: nextCourseId,
-                        teacherId: assignedTeacher?.id || "",
+                        teacherId: resolveDefaultTeacherId(nextCourseId, prev.teacherId),
                       };
                     })
                   }
@@ -2812,9 +2872,26 @@ function Classes() {
             </div>
             <div>
               <label className="text-sm font-semibold text-slate-700">Teacher</label>
-              <div className="mt-2 rounded-2xl border border-slate-200 bg-slate-100 px-4 py-3 text-sm font-semibold text-slate-700">
-                {shiftModalAssignedTeacher?.fullName || "No assigned teacher"}
-              </div>
+              {shiftModalTeacherOptions.length > 1 ? (
+                <select
+                  value={shiftForm.teacherId}
+                  onChange={(event) =>
+                    setShiftForm((prev) => ({ ...prev, teacherId: event.target.value }))
+                  }
+                  className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm"
+                >
+                  <option value="">Select teacher</option>
+                  {shiftModalTeacherOptions.map((teacher) => (
+                    <option key={teacher.id} value={teacher.id}>
+                      {teacher.fullName}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <div className="mt-2 rounded-2xl border border-slate-200 bg-slate-100 px-4 py-3 text-sm font-semibold text-slate-700">
+                  {shiftModalAssignedTeacher?.fullName || "No assigned teacher"}
+                </div>
+              )}
               <FieldError message={shiftErrors.teacherId} />
             </div>
           </div>

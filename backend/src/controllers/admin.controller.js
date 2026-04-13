@@ -1009,9 +1009,32 @@ const buildShiftPayload = async (shiftInput, assignedCourses, classStartDate = n
     return { error: "Shift course must be assigned to class first" };
   }
 
-  const teacherId = String(courseMeta?.teacherId || inputTeacherId).trim();
+  const teacherId = String(inputTeacherId || courseMeta?.teacherId || "").trim();
   if (!teacherId) {
     return { error: "Shift teacher is required" };
+  }
+
+  // If the subject has multiple assigned teachers, ensure the chosen teacher belongs to it.
+  try {
+    const subjectSnap = await db.collection(COLLECTIONS.SUBJECTS).doc(courseId).get();
+    if (subjectSnap.exists) {
+      const subjectData = subjectSnap.data() || {};
+      const allowedIdsRaw = Array.isArray(subjectData.teacherIds) && subjectData.teacherIds.length > 0
+        ? subjectData.teacherIds
+        : Array.isArray(subjectData.teachers) && subjectData.teachers.length > 0
+          ? subjectData.teachers.map((row) => row?.teacherId || row?.id || row?.uid)
+          : subjectData.teacherId
+            ? [subjectData.teacherId]
+            : [];
+      const allowedIds = allowedIdsRaw
+        .map((v) => String(v || "").trim())
+        .filter(Boolean);
+      if (allowedIds.length > 0 && !allowedIds.includes(teacherId)) {
+        return { error: "Selected teacher is not assigned to this subject" };
+      }
+    }
+  } catch {
+    // If subject lookup fails, fall back to ensureTeacher check below.
   }
 
   const teacherMeta = await ensureTeacher(teacherId);
