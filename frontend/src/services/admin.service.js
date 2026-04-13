@@ -132,6 +132,9 @@ export const createAdminVideo = async (data) => {
   return response.data;
 };
 
+export const deleteAdminVideo = async (videoId) =>
+  api.delete(`/admin/videos/${videoId}`).then((r) => r.data);
+
 export const createCourse = async (data) => {
   const response = await requestWithFallback(
     () => api.post("/admin/subjects", data),

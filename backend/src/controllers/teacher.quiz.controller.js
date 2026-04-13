@@ -36,6 +36,30 @@ const toPositiveNumber = (value, fallback = 0) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
 };
+const subjectHasTeacher = (subject = {}, uid = "") => {
+  const cleanId = trimText(uid);
+  if (!cleanId) return false;
+  if (trimText(subject.teacherId) === cleanId) return true;
+  const teacherIds = Array.isArray(subject.teacherIds) ? subject.teacherIds : [];
+  if (teacherIds.some((id) => trimText(id) === cleanId)) return true;
+  const teachers = Array.isArray(subject.teachers) ? subject.teachers : [];
+  return teachers.some(
+    (row) => trimText(row?.teacherId || row?.id || row?.uid) === cleanId
+  );
+};
+const courseHasTeacher = (courseData = {}, uid = "") => {
+  const cleanId = trimText(uid);
+  if (!cleanId) return false;
+  if (trimText(courseData.teacherId) === cleanId) return true;
+  const teacherIds = Array.isArray(courseData.teacherIds) ? courseData.teacherIds : [];
+  if (teacherIds.some((id) => trimText(id) === cleanId)) return true;
+  const teachers = Array.isArray(courseData.teachers) ? courseData.teachers : [];
+  if (teachers.some((row) => trimText(row?.teacherId || row?.id || row?.uid) === cleanId)) {
+    return true;
+  }
+  const subjects = Array.isArray(courseData.subjects) ? courseData.subjects : [];
+  return subjects.some((subject) => subjectHasTeacher(subject, cleanId));
+};
 const makeId = () => {
   if (typeof crypto?.randomUUID === "function") return crypto.randomUUID();
   return `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
@@ -351,14 +375,24 @@ const getTeacherCourseSubjectContext = async (
     const subjectTitle =
       trimText(subjectData.title || subjectData.subjectName || subjectData.courseName) ||
       "Subject";
-    const subjectTeacherId = trimText(subjectData.teacherId);
-    const subjectTeacherName = trimText(subjectData.teacherName) || "Teacher";
+    const subjectTeachers = Array.isArray(subjectData.teachers) ? subjectData.teachers : [];
+    const subjectTeacherIds = Array.isArray(subjectData.teacherIds) ? subjectData.teacherIds : [];
+    const subjectTeacherId = trimText(
+      subjectData.teacherId ||
+        subjectTeachers[0]?.teacherId ||
+        subjectTeacherIds[0]
+    );
+    const subjectTeacherName =
+      trimText(subjectData.teacherName || subjectTeachers[0]?.teacherName) ||
+      "Teacher";
     const effectiveSubjectId = cleanSubjectId || cleanCourseId;
     courseData = {
       id: cleanCourseId,
       title: subjectTitle,
       teacherId: subjectTeacherId,
       teacherName: subjectTeacherName,
+      teachers: subjectTeachers,
+      teacherIds: subjectTeacherIds,
       subjects: [
         {
           id: effectiveSubjectId,
@@ -367,6 +401,8 @@ const getTeacherCourseSubjectContext = async (
           subjectName: subjectTitle,
           teacherId: subjectTeacherId,
           teacherName: subjectTeacherName,
+          teachers: subjectTeachers,
+          teacherIds: subjectTeacherIds,
           order: 1,
         },
       ],
@@ -375,9 +411,7 @@ const getTeacherCourseSubjectContext = async (
   }
 
   if (role !== "admin") {
-    const subjectTeacherId = trimText(subject.teacherId);
-    const courseTeacherId = trimText(courseData.teacherId);
-    const assigned = subjectTeacherId === uid || courseTeacherId === uid;
+    const assigned = subjectHasTeacher(subject, uid) || courseHasTeacher(courseData, uid);
     if (!assigned) return { error: "You are not assigned to this subject", status: 403 };
   }
 

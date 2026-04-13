@@ -1150,15 +1150,9 @@ const buildStudentClassAndCourseData = ({
                 parseDate(row.updatedAt || row.completedAt || row.createdAt)?.getTime() || 0
             )
             .sort((a, b) => b - a)[0] || 0;
-      const price = Math.max(0, toNumber(course.price, 0));
-      const discountPercent = Math.max(
-        0,
-        Math.min(100, toNumber(course.discountPercent, 0))
-      );
-      const finalPrice = Math.max(
-        Number((price - (price * discountPercent) / 100).toFixed(2)),
-        0
-      );
+      const price = 0;
+      const discountPercent = 0;
+      const finalPrice = 0;
 
       const payload = {
         id: `${classId}_${cleanCourseId}`,
@@ -2172,9 +2166,9 @@ export const getStudentDashboard = async (req, res) => {
           title: row.title,
           thumbnail: row.thumbnail,
           teacherName: row.teacherName,
-          price: row.price,
-          discountPercent: row.discountPercent,
-          finalPrice: row.finalPrice,
+          price: 0,
+          discountPercent: 0,
+          finalPrice: 0,
           enrollmentType: row.enrollmentType || null,
           isPaymentLocked: Boolean(row.isPaymentLocked),
           progress: row.progress,
@@ -4259,13 +4253,10 @@ export const exploreCourses = async (req, res) => {
     const payload = courses
       .map((course) => {
         const teacherId = trimText(course.teacherId || course.teacher?.id);
-        const originalPrice = toNumber(course.price, 0);
-        const discountPercent = Math.max(
-          0,
-          Math.min(100, toNumber(course.discountPercent ?? course.discount, 0))
-        );
-        const discountAmount = Number(((originalPrice * discountPercent) / 100).toFixed(2));
-        const discountedPrice = Number(Math.max(originalPrice - discountAmount, 0).toFixed(2));
+        const originalPrice = 0;
+        const discountPercent = 0;
+        const discountAmount = 0;
+        const discountedPrice = 0;
         const title =
           trimText(course.title || course.courseName || course.name || course.subjectName) ||
           "Untitled Subject";

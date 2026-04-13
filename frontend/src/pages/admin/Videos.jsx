@@ -9,6 +9,7 @@ import {
   getCourses,
   getTeachers,
   uploadAdminVideoFile,
+  deleteAdminVideo,
 } from "../../services/admin.service.js";
 
 const toDateText = (value) => {
@@ -103,6 +104,16 @@ function AdminVideos() {
     }, 
     onError: (error) =>
       toast.error(error?.response?.data?.message || "Failed to save video"),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: deleteAdminVideo,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["admin-videos"] });
+      toast.success("Video deleted");
+    },
+    onError: (error) =>
+      toast.error(error?.response?.data?.message || "Failed to delete video"),
   });
 
   const submitVideo = () => { 
@@ -297,12 +308,28 @@ function AdminVideos() {
                 key={row.id}
                 className="rounded-2xl border border-slate-200 p-4 text-sm"
               >
-                <p className="font-semibold text-slate-900">{row.title || "Video"}</p>
-                <p className="mt-1 text-xs text-slate-500">
-                  {row.subjectName || row.courseName || "Subject"} -{" "}
-                  {row.teacherName || "Teacher"} -{" "}
-                  {toDateText(row.createdAt)}
-                </p>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="font-semibold text-slate-900">{row.title || "Video"}</p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {row.subjectName || row.courseName || "Subject"} -{" "}
+                      {row.teacherName || "Teacher"} -{" "}
+                      {toDateText(row.createdAt)}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const ok = window.confirm("Delete this video from library and storage?");
+                      if (!ok) return;
+                      deleteMutation.mutate(row.id);
+                    }}
+                    className="rounded-full border border-rose-200 px-3 py-1 text-xs font-semibold text-rose-600 hover:bg-rose-50"
+                    disabled={deleteMutation.isPending}
+                  >
+                    Delete
+                  </button>
+                </div>
                 <div className="mt-2">
                   <span
                     className={`rounded-full px-2 py-1 text-[11px] font-semibold ${

@@ -5,6 +5,7 @@ import {
   saveWatchProgress,
   updateVideoAccess,
   unlockAllVideosForStudent,
+  setLectureLock,
   getStudentCourseProgress,
   completeStudentSubjectByStaff,
   completeStudentClassByStaff,
@@ -66,6 +67,19 @@ router.patch(
   verifyToken,
   requireRole("teacher", "admin"),
   updateVideoAccess
+);
+
+router.patch(
+  "/courses/:courseId/lectures/:lectureId/lock",
+  verifyToken,
+  requireRole("teacher", "admin"),
+  setLectureLock
+);
+router.patch(
+  "/subjects/:subjectId/lectures/:lectureId/lock",
+  verifyToken,
+  requireRole("teacher", "admin"),
+  setLectureLock
 );
 
 router.post(

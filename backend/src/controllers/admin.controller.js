@@ -12,6 +12,7 @@ import {
   sendRejectionEmail,
 } from "../services/email.service.js";
 import { v4 as uuidv4 } from "uuid";
+import { deleteFile } from "../services/storage.service.js";
 
 const normalizeSubjectName = (value = "") => String(value).trim();
 const STUDENT_BULK_HEADERS = ["name", "email", "password", "phone", "address"];
@@ -254,38 +255,89 @@ const createCourseStudentAnnouncement = async ({
 
 const normalizeBulkPhone = (value = "") => normalizePakistanPhone(value);
 
+const normalizeTeacherEntry = async (entry = {}) => {
+  const teacherId = String(entry?.teacherId || entry?.id || entry?.uid || "").trim();
+  if (!teacherId) return null;
+  let teacherName = String(entry?.teacherName || entry?.name || "").trim();
+  if (!teacherName) {
+    const teacherSnap = await db
+      .collection(COLLECTIONS.TEACHERS)
+      .doc(teacherId)
+      .get();
+    teacherName = teacherSnap.exists
+      ? String(teacherSnap.data()?.fullName || "").trim()
+      : "";
+  }
+  return {
+    teacherId,
+    teacherName: teacherName || "Teacher",
+  };
+};
+
+const normalizeTeachers = async (input = [], fallback = {}) => {
+  const raw = Array.isArray(input) ? input : [];
+  const normalized = [];
+  for (const row of raw) {
+    const mapped = await normalizeTeacherEntry(row);
+    if (mapped) normalized.push(mapped);
+  }
+
+  if (!normalized.length) {
+    const fallbackEntry = await normalizeTeacherEntry(fallback);
+    if (fallbackEntry) normalized.push(fallbackEntry);
+  }
+
+  const seen = new Set();
+  const deduped = normalized.filter((row) => {
+    if (!row.teacherId || seen.has(row.teacherId)) return false;
+    seen.add(row.teacherId);
+    return true;
+  });
+
+  return deduped;
+};
+
+const subjectHasTeacher = (subject = {}, teacherId = "") => {
+  const cleanId = String(teacherId || "").trim();
+  if (!cleanId) return false;
+  if (String(subject?.teacherId || "").trim() === cleanId) return true;
+  const teacherIds = Array.isArray(subject?.teacherIds) ? subject.teacherIds : [];
+  if (teacherIds.some((id) => String(id || "").trim() === cleanId)) return true;
+  const teachers = Array.isArray(subject?.teachers) ? subject.teachers : [];
+  return teachers.some(
+    (row) =>
+      String(row?.teacherId || row?.id || row?.uid || "").trim() === cleanId
+  );
+};
+
 const buildCourseSubjects = async (subjects = []) => {
   if (!Array.isArray(subjects)) return [];
 
   const mapped = await Promise.all(
     subjects.map(async (subject, index) => {
       const subjectName = normalizeSubjectName(subject?.name || "");
-      const teacherId = String(subject?.teacherId || "").trim();
-
-      let teacherName = String(subject?.teacherName || "").trim();
-      if (teacherId && !teacherName) {
-        const teacherSnap = await db
-          .collection(COLLECTIONS.TEACHERS)
-          .doc(teacherId)
-          .get();
-        teacherName = teacherSnap.exists
-          ? teacherSnap.data().fullName || ""
-          : "";
-      }
+      const teachers = await normalizeTeachers(
+        subject?.teachers || subject?.teacherIds || [],
+        {
+          teacherId: subject?.teacherId,
+          teacherName: subject?.teacherName,
+        }
+      );
+      const primaryTeacher = teachers[0] || {};
 
       return {
         id: String(subject?.id || uuidv4()),
         name: subjectName,
-        teacherId,
-        teacherName,
+        teacherId: String(primaryTeacher.teacherId || "").trim(),
+        teacherName: String(primaryTeacher.teacherName || "").trim(),
+        teachers,
+        teacherIds: teachers.map((row) => row.teacherId),
         order: Number(subject?.order || index + 1),
       };
     })
   );
 
-  return mapped.filter(
-    (subject) => subject.name && subject.teacherId
-  );
+  return mapped.filter((subject) => subject.name && subject.teacherId);
 };
 
 const courseIdMatches = (item, courseId) =>
@@ -414,7 +466,7 @@ const hasTeacherLinks = async (teacherId) => {
       return subjects.some(
         (subject) =>
           String(subject?.id || "").trim() === subjectId &&
-          String(subject?.teacherId || "").trim() === teacherId
+          subjectHasTeacher(subject, teacherId)
       );
     });
   });
@@ -463,7 +515,7 @@ const hasTeacherLinks = async (teacherId) => {
     const subjects = Array.isArray(data.subjects) ? data.subjects : [];
     return (
       directTeacherId === teacherId ||
-      subjects.some((subject) => String(subject?.teacherId || "").trim() === teacherId)
+      subjects.some((subject) => subjectHasTeacher(subject, teacherId))
     );
   });
 
@@ -852,33 +904,22 @@ export const calculateClassPrice = async (classId) => {
   if (!classSnap.exists) return 0;
 
   const classData = classSnap.data() || {};
-  const assignedSubjects = Array.isArray(classData.assignedSubjects)
-    ? classData.assignedSubjects
-    : [];
-  const assignedCourses = Array.isArray(classData.assignedCourses)
-    ? classData.assignedCourses
-    : [];
-  const courseIds = [...assignedSubjects, ...assignedCourses]
-    .map((course) =>
-      typeof course === "string"
-        ? String(course || "").trim()
-        : String(course?.subjectId || course?.courseId || course?.id || "").trim()
-    )
-    .filter(Boolean);
-  const pricing = await calculateClassPriceFromCourseIds(courseIds);
+  const resolvedPrice = Math.max(
+    0,
+    toSafeNumber(classData.price ?? classData.totalPrice, 0)
+  );
 
   await classRef.set(
     {
-      totalPrice: pricing.totalPrice,
-      coursesCount: pricing.coursesCount,
-      subjectsCount: pricing.coursesCount,
-      priceCalculatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      price: resolvedPrice,
+      totalPrice: resolvedPrice,
+      priceUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     },
     { merge: true }
   );
 
-  return pricing.totalPrice;
+  return resolvedPrice;
 };
 
 const recalculateClassPricesByCourse = async (courseId) => {
@@ -2717,13 +2758,12 @@ export const createCourse = async (req, res) => {
       shortDescription,
       category,
       level,
-      price,
-      discount,
-      discountPercent,
       status,
       thumbnail,
       teacherId,
       teacherName,
+      teachers,
+      teacherIds,
       hasCertificate,
     } = req.body;
 
@@ -2731,25 +2771,15 @@ export const createCourse = async (req, res) => {
       return errorResponse(res, "Title must be at least 3 characters", 400);
     }
 
-    const cleanTeacherId = String(teacherId || "").trim();
-    if (!cleanTeacherId) {
-      return errorResponse(res, "teacherId is required", 400);
-    }
-
-    const teacherDoc = await db.collection(COLLECTIONS.TEACHERS).doc(cleanTeacherId).get();
-    if (!teacherDoc.exists) {
-      return errorResponse(res, "Teacher not found", 404);
-    }
-
     const ref = db.collection(COLLECTIONS.SUBJECTS).doc();
-    const resolvedTeacherName =
-      String(teacherName || "").trim() ||
-      String(teacherDoc.data()?.fullName || "").trim() ||
-      "Teacher";
-    const cleanDiscountPercent = Math.max(
-      0,
-      toSafeNumber(discountPercent ?? discount, 0)
+    const normalizedTeachers = await normalizeTeachers(
+      teachers || teacherIds || [],
+      { teacherId, teacherName }
     );
+    if (!normalizedTeachers.length) {
+      return errorResponse(res, "At least one teacher is required", 400);
+    }
+    const primaryTeacher = normalizedTeachers[0];
 
     const subjectPayload = {
       title: String(title).trim(),
@@ -2757,12 +2787,11 @@ export const createCourse = async (req, res) => {
       shortDescription: shortDescription || "",
       category: category || "",
       level: level || "beginner",
-      price: toSafeNumber(price, 0),
-      discountPercent: cleanDiscountPercent,
-      discount: cleanDiscountPercent,
       thumbnail: thumbnail || null,
-      teacherId: cleanTeacherId,
-      teacherName: resolvedTeacherName,
+      teacherId: primaryTeacher.teacherId,
+      teacherName: primaryTeacher.teacherName,
+      teachers: normalizedTeachers,
+      teacherIds: normalizedTeachers.map((row) => row.teacherId),
       status: status || "published",
       hasCertificate: hasCertificate !== false,
       enrollmentCount: 0,
@@ -2775,8 +2804,10 @@ export const createCourse = async (req, res) => {
         {
           id: ref.id,
           name: String(title).trim(),
-          teacherId: cleanTeacherId,
-          teacherName: resolvedTeacherName,
+          teacherId: primaryTeacher.teacherId,
+          teacherName: primaryTeacher.teacherName,
+          teachers: normalizedTeachers,
+          teacherIds: normalizedTeachers.map((row) => row.teacherId),
           order: 1,
         },
       ],
@@ -2789,7 +2820,7 @@ export const createCourse = async (req, res) => {
 
     return successResponse(
       res,
-      { id: ref.id, subjectId: ref.id, teacherId: cleanTeacherId },
+      { id: ref.id, subjectId: ref.id, teacherId: primaryTeacher.teacherId },
       "Subject created",
       201
     );
@@ -2803,45 +2834,28 @@ export const updateCourse = async (req, res) => {
     const { courseId } = req.params;
 
     const incoming = { ...req.body };
-    let shouldRecalculateClassPricing = false;
 
-    const cleanTeacherId = String(incoming.teacherId || "").trim();
-    if (incoming.teacherId !== undefined) {
-      if (!cleanTeacherId) {
-        return errorResponse(res, "teacherId cannot be empty", 400);
-      }
-      const teacherDoc = await db.collection(COLLECTIONS.TEACHERS).doc(cleanTeacherId).get();
-      if (!teacherDoc.exists) {
-        return errorResponse(res, "Teacher not found", 404);
-      }
-      incoming.teacherId = cleanTeacherId;
-      incoming.teacherName =
-        String(incoming.teacherName || "").trim() ||
-        String(teacherDoc.data()?.fullName || "").trim() ||
-        "Teacher";
-    }
-
-    if (incoming.discount !== undefined && incoming.discountPercent === undefined) {
-      incoming.discountPercent = incoming.discount;
-    }
-    if (incoming.price !== undefined) {
-      incoming.price = toSafeNumber(incoming.price, 0);
-      shouldRecalculateClassPricing = true;
-    }
-    if (incoming.discountPercent !== undefined) {
-      incoming.discountPercent = Math.max(
-        0,
-        toSafeNumber(incoming.discountPercent, 0)
+    if (
+      incoming.teacherId !== undefined ||
+      incoming.teachers !== undefined ||
+      incoming.teacherIds !== undefined
+    ) {
+      const normalizedTeachers = await normalizeTeachers(
+        incoming.teachers || incoming.teacherIds || [],
+        { teacherId: incoming.teacherId, teacherName: incoming.teacherName }
       );
-      shouldRecalculateClassPricing = true;
+      if (!normalizedTeachers.length) {
+        return errorResponse(res, "At least one teacher is required", 400);
+      }
+      const primaryTeacher = normalizedTeachers[0];
+      incoming.teacherId = primaryTeacher.teacherId;
+      incoming.teacherName = primaryTeacher.teacherName;
+      incoming.teachers = normalizedTeachers;
+      incoming.teacherIds = normalizedTeachers.map((row) => row.teacherId);
     }
 
     const updates = {
       ...incoming,
-      discount:
-        incoming.discountPercent !== undefined
-          ? incoming.discountPercent
-          : incoming.discount,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     };
 
@@ -2858,6 +2872,12 @@ export const updateCourse = async (req, res) => {
     const mirrorTeacherName = String(
       latestSubjectData.teacherName || incoming.teacherName || "Teacher"
     ).trim() || "Teacher";
+    const mirrorTeachers = Array.isArray(latestSubjectData.teachers)
+      ? latestSubjectData.teachers
+      : incoming.teachers || [];
+    const mirrorTeacherIds = Array.isArray(latestSubjectData.teacherIds)
+      ? latestSubjectData.teacherIds
+      : incoming.teacherIds || [];
     const courseMirrorPayload = {
       ...latestSubjectData,
       subjects: [
@@ -2866,15 +2886,14 @@ export const updateCourse = async (req, res) => {
           name: mirrorTitle,
           teacherId: mirrorTeacherId,
           teacherName: mirrorTeacherName,
+          teachers: mirrorTeachers,
+          teacherIds: mirrorTeacherIds,
           order: 1,
         },
       ],
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     };
     await db.collection(COLLECTIONS.COURSES).doc(courseId).set(courseMirrorPayload, { merge: true });
-    if (shouldRecalculateClassPricing) {
-      await recalculateClassPricesByCourse(courseId);
-    }
     return successResponse(res, { subjectId: courseId, courseId }, "Subject updated");
   } catch (e) {
     return errorResponse(res, "Failed to update subject", 500);
@@ -3142,6 +3161,41 @@ export const createVideoLibraryItem = async (req, res) => {
   } catch (e) {
     console.error("createVideoLibraryItem error:", e);
     return errorResponse(res, "Failed to add video to library", 500);
+  }
+};
+
+export const deleteVideoLibraryItem = async (req, res) => {
+  try {
+    const videoId = String(req.params?.videoId || req.params?.id || "").trim();
+    if (!videoId) return errorResponse(res, "videoId is required", 400);
+
+    const docRef = db.collection(VIDEO_LIBRARY_COLLECTION).doc(videoId);
+    const snap = await docRef.get();
+    if (!snap.exists) return errorResponse(res, "Video not found", 404);
+
+    const row = snap.data() || {};
+    const filePath = String(row.filePath || row.videoPath || "").trim();
+    const url = String(row.url || row.videoUrl || "").trim();
+
+    // Best-effort storage cleanup.
+    const deleteTargets = [];
+    if (filePath) {
+      deleteTargets.push(filePath);
+    } else if (url) {
+      const decoded = decodeURIComponent(url);
+      const match = decoded.match(/\/o\/(.+?)(\?|$)/);
+      if (match?.[1]) deleteTargets.push(match[1]);
+    }
+
+    if (deleteTargets.length > 0) {
+      await Promise.allSettled(deleteTargets.map((pathKey) => deleteFile(pathKey)));
+    }
+
+    await docRef.delete();
+
+    return successResponse(res, { id: videoId }, "Video deleted");
+  } catch (e) {
+    return errorResponse(res, "Failed to delete video", 500);
   }
 };
 
@@ -3547,6 +3601,7 @@ export const createClass = async (req, res) => {
       assignedSubjects = [],
       assignedCourses = [],
       shifts = [],
+      price,
     } = req.body;
 
     if (String(name).trim().length < 3) {
@@ -3599,9 +3654,11 @@ export const createClass = async (req, res) => {
       }
     }
 
-    const classPricing = await calculateClassPriceFromCourseIds(
-      resolvedCourses.map((course) => course.courseId).filter(Boolean)
-    );
+    const classPrice = Math.max(0, toSafeNumber(price, 0));
+    const classPricing = {
+      totalPrice: classPrice,
+      coursesCount: resolvedCourses.length,
+    };
 
     const classPayload = {
       name: String(name).trim(),
@@ -3617,6 +3674,7 @@ export const createClass = async (req, res) => {
         subjectName: row.courseName,
       })),
       assignedCourses: resolvedCourses,
+      price: classPricing.totalPrice,
       totalPrice: classPricing.totalPrice,
       coursesCount: classPricing.coursesCount,
       subjectsCount: classPricing.coursesCount,
@@ -3678,6 +3736,13 @@ export const updateClass = async (req, res) => {
         );
       }
       updates.capacity = parsedCapacity;
+    }
+
+    if (req.body.price !== undefined) {
+      const parsedPrice = Math.max(0, toSafeNumber(req.body.price, 0));
+      updates.price = parsedPrice;
+      updates.totalPrice = parsedPrice;
+      updates.priceUpdatedAt = admin.firestore.FieldValue.serverTimestamp();
     }
 
     const nextStartDate =
@@ -3785,13 +3850,8 @@ export const updateClass = async (req, res) => {
         String(classData.batchCode || generateBatchCode(updates.name || classData.name));
     }
 
-    const classPricing = await calculateClassPriceFromCourseIds(
-      nextAssignedCourses.map((course) => course.courseId).filter(Boolean)
-    );
-    updates.totalPrice = classPricing.totalPrice;
-    updates.coursesCount = classPricing.coursesCount;
-    updates.subjectsCount = classPricing.coursesCount;
-    updates.priceCalculatedAt = admin.firestore.FieldValue.serverTimestamp();
+    updates.coursesCount = nextAssignedCourses.length;
+    updates.subjectsCount = nextAssignedCourses.length;
 
     updates.teachers = collectTeachersFromShifts(nextShifts);
     updates.updatedAt = admin.firestore.FieldValue.serverTimestamp();
@@ -3925,17 +3985,11 @@ export const addClassCourse = async (req, res) => {
       subjectId: courseMeta.courseId,
       subjectName: courseMeta.courseName,
     });
-    const classPricing = await calculateClassPriceFromCourseIds(
-      assignedCourses.map((course) => course.courseId).filter(Boolean)
-    );
-
     await classRef.update({
       assignedSubjects,
       assignedCourses,
-      totalPrice: classPricing.totalPrice,
-      coursesCount: classPricing.coursesCount,
-      subjectsCount: classPricing.coursesCount,
-      priceCalculatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      coursesCount: assignedCourses.length,
+      subjectsCount: assignedCourses.length,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
@@ -3993,17 +4047,11 @@ export const removeClassCourse = async (req, res) => {
       );
     }
 
-    const classPricing = await calculateClassPriceFromCourseIds(
-      nextAssignedCourses.map((course) => course.courseId).filter(Boolean)
-    );
-
     await classRef.update({
       assignedSubjects: nextAssignedSubjects,
       assignedCourses: nextAssignedCourses,
-      totalPrice: classPricing.totalPrice,
-      coursesCount: classPricing.coursesCount,
-      subjectsCount: classPricing.coursesCount,
-      priceCalculatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      coursesCount: nextAssignedCourses.length,
+      subjectsCount: nextAssignedCourses.length,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
@@ -4228,6 +4276,9 @@ const enrollStudentInClassCore = async ({
   const cleanCourseId = String(courseId || "").trim();
   const cleanPaymentId = String(paymentId || "").trim();
   const normalizedEnrollmentType = normalizeEnrollmentType(enrollmentType);
+  if (normalizedEnrollmentType === "single_course") {
+    throw buildKnownError("SINGLE_COURSE_DISABLED");
+  }
   if (!cleanClassId) throw buildKnownError("CLASS_NOT_FOUND");
   if (!cleanStudentId) throw buildKnownError("STUDENT_REQUIRED");
   if (
@@ -4534,19 +4585,10 @@ export const addStudentToClass = async (req, res) => {
     if (!shiftId) {
       return errorResponse(res, "shiftId is required", 400);
     }
-    if (
-      !["full_class", "single_course"].includes(enrollmentType)
-    ) {
+    if (enrollmentType !== "full_class") {
       return errorResponse(
         res,
-        "enrollmentType must be full_class or single_course",
-        400
-      );
-    }
-    if (enrollmentType === "single_course" && !courseId) {
-      return errorResponse(
-        res,
-        "subjectId/courseId is required for single_subject enrollment",
+        "Single subject enrollment is disabled. Use full_class enrollment.",
         400
       );
     }
@@ -4563,12 +4605,17 @@ export const addStudentToClass = async (req, res) => {
     return successResponse(
       res,
       result,
-      result.enrollmentType === "full_class"
-        ? `Student enrolled in ${result.className || "class"}! Access granted to ${result.subjectsEnrolled || result.coursesEnrolled} subject(s).`
-        : "Student enrolled in subject successfully"
+      `Student enrolled in ${result.className || "class"}! Access granted to ${result.subjectsEnrolled || result.coursesEnrolled} subject(s).`
     );
   } catch (e) {
     const meta = e?.meta || {};
+    if (e.message === "SINGLE_COURSE_DISABLED") {
+      return errorResponse(
+        res,
+        "Single subject enrollment is disabled. Use full_class enrollment.",
+        400
+      );
+    }
     if (e.message === "CLASS_NOT_FOUND") {
       return errorResponse(res, "Class not found", 404);
     }
@@ -4857,19 +4904,10 @@ export const enrollStudentInClass = async (req, res) => {
     if (!studentId) {
       return errorResponse(res, "studentId is required", 400);
     }
-    if (
-      !["full_class", "single_course"].includes(enrollmentType)
-    ) {
+    if (enrollmentType !== "full_class") {
       return errorResponse(
         res,
-        "enrollmentType must be full_class or single_course",
-        400
-      );
-    }
-    if (enrollmentType === "single_course" && !courseId) {
-      return errorResponse(
-        res,
-        "subjectId/courseId is required for single_subject enrollment",
+        "Single subject enrollment is disabled. Use full_class enrollment.",
         400
       );
     }
@@ -4886,12 +4924,17 @@ export const enrollStudentInClass = async (req, res) => {
     return successResponse(
       res,
       result,
-      result.enrollmentType === "full_class"
-        ? `Student enrolled in ${result.className || "class"}! Access granted to ${result.subjectsEnrolled || result.coursesEnrolled} subject(s).`
-        : "Student enrolled in subject successfully"
+      `Student enrolled in ${result.className || "class"}! Access granted to ${result.subjectsEnrolled || result.coursesEnrolled} subject(s).`
     );
   } catch (e) {
     const meta = e?.meta || {};
+    if (e.message === "SINGLE_COURSE_DISABLED") {
+      return errorResponse(
+        res,
+        "Single subject enrollment is disabled. Use full_class enrollment.",
+        400
+      );
+    }
     if (e.message === "CLASS_NOT_FOUND") {
       return errorResponse(res, "Class not found", 404);
     }

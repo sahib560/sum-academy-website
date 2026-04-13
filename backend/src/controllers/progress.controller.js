@@ -689,11 +689,18 @@ export const buildCourseContentForStudent = async (
       const progressLockReason = index === 0
         ? "Complete previous chapter first"
         : "Complete previous lecture first";
-      const completionLocked = enrollmentCompleted && !manualAccess;
-      const completedLectureLocked = isCompleted && !manualAccess;
+      const completionLocked = false;
+      const completedLectureLocked = false;
       const missingVideoLocked = !hasVideoSource;
       const livePremiereLocked = isPremiereLive;
       const permanentlyLocked = permanentlyCompleted;
+      const globalLock =
+        Boolean(
+          lecture.isLocked === true ||
+          lecture.locked === true ||
+          lecture.isLockedByAdmin === true ||
+          lecture.isLockedByTeacher === true
+        );
 
       let isLocked = false;
       let lockReason = "";
@@ -706,7 +713,7 @@ export const buildCourseContentForStudent = async (
       } else if (isClassLockedByState) {
         isLocked = true;
         lockReason = classLockReason;
-      } else if (manualLock) {
+      } else if (manualLock || globalLock) {
         isLocked = true;
         lockReason = "Locked by teacher/admin";
       } else if (livePremiereLocked) {
@@ -718,12 +725,6 @@ export const buildCourseContentForStudent = async (
       } else if (progressLocked) {
         isLocked = true;
         lockReason = progressLockReason;
-      } else if (completedLectureLocked) {
-        isLocked = true;
-        lockReason = "Lecture completed. Waiting for new lecture upload.";
-      } else if (completionLocked) {
-        isLocked = true;
-        lockReason = "Course completed. Contact teacher to rewatch.";
       }
 
       const unlocked = !isLocked;
@@ -784,9 +785,9 @@ export const buildCourseContentForStudent = async (
           isLiveLocked: livePremiereLocked,
           manuallyUnlocked: manualAccess && !permanentlyLocked,
         },
-        lockAfterCompletion: enrollmentCompleted || permanentlyCompleted,
+        lockAfterCompletion: false,
         rewatch: {
-          isAllowed: rewatchAllowed,
+          isAllowed: true,
           unlockedByTeacher: rewatchAllowed,
           unlockedAt: rewatchAllowed ? unlockedAtIso : null,
           unlockedBy: rewatchAllowed ? unlockedBy : null,
@@ -945,11 +946,26 @@ const ensureTeacherCanManageCourse = async (requesterRole, requesterId, courseId
   const courseData = contentSnap.data() || {};
 
   const directMatch = trimText(courseData.teacherId) === requesterId;
+  const teacherIds = Array.isArray(courseData.teacherIds) ? courseData.teacherIds : [];
+  const teachers = Array.isArray(courseData.teachers) ? courseData.teachers : [];
+  const teachersMatch =
+    teacherIds.some((row) => trimText(row) === requesterId) ||
+    teachers.some(
+      (row) => trimText(row?.teacherId || row?.id || row?.uid) === requesterId
+    ) ||
+    (Array.isArray(courseData.assignedTeacherIds)
+      ? courseData.assignedTeacherIds.some((row) => trimText(row) === requesterId)
+      : false);
   const subjectMatch = Array.isArray(courseData.subjects)
-    ? courseData.subjects.some((row) => trimText(row?.teacherId) === requesterId)
-    : false;
-  const teachersMatch = Array.isArray(courseData.assignedTeacherIds)
-    ? courseData.assignedTeacherIds.some((row) => trimText(row) === requesterId)
+    ? courseData.subjects.some((row) => {
+        if (trimText(row?.teacherId) === requesterId) return true;
+        const rowTeacherIds = Array.isArray(row?.teacherIds) ? row.teacherIds : [];
+        if (rowTeacherIds.some((id) => trimText(id) === requesterId)) return true;
+        const rowTeachers = Array.isArray(row?.teachers) ? row.teachers : [];
+        return rowTeachers.some(
+          (t) => trimText(t?.teacherId || t?.id || t?.uid) === requesterId
+        );
+      })
     : false;
 
   if (directMatch || subjectMatch || teachersMatch) {
@@ -1600,6 +1616,58 @@ export const unlockAllVideosForStudent = async (req, res) => {
   } catch (error) {
     console.error("unlockAllVideosForStudent error:", error);
     return errorResponse(res, "Failed to unlock videos", 500);
+  }
+};
+
+export const setLectureLock = async (req, res) => {
+  try {
+    const courseId = trimText(req.params?.courseId || req.params?.subjectId);
+    const lectureId = trimText(req.params?.lectureId);
+    const requesterId = trimText(req.user?.uid);
+    const requesterRole = lowerText(req.user?.role);
+    const isLocked = req.body?.isLocked !== false;
+
+    if (!courseId || !lectureId) {
+      return errorResponse(res, "subjectId/courseId and lectureId are required", 400);
+    }
+    if (!requesterId) return errorResponse(res, "Missing requester uid", 400);
+    if (!["teacher", "admin"].includes(requesterRole)) {
+      return errorResponse(res, "Only teachers and admins can lock videos", 403);
+    }
+
+    const permission = await ensureTeacherCanManageCourse(requesterRole, requesterId, courseId);
+    if (!permission.allowed) {
+      return errorResponse(res, permission.error, permission.status || 403);
+    }
+
+    const lectures = await getCourseLectures(courseId);
+    const lectureIdSet = new Set(lectures.map((lecture) => trimText(lecture.id)).filter(Boolean));
+    if (!lectureIdSet.has(lectureId)) {
+      return errorResponse(res, "Lecture not found in this course", 404);
+    }
+
+    const updates = {
+      isLocked,
+      lockedAt: isLocked ? serverTimestamp() : null,
+      unlockedAt: !isLocked ? serverTimestamp() : null,
+      updatedAt: serverTimestamp(),
+    };
+    if (requesterRole === "admin") {
+      updates.isLockedByAdmin = isLocked;
+    } else {
+      updates.isLockedByTeacher = isLocked;
+    }
+
+    await db.collection("lectures").doc(lectureId).set(updates, { merge: true });
+
+    return successResponse(
+      res,
+      { lectureId, isLocked },
+      isLocked ? "Lecture locked" : "Lecture unlocked"
+    );
+  } catch (error) {
+    console.error("setLectureLock error:", error);
+    return errorResponse(res, "Failed to update lecture lock", 500);
   }
 };
 export const getStudentCourseProgress = async (req, res) => {

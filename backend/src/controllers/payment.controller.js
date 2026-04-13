@@ -776,7 +776,7 @@ export const initiatePayment = async (req, res) => {
       subjectId: rawSubjectId = "",
       classId = "",
       shiftId = "",
-      enrollmentType = "single_course",
+      enrollmentType = "full_class",
       method,
       promoCode = "",
       installments = 1,
@@ -785,10 +785,10 @@ export const initiatePayment = async (req, res) => {
     const normalizedEnrollmentType = String(enrollmentType || "")
       .trim()
       .toLowerCase();
-    if (!["full_class", "single_course"].includes(normalizedEnrollmentType)) {
+    if (normalizedEnrollmentType !== "full_class") {
       return errorResponse(
         res,
-        "enrollmentType must be full_class or single_course",
+        "Single subject payments are disabled. Use full_class enrollment.",
         400
       );
     }
@@ -800,14 +800,6 @@ export const initiatePayment = async (req, res) => {
       );
     }
     const courseId = String(rawSubjectId || rawCourseId || "").trim();
-
-    if (normalizedEnrollmentType === "single_course" && !courseId) {
-      return errorResponse(
-        res,
-        "subjectId/courseId is required for single_subject enrollment",
-        400
-      );
-    }
 
     const paymentMethod = String(method).trim().toLowerCase();
     if (!["jazzcash", "easypaisa", "bank_transfer"].includes(paymentMethod)) {
@@ -922,22 +914,7 @@ export const initiatePayment = async (req, res) => {
       return errorResponse(res, "This class has no assigned subjects", 400);
     }
 
-    const cleanCourseId = String(courseId || "").trim();
-    if (
-      normalizedEnrollmentType === "single_course" &&
-      !classCourseIds.includes(cleanCourseId)
-    ) {
-      return errorResponse(
-        res,
-        "Selected subject is not assigned to this class",
-        400
-      );
-    }
-
-    const targetCourseIdsForPurchase =
-      normalizedEnrollmentType === "single_course"
-        ? [cleanCourseId]
-        : classCourseIds;
+    const targetCourseIdsForPurchase = classCourseIds;
     const completedSubjectIds = await getCompletedSubjectIds(targetCourseIdsForPurchase);
     if (completedSubjectIds.length) {
       return errorResponse(
@@ -969,55 +946,24 @@ export const initiatePayment = async (req, res) => {
         .filter(Boolean)
     );
 
-    if (normalizedEnrollmentType === "single_course") {
-      const hasCourseEnrollment = activeEnrollmentRows.some(
-        (row) =>
-          String(row.subjectId || row.courseId || "").trim() === cleanCourseId
+    const hasAllCourses = classCourseIds.every((row) => paidCourseIds.has(row));
+    if (hasAllCourses) {
+      return errorResponse(
+        res,
+        "Student already enrolled in full class",
+        409,
+        { code: "ALREADY_ENROLLED" }
       );
-      if (hasCourseEnrollment) {
-        return errorResponse(
-          res,
-          "Student already enrolled in this subject for this class",
-          409,
-          { code: "ALREADY_ENROLLED" }
-        );
-      }
-    } else {
-      const hasAllCourses = classCourseIds.every((row) => paidCourseIds.has(row));
-      if (hasAllCourses) {
-        return errorResponse(
-          res,
-          "Student already enrolled in full class",
-          409,
-          { code: "ALREADY_ENROLLED" }
-        );
-      }
     }
 
     const classCourses = await Promise.all(
       classCourseIds.map(async (id) => {
         const course = await getCourseById(id);
         if (!course) return null;
-        const originalPrice = Math.max(toNumber(course.price), 0);
-        const discountPercent = Math.max(
-          0,
-          Math.min(100, toNumber(course.discountPercent, 0))
-        );
-        const courseDiscountAmount = calculateCourseDiscount(
-          originalPrice,
-          discountPercent
-        );
-        const finalPrice = Number(
-          Math.max(originalPrice - courseDiscountAmount, 0).toFixed(2)
-        );
         return {
           courseId: id,
           subjectId: id,
           title: course.title || "Subject",
-          originalPrice,
-          discountPercent,
-          courseDiscountAmount,
-          finalPrice,
         };
       })
     );
@@ -1025,51 +971,27 @@ export const initiatePayment = async (req, res) => {
     if (!resolvedClassCourses.length) {
       return errorResponse(res, "No valid courses found for this class", 400);
     }
-    const payableClassCourses =
-      normalizedEnrollmentType === "full_class"
-        ? resolvedClassCourses.filter((row) => !paidCourseIds.has(row.courseId))
-        : [];
-
-    let selectedCourse = null;
-    if (normalizedEnrollmentType === "single_course") {
-      selectedCourse = resolvedClassCourses.find((row) => row.courseId === cleanCourseId) || null;
-      if (!selectedCourse) {
-        return errorResponse(
-          res,
-          "Selected subject not found",
-          404
-        );
-      }
+    const classPrice = Math.max(
+      toNumber(classData.price ?? classData.totalPrice, 0),
+      0
+    );
+    if (!classPrice) {
+      return errorResponse(res, "Class price is not set", 400);
     }
 
-    const originalAmount =
-      normalizedEnrollmentType === "full_class"
-        ? Number(
-            payableClassCourses
-              .reduce((sum, row) => sum + toNumber(row.originalPrice, 0), 0)
-              .toFixed(2)
-          )
-        : Number(toNumber(selectedCourse?.originalPrice, 0).toFixed(2));
-    const courseDiscountAmount =
-      normalizedEnrollmentType === "full_class"
-        ? Number(
-            payableClassCourses
-              .reduce((sum, row) => sum + toNumber(row.courseDiscountAmount, 0), 0)
-              .toFixed(2)
-          )
-        : Number(toNumber(selectedCourse?.courseDiscountAmount, 0).toFixed(2));
-    const amountAfterCourseDiscount = Number(
-      Math.max(originalAmount - courseDiscountAmount, 0).toFixed(2)
+    const payableClassCourses = resolvedClassCourses.filter(
+      (row) => !paidCourseIds.has(row.courseId)
     );
-    const courseDiscountPercent =
-      normalizedEnrollmentType === "single_course"
-        ? Math.max(0, Math.min(100, toNumber(selectedCourse?.discountPercent, 0)))
-        : 0;
 
-    if (normalizedEnrollmentType === "full_class" && promoCode) {
+    const originalAmount = Number(classPrice.toFixed(2));
+    const courseDiscountAmount = 0;
+    const amountAfterCourseDiscount = Number(classPrice.toFixed(2));
+    const courseDiscountPercent = 0;
+
+    if (promoCode) {
       return errorResponse(
         res,
-        "Promo code can be applied only on individual course purchase",
+        "Promo codes are not available for class enrollment",
         400
       );
     }
@@ -1077,7 +999,7 @@ export const initiatePayment = async (req, res) => {
     let promoDoc = null;
     let promoData = null;
     if (promoCode && normalizedEnrollmentType === "single_course") {
-      const promoResult = await resolvePromo(promoCode, cleanCourseId, studentId);
+      const promoResult = await resolvePromo(promoCode, "", studentId);
       promoDoc = promoResult.promoDoc || null;
       promoData = promoResult.promoData || null;
     }
@@ -1117,22 +1039,14 @@ export const initiatePayment = async (req, res) => {
     const reference = generateReference();
     const fullClassDescription = `${classData?.name || "Class"} - Full Class`;
     const fullClassRemainingDescription = `${classData?.name || "Class"} - Complete Enrollment`;
-    const singleCourseDescription = `${selectedCourse?.title || "Course"} - ${classData?.name || "Class"}`;
 
     const paymentPayload = {
       studentId,
       studentName: student.fullName,
       enrollmentType: normalizedEnrollmentType,
-      courseId:
-        normalizedEnrollmentType === "single_course" ? cleanCourseId : null,
-      courseName:
-        normalizedEnrollmentType === "single_course"
-          ? selectedCourse?.title || ""
-          : fullClassDescription,
-      purchaseCourseIds:
-        normalizedEnrollmentType === "full_class"
-          ? payableClassCourses.map((row) => row.courseId)
-          : [cleanCourseId],
+      courseId: null,
+      courseName: fullClassDescription,
+      purchaseCourseIds: payableClassCourses.map((row) => row.courseId),
       classId: classId || null,
       className: classData?.name || "",
       shiftId: shiftId || null,
@@ -1140,10 +1054,7 @@ export const initiatePayment = async (req, res) => {
       totalAmount: finalAmount,
       originalAmount,
       discount: discountAmount,
-      remainingPrice:
-        normalizedEnrollmentType === "full_class"
-          ? Number(finalAmount.toFixed(2))
-          : null,
+      remainingPrice: Number(finalAmount.toFixed(2)),
       courseDiscountPercent,
       courseDiscountAmount,
       promoDiscountAmount,
@@ -1209,10 +1120,7 @@ export const initiatePayment = async (req, res) => {
         reference,
         amount: amountDueNow,
         totalAmount: finalAmount,
-        remainingPrice:
-          normalizedEnrollmentType === "full_class"
-            ? Number(finalAmount.toFixed(2))
-            : null,
+        remainingPrice: Number(finalAmount.toFixed(2)),
         originalAmount,
         discount: discountAmount,
         courseDiscountPercent,
@@ -1224,31 +1132,20 @@ export const initiatePayment = async (req, res) => {
         bankDetails:
           paymentMethod === "bank_transfer" ? paymentDetails : undefined,
         description:
-          normalizedEnrollmentType === "full_class"
-            ? paidCourseIds.size > 0
-              ? fullClassRemainingDescription
-              : fullClassDescription
-            : singleCourseDescription,
-        classCourses:
-          normalizedEnrollmentType === "full_class"
-            ? resolvedClassCourses.map((row) => ({
-                courseId: row.courseId,
-                subjectId: row.courseId,
-                title: row.title,
-                finalPrice: row.finalPrice,
-                alreadyPurchased: paidCourseIds.has(row.courseId),
-              }))
-            : undefined,
-        paidSubjects:
-          normalizedEnrollmentType === "full_class"
-            ? resolvedClassCourses
-                .filter((row) => paidCourseIds.has(row.courseId))
-                .map((row) => ({ subjectId: row.courseId, title: row.title }))
-            : undefined,
-        payingNowSubjects:
-          normalizedEnrollmentType === "full_class"
-            ? payableClassCourses.map((row) => ({ subjectId: row.courseId, title: row.title }))
-            : undefined,
+          paidCourseIds.size > 0 ? fullClassRemainingDescription : fullClassDescription,
+        classCourses: resolvedClassCourses.map((row) => ({
+          courseId: row.courseId,
+          subjectId: row.courseId,
+          title: row.title,
+          alreadyPurchased: paidCourseIds.has(row.courseId),
+        })),
+        paidSubjects: resolvedClassCourses
+          .filter((row) => paidCourseIds.has(row.courseId))
+          .map((row) => ({ subjectId: row.courseId, title: row.title })),
+        payingNowSubjects: payableClassCourses.map((row) => ({
+          subjectId: row.courseId,
+          title: row.title,
+        })),
         installments: installmentSchedule,
         isInstallment: installmentCount > 1,
         numberOfInstallments: installmentCount,

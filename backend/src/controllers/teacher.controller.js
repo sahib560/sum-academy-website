@@ -159,6 +159,18 @@ const resolveStudentName = (studentDoc = {}, userDoc = {}) => {
   );
 };
 
+const subjectHasTeacher = (subject = {}, teacherId = "") => {
+  const cleanId = trimText(teacherId);
+  if (!cleanId) return false;
+  if (trimText(subject.teacherId) === cleanId) return true;
+  const teacherIds = Array.isArray(subject.teacherIds) ? subject.teacherIds : [];
+  if (teacherIds.some((id) => trimText(id) === cleanId)) return true;
+  const teachers = Array.isArray(subject.teachers) ? subject.teachers : [];
+  return teachers.some(
+    (row) => trimText(row?.teacherId || row?.id || row?.uid) === cleanId
+  );
+};
+
 const normalizeTeacherCourseIds = (courses = [], teacherId = "") => {
   return courses
     .filter((course) => {
@@ -166,7 +178,7 @@ const normalizeTeacherCourseIds = (courses = [], teacherId = "") => {
       const legacyTeacherMatch = String(data.teacherId || "") === teacherId;
       const subjects = Array.isArray(data.subjects) ? data.subjects : [];
       const subjectMatch = subjects.some(
-        (subject) => String(subject?.teacherId || "") === teacherId
+        (subject) => subjectHasTeacher(subject, teacherId)
       );
       return legacyTeacherMatch || subjectMatch;
     })
@@ -940,6 +952,8 @@ const buildCourseLikeDataFromSubject = (id, data = {}) => {
   const title = trimText(data.title || data.subjectName || data.courseName) || "Untitled Subject";
   const teacherId = trimText(data.teacherId);
   const teacherName = trimText(data.teacherName) || "Teacher";
+  const teachers = Array.isArray(data.teachers) ? data.teachers : [];
+  const teacherIds = Array.isArray(data.teacherIds) ? data.teacherIds : [];
   return {
     title,
     description: trimText(data.description),
@@ -948,14 +962,14 @@ const buildCourseLikeDataFromSubject = (id, data = {}) => {
     level: trimText(data.level) || "beginner",
     status: lowerText(data.status || "published") || "published",
     thumbnail: data.thumbnail || null,
-    price: toPositiveNumber(data.price, 0),
-    discountPercent: toPositiveNumber(data.discountPercent ?? data.discount, 0),
     subjects: [
       {
         id,
         name: title,
         teacherId,
         teacherName,
+        teachers,
+        teacherIds,
         order: 1,
       },
     ],
@@ -968,6 +982,8 @@ const buildCourseLikeDataFromSubject = (id, data = {}) => {
     updatedAt: data.updatedAt || null,
     teacherId,
     teacherName,
+    teachers,
+    teacherIds,
     __docId: id,
     __source: "subjects",
   };
@@ -990,17 +1006,22 @@ const mergeCourseAndSubjectData = (id, legacyCourseData = {}, subjectData = {}) 
     category: mergedCategory,
     teacherId: trimText(subjectLike.teacherId || courseData.teacherId),
     teacherName: trimText(subjectLike.teacherName || courseData.teacherName || "Teacher") || "Teacher",
+    teachers: Array.isArray(subjectLike.teachers) && subjectLike.teachers.length > 0
+      ? subjectLike.teachers
+      : Array.isArray(courseData.teachers)
+        ? courseData.teachers
+        : [],
+    teacherIds: Array.isArray(subjectLike.teacherIds) && subjectLike.teacherIds.length > 0
+      ? subjectLike.teacherIds
+      : Array.isArray(courseData.teacherIds)
+        ? courseData.teacherIds
+        : [],
     subjects:
       Array.isArray(subjectLike.subjects) && subjectLike.subjects.length > 0
         ? subjectLike.subjects
         : Array.isArray(courseData.subjects)
           ? courseData.subjects
           : [],
-    price: toPositiveNumber(subjectLike.price ?? courseData.price, 0),
-    discountPercent: toPositiveNumber(
-      subjectLike.discountPercent ?? courseData.discountPercent ?? courseData.discount,
-      0
-    ),
     enrollmentCount: Math.max(
       toPositiveNumber(courseData.enrollmentCount, 0),
       toPositiveNumber(subjectLike.enrollmentCount, 0)
@@ -1163,8 +1184,12 @@ const getTeacherDisplayName = async (uid, email = "") => {
 const isCourseOwner = (courseData = {}, uid = "") => {
   if (!uid) return false;
   if (String(courseData.teacherId || "") === uid) return true;
+  const teacherIds = Array.isArray(courseData.teacherIds) ? courseData.teacherIds : [];
+  if (teacherIds.some((id) => trimText(id) === uid)) return true;
+  const teachers = Array.isArray(courseData.teachers) ? courseData.teachers : [];
+  if (teachers.some((row) => trimText(row?.teacherId || row?.id || row?.uid) === uid)) return true;
   const subjects = Array.isArray(courseData.subjects) ? courseData.subjects : [];
-  return subjects.some((subject) => String(subject?.teacherId || "") === uid);
+  return subjects.some((subject) => subjectHasTeacher(subject, uid));
 };
 
 const getCourseIfOwned = async (courseId, uid) => {
@@ -1294,6 +1319,8 @@ const normalizeSubjectAssignment = (subject = {}, index = 0) => ({
   subjectName: trimText(subject?.name || subject?.subjectName),
   teacherId: trimText(subject?.teacherId),
   teacherName: trimText(subject?.teacherName),
+  teacherIds: Array.isArray(subject?.teacherIds) ? subject.teacherIds : [],
+  teachers: Array.isArray(subject?.teachers) ? subject.teachers : [],
   order: toPositiveNumber(subject?.order, index + 1),
 });
 
@@ -1316,6 +1343,8 @@ const getAllCourseSubjects = (courseData = {}) => {
       subjectName: fallbackName,
       teacherId: trimText(courseData.teacherId),
       teacherName: trimText(courseData.teacherName) || "Teacher",
+      teacherIds: Array.isArray(courseData.teacherIds) ? courseData.teacherIds : [],
+      teachers: Array.isArray(courseData.teachers) ? courseData.teachers : [],
       order: 1,
     },
   ];
@@ -1323,7 +1352,7 @@ const getAllCourseSubjects = (courseData = {}) => {
 
 const getTeacherAssignedSubjects = (courseData = {}, uid = "") => {
   return getAllCourseSubjects(courseData)
-    .filter((subject) => subject.teacherId === uid)
+    .filter((subject) => subjectHasTeacher(subject, uid))
     .sort((a, b) => toPositiveNumber(a.order, 0) - toPositiveNumber(b.order, 0));
 };
 

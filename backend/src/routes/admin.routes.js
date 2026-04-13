@@ -152,6 +152,7 @@ router.get("/courses", adminOnly, adminController.getCourses);
 router.get("/subjects", adminOnly, adminController.getCourses);
 router.get("/videos", adminOnly, adminController.getVideoLibrary);
 router.post("/videos", adminOnly, adminController.createVideoLibraryItem);
+router.delete("/videos/:videoId", adminOnly, adminController.deleteVideoLibraryItem);
 router.post("/courses", adminOnly, adminController.createCourse);
 router.post("/subjects", adminOnly, adminController.createCourse);
 router.put(

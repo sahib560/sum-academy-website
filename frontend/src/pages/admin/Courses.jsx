@@ -73,21 +73,18 @@ const bytes = (value = 0) => {
   return `${size.toFixed(size < 10 && idx > 0 ? 1 : 0)} ${units[idx]}`;
 };
 
-const pricePKR = (value) => Number(value || 0).toLocaleString("en-PK");
-
 const defaultForm = () => ({
   title: "",
   shortDescription: "",
   description: "",
   category: "General",
   level: "beginner",
-  price: "",
-  discountPercent: "",
   status: "published",
   hasCertificate: true,
   thumbnail: "",
   teacherId: "",
   teacherName: "",
+  teacherIds: [],
 });
 
 const statusCls = {
@@ -104,6 +101,8 @@ const normalizeCourse = (course = {}) => {
           name: s.name || course.title || "Subject",
           teacherId: s.teacherId || course.teacherId || "",
           teacherName: s.teacherName || course.teacherName || "",
+          teacherIds: Array.isArray(s.teacherIds) ? s.teacherIds : [],
+          teachers: Array.isArray(s.teachers) ? s.teachers : [],
           order: Number(s.order || i + 1),
         }))
         .sort((a, b) => a.order - b.order)
@@ -113,6 +112,8 @@ const normalizeCourse = (course = {}) => {
           name: course.title || "Subject",
           teacherId: course.teacherId || "",
           teacherName: course.teacherName || "",
+          teacherIds: Array.isArray(course.teacherIds) ? course.teacherIds : [],
+          teachers: Array.isArray(course.teachers) ? course.teachers : [],
           order: 1,
         },
       ];
@@ -124,8 +125,6 @@ const normalizeCourse = (course = {}) => {
     description: course.description || "",
     category: course.category || "General",
     level: course.level || "beginner",
-    price: Number(course.price || 0),
-    discountPercent: Number(course.discountPercent || 0),
     status: String(course.status || "published").toLowerCase(),
     thumbnail: course.thumbnail || "",
     teacherId: course.teacherId || subjects[0]?.teacherId || "",
@@ -426,16 +425,9 @@ function Courses() {
       errors.description = "Description must be at least 10 characters.";
     }
 
-    const p = Number(form.price);
-    if (!form.price && form.price !== 0) errors.price = "Price is required.";
-    else if (!Number.isFinite(p) || p <= 0) errors.price = "Price must be positive.";
-
-    const d = Number(form.discountPercent || 0);
-    if (d < 0 || d > 100) {
-      errors.discountPercent = "Discount must be between 0 and 100.";
-    }
-    if (!form.teacherId) {
-      errors.teacherId = "Teacher is required.";
+    const teacherIds = Array.isArray(form.teacherIds) ? form.teacherIds : [];
+    if (!teacherIds.length) {
+      errors.teacherId = "At least one teacher is required.";
     }
 
     return errors;
@@ -573,20 +565,30 @@ function Courses() {
 
   const openEdit = (course) => {
     setEditingId(course.id);
+    const fallbackTeacherId = course.teacherId || course.subjects?.[0]?.teacherId || "";
+    const teacherIds =
+      Array.isArray(course.teacherIds) && course.teacherIds.length > 0
+        ? course.teacherIds
+        : Array.isArray(course.teachers) && course.teachers.length > 0
+          ? course.teachers
+              .map((row) => row.teacherId || row.id || row.uid)
+              .filter(Boolean)
+          : fallbackTeacherId
+            ? [fallbackTeacherId]
+            : [];
     setForm({
       title: course.title,
       shortDescription: course.shortDescription || "",
       description: course.description || "",
       category: course.category || "General",
       level: course.level || "beginner",
-      price: String(course.price || ""),
-      discountPercent: String(course.discountPercent || ""),
       status: course.status || "published",
       hasCertificate:
         typeof course.hasCertificate === "boolean" ? course.hasCertificate : true,
       thumbnail: course.thumbnail || "",
-      teacherId: course.teacherId || course.subjects?.[0]?.teacherId || "",
+      teacherId: fallbackTeacherId,
       teacherName: course.teacherName || course.subjects?.[0]?.teacherName || "",
+      teacherIds,
     });
     setStep(1);
     setTouched({});
@@ -595,34 +597,28 @@ function Courses() {
     setShowCourseModal(true);
   };
 
-  const discounted = useMemo(() => {
-    const p = Number(form.price || 0);
-    const d = Number(form.discountPercent || 0);
-    return Math.max(0, p - (p * d) / 100);
-  }, [form.price, form.discountPercent]);
-
   const coursePayload = () => ({
     title: form.title.trim(),
     shortDescription: form.shortDescription?.trim() || "",
     description: form.description.trim(),
     category: form.category || "General",
     level: form.level || "beginner",
-    price: Number(form.price),
-    discountPercent: Number(form.discountPercent || 0),
-    discount: Number(form.discountPercent || 0),
     status: form.status,
     hasCertificate: Boolean(form.hasCertificate),
     thumbnail: form.thumbnail || null,
     teacherId: form.teacherId,
     teacherName: teachersMap[form.teacherId]?.fullName || form.teacherName || "",
+    teacherIds: form.teacherIds,
+    teachers: (form.teacherIds || []).map((id) => ({
+      teacherId: id,
+      teacherName: teachersMap[id]?.fullName || teachersMap[id]?.name || "",
+    })),
   });
 
   const saveCourse = () => {
     setTouched({
       title: true,
       description: true,
-      price: true,
-      discountPercent: true,
       teacherId: true,
     });
     if (Object.keys(basicErrors).length) {
@@ -932,12 +928,16 @@ function Courses() {
       ) : (
         <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
           {filtered.map((c) => {
-            const discountedPrice =
-              c.discountPercent > 0
-                ? Math.max(0, c.price - (c.price * c.discountPercent) / 100)
-                : c.price;
             const teacherCount = new Set(
-              c.subjects.map((s) => s.teacherId).filter(Boolean)
+              c.subjects
+                .flatMap((s) =>
+                  Array.isArray(s.teacherIds) && s.teacherIds.length > 0
+                    ? s.teacherIds
+                    : s.teacherId
+                      ? [s.teacherId]
+                      : []
+                )
+                .filter(Boolean)
             ).size;
             return (
               <article key={c.id} className="glass-card overflow-hidden p-0">
@@ -971,22 +971,6 @@ function Courses() {
                   <div className="flex items-center justify-between text-sm text-slate-500">
                     <span>{c.enrollmentCount} Enrolled</span>
                     <span>{cap(c.level)}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {c.discountPercent > 0 ? (
-                      <>
-                        <span className="text-lg font-semibold text-primary">
-                          PKR {pricePKR(discountedPrice)}
-                        </span>
-                        <span className="text-sm text-slate-400 line-through">
-                          PKR {pricePKR(c.price)}
-                        </span>
-                      </>
-                    ) : (
-                      <span className="text-lg font-semibold text-primary">
-                        PKR {pricePKR(c.price)}
-                      </span>
-                    )}
                   </div>
                   <div className="grid grid-cols-2 gap-2 text-xs">
                     <button
@@ -1150,40 +1134,6 @@ function Courses() {
             </div>
 
             <div>
-              <label className="text-sm font-semibold text-slate-700">Price PKR</label>
-              <input
-                type="number"
-                min={0}
-                value={form.price}
-                onChange={(e) => setForm((p) => ({ ...p, price: e.target.value }))}
-                onBlur={() => setTouched((t) => ({ ...t, price: true }))}
-                className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
-              />
-              <FieldError message={touched.price ? basicErrors.price : ""} />
-            </div>
-
-            <div>
-              <label className="text-sm font-semibold text-slate-700">Discount %</label>
-              <input
-                type="number"
-                min={0}
-                max={100}
-                value={form.discountPercent}
-                onChange={(e) =>
-                  setForm((p) => ({ ...p, discountPercent: e.target.value }))
-                }
-                onBlur={() => setTouched((t) => ({ ...t, discountPercent: true }))}
-                className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
-              />
-              <FieldError
-                message={touched.discountPercent ? basicErrors.discountPercent : ""}
-              />
-              <p className="mt-1 text-xs text-slate-500">
-                Discounted Price: PKR {pricePKR(discounted)}
-              </p>
-            </div>
-
-            <div>
               <label className="text-sm font-semibold text-slate-700">Status</label>
               <select
                 value={form.status}
@@ -1223,8 +1173,6 @@ function Courses() {
                   setTouched({
                     title: true,
                     description: true,
-                    price: true,
-                    discountPercent: true,
                   });
                   if (Object.keys(stepOneErrors).length) {
                     toast.error("Please fix validation errors.");
@@ -1305,18 +1253,26 @@ function Courses() {
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
               <h4 className="font-heading text-xl text-slate-900">Assign Teacher</h4>
               <p className="mt-1 text-xs text-slate-500">
-                Select the teacher for this subject.
+                Select one or more teachers for this subject.
               </p>
               <div className="mt-3">
                 <label className="text-xs font-semibold text-slate-500">Teacher</label>
                 <select
-                  value={form.teacherId}
-                  onChange={(e) =>
-                    setForm((prev) => ({ ...prev, teacherId: e.target.value }))
-                  }
+                  multiple
+                  value={form.teacherIds}
+                  onChange={(e) => {
+                    const selected = Array.from(e.target.selectedOptions).map(
+                      (opt) => opt.value
+                    );
+                    setForm((prev) => ({
+                      ...prev,
+                      teacherIds: selected,
+                      teacherId: selected[0] || "",
+                      teacherName: teachersMap[selected[0]]?.fullName || prev.teacherName,
+                    }));
+                  }}
                   className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
                 >
-                  <option value="">Select teacher</option>
                   {teachers.map((t) => (
                     <option key={t.id} value={t.id}>
                       {t.fullName}

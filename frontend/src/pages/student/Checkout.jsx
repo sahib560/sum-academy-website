@@ -42,10 +42,10 @@ function Checkout() {
   const location = useLocation();
   const navigate = useNavigate();
   const { userProfile } = useAuth();
-  const enrollmentType = String(location.state?.enrollmentType || "single_course");
+  const enrollmentType = "full_class";
   const classInfoFromState = location.state?.classInfo || null;
-  const course = location.state?.course || null;
-  const courseId = course?.id || "";
+  const course = null;
+  const courseId = "";
   const prefillClassId = location.state?.prefillClassId || "";
   const prefillShiftId = location.state?.prefillShiftId || "";
 
@@ -67,11 +67,8 @@ function Checkout() {
   });
 
   const { data: classes = [], isLoading: classesLoading } = useQuery({
-    queryKey: ["checkout-classes", courseId, enrollmentType],
-    queryFn: () =>
-      enrollmentType === "single_course" && courseId
-        ? getAvailableClasses(courseId)
-        : getAvailableClasses(),
+    queryKey: ["checkout-classes"],
+    queryFn: () => getAvailableClasses(),
     enabled: true,
   });
 
@@ -240,14 +237,10 @@ function Checkout() {
     mutationFn: () =>
       initiatePayment({
         enrollmentType,
-        courseId: enrollmentType === "single_course" ? courseId : undefined,
         classId: selectedClassId,
         shiftId: selectedShiftId,
         method: activePaymentMethod,
-        promoCode:
-          enrollmentType === "single_course" && promoCode
-            ? promoCode.toUpperCase()
-            : "",
+        promoCode: "",
         installments: installmentMode === "installment" ? Number(installments) : 1,
       }),
     onSuccess: (data) => {
@@ -263,14 +256,7 @@ function Checkout() {
   });
 
   if (enrollmentType === "single_course" && !courseId) {
-    return (
-      <div className="rounded-3xl border border-dashed border-slate-200 bg-white p-10 text-center">
-        <p className="text-slate-600">No course selected for checkout.</p>
-        <button className="btn-primary mt-4" onClick={() => navigate("/student/explore")}>
-          Back to Explore
-        </button>
-      </div>
-    );
+    return null;
   }
 
   return (

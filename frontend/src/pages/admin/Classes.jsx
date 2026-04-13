@@ -258,6 +258,7 @@ const emptyClassForm = () => ({
   description: "",
   status: "upcoming",
   capacity: 30,
+  price: "",
   startDate: "",
   endDate: "",
   assignedCourses: [],
@@ -277,6 +278,13 @@ const validateBasicInfo = (values) => {
     errors.capacity = "Capacity is required.";
   } else if (parsedCapacity < 1 || parsedCapacity > 1000) {
     errors.capacity = "Capacity must be between 1 and 1000.";
+  }
+
+  const parsedPrice = Number(values.price);
+  if (!Number.isFinite(parsedPrice)) {
+    errors.price = "Class price is required.";
+  } else if (parsedPrice < 0) {
+    errors.price = "Class price must be 0 or higher.";
   }
 
   if (!values.startDate) {
@@ -1131,6 +1139,7 @@ function Classes() {
       description: classItem.description || "",
       status: classItem.status || "upcoming",
       capacity: Number(classItem.capacity || 30),
+      price: classItem.price ?? classItem.totalPrice ?? "",
       startDate: toDateInput(classItem.startDate),
       endDate: toDateInput(classItem.endDate),
       assignedCourses: (classItem.assignedCourses || []).map((course) => ({
@@ -1289,6 +1298,7 @@ function Classes() {
       description: classForm.description.trim(),
       status: classForm.status,
       capacity: Number(classForm.capacity),
+      price: Number(classForm.price),
       startDate: classForm.startDate,
       endDate: classForm.endDate,
       assignedCourses: classForm.assignedCourses.map((course) => course.courseId),
@@ -1448,9 +1458,7 @@ function Classes() {
   );
   const availableShiftsForEnrollment = useMemo(() => {
     const shifts = Array.isArray(activeClass?.shifts) ? activeClass.shifts : [];
-    if (enrollEnrollmentType !== "single_course") return shifts;
-    if (!enrollCourseId) return shifts;
-    return shifts.filter((shift) => shift.courseId === enrollCourseId);
+    return shifts;
   }, [activeClass?.shifts, enrollEnrollmentType, enrollCourseId]);
 
   const classCapacity = activeClass
@@ -1531,14 +1539,8 @@ function Classes() {
   }, [isShiftModalOpen, singleDrawerCourseId, courses, activeTeachersById, teachersById]);
 
   useEffect(() => {
-    if (enrollEnrollmentType !== "single_course") return;
-    const assignedCourses = Array.isArray(activeClass?.assignedCourses)
-      ? activeClass.assignedCourses
-      : [];
-    if (assignedCourses.length === 1 && !enrollCourseId) {
-      setEnrollCourseId(assignedCourses[0].courseId || "");
-    }
-  }, [enrollEnrollmentType, activeClass?.assignedCourses, enrollCourseId]);
+    if (enrollCourseId) setEnrollCourseId("");
+  }, [enrollCourseId]);
 
   const classCards = (
     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -1859,6 +1861,20 @@ function Classes() {
                   className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm"
                 />
                 <FieldError message={classErrors.capacity} />
+              </div>
+
+              <div>
+                <label className="text-sm font-semibold text-slate-700">Class Price (PKR)</label>
+                <input
+                  type="number"
+                  min={0}
+                  value={classForm.price}
+                  onChange={(event) =>
+                    setClassForm((prev) => ({ ...prev, price: event.target.value }))
+                  }
+                  className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm"
+                />
+                <FieldError message={classErrors.price} />
               </div>
 
               <div>
@@ -2490,32 +2506,7 @@ function Classes() {
                         />
                         Full Class (PKR {Number(activeClass?.totalPrice || 0).toLocaleString("en-PK")})
                       </label>
-                      <label className="inline-flex items-center gap-2">
-                        <input
-                          type="radio"
-                          name="enrollType"
-                          checked={enrollEnrollmentType === "single_course"}
-                          onChange={() => setEnrollEnrollmentType("single_course")}
-                          disabled={isClassFull}
-                        />
-                        Individual Course
-                      </label>
                     </div>
-                    {enrollEnrollmentType === "single_course" ? (
-                      <select
-                        value={enrollCourseId}
-                        onChange={(event) => setEnrollCourseId(event.target.value)}
-                        className="mt-3 w-full rounded-2xl border border-slate-200 px-4 py-2 text-sm"
-                        disabled={isClassFull}
-                      >
-                        <option value="">Select course</option>
-                        {(activeClass?.assignedCourses || []).map((course) => (
-                          <option key={course.courseId} value={course.courseId}>
-                            {course.courseName || "Course"} (PKR {Number(course.finalPrice || course.price || 0).toLocaleString("en-PK")})
-                          </option>
-                        ))}
-                      </select>
-                    ) : null}
                   </div>
                   <div className="mt-4 grid gap-3 md:grid-cols-3">
                     <select
@@ -2558,10 +2549,6 @@ function Classes() {
                           toast.error("Select a shift first.");
                           return;
                         }
-                        if (enrollEnrollmentType === "single_course" && !enrollCourseId) {
-                          toast.error("Select a course for single-course enrollment.");
-                          return;
-                        }
                         if (isClassFull) {
                           toast.error("Class is full. Cannot add more students.");
                           return;
@@ -2572,10 +2559,6 @@ function Classes() {
                             studentId: enrollStudentId,
                             shiftId: enrollShiftId,
                             enrollmentType: enrollEnrollmentType,
-                            courseId:
-                              enrollEnrollmentType === "single_course"
-                                ? enrollCourseId
-                                : undefined,
                           },
                         });
                       }}

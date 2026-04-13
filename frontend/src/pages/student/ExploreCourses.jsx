@@ -84,10 +84,6 @@ function StudentExploreCourses() {
       const isFull = Boolean(row.isFull) || spotsLeft < 1;
       const enrichedSubjects = assignedSubjects.map((subject) => {
         const subjectId = subject.subjectId || subject.courseId || "";
-        const price = toNumber(
-          subject.finalPrice ?? subject.discountedPrice ?? subject.price,
-          0
-        );
         const isPaid =
           Boolean(subject.alreadyPurchased) ||
           enrollmentSnapshot.paidCourseKeySet.has(`${row.id}::${subjectId}`);
@@ -95,7 +91,6 @@ function StudentExploreCourses() {
           ...subject,
           subjectId,
           courseId: subjectId,
-          finalPrice: price,
           alreadyPurchased: isPaid,
         };
       });
@@ -109,19 +104,11 @@ function StudentExploreCourses() {
         Boolean(row.isPartiallyEnrolled) || (paidCoursesCount > 0 && !isFullyPaid);
       const totalPrice = Math.max(
         0,
-        toNumber(
-          row.totalPrice,
-          enrichedSubjects.reduce((sum, subject) => sum + toNumber(subject.finalPrice, subject.price), 0)
-        )
+        toNumber(row.price ?? row.totalPrice, toNumber(row.totalPrice, 0))
       );
       const remainingPrice = Math.max(
         0,
-        toNumber(
-          row.remainingPrice,
-          enrichedSubjects
-            .filter((subject) => !subject.alreadyPurchased)
-            .reduce((sum, subject) => sum + toNumber(subject.finalPrice, subject.price), 0)
-        )
+        toNumber(row.remainingPrice, totalPrice)
       );
       return {
         ...row,
@@ -158,7 +145,7 @@ function StudentExploreCourses() {
     });
   }, [classes, search]);
 
-  const goToCheckout = ({ classItem, enrollmentType, course = null }) => {
+  const goToCheckout = ({ classItem }) => {
     if (authLoading) return;
     if (!isAuthenticated) {
       navigate("/login");
@@ -167,36 +154,17 @@ function StudentExploreCourses() {
     if (classItem.isFull && !classItem.isEnrolled) return;
     navigate("/student/checkout", {
       state: {
-        enrollmentType,
-          classInfo: {
-            id: classItem.id,
-            name: classItem.name,
-            batchCode: classItem.batchCode,
-            totalPrice: toNumber(classItem.totalPrice, 0),
-            remainingPrice: toNumber(classItem.remainingPrice, toNumber(classItem.totalPrice, 0)),
-            assignedSubjects: classItem.assignedSubjects || [],
-            assignedCourses: classItem.assignedSubjects || [],
-          },
-        course: course
-          ? {
-              id: course.courseId || "",
-              title: course.title || course.courseName || "Course",
-              price: toNumber(course.price, 0),
-              originalPrice: toNumber(
-                course.originalPrice,
-                toNumber(course.price, 0)
-              ),
-              discountPercent: toNumber(course.discountPercent, 0),
-              discountedPrice: toNumber(
-                course.finalPrice ?? course.discountedPrice ?? course.price,
-                toNumber(course.price, 0)
-              ),
-              finalPrice: toNumber(
-                course.finalPrice ?? course.discountedPrice ?? course.price,
-                toNumber(course.price, 0)
-              ),
-            }
-          : null,
+        enrollmentType: "full_class",
+        classInfo: {
+          id: classItem.id,
+          name: classItem.name,
+          batchCode: classItem.batchCode,
+          totalPrice: toNumber(classItem.totalPrice, 0),
+          remainingPrice: toNumber(classItem.remainingPrice, toNumber(classItem.totalPrice, 0)),
+          assignedSubjects: classItem.assignedSubjects || [],
+          assignedCourses: classItem.assignedSubjects || [],
+        },
+        course: null,
         prefillClassId: classItem.id,
         prefillShiftId: classItem.shifts?.[0]?.id || "",
       },
@@ -296,8 +264,7 @@ function StudentExploreCourses() {
                         key={`${classItem.id}-${subject.subjectId}`}
                         className="rounded-full bg-slate-100 px-3 py-1 text-[10px] font-semibold text-slate-600"
                       >
-                        {subject.title || "Subject"} - PKR{" "}
-                        {toNumber(subject.finalPrice, toNumber(subject.price, 0)).toLocaleString("en-PK")}
+                        {subject.title || "Subject"}
                       </span>
                     ))}
                     {classItem.assignedSubjects.length > 3 ? (
@@ -327,10 +294,7 @@ function StudentExploreCourses() {
                       }`}
                       onClick={(event) => {
                         event.stopPropagation();
-                        goToCheckout({
-                          classItem,
-                          enrollmentType: "full_class",
-                        });
+                        goToCheckout({ classItem });
                       }}
                       disabled={!canEnrollFull}
                     >
@@ -442,37 +406,6 @@ function StudentExploreCourses() {
                         <p className="text-xs text-slate-500">
                           {course.teacherName || "Teacher"}
                         </p>
-                        <p className="mt-1 text-xs font-semibold text-slate-700">
-                          PKR{" "}
-                          {toNumber(
-                            course.finalPrice ?? course.discountedPrice ?? course.price,
-                            0
-                          ).toLocaleString("en-PK")}
-                        </p>
-                        <button
-                          className={`mt-2 rounded-full px-3 py-1 text-xs font-semibold ${
-                            course.alreadyPurchased
-                              ? "bg-emerald-100 text-emerald-700"
-                              : "bg-primary text-white"
-                          }`}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            if (course.alreadyPurchased) return;
-                            goToCheckout({
-                              classItem: selectedClass,
-                              enrollmentType: "single_course",
-                              course,
-                            });
-                          }}
-                          disabled={course.alreadyPurchased}
-                        >
-                          {course.alreadyPurchased
-                            ? "Purchased"
-                            : `Buy Now — PKR ${toNumber(
-                                course.finalPrice ?? course.price,
-                                0
-                              ).toLocaleString("en-PK")}`}
-                        </button>
                       </div>
                     ))}
                   </div>
@@ -508,12 +441,7 @@ function StudentExploreCourses() {
                       ? "cursor-not-allowed bg-slate-200 text-slate-500"
                       : "bg-primary text-white"
                   }`}
-                  onClick={() =>
-                    goToCheckout({
-                      classItem: selectedClass,
-                      enrollmentType: "full_class",
-                    })
-                  }
+                  onClick={() => goToCheckout({ classItem: selectedClass })}
                   disabled={
                     (selectedClass.isFull && !selectedClass.isEnrolled) ||
                     selectedClass.isFullyPaid
