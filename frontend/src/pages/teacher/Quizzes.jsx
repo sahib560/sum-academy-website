@@ -40,22 +40,20 @@ const fadeUp = {
   transition: { duration: 0.35 },
 };
 
+// Bulk quiz upload supports MCQ only. Keep headers lowercase because CSV parsing lowercases them.
 const previewHeaders = [
-  "scope",
   "courseid",
   "subjectid",
   "chapterid",
+  "scope",
   "quiztitle",
-  "quizdescription",
   "passscore",
-  "questiontype",
   "questiontext",
   "optiona",
   "optionb",
   "optionc",
   "optiond",
   "correctanswer",
-  "expectedanswer",
   "marks",
 ];
 
@@ -173,6 +171,7 @@ const parseCsvForPreview = (csvText = "") => {
       headerFound = true;
       return;
     }
+
     const values = parseCsvLine(rawLine);
     const row = { __row: lineNo };
     headers.forEach((header, cellIndex) => {
@@ -195,22 +194,20 @@ const parseCsvForPreview = (csvText = "") => {
 
   const normalizedRows = rows.map((row) => ({
     rowNo: row.__row,
-    scope: lowerText(row.scope),
     courseId: trimText(row.courseid),
     subjectId: trimText(row.subjectid),
     chapterId: trimText(row.chapterid),
-    title: trimText(row.quiztitle || row.title),
-    description: trimText(row.quizdescription || row.description),
+    scope: lowerText(row.scope),
+    quizTitle: trimText(row.quiztitle),
     passScore: trimText(row.passscore),
-    questionType: trimText(row.questiontype),
     questionText: trimText(row.questiontext),
     optionA: trimText(row.optiona),
     optionB: trimText(row.optionb),
     optionC: trimText(row.optionc),
     optionD: trimText(row.optiond),
     correctAnswer: trimText(row.correctanswer),
-    expectedAnswer: trimText(row.expectedanswer),
     marks: trimText(row.marks),
+    legacyQuestionType: trimText(row.questiontype),
   }));
 
   if (normalizedRows.length === 0) {
@@ -218,9 +215,7 @@ const parseCsvForPreview = (csvText = "") => {
   }
 
   const uniqueCourseIds = new Set(normalizedRows.map((row) => row.courseId).filter(Boolean));
-  const uniqueSubjectIds = new Set(
-    normalizedRows.map((row) => row.subjectId).filter(Boolean)
-  );
+  const uniqueSubjectIds = new Set(normalizedRows.map((row) => row.subjectId).filter(Boolean));
   const uniqueScopes = new Set(normalizedRows.map((row) => row.scope).filter(Boolean));
 
   if (normalizedRows.some((row) => !row.courseId) || uniqueCourseIds.size > 1) {
@@ -242,9 +237,7 @@ const parseCsvForPreview = (csvText = "") => {
 
   const activeScope = normalizedRows[0]?.scope;
   if (activeScope === "chapter") {
-    const uniqueChapterIds = new Set(
-      normalizedRows.map((row) => row.chapterId).filter(Boolean)
-    );
+    const uniqueChapterIds = new Set(normalizedRows.map((row) => row.chapterId).filter(Boolean));
     if (normalizedRows.some((row) => !row.chapterId) || uniqueChapterIds.size > 1) {
       globalErrors.push("Rows have mixed chapter values. Download a fresh template.");
     }
@@ -252,41 +245,51 @@ const parseCsvForPreview = (csvText = "") => {
 
   const rowPreviews = normalizedRows.map((row) => {
     const rowErrors = [];
-    const questionType = mapQuestionType(row.questionType);
     const marksNumber = Number(row.marks);
 
+    if (row.legacyQuestionType) {
+      const qType = mapQuestionType(row.legacyQuestionType);
+      if (qType && qType !== "mcq") {
+        rowErrors.push(
+          "Only MCQ questions supported in bulk upload. Use manual quiz builder for True/False and Short Answer questions."
+        );
+      }
+    }
+
+    if (!row.quizTitle) rowErrors.push("quizTitle is required");
     if (!row.questionText) rowErrors.push("questionText is required");
-    if (!questionType) rowErrors.push("questionType is required");
+    if (!row.passScore || !Number.isFinite(Number(row.passScore)) || Number(row.passScore) <= 0) {
+      rowErrors.push("passScore must be a positive number");
+    }
     if (!row.marks || !Number.isFinite(marksNumber) || marksNumber <= 0) {
       rowErrors.push("marks must be a positive number");
     }
 
-    if (questionType === "mcq") {
-      if (!row.optionA || !row.optionB) {
-        rowErrors.push("MCQ requires at least optionA and optionB");
-      }
-      if (!["A", "B", "C", "D"].includes(row.correctAnswer.toUpperCase())) {
-        rowErrors.push("MCQ correctAnswer must be A, B, C, or D");
-      }
+    if (!row.optionA || !row.optionB) {
+      rowErrors.push("MCQ requires at least optionA and optionB");
     }
-    if (questionType === "true_false") {
-      if (!["TRUE", "FALSE"].includes(row.correctAnswer.toUpperCase())) {
-        rowErrors.push("True/False correctAnswer must be TRUE or FALSE");
-      }
-    }
-    if (questionType === "short_answer") {
-      if (!row.expectedAnswer) {
-        rowErrors.push("Short answer requires expectedAnswer");
+
+    const correctLetter = String(row.correctAnswer || "").toUpperCase();
+    if (!["A", "B", "C", "D"].includes(correctLetter)) {
+      rowErrors.push("MCQ correctAnswer must be A, B, C, or D");
+    } else {
+      const optionMap = {
+        A: row.optionA,
+        B: row.optionB,
+        C: row.optionC,
+        D: row.optionD,
+      };
+      if (!optionMap[correctLetter]) {
+        rowErrors.push(`Correct option ${correctLetter} is empty`);
       }
     }
 
     return {
       rowNo: row.rowNo,
-      questionType: questionType || row.questionType,
+      quizTitle: row.quizTitle,
       questionText: row.questionText,
       marks: row.marks,
       correctAnswer: row.correctAnswer,
-      expectedAnswer: row.expectedAnswer,
       errors: rowErrors,
     };
   });
@@ -339,7 +342,9 @@ function TeacherQuizzes() {
   const [showQuizPanel, setShowQuizPanel] = useState(false);
   const [gradeDrafts, setGradeDrafts] = useState({});
   const [assignmentDueAt, setAssignmentDueAt] = useState("");
-  const [assignmentTargetType, setAssignmentTargetType] = useState("students");
+  const [assignmentNoDueDate, setAssignmentNoDueDate] = useState(false);
+  const [assignmentTimeLimit, setAssignmentTimeLimit] = useState(30);
+  const [assignmentAssignTo, setAssignmentAssignTo] = useState("specific"); // all_class | all_subject | specific
   const [assignmentClassId, setAssignmentClassId] = useState("");
   const [assignmentStudentIds, setAssignmentStudentIds] = useState([]);
   const [studentSearch, setStudentSearch] = useState("");
@@ -503,7 +508,7 @@ function TeacherQuizzes() {
   const assignMutation = useMutation({
     mutationFn: ({ quizId, payload }) => assignTeacherQuiz(quizId, payload),
     onSuccess: (response) => {
-      const total = Number(response?.data?.assignment?.totalAssigned || 0);
+      const total = Number(response?.data?.studentsCount || 0);
       toast.success(`Quiz assigned to ${total} students`);
       queryClient.invalidateQueries({ queryKey: ["teacher-quizzes"] });
       queryClient.invalidateQueries({ queryKey: ["teacher-quiz-analytics", selectedQuizId] });
@@ -606,15 +611,26 @@ function TeacherQuizzes() {
         .map((id) => String(id || "").trim())
         .filter(Boolean)
     );
-    setAssignmentDueAt(toDateTimeLocalValue(quiz?.assignment?.dueAt));
-    setAssignmentTargetType(
-      ["students", "course", "class"].includes(
-        lowerText(quiz?.assignment?.targetType || "")
-      )
-        ? lowerText(quiz.assignment.targetType)
-        : "students"
-    );
-    setAssignmentClassId(trimText(quiz?.assignment?.classId));
+
+    const dueValue = trimText(quiz?.dueDate || quiz?.assignment?.dueAt || "");
+    setAssignmentDueAt(toDateTimeLocalValue(dueValue));
+    setAssignmentNoDueDate(!dueValue);
+
+    const assignedToRaw = lowerText(quiz?.assignedTo || quiz?.assignTo || "");
+    const legacyTargetType = lowerText(quiz?.assignment?.targetType || "");
+    const mappedAssignTo = assignedToRaw
+      ? assignedToRaw
+      : legacyTargetType === "class"
+        ? "all_class"
+        : legacyTargetType === "course"
+          ? "all_subject"
+          : legacyTargetType === "students"
+            ? "specific"
+            : "specific";
+    setAssignmentAssignTo(mappedAssignTo === "all_enrolled" ? "all_subject" : mappedAssignTo);
+
+    setAssignmentTimeLimit(Number(quiz?.timeLimit || 30));
+    setAssignmentClassId(trimText(quiz?.assignedClassId || quiz?.assignment?.classId));
   };
 
   const toggleAssignStudent = (studentId) => {
@@ -630,26 +646,40 @@ function TeacherQuizzes() {
       toast.error("Select a quiz first");
       return;
     }
-    if (!assignmentDueAt) {
-      toast.error("Select due date and time");
+    if (assignmentAssignTo === "all_class" && !assignmentClassId) {
+      toast.error("Select a class for assignment");
       return;
     }
-    if (assignmentTargetType === "class" && !assignmentClassId) {
-      toast.error("Select a class for class assignment");
-      return;
-    }
-    if (assignmentTargetType === "students" && !assignmentStudentIds.length) {
+    if (assignmentAssignTo === "specific" && !assignmentStudentIds.length) {
       toast.error("Select at least one student");
       return;
     }
+
+    let dueDate = null;
+    if (!assignmentNoDueDate) {
+      if (!assignmentDueAt) {
+        toast.error("Select a due date/time or enable No due date");
+        return;
+      }
+      const parsed = new Date(assignmentDueAt);
+      if (Number.isNaN(parsed.getTime())) {
+        toast.error("Invalid due date/time");
+        return;
+      }
+      dueDate = parsed.toISOString();
+    }
+
+    const timeLimit = Math.max(5, Math.min(180, Number(assignmentTimeLimit || 30)));
+
     assignMutation.mutate({
       quizId: selectedQuizId,
       payload: {
-        dueAt: new Date(assignmentDueAt).toISOString(),
-        targetType: assignmentTargetType,
-        classId: assignmentTargetType === "class" ? assignmentClassId : "",
-        courseId: assignmentTargetType === "course" ? selectedQuiz?.courseId || "" : "",
-        studentIds: assignmentTargetType === "students" ? assignmentStudentIds : [],
+        assignTo: assignmentAssignTo,
+        classId: assignmentAssignTo === "all_class" ? assignmentClassId : "",
+        subjectId: selectedQuiz?.subjectId || "",
+        studentIds: assignmentAssignTo === "specific" ? assignmentStudentIds : [],
+        dueDate,
+        timeLimit,
       },
     });
   };
@@ -1416,7 +1446,7 @@ function TeacherQuizzes() {
                         <thead className="bg-slate-100 text-slate-600">
                           <tr>
                             <th className="px-3 py-2">Row</th>
-                            <th className="px-3 py-2">questionType</th>
+                            <th className="px-3 py-2">quizTitle</th>
                             <th className="px-3 py-2">questionText</th>
                             <th className="px-3 py-2">answer key</th>
                             <th className="px-3 py-2">marks</th>
@@ -1434,18 +1464,12 @@ function TeacherQuizzes() {
                               }
                             >
                               <td className="px-3 py-2 text-slate-500">{row.rowNo}</td>
-                              <td className="px-3 py-2 text-slate-700">{row.questionType}</td>
+                              <td className="px-3 py-2 text-slate-700">{row.quizTitle}</td>
                               <td className="px-3 py-2 text-slate-700">{row.questionText}</td>
                               <td className="px-3 py-2">
-                                {row.questionType === "short_answer" ? (
-                                  <span className="text-xs text-amber-700">
-                                    Expected: {row.expectedAnswer || "-"}
-                                  </span>
-                                ) : (
-                                  <span className="text-xs font-semibold text-emerald-700">
-                                    Correct: {row.correctAnswer || "-"}
-                                  </span>
-                                )}
+                                <span className="text-xs font-semibold text-emerald-700">
+                                  Correct: {row.correctAnswer || "-"}
+                                </span>
                               </td>
                               <td className="px-3 py-2 text-slate-700">{row.marks}</td>
                               <td className="px-3 py-2 text-rose-600">
@@ -1631,29 +1655,59 @@ function TeacherQuizzes() {
                         Assign Quiz To Students
                       </p>
                       <div className="mt-3 grid gap-3">
-                        <input
-                          type="datetime-local"
-                          className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                          value={assignmentDueAt}
-                          onChange={(event) => setAssignmentDueAt(event.target.value)}
-                        />
+                        <div className="grid gap-3 sm:grid-cols-3">
+                          <div className="sm:col-span-2">
+                            <label className="block text-xs font-semibold text-slate-600">
+                              Due Date (optional)
+                            </label>
+                            <input
+                              type="datetime-local"
+                              className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm disabled:bg-slate-100"
+                              value={assignmentDueAt}
+                              onChange={(event) => setAssignmentDueAt(event.target.value)}
+                              disabled={assignmentNoDueDate}
+                            />
+                            <label className="mt-2 inline-flex items-center gap-2 text-xs text-slate-600">
+                              <input
+                                type="checkbox"
+                                checked={assignmentNoDueDate}
+                                onChange={(event) => setAssignmentNoDueDate(event.target.checked)}
+                              />
+                              No due date
+                            </label>
+                          </div>
+                          <div>
+                            <label className="block text-xs font-semibold text-slate-600">
+                              Time Limit (mins)
+                            </label>
+                            <input
+                              type="number"
+                              min={5}
+                              max={180}
+                              className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                              value={assignmentTimeLimit}
+                              onChange={(event) => setAssignmentTimeLimit(event.target.value)}
+                            />
+                            <p className="mt-1 text-[11px] text-slate-500">Range: 5 to 180</p>
+                          </div>
+                        </div>
                         <div className="flex flex-wrap gap-2">
                           {[
-                            { key: "course", label: "Whole Course" },
-                            { key: "class", label: "By Class" },
-                            { key: "students", label: "Selected Students" },
+                            { key: "all_class", label: "All Class Students" },
+                            { key: "all_subject", label: "All Subject Students" },
+                            { key: "specific", label: "Specific Students" },
                           ].map((item) => (
                             <button
                               key={item.key}
                               type="button"
                               className={`rounded-full px-3 py-1.5 text-xs font-semibold ${
-                                assignmentTargetType === item.key
+                                assignmentAssignTo === item.key
                                   ? "bg-[#4a63f5] text-white"
                                   : "border border-slate-200 text-slate-600"
                               }`}
                               onClick={() => {
-                                setAssignmentTargetType(item.key);
-                                if (item.key !== "class") setAssignmentClassId("");
+                                setAssignmentAssignTo(item.key);
+                                if (item.key !== "all_class") setAssignmentClassId("");
                               }}
                             >
                               {item.label}
@@ -1661,7 +1715,7 @@ function TeacherQuizzes() {
                           ))}
                         </div>
 
-                        {assignmentTargetType === "class" ? (
+                        {assignmentAssignTo === "all_class" ? (
                           <select
                             className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
                             value={assignmentClassId}
@@ -1676,14 +1730,17 @@ function TeacherQuizzes() {
                           </select>
                         ) : null}
 
-                        {assignmentTargetType === "course" ? (
+                        {assignmentAssignTo === "all_subject" ? (
                           <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
-                            This will assign the quiz to all students enrolled in{" "}
-                            <span className="font-semibold">{selectedQuiz?.courseName || "course"}</span>.
+                            This will assign the quiz to all enrolled students of{" "}
+                            <span className="font-semibold">
+                              {selectedQuiz?.subjectName || selectedQuiz?.courseName || "subject"}
+                            </span>
+                            .
                           </p>
                         ) : null}
 
-                        {assignmentTargetType === "students" ? (
+                        {assignmentAssignTo === "specific" ? (
                           <>
                             <input
                               className="rounded-xl border border-slate-200 px-3 py-2 text-sm"

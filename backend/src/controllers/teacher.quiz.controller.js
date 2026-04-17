@@ -68,22 +68,21 @@ const makeId = () => {
 const QUIZ_SCOPE = new Set(["chapter", "subject"]);
 const QUESTION_TYPES = new Set(["mcq", "true_false", "short_answer"]);
 const ASSIGNMENT_TARGET_TYPES = new Set(["students", "course", "class"]);
+// Bulk upload currently supports **MCQ only** (per product requirement).
+// Keep headers lowercase because `parseCsvToRows` lowercases them.
 const CSV_HEADERS = [
-  "scope",
   "courseid",
   "subjectid",
   "chapterid",
+  "scope",
   "quiztitle",
-  "quizdescription",
   "passscore",
-  "questiontype",
   "questiontext",
   "optiona",
   "optionb",
   "optionc",
   "optiond",
   "correctanswer",
-  "expectedanswer",
   "marks",
 ];
 
@@ -1085,12 +1084,28 @@ export const assignQuizToStudents = async (req, res) => {
     const uid = trimText(req.user?.uid);
     const role = getActorRole(req);
     const quizId = trimText(req.params?.quizId);
-    const dueAtRaw = trimText(req.body?.dueAt);
-    const targetType = ASSIGNMENT_TARGET_TYPES.has(lowerText(req.body?.targetType))
+
+    // New API: PATCH /teacher/quizzes/:quizId/assign
+    // Body supports:
+    // - assignTo: all_class | all_subject | specific | all_enrolled
+    // - classId, subjectId, studentIds, dueDate (optional), timeLimit
+    // Backwards compatibility: older clients use dueAt + targetType.
+    const assignToRaw = lowerText(req.body?.assignTo);
+    const legacyTargetType = ASSIGNMENT_TARGET_TYPES.has(lowerText(req.body?.targetType))
       ? lowerText(req.body?.targetType)
-      : "students";
+      : "";
+    const assignTo = assignToRaw
+      ? assignToRaw
+      : legacyTargetType === "class"
+        ? "all_class"
+        : legacyTargetType === "course"
+          ? "all_enrolled"
+          : legacyTargetType === "students"
+            ? "specific"
+            : "";
+
     const classId = trimText(req.body?.classId);
-    const requestedCourseId = trimText(req.body?.courseId);
+    const subjectId = trimText(req.body?.subjectId);
     const studentIds = [
       ...new Set(
         (Array.isArray(req.body?.studentIds) ? req.body.studentIds : [])
@@ -1101,17 +1116,13 @@ export const assignQuizToStudents = async (req, res) => {
 
     if (!uid) return errorResponse(res, "Missing user uid", 400);
     if (!quizId) return errorResponse(res, "quizId is required", 400);
-    if (!dueAtRaw) {
-      return errorResponse(res, "dueAt is required", 400);
-    }
 
-    const dueDate = new Date(dueAtRaw);
-    if (Number.isNaN(dueDate.getTime())) {
-      return errorResponse(res, "Invalid dueAt date/time", 400);
+    const dueDateRaw = trimText(req.body?.dueDate || req.body?.dueAt || "");
+    const dueDate = dueDateRaw ? new Date(dueDateRaw) : null;
+    if (dueDateRaw && (!dueDate || Number.isNaN(dueDate.getTime()))) {
+      return errorResponse(res, "Invalid dueDate", 400);
     }
-    if (dueDate.getTime() < Date.now() - 60 * 1000) {
-      return errorResponse(res, "dueAt must be in the future", 400);
-    }
+    const timeLimit = Math.max(5, Math.min(180, toPositiveNumber(req.body?.timeLimit, 30)));
 
     const owned = await getOwnedQuiz(quizId, uid, role);
     if (owned.error) return errorResponse(res, owned.error, owned.status);
@@ -1137,23 +1148,27 @@ export const assignQuizToStudents = async (req, res) => {
       }
     }
 
-    const effectiveCourseId = requestedCourseId || quizCourseId;
-    if (effectiveCourseId !== quizCourseId) {
-      return errorResponse(res, "Quiz can only be assigned within its own course", 400);
-    }
-
     let targetStudentIds = [];
     let announcementTargetType = "course";
     let announcementTargetId = quizCourseId;
     let announcementTargetName = trimText(quizData.courseName) || "Course";
-    if (targetType === "course") {
-      targetStudentIds = await getStudentIdsForCourse(quizCourseId);
-      if (!targetStudentIds.length) {
-        return errorResponse(res, "No students found in this course", 400);
-      }
-    } else if (targetType === "class") {
+
+    if (assignTo === "all_subject" || assignTo === "all_enrolled") {
+      // All active enrollments for this course/subject.
+      const enrollSnap = await db
+        .collection(COLLECTIONS.ENROLLMENTS)
+        .where("courseId", "==", quizCourseId)
+        .where("status", "==", "active")
+        .get();
+      targetStudentIds = enrollSnap.docs
+        .map((d) => trimText(d.data()?.studentId))
+        .filter(Boolean);
+      announcementTargetType = "course";
+      announcementTargetId = quizCourseId;
+      announcementTargetName = trimText(quizData.courseName) || "Course";
+    } else if (assignTo === "all_class") {
       if (!classId) {
-        return errorResponse(res, "classId is required for class assignment", 400);
+        return errorResponse(res, "classId required", 400);
       }
 
       const classSnap = await db.collection(COLLECTIONS.CLASSES).doc(classId).get();
@@ -1186,61 +1201,79 @@ export const assignQuizToStudents = async (req, res) => {
       announcementTargetName =
         trimText(classData.name) || trimText(classData.batchCode) || "Class";
     } else {
-      if (!studentIds.length) {
-        return errorResponse(res, "Select at least one student", 400);
-      }
-      const eligibleCourseStudents = new Set(await getStudentIdsForCourse(quizCourseId));
-      const invalidStudentIds = studentIds.filter((studentId) => !eligibleCourseStudents.has(studentId));
-      if (invalidStudentIds.length) {
+      if (assignTo !== "specific") {
         return errorResponse(
           res,
-          `Some students are not enrolled in this quiz course: ${invalidStudentIds.join(", ")}`,
+          "assignTo must be all_class all_subject specific or all_enrolled",
           400
         );
       }
+      if (!studentIds.length) return errorResponse(res, "studentIds required", 400);
       targetStudentIds = studentIds;
     }
 
     const uniqueStudentIds = [...new Set(targetStudentIds.map((id) => trimText(id)).filter(Boolean))];
     if (!uniqueStudentIds.length) {
-      return errorResponse(res, "No valid students found for assignment", 400);
+      return errorResponse(res, "No students found to assign", 404);
     }
 
-    const profiles = await Promise.all(
-      uniqueStudentIds.map((studentId) => getStudentAssignmentProfile(studentId))
-    );
-    const missingIds = uniqueStudentIds.filter((_, index) => !profiles[index]);
-    if (missingIds.length) {
-      return errorResponse(
-        res,
-        `Some students were not found: ${missingIds.join(", ")}`,
-        404
-      );
-    }
+    // Keep legacy assignment shape for older clients, but use the new fields as source of truth.
+    const legacyTargetTypeOut =
+      assignTo === "all_class" ? "class" : assignTo === "specific" ? "students" : "course";
 
-    const students = profiles.filter(Boolean).map((profile) => ({
-      studentId: profile.studentId,
-      fullName: profile.fullName,
-      email: profile.email,
-    }));
-
-    await owned.quizRef.update({
-      assignment: {
-        assignedBy: uid,
+    await owned.quizRef.set(
+      {
+        status: "active",
+        timeLimit,
+        assignedTo: assignTo,
+        assignedClassId: assignTo === "all_class" ? classId : null,
+        assignedSubjectId: subjectId || null,
+        assignedStudents: uniqueStudentIds,
+        dueDate: dueDate ? dueDate.toISOString() : null,
         assignedAt: serverTimestamp(),
-        dueAt: dueDate.toISOString(),
-        targetType,
-        classId: targetType === "class" ? classId : "",
-        courseId: quizCourseId,
-        totalAssigned: students.length,
-        students,
+        assignedBy: uid,
+        assignment: {
+          assignedBy: uid,
+          assignedAt: serverTimestamp(),
+          ...(dueDate ? { dueAt: dueDate.toISOString() } : {}),
+          targetType: legacyTargetTypeOut,
+          classId: assignTo === "all_class" ? classId : "",
+          courseId: quizCourseId,
+          totalAssigned: uniqueStudentIds.length,
+          students: uniqueStudentIds.map((studentId) => ({ studentId })),
+        },
+        updatedAt: serverTimestamp(),
       },
-      updatedAt: serverTimestamp(),
-    });
+      { merge: true }
+    );
 
     const updatedSnap = await owned.quizRef.get();
     const updatedData = updatedSnap.data() || {};
     const actorName = await getTeacherDisplayName(uid, req.user?.email || "");
+
+    // Create quiz assignment notifications/tracking docs
+    try {
+      const batch = db.batch();
+      const notifCol = db.collection("quizAssignments");
+      uniqueStudentIds.forEach((sid) => {
+        const ref = notifCol.doc(`${quizId}_${sid}`);
+        batch.set(
+          ref,
+          {
+            quizId,
+            studentId: sid,
+            courseId: quizCourseId,
+            status: "pending",
+            dueDate: dueDate ? dueDate.toISOString() : null,
+            assignedAt: serverTimestamp(),
+          },
+          { merge: true }
+        );
+      });
+      await batch.commit();
+    } catch (assignmentError) {
+      console.error("assignQuizToStudents quizAssignments error:", assignmentError);
+    }
 
     try {
       await createCourseQuizAnnouncement({
@@ -1248,7 +1281,7 @@ export const assignQuizToStudents = async (req, res) => {
         courseName: trimText(quizData.courseName) || "Course",
         quizId,
         quizTitle: trimText(quizData.title) || "Quiz",
-        dueAt: dueDate.toISOString(),
+        dueAt: dueDate ? dueDate.toISOString() : "",
         mode: "assigned",
         targetType: announcementTargetType,
         targetId: announcementTargetId,
@@ -1265,16 +1298,20 @@ export const assignQuizToStudents = async (req, res) => {
     return successResponse(
       res,
       {
-        id: quizId,
-        assignment: normalizeAssignmentInfo(updatedData.assignment || {}),
+        quizId,
+        assignedTo: assignTo,
+        studentsCount: uniqueStudentIds.length,
+        dueDate: dueDate ? dueDate.toISOString() : null,
       },
-      "Quiz assigned successfully"
+      `Quiz assigned to ${uniqueStudentIds.length} students`
     );
   } catch (error) {
     console.error("assignQuizToStudents error:", error);
     return errorResponse(res, "Failed to assign quiz", 500);
   }
 };
+
+export const assignQuiz = assignQuizToStudents;
 
 export const getQuizAnalytics = async (req, res) => {
   try {
@@ -1678,102 +1715,87 @@ export const downloadQuizBulkTemplate = async (req, res) => {
       "Subject";
     const chapterName =
       requestedChapterName || trimText(context.chapterData?.title) || "Chapter";
-    const chapterValue = scope === "chapter" ? chapterId : "";
-    const quizTitle = scope === "chapter" ? "Chapter 1 Quiz" : "Subject Quiz";
-    const description =
-      scope === "chapter" ? "Practice for this chapter" : "Practice for this subject";
 
-    const csvRows = [
-      [
-        scope,
-        courseId,
-        subjectId,
-        chapterValue,
-        quizTitle,
-        description,
-        "70",
-        "mcq",
-        "What is 2 + 2?",
-        "3",
-        "4",
-        "5",
-        "6",
-        "B",
-        "",
-        "1",
-      ],
-      [
-        scope,
-        courseId,
-        subjectId,
-        chapterValue,
-        quizTitle,
-        description,
-        "70",
-        "true_false",
-        "Sun rises from the east.",
-        "",
-        "",
-        "",
-        "",
-        "TRUE",
-        "",
-        "1",
-      ],
-      [
-        scope,
-        courseId,
-        subjectId,
-        chapterValue,
-        quizTitle,
-        description,
-        "70",
-        "short_answer",
-        "Define photosynthesis in one sentence.",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "Process by which plants make food using sunlight",
-        "5",
-      ],
-    ];
+    const chapterValue = scope === "chapter" ? chapterId : "";
+    const scopeValue = scope === "chapter" ? "chapter" : "subject";
 
     const headerRow = [
-      "scope",
       "courseId",
       "subjectId",
       "chapterId",
+      "scope",
       "quizTitle",
-      "quizDescription",
       "passScore",
-      "questionType",
       "questionText",
       "optionA",
       "optionB",
       "optionC",
       "optionD",
       "correctAnswer",
-      "expectedAnswer",
       "marks",
     ];
 
-    const commentRow = "# INSTRUCTIONS: correctAnswer for MCQ must be A B C or D";
-    const guidanceRow = "# correctAnswer for true_false must be TRUE or FALSE";
-    const guidanceRow2 = "# Delete this comment row before uploading";
+    // MCQ-only examples (exactly 3 rows)
+    const csvRows = [
+      [
+        courseId,
+        subjectId,
+        chapterValue,
+        scopeValue,
+        "Chapter 1 Quiz",
+        "70",
+        "What is the capital of Pakistan?",
+        "Lahore",
+        "Karachi",
+        "Islamabad",
+        "Peshawar",
+        "C",
+        "1",
+      ],
+      [
+        courseId,
+        subjectId,
+        chapterValue,
+        scopeValue,
+        "Chapter 1 Quiz",
+        "70",
+        "Which planet is closest to the sun?",
+        "Earth",
+        "Venus",
+        "Mars",
+        "Mercury",
+        "D",
+        "1",
+      ],
+      [
+        courseId,
+        subjectId,
+        chapterValue,
+        scopeValue,
+        "Chapter 1 Quiz",
+        "70",
+        "What is 15 multiplied by 4?",
+        "45",
+        "55",
+        "60",
+        "65",
+        "C",
+        "2",
+      ],
+    ];
 
-    const csvContent = [
-      commentRow,
-      guidanceRow,
-      guidanceRow2,
-      makeCsv([headerRow, ...csvRows]),
-    ].join("\n");
+    const commentRows = [
+      "# INSTRUCTIONS: Fill your MCQ questions below.",
+      "# correctAnswer MUST be A B C or D exactly.",
+      "# All rows must have same courseId subjectId chapterId scope.",
+      "# Delete this comment row before uploading.",
+      "# quizTitle groups questions into one quiz.",
+      "# Same title = same quiz. Different title = different quiz.",
+    ];
 
-    const fileName =
-      scope === "chapter"
-        ? `Quiz_Template_Chapter_${safeFilePart(chapterName)}.csv`
-        : `Quiz_Template_Subject_${safeFilePart(subjectName)}.csv`;
+    const csvContent = [...commentRows, makeCsv([headerRow, ...csvRows])].join("\n");
+
+    const fileName = `Quiz_MCQ_Template_${safeFilePart(subjectName)}.csv`;
 
     res.setHeader("Content-Type", "text/csv");
     res.setHeader("X-Template-Course", courseName);
@@ -1826,16 +1848,15 @@ export const bulkUploadTeacherQuiz = async (req, res) => {
       subjectId: trimText(row.subjectid),
       chapterId: trimText(row.chapterid),
       title: trimText(row.quiztitle || row.title),
-      description: trimText(row.quizdescription || row.description),
       passScore: trimText(row.passscore),
-      questionType: row.questiontype,
+      // Optional: accept legacy column if present, but only "mcq" is allowed.
+      questionType: trimText(row.questiontype),
       questionText: row.questiontext,
       optionA: row.optiona,
       optionB: row.optionb,
       optionC: row.optionc,
       optionD: row.optiond,
       correctAnswer: row.correctanswer,
-      expectedAnswer: row.expectedanswer,
       marks: row.marks,
     }));
 
@@ -1911,16 +1932,32 @@ export const bulkUploadTeacherQuiz = async (req, res) => {
       }
 
       try {
+        // MCQ-only bulk upload (explicit requirement)
+        if (trimText(row.questionType)) {
+          const type = mapQuestionType(row.questionType);
+          if (type && type !== "mcq") {
+            throw new Error(
+              "Only MCQ questions supported in bulk upload. Use manual quiz builder for True/False and Short Answer questions."
+            );
+          }
+        }
+
+        const strictCorrect = trimText(row.correctAnswer).toUpperCase();
+        if (!["A", "B", "C", "D"].includes(strictCorrect)) {
+          throw new Error(
+            `MCQ correctAnswer must be A B C or D, got "${row.correctAnswer}"`
+          );
+        }
+
         const question = normalizeQuestionInput(
           {
-            type: row.questionType,
+            type: "mcq",
             questionText: row.questionText,
             optionA: row.optionA,
             optionB: row.optionB,
             optionC: row.optionC,
             optionD: row.optionD,
-            correctAnswer: row.correctAnswer,
-            expectedAnswer: row.expectedAnswer,
+            correctAnswer: strictCorrect,
             marks: row.marks,
           },
           row.__row || rowIndex + 2
@@ -1929,14 +1966,11 @@ export const bulkUploadTeacherQuiz = async (req, res) => {
         const titleKey = lowerText(row.title);
         const existing = groupedByTitle.get(titleKey) || {
           title: row.title,
-          description: row.description,
+          description: "",
           passScore: Number(row.passScore) > 0 ? Number(row.passScore) : 50,
           questions: [],
         };
 
-        if (!existing.description && row.description) {
-          existing.description = row.description;
-        }
         if (!existing.passScore && Number(row.passScore) > 0) {
           existing.passScore = Number(row.passScore);
         }

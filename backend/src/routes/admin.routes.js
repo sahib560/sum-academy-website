@@ -15,7 +15,7 @@ import {
 import {
   getTeacherQuizzes,
   getTeacherQuizById,
-  assignQuizToStudents,
+  assignQuiz,
   getQuizAnalytics,
   createTeacherQuiz,
   downloadQuizBulkTemplate,
@@ -132,7 +132,7 @@ router.get("/quizzes/:quizId", adminOnly, getTeacherQuizById);
 router.get("/quizzes/:quizId/analytics", adminOnly, getQuizAnalytics);
 router.post("/quizzes", adminOnly, createTeacherQuiz);
 router.post("/quizzes/bulk-upload", adminOnly, upload.single("file"), bulkUploadTeacherQuiz);
-router.patch("/quizzes/:quizId/assign", adminOnly, assignQuizToStudents);
+router.patch("/quizzes/:quizId/assign", adminOnly, assignQuiz);
 router.get("/quizzes/:quizId/submissions", adminOnly, getQuizSubmissions);
 router.get("/tests", adminOnly, getManagedTests);
 router.post("/tests", adminOnly, createTest);

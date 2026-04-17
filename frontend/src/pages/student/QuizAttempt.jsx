@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion as Motion } from "framer-motion";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import toast, { Toaster } from "react-hot-toast";
 import { Skeleton } from "../../components/Skeleton.jsx";
+import QuizResultCard from "../../components/QuizResultCard.jsx";
 import {
   getQuizById,
   reportStudentSecurityViolation,
@@ -404,7 +405,6 @@ function StudentQuizAttempt() {
   }, [submittedResult]);
 
   if (submittedResult && resultSummary) {
-    const isPassed = Boolean(submittedResult.isPassed);
     const studentName =
       userProfile?.fullName ||
       userProfile?.name ||
@@ -425,78 +425,18 @@ function StudentQuizAttempt() {
           }
           email={String(userProfile?.email || "")}
         />
-        <div className="mx-auto max-w-3xl">
-          <Motion.section
-            initial={{ opacity: 0, y: 16 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="relative mx-auto max-w-xl overflow-hidden rounded-[24px] border border-[#252a45] bg-gradient-to-br from-[#0d0f1a] to-[#12162b] p-8 text-center"
-          >
-            <div
-              className={`pointer-events-none absolute right-0 top-0 h-[120px] w-[120px] ${
-                isPassed ? "bg-emerald-600/10" : "bg-rose-600/10"
-              }`}
-              style={{ borderRadius: "0 24px 0 120px" }}
-            />
-
-            <div className="mx-auto mb-5 flex h-11 w-11 items-center justify-center rounded-xl bg-[#4a63f5]">
-              <span className="text-sm font-bold text-white">S</span>
-            </div>
-
-            <div
-              className={`mx-auto mb-6 inline-flex items-center gap-1 rounded-full border px-5 py-1 text-xs font-bold ${
-                isPassed
-                  ? "border-emerald-500 bg-emerald-500/15 text-emerald-400"
-                  : "border-rose-500 bg-rose-500/15 text-rose-400"
-              }`}
-            >
-              {isPassed ? "PASSED" : "FAILED"}
-            </div>
-
-            <div
-              className={`mx-auto mb-6 flex h-36 w-36 flex-col items-center justify-center rounded-full border-[6px] ${
-                isPassed
-                  ? "border-emerald-500 bg-emerald-500/10"
-                  : "border-rose-500 bg-rose-500/10"
-              }`}
-            >
-              <span className={`text-4xl font-extrabold ${isPassed ? "text-emerald-400" : "text-rose-400"}`}>
-                {animatedPercent}%
-              </span>
-              <span className="text-xs text-slate-400">score</span>
-            </div>
-
-            <h2 className="text-xl font-bold text-white">{studentName}</h2>
-            <p className="mt-1 text-xs text-slate-400">{quiz.title}</p>
-
-            <div className="mt-6 grid grid-cols-3 gap-2">
-              {[
-                {
-                  label: "Score",
-                  value: `${toNumber(submittedResult.autoScore, 0)}/${toNumber(submittedResult.totalMarks, 0)}`,
-                },
-                { label: "Your Rank", value: `#${submittedResult.rank || "—"}` },
-                { label: "Pass Mark", value: `${toNumber(quiz.passScore, 50)}%` },
-              ].map((item) => (
-                <div key={item.label} className="rounded-xl bg-slate-800/80 px-2 py-3">
-                  <p className="text-sm font-bold text-[#4a63f5]">{item.value}</p>
-                  <p className="text-[11px] text-slate-400">{item.label}</p>
-                </div>
-              ))}
-            </div>
-
-            {toNumber(submittedResult.shortAnswerPending, 0) > 0 ? (
-              <div className="mt-5 rounded-xl border border-[#ff6f0f] bg-[#ff6f0f]/10 px-3 py-2 text-xs text-[#ff6f0f]">
-                {toNumber(submittedResult.shortAnswerPending, 0)} short answer(s) pending teacher review. Final score may change.
-              </div>
-            ) : null}
-
-            <p className="mt-4 text-xs text-slate-500">Submitted: {new Date().toLocaleString()}</p>
-            <div className="mt-5">
-              <Link className="inline-flex rounded-full bg-[#4a63f5] px-6 py-2 text-sm font-semibold text-white" to="/student/quizzes">
+        <div className="mx-auto max-w-4xl">
+          <Motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}>
+            <QuizResultCard result={submittedResult} quiz={quiz} studentName={studentName} />
+            <div className="mt-6 flex justify-center">
+              <Link
+                className="inline-flex rounded-full bg-[#4a63f5] px-6 py-2 text-sm font-semibold text-white"
+                to="/student/quizzes"
+              >
                 Back to Quizzes
               </Link>
             </div>
-          </Motion.section>
+          </Motion.div>
         </div>
       </div>
     );

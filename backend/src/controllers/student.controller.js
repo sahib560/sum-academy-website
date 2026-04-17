@@ -4559,13 +4559,26 @@ const parseQuizAssignmentStudents = (assignment = {}) => {
 
 const getQuizAssignmentDueAt = (quiz = {}) => {
   const assignment = quiz?.assignment || {};
-  return parseDate(assignment.dueAt || quiz?.dueAt || null);
+  return parseDate(quiz?.dueDate || assignment.dueAt || quiz?.dueAt || null);
 };
 
 const isQuizAssignedToStudent = (quiz = {}, uid = "") => {
+  const cleanId = trimText(uid);
+  if (!cleanId) return false;
+
+  // New assignment model
+  const assignedStudents = Array.isArray(quiz.assignedStudents)
+    ? quiz.assignedStudents.map((entry) => trimText(entry)).filter(Boolean)
+    : [];
+  if (assignedStudents.includes(cleanId)) return true;
+
+  const assignedTo = lowerText(quiz.assignedTo || quiz.assignTo || "");
+  if (assignedTo === "all_enrolled" || assignedTo === "all_subject") return true;
+
+  // Legacy assignment model
   const assignmentStudents = parseQuizAssignmentStudents(quiz.assignment || {});
   if (!assignmentStudents.length) return false;
-  return assignmentStudents.includes(uid);
+  return assignmentStudents.includes(cleanId);
 };
 
 const isAnnouncementVisibleToStudent = (
@@ -4627,6 +4640,18 @@ export const getStudentQuizzes = async (req, res) => {
         );
         const passScore = toNumber(quiz.passScore, 50);
         const latest = latestAttemptMap[quiz.id];
+        const assignedStudents = Array.isArray(quiz.assignedStudents)
+          ? quiz.assignedStudents.map((entry) => trimText(entry)).filter(Boolean)
+          : [];
+        const assignedTo = lowerText(quiz.assignedTo || quiz.assignTo || "");
+        const isAssignedToYou = assignedStudents.includes(uid);
+        const assignmentBadge = isAssignedToYou
+          ? "assigned_to_you"
+          : assignedTo === "all_class"
+            ? "class_assignment"
+            : assignedTo
+              ? "course_assignment"
+              : "assigned_to_you";
         const dueAtDate = getQuizAssignmentDueAt(quiz);
         const dueAt = dueAtDate ? dueAtDate.toISOString() : null;
         const isPastDue = dueAtDate ? dueAtDate.getTime() < nowTime : false;
@@ -4672,19 +4697,34 @@ export const getStudentQuizzes = async (req, res) => {
           ),
           timeLimit: Math.max(0, toNumber(quiz.timeLimit, 0)),
           passScore,
+          assignedTo: assignedTo || null,
+          isAssignedToYou,
+          assignmentBadge,
+          dueDate: dueAt,
           status,
           dueAt,
           isPastDue,
           lastAttempt: latest
             ? {
+                // Keep legacy `score` field for old clients.
                 score: toNumber(
                   latest.totalScore ?? latest.autoScore ?? latest.objectiveScore,
                   0
                 ),
+                autoScore: toNumber(latest.autoScore ?? latest.objectiveScore, 0),
+                totalMarks: toNumber(latest.totalMarks, 0),
                 percentage: toNumber(
                   latest.percentage ?? latest.scorePercent ?? latest.totalScore,
                   0
                 ),
+                isPassed: latest.isPassed === true,
+                shortAnswerPending: toNumber(latest.shortAnswerPending, 0),
+                rank: Number.isFinite(Number(latest.rank)) ? Number(latest.rank) : null,
+                totalAttempts: toNumber(latest.totalAttempts, 0),
+                topScore: toNumber(latest.topScore, 0),
+                avgScore: toNumber(latest.avgScore, 0),
+                passingCount: toNumber(latest.passingCount, 0),
+                status: lowerText(latest.status || ""),
                 submittedAt: toIso(latest.submittedAt || latest.createdAt),
               }
             : null,
@@ -5037,22 +5077,59 @@ export const submitQuizAttempt = async (req, res) => {
     });
 
     let rank = null;
+    let totalAttempts = null;
+    let topScore = null;
+    let avgScore = null;
+    let passingCount = null;
     try {
       const allResultsSnap = await db
         .collection(COLLECTIONS.QUIZ_RESULTS)
         .where("quizId", "==", quizId)
         .get();
-      const scores = allResultsSnap.docs
-        .map((doc) => Number(doc.data()?.percentage || 0))
+
+      const nonPartialRows = allResultsSnap.docs
+        .map((doc) => doc.data() || {})
+        .filter((row) => lowerText(row.status) !== "partial");
+
+      const scores = nonPartialRows
+        .map((row) => Number(row.percentage ?? row.scorePercent ?? 0))
         .filter((score) => Number.isFinite(score))
         .sort((a, b) => b - a);
+
       const studentScore = Number(percentage || 0);
-      const foundIndex = scores.findIndex((score) => studentScore >= score);
+      const foundIndex = scores.findIndex((s) => s <= studentScore);
       rank = foundIndex >= 0 ? foundIndex + 1 : scores.length + 1;
-      await resultRef.set({ rank, updatedAt: serverTimestamp() }, { merge: true });
+
+      totalAttempts = nonPartialRows.length;
+      topScore = scores.length ? scores[0] : 0;
+      avgScore =
+        scores.length > 0
+          ? Number((scores.reduce((sum, value) => sum + value, 0) / scores.length).toFixed(2))
+          : 0;
+      passingCount = nonPartialRows.filter((row) => {
+        const pct = Number(row.percentage ?? row.scorePercent ?? 0);
+        if (!Number.isFinite(pct)) return false;
+        return pct >= passScore;
+      }).length;
+
+      await resultRef.set(
+        {
+          rank,
+          totalAttempts,
+          topScore,
+          avgScore,
+          passingCount,
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
     } catch (rankError) {
       console.error("submitQuizAttempt rank error:", rankError);
       rank = null;
+      totalAttempts = null;
+      topScore = null;
+      avgScore = null;
+      passingCount = null;
     }
 
     let certificateIssued = false;
@@ -5192,6 +5269,10 @@ export const submitQuizAttempt = async (req, res) => {
         percentage,
         isPassed,
         rank,
+        totalAttempts,
+        topScore,
+        avgScore,
+        passingCount,
         certificateIssued,
         certificatePending,
         certificateBlockedByFinalQuiz,
