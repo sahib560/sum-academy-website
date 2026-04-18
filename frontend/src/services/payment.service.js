@@ -11,6 +11,9 @@ export const uploadPaymentReceipt = (paymentId, receiptUrl) =>
     .patch(`/payments/${paymentId}/receipt`, { receiptUrl })
     .then((r) => r.data.data);
 
+export const finishPaymentRequest = (paymentId) =>
+  api.post(`/payments/${paymentId}/finish`).then((r) => r.data.data);
+
 export const getPaymentStatus = (paymentId) =>
   api.get(`/payments/${paymentId}/status`).then((r) => r.data.data);
 

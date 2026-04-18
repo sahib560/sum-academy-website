@@ -522,10 +522,9 @@ const fetchMergedPayments = async () => {
           normalizePaymentStatus(item.status)
         ) && Boolean(String(item.receiptUrl || "").trim()),
       isAwaitingReceipt:
-        ["awaiting_receipt", "pending"].includes(
-          normalizePaymentStatus(item.status)
-        ) &&
-        !String(item.receiptUrl || "").trim(),
+        normalizePaymentStatus(item.status) === "awaiting_receipt" ||
+        (normalizePaymentStatus(item.status) === "pending" &&
+          !String(item.receiptUrl || "").trim()),
       reference: item.reference || "",
       promoCode: item.promoCode || null,
       isInstallment: Boolean(item.isInstallment),
@@ -1227,8 +1226,6 @@ export const uploadPaymentReceipt = async (req, res) => {
     const currentStatus = normalizePaymentStatus(payment.status);
     const allowedStatuses = new Set([
       "awaiting_receipt",
-      "pending",
-      "pending_verification",
       "rejected",
     ]);
     if (!allowedStatuses.has(currentStatus)) {
@@ -1241,15 +1238,93 @@ export const uploadPaymentReceipt = async (req, res) => {
 
     await paymentRef.update({
       receiptUrl,
-      status: "pending_verification",
+      status: "awaiting_receipt",
       receiptUploadedAt: FieldValue.serverTimestamp(),
+      verifiedAt: null,
+      verifiedBy: null,
       updatedAt: FieldValue.serverTimestamp(),
     });
 
-    return successResponse(res, { paymentId, status: "pending_verification" }, "Receipt uploaded");
+    return successResponse(
+      res,
+      { paymentId, status: "awaiting_receipt", receiptUploaded: true },
+      "Receipt uploaded. Click Finish to submit for verification."
+    );
   } catch (error) {
     console.error("uploadPaymentReceipt error:", error);
     return errorResponse(res, "Failed to upload receipt", 500);
+  }
+};
+
+export const finishPaymentRequest = async (req, res) => {
+  try {
+    const paymentId = req.params.id || req.params.paymentId;
+    if (!paymentId) return errorResponse(res, "paymentId is required", 400);
+
+    const paymentRef = db.collection(COLLECTIONS.PAYMENTS).doc(paymentId);
+    const paymentSnap = await paymentRef.get();
+    if (!paymentSnap.exists) return errorResponse(res, "Payment not found", 404);
+
+    const payment = paymentSnap.data() || {};
+    if (payment.studentId !== req.user.uid) {
+      return errorResponse(res, "You can submit your own payment only", 403);
+    }
+
+    const userSnap = await db.collection(COLLECTIONS.USERS).doc(req.user.uid).get();
+    const userData = userSnap.exists ? userSnap.data() || {} : {};
+    if (userData.paymentApprovalBlocked) {
+      return errorResponse(
+        res,
+        "Payment approvals are blocked after 3 rejected receipts. Contact admin to reset.",
+        403,
+        {
+          code: "PAYMENT_APPROVAL_BLOCKED",
+          rejectCount: Number(userData.paymentRejectCount || 0),
+          rejectLimit: Number(userData.paymentRejectLimit || 3),
+        }
+      );
+    }
+
+    const currentStatus = normalizePaymentStatus(payment.status);
+    const allowedStatuses = new Set(["awaiting_receipt", "rejected"]);
+    if (!allowedStatuses.has(currentStatus)) {
+      if (currentStatus === "pending_verification" || currentStatus === "pending") {
+        return successResponse(
+          res,
+          { paymentId, status: currentStatus },
+          "Payment already submitted for verification"
+        );
+      }
+      return errorResponse(res, "Payment cannot be submitted in this status", 400);
+    }
+
+    const receiptUrl = String(payment.receiptUrl || "").trim();
+    if (!receiptUrl) {
+      return errorResponse(res, "Upload receipt first", 400, { code: "RECEIPT_REQUIRED" });
+    }
+
+    const paymentMethod = String(payment.method || "").toLowerCase();
+    const supportedReceiptMethods = new Set(["bank_transfer", "easypaisa", "jazzcash"]);
+    if (!supportedReceiptMethods.has(paymentMethod)) {
+      return errorResponse(res, "Unsupported payment method for receipt verification", 400);
+    }
+
+    await paymentRef.update({
+      status: "pending_verification",
+      submittedForVerificationAt: FieldValue.serverTimestamp(),
+      verifiedAt: null,
+      verifiedBy: null,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    return successResponse(
+      res,
+      { paymentId, status: "pending_verification" },
+      "Payment submitted for verification"
+    );
+  } catch (error) {
+    console.error("finishPaymentRequest error:", error);
+    return errorResponse(res, "Failed to submit payment for verification", 500);
   }
 };
 
@@ -1572,12 +1647,9 @@ export const getAdminPayments = async (req, res) => {
       .trim()
       .toLowerCase();
 
-    // Default: show all payment requests to admin, including awaiting receipt.
-    // Pass includeAwaitingReceipt=false only when caller explicitly wants to hide them.
-    const includeAwaitingReceipt =
-      includeAwaitingReceiptParam === ""
-        ? true
-        : includeAwaitingReceiptParam === "true";
+    // Default: hide "awaiting_receipt" rows (no receipt uploaded yet).
+    // Pass includeAwaitingReceipt=true if admin explicitly wants to review them.
+    const includeAwaitingReceipt = includeAwaitingReceiptParam === "true";
 
     let rows = await fetchMergedPayments();
     if (!includeAwaitingReceipt) {

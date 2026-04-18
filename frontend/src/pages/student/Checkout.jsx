@@ -8,6 +8,7 @@ import {
   getPaymentConfig,
   initiatePayment,
   uploadPaymentReceipt as saveReceiptUrl,
+  finishPaymentRequest,
   validatePromoCode,
 } from "../../services/payment.service.js";
 import { uploadPaymentReceipt as uploadReceiptToStorage } from "../../utils/firebaseUpload.js";
@@ -59,6 +60,7 @@ function Checkout() {
   const [paymentMethod, setPaymentMethod] = useState("bank_transfer");
   const [initiatedPayment, setInitiatedPayment] = useState(null);
   const [receiptSubmitted, setReceiptSubmitted] = useState(false);
+  const [receiptUploaded, setReceiptUploaded] = useState(false);
 
   const { data: paymentConfig } = useQuery({
     queryKey: ["payment-method-config"],
@@ -246,12 +248,24 @@ function Checkout() {
     onSuccess: (data) => {
       setInitiatedPayment(data);
       setReceiptSubmitted(false);
+      setReceiptUploaded(false);
       toast.success(
         `${formatMethodLabel(data?.method || activePaymentMethod)} payment initiated.`
       );
     },
     onError: (error) => {
       toast.error(error?.response?.data?.message || "Failed to initiate payment");
+    },
+  });
+
+  const finishMutation = useMutation({
+    mutationFn: () => finishPaymentRequest(initiatedPayment?.paymentId),
+    onSuccess: () => {
+      setReceiptSubmitted(true);
+      toast.success("Payment submitted for verification");
+    },
+    onError: (error) => {
+      toast.error(error?.response?.data?.message || "Failed to submit payment");
     },
   });
 
@@ -673,13 +687,22 @@ function Checkout() {
                       initiatedPayment.paymentId,
                       uploaded.url
                     );
-                    if (receiptRes?.status === "pending_verification") {
-                      setReceiptSubmitted(true);
+                    if (receiptRes?.receiptUploaded) {
+                      setReceiptUploaded(true);
                     }
-                    toast.success("Payment submitted for verification");
+                    setReceiptSubmitted(false);
+                    toast.success("Receipt uploaded. Click Finish to submit.");
                     return uploaded;
                   }}
                 />
+                <button
+                  type="button"
+                  className="btn-primary w-full"
+                  disabled={!receiptUploaded || receiptSubmitted || finishMutation.isPending}
+                  onClick={() => finishMutation.mutate()}
+                >
+                  {finishMutation.isPending ? "Submitting..." : "Finish"}
+                </button>
                 <p
                   className={`text-xs ${
                     receiptSubmitted ? "text-amber-700" : "text-slate-600"
@@ -688,7 +711,9 @@ function Checkout() {
                   Status:{" "}
                   {receiptSubmitted
                     ? "Pending Admin Verification"
-                    : "Awaiting receipt upload"}
+                    : receiptUploaded
+                      ? "Receipt uploaded (not submitted)"
+                      : "Awaiting receipt upload"}
                 </p>
               </div>
             ) : null}

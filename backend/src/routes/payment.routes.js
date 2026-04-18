@@ -14,6 +14,7 @@ import {
   markInstallmentPaid,
   sendInstallmentReminders,
   overrideInstallment,
+  finishPaymentRequest,
 } from "../controllers/payment.controller.js";
 import { validatePromoCode } from "../controllers/admin.controller.js";
 
@@ -25,6 +26,7 @@ const adminOnly = [verifyToken, requireRole("admin")];
 studentPaymentRoutes.post("/initiate", verifyToken, initiatePayment);
 studentPaymentRoutes.post("/validate-promo", verifyToken, validatePromoCode);
 studentPaymentRoutes.get("/config", verifyToken, getPaymentMethodsConfig);
+studentPaymentRoutes.post("/:paymentId/finish", verifyToken, finishPaymentRequest);
 studentPaymentRoutes.get("/:id/status", verifyToken, getPaymentStatus);
 studentPaymentRoutes.get("/my-payments", verifyToken, getMyPayments);
 studentPaymentRoutes.get("/my-installments", verifyToken, getMyInstallments);
