@@ -1307,6 +1307,7 @@ export const getStudentTestById = async (req, res) => {
     return successResponse(
       res,
       {
+        serverNow: new Date().toISOString(),
         test,
         questions: sanitizeQuestionsForStudent(testData.questions || []),
         attempt: inProgress
@@ -1347,6 +1348,7 @@ export const startStudentTest = async (req, res) => {
       return successResponse(
         res,
         {
+          serverNow: new Date().toISOString(),
           testId,
           attempt: normalizeAttemptPayload({ id: inProgress.id, ...inProgress }),
           currentQuestion: getCurrentQuestionForAttempt(testData, inProgress),
@@ -1361,6 +1363,7 @@ export const startStudentTest = async (req, res) => {
     );
     const attemptRef = db.collection(COLLECTIONS.TEST_ATTEMPTS).doc();
     const now = new Date();
+    const endAtDate = parseDate(testData.endAt) || now;
     await attemptRef.set({
       testId,
       studentId: uid,
@@ -1379,12 +1382,13 @@ export const startStudentTest = async (req, res) => {
       maxViolations: Math.max(1, toNumber(testData.maxViolations, 3)),
       startedAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
-      expiresAt: parseDate(testData.endAt) || now,
+      expiresAt: endAtDate,
     });
 
     return successResponse(
       res,
       {
+        serverNow: now.toISOString(),
         testId,
         attempt: {
           id: attemptRef.id,
@@ -1393,7 +1397,7 @@ export const startStudentTest = async (req, res) => {
           totalQuestions: testQuestions.length,
           answersCount: 0,
           startedAt: now.toISOString(),
-          expiresAt: toIso(testData.endAt),
+          expiresAt: toIso(endAtDate),
         },
         currentQuestion: testQuestions[0] || null,
       },
@@ -1422,6 +1426,11 @@ export const submitStudentTestAnswer = async (req, res) => {
     const inProgress = getInProgressAttempt(attempts);
     if (!inProgress) {
       return errorResponse(res, "No active test attempt found", 404, { code: "ATTEMPT_NOT_FOUND" });
+    }
+
+    const expiresAt = parseDate(inProgress.expiresAt) || parseDate(testData.endAt);
+    if (expiresAt && Date.now() > expiresAt.getTime()) {
+      return errorResponse(res, "Test time is over. Please submit.", 409, { code: "TEST_EXPIRED" });
     }
 
     const questions = (Array.isArray(testData.questions) ? testData.questions : [])
@@ -1551,6 +1560,18 @@ export const finishStudentTest = async (req, res) => {
     const access = await ensureStudentCanAccessTest({ testId, uid });
     if (access.error) return errorResponse(res, access.error, access.status || 403);
     const { testData } = access;
+    const endAtDate = parseDate(testData.endAt);
+    const now = new Date();
+    if (["timeout", "auto"].includes(reason) && endAtDate) {
+      // Guard against client clock skew: only allow timeout auto-submit when server time is at/after endAt.
+      if (now.getTime() + 3000 < endAtDate.getTime()) {
+        return errorResponse(res, "Test is still active", 409, {
+          code: "TEST_NOT_EXPIRED",
+          serverNow: now.toISOString(),
+          endAt: endAtDate.toISOString(),
+        });
+      }
+    }
 
     const attempts = await getTestAttemptRowsForStudent(uid, testId);
     const inProgress = getInProgressAttempt(attempts);

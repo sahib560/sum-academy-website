@@ -31,6 +31,7 @@ function StudentTestAttempt() {
   const [selectedAnswer, setSelectedAnswer] = useState("");
   const [timeLeft, setTimeLeft] = useState(0);
   const autoFinishRef = useRef(false);
+  const serverOffsetMsRef = useRef(0);
   const [securityDeactivatedInfo, setSecurityDeactivatedInfo] = useState(null);
   const lastViolationRef = useRef({ reason: "", count: 0, at: 0 });
 
@@ -45,6 +46,12 @@ function StudentTestAttempt() {
   useEffect(() => {
     const payload = detailQuery.data || {};
     if (!payload?.test) return;
+    if (payload?.serverNow) {
+      const serverMs = new Date(payload.serverNow).getTime();
+      if (!Number.isNaN(serverMs)) {
+        serverOffsetMsRef.current = serverMs - Date.now();
+      }
+    }
     setTest(payload.test);
     setAttempt(payload.attempt || null);
     setCurrentQuestion(payload.currentQuestion || null);
@@ -63,6 +70,12 @@ function StudentTestAttempt() {
   const startMutation = useMutation({
     mutationFn: () => startStudentTest(testId),
     onSuccess: (data) => {
+      if (data?.serverNow) {
+        const serverMs = new Date(data.serverNow).getTime();
+        if (!Number.isNaN(serverMs)) {
+          serverOffsetMsRef.current = serverMs - Date.now();
+        }
+      }
       setAttempt(data.attempt || null);
       setCurrentQuestion(data.currentQuestion || null);
       setSelectedAnswer("");
@@ -84,6 +97,16 @@ function StudentTestAttempt() {
     },
     onError: (error) => {
       autoFinishRef.current = false;
+      const code = error?.response?.data?.errors?.code || error?.response?.data?.code;
+      const serverNow = error?.response?.data?.errors?.serverNow || error?.response?.data?.serverNow;
+      if (code === "TEST_NOT_EXPIRED" && serverNow) {
+        const serverMs = new Date(serverNow).getTime();
+        if (!Number.isNaN(serverMs)) {
+          serverOffsetMsRef.current = serverMs - Date.now();
+        }
+        toast.error("Time sync updated. Test is still active.");
+        return;
+      }
       toast.error(error?.response?.data?.message || "Failed to submit test");
     },
   });
@@ -130,7 +153,7 @@ function StudentTestAttempt() {
     if (!endTime || Number.isNaN(endTime)) return;
 
     const tick = () => {
-      const now = Date.now();
+      const now = Date.now() + (serverOffsetMsRef.current || 0);
       const remain = Math.max(0, Math.floor((endTime - now) / 1000));
       setTimeLeft(remain);
       if (remain > 0 || autoFinishRef.current) return;
