@@ -54,6 +54,46 @@ const sendMail = async (options = {}) => {
   return transporter.sendMail(options);
 };
 
+export const sendTestScheduleBroadcastEmail = async (emails = [], payload = {}) => {
+  const recipients = (Array.isArray(emails) ? emails : [])
+    .map((e) => String(e || "").trim())
+    .filter(Boolean);
+  if (recipients.length < 1) return { sent: 0 };
+
+  const title = String(payload.title || "New Test Scheduled").trim() || "New Test Scheduled";
+  const message = String(payload.message || "").trim();
+  const startAt = String(payload.startAt || "").trim();
+  const endAt = String(payload.endAt || "").trim();
+  const durationMinutes = Number(payload.durationMinutes || 0) || 0;
+
+  const chunkSize = 50;
+  let sent = 0;
+  for (let index = 0; index < recipients.length; index += chunkSize) {
+    const chunk = recipients.slice(index, index + chunkSize);
+    await sendMail({
+      from: MAIL_FROM,
+      to: MAIL_FROM,
+      bcc: chunk,
+      subject: title,
+      html: `
+        <div style="font-family: DM Sans, sans-serif; max-width: 560px; margin: 0 auto; padding: 24px; background: #f8f9fe; border-radius: 16px;">
+          <h2 style="color: #4a63f5; margin: 0 0 8px;">${title}</h2>
+          <p style="color: #334155; margin: 0 0 14px; line-height: 1.6;">${message || "A new test has been scheduled. Please be ready on time."}</p>
+          <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 14px 16px;">
+            ${startAt ? `<p style="margin: 0; color: #475569;"><b>Start:</b> ${startAt}</p>` : ""}
+            ${endAt ? `<p style="margin: 6px 0 0; color: #475569;"><b>End:</b> ${endAt}</p>` : ""}
+            ${durationMinutes ? `<p style="margin: 6px 0 0; color: #475569;"><b>Duration:</b> ${durationMinutes} minutes</p>` : ""}
+          </div>
+          <p style="margin: 16px 0 0; color: #94a3b8; font-size: 12px;">© 2026 SUM Academy — Karachi, Pakistan</p>
+        </div>
+      `,
+    });
+    sent += chunk.length;
+  }
+
+  return { sent };
+};
+
 if (EMAIL_CONFIGURED) {
   transporter
     .verify()

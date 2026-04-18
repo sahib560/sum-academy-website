@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 
@@ -25,6 +25,21 @@ const toInputDateTime = (value) => {
   return `${parsed.getFullYear()}-${pad(parsed.getMonth() + 1)}-${pad(parsed.getDate())}T${pad(
     parsed.getHours()
   )}:${pad(parsed.getMinutes())}`;
+};
+
+const parseLocalDateTime = (value) => {
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const computeDurationMinutes = (startAt, endAt) => {
+  const start = parseLocalDateTime(startAt);
+  const end = parseLocalDateTime(endAt);
+  if (!start || !end) return null;
+  const diff = end.getTime() - start.getTime();
+  if (diff <= 0) return null;
+  return Math.max(5, Math.ceil(diff / (60 * 1000)));
 };
 
 export default function TestsManager({
@@ -114,13 +129,43 @@ export default function TestsManager({
     },
   });
 
+  const computedDuration = useMemo(
+    () => computeDurationMinutes(form.startAt, form.endAt),
+    [form.startAt, form.endAt]
+  );
+
+  useEffect(() => {
+    if (!computedDuration) return;
+    setForm((p) => (p.durationMinutes === computedDuration ? p : { ...p, durationMinutes: computedDuration }));
+  }, [computedDuration]);
+
   const downloadTemplate = async () => {
     try {
       if (!downloadTestTemplate) {
         toast.error("Template download is not available");
         return;
       }
-      const { blob, filename } = await downloadTestTemplate();
+      const canDownload =
+        Boolean(form.title.trim()) &&
+        Boolean(parseLocalDateTime(form.startAt)) &&
+        Boolean(parseLocalDateTime(form.endAt)) &&
+        (form.scope === "center" || Boolean(form.classId));
+      if (!canDownload) {
+        toast.error("Fill title, scope, class (if needed), start and end time first.");
+        return;
+      }
+
+      const startIso = parseLocalDateTime(form.startAt)?.toISOString() || "";
+      const endIso = parseLocalDateTime(form.endAt)?.toISOString() || "";
+      const { blob, filename } = await downloadTestTemplate({
+        scope: form.scope,
+        classId: form.scope === "center" ? "" : form.classId,
+        title: form.title,
+        description: form.description,
+        startAt: startIso,
+        endAt: endIso,
+        maxViolations: form.maxViolations,
+      });
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
@@ -138,6 +183,14 @@ export default function TestsManager({
   const classes = Array.isArray(classesQuery.data) ? classesQuery.data : [];
   const selected = detailsQuery.data || null;
   const isCenter = form.scope === "center";
+  const canDownloadTemplate = useMemo(() => {
+    if (!downloadTestTemplate) return false;
+    if (!form.title.trim()) return false;
+    if (!parseLocalDateTime(form.startAt) || !parseLocalDateTime(form.endAt)) return false;
+    if (!computedDuration) return false;
+    if (!isCenter && !form.classId) return false;
+    return true;
+  }, [downloadTestTemplate, form.title, form.startAt, form.endAt, form.classId, isCenter, computedDuration]);
 
   const canSubmit = useMemo(() => {
     if (!form.title.trim()) return false;
@@ -164,7 +217,7 @@ export default function TestsManager({
       classId: isCenter ? "" : form.classId,
       startAt: new Date(form.startAt).toISOString(),
       endAt: new Date(form.endAt).toISOString(),
-      durationMinutes: Number(form.durationMinutes || 60),
+      durationMinutes: Number(computedDuration || form.durationMinutes || 60),
       maxViolations: Number(form.maxViolations || 3),
       questions: form.questions.map((q) => ({
         questionText: q.questionText,
@@ -194,6 +247,7 @@ export default function TestsManager({
             <button
               type="button"
               onClick={downloadTemplate}
+              disabled={!canDownloadTemplate}
               className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700"
             >
               Download Template
@@ -318,6 +372,7 @@ export default function TestsManager({
               onChange={(e) =>
                 setForm((p) => ({ ...p, durationMinutes: Number(e.target.value || 60) }))
               }
+              disabled={Boolean(computedDuration)}
             />
           </label>
           <label className="text-xs text-slate-500">

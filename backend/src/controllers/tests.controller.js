@@ -2,6 +2,7 @@ import PDFDocument from "pdfkit";
 import { admin, db } from "../config/firebase.js";
 import { COLLECTIONS } from "../config/collections.js";
 import { successResponse, errorResponse } from "../utils/response.utils.js";
+import { sendTestScheduleBroadcastEmail } from "../services/email.service.js";
 
 const serverTimestamp = () => admin.firestore.FieldValue.serverTimestamp();
 const trimText = (value = "") => String(value || "").trim();
@@ -303,6 +304,114 @@ const isStudentInClass = (uid = "", classData = {}) => {
   });
 };
 
+const getClassStudentIds = (classData = {}) => {
+  const students = Array.isArray(classData.students) ? classData.students : [];
+  return [
+    ...new Set(
+      students
+        .map((entry) => {
+          if (typeof entry === "string") return trimText(entry);
+          return trimText(entry?.studentId || entry?.id || entry?.uid);
+        })
+        .filter(Boolean)
+    ),
+  ];
+};
+
+const getCenterStudentIdsFromAllClasses = async () => {
+  const classesSnap = await db.collection(COLLECTIONS.CLASSES).get();
+  const all = classesSnap.docs.flatMap((doc) => getClassStudentIds(doc.data() || {}));
+  return [...new Set(all.map((id) => trimText(id)).filter(Boolean))];
+};
+
+const getStudentEmailsByIds = async (studentIds = []) => {
+  const unique = [
+    ...new Set(
+      (Array.isArray(studentIds) ? studentIds : [])
+        .map((id) => trimText(id))
+        .filter(Boolean)
+    ),
+  ];
+  if (!unique.length) return [];
+
+  const chunks = chunkArray(unique, 30);
+  const snaps = await Promise.all(
+    chunks.map((group) =>
+      Promise.all(group.map((id) => db.collection(COLLECTIONS.USERS).doc(id).get()))
+    )
+  );
+
+  const emails = [];
+  snaps.flat().forEach((snap) => {
+    if (!snap.exists) return;
+    const data = snap.data() || {};
+    const email = trimText(data.email);
+    if (email) emails.push(email);
+  });
+
+  return [...new Set(emails.map((email) => String(email).toLowerCase()))];
+};
+
+const createTestAnnouncement = async ({
+  testId = "",
+  title = "",
+  scope = "class",
+  classId = "",
+  className = "",
+  startAt = null,
+  endAt = null,
+  durationMinutes = 0,
+  recipientIds = [],
+  postedBy = "",
+  postedByName = "",
+  postedByRole = "teacher",
+}) => {
+  const cleanScope = lowerText(scope || "class");
+  const safeTitle = trimText(title) || "Test";
+  const startIso = startAt ? toIso(startAt) : null;
+  const endIso = endAt ? toIso(endAt) : null;
+  const duration = Math.max(0, toNumber(durationMinutes, 0));
+
+  const targetType = cleanScope === "center" ? "system" : "class";
+  const targetId = cleanScope === "center" ? "" : trimText(classId);
+  const targetName = cleanScope === "center" ? "SUM Academy" : trimText(className) || "Class";
+
+  const scheduleLine =
+    startIso && endIso
+      ? `Start: ${new Date(startIso).toLocaleString()} | End: ${new Date(endIso).toLocaleString()} | Duration: ${duration} mins`
+      : "";
+
+  await db.collection(COLLECTIONS.ANNOUNCEMENTS).add({
+    title: `Test Scheduled: ${safeTitle}`,
+    message: scheduleLine
+      ? `${safeTitle} has been scheduled. ${scheduleLine}`
+      : `${safeTitle} has been scheduled. Please check your tests section.`,
+    targetType,
+    targetId,
+    targetName,
+    audienceRole: "student",
+    postedBy: trimText(postedBy),
+    postedByName: trimText(postedByName) || "Teacher",
+    postedByRole: trimText(postedByRole) || "teacher",
+    sendEmail: false,
+    isPinned: false,
+    studentsReached: Array.isArray(recipientIds) ? recipientIds.length : 0,
+    recipientIds: Array.isArray(recipientIds) ? recipientIds : [],
+    meta: {
+      kind: "test_schedule",
+      testId: trimText(testId),
+      scope: cleanScope,
+      classId: trimText(classId),
+      className: trimText(className),
+      startAt: startIso,
+      endAt: endIso,
+      durationMinutes: duration || null,
+    },
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+};
+
 const ensureStudentProfile = async (uid = "") => {
   const [studentSnap, userSnap] = await Promise.all([
     db.collection(COLLECTIONS.STUDENTS).doc(uid).get(),
@@ -592,6 +701,11 @@ export const createTest = async (req, res) => {
       return errorResponse(res, "endAt must be after startAt", 400);
     }
 
+    const computedDurationMinutes = Math.max(
+      5,
+      Math.ceil((parsedEnd.getTime() - parsedStart.getTime()) / (60 * 1000))
+    );
+
     const normalizedQuestions = normalizeQuestions(questions);
     const totalMarks = normalizedQuestions.reduce(
       (sum, question) => sum + Math.max(1, toNumber(question.marks, 1)),
@@ -628,7 +742,7 @@ export const createTest = async (req, res) => {
       className: resolvedClassName,
       startAt: parsedStart,
       endAt: parsedEnd,
-      durationMinutes: Math.max(5, toNumber(durationMinutes, 60)),
+      durationMinutes: computedDurationMinutes,
       maxViolations: Math.max(1, toNumber(maxViolations, 3)),
       questions: normalizedQuestions,
       totalMarks,
@@ -640,6 +754,49 @@ export const createTest = async (req, res) => {
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     });
+
+    // Notifications (best-effort): announcement + email broadcast.
+    try {
+      let recipientIds = [];
+      if (cleanScope === "center") {
+        recipientIds = await getCenterStudentIdsFromAllClasses();
+      } else if (resolvedClassId) {
+        const classSnap = await db.collection(COLLECTIONS.CLASSES).doc(resolvedClassId).get();
+        recipientIds = classSnap.exists ? getClassStudentIds(classSnap.data() || {}) : [];
+      }
+
+      if (recipientIds.length > 0) {
+        await createTestAnnouncement({
+          testId: testRef.id,
+          title: cleanTitle,
+          scope: cleanScope,
+          classId: resolvedClassId,
+          className: resolvedClassName,
+          startAt: parsedStart,
+          endAt: parsedEnd,
+          durationMinutes: computedDurationMinutes,
+          recipientIds,
+          postedBy: uid,
+          postedByName: createdByName,
+          postedByRole: role || "teacher",
+        });
+
+        const emails = await getStudentEmailsByIds(recipientIds);
+        if (emails.length > 0 && emails.length <= 1000) {
+          await sendTestScheduleBroadcastEmail(emails, {
+            title: `Test Scheduled: ${cleanTitle}`,
+            message: `A new test has been scheduled for you.`,
+            startAt: parsedStart.toISOString(),
+            endAt: parsedEnd.toISOString(),
+            durationMinutes: computedDurationMinutes,
+          });
+        } else if (emails.length > 1000) {
+          console.warn(`[createTest] Skipping email broadcast, too many recipients: ${emails.length}`);
+        }
+      }
+    } catch (notifyError) {
+      console.error("createTest notify error:", notifyError?.message || notifyError);
+    }
 
     return successResponse(
       res,
@@ -669,6 +826,18 @@ export const downloadTestBulkTemplate = async (req, res) => {
     const inOneHour = new Date(now.getTime() + 60 * 60 * 1000);
     const inTwoHours = new Date(now.getTime() + 2 * 60 * 60 * 1000);
 
+    const scope = lowerText(req.query?.scope || "class");
+    const classId = trimText(req.query?.classId || "");
+    const title = trimText(req.query?.title || "Biology Weekly Test 1");
+    const description = trimText(req.query?.description || "Practice test for the week");
+    const startAt = parseDate(req.query?.startAt) || inOneHour;
+    const endAt = parseDate(req.query?.endAt) || inTwoHours;
+    const computedDurationMinutes = Math.max(
+      5,
+      Math.ceil((endAt.getTime() - startAt.getTime()) / (60 * 1000))
+    );
+    const maxViolations = Math.max(1, toNumber(req.query?.maxViolations, 3));
+
     const commentRows = [
       "# INSTRUCTIONS:",
       "# 1) correctAnswer must be A, B, C, or D",
@@ -682,14 +851,14 @@ export const downloadTestBulkTemplate = async (req, res) => {
     const headerRow = TEST_CSV_HEADERS;
     const sampleRows = [
       {
-        scope: "class",
-        classId: "CLASS_ID_HERE",
-        title: "Biology Weekly Test 1",
-        description: "Practice test for the week",
-        startAt: inOneHour.toISOString(),
-        endAt: inTwoHours.toISOString(),
-        durationMinutes: "60",
-        maxViolations: "3",
+        scope: scope === "center" ? "center" : "class",
+        classId: scope === "center" ? "" : classId || "CLASS_ID_HERE",
+        title,
+        description,
+        startAt: startAt.toISOString(),
+        endAt: endAt.toISOString(),
+        durationMinutes: String(computedDurationMinutes),
+        maxViolations: String(maxViolations),
         questionText: "What is 2 + 2?",
         optionA: "3",
         optionB: "4",
@@ -699,14 +868,14 @@ export const downloadTestBulkTemplate = async (req, res) => {
         marks: "1",
       },
       {
-        scope: "class",
-        classId: "CLASS_ID_HERE",
-        title: "Biology Weekly Test 1",
-        description: "Practice test for the week",
-        startAt: inOneHour.toISOString(),
-        endAt: inTwoHours.toISOString(),
-        durationMinutes: "60",
-        maxViolations: "3",
+        scope: scope === "center" ? "center" : "class",
+        classId: scope === "center" ? "" : classId || "CLASS_ID_HERE",
+        title,
+        description,
+        startAt: startAt.toISOString(),
+        endAt: endAt.toISOString(),
+        durationMinutes: String(computedDurationMinutes),
+        maxViolations: String(maxViolations),
         questionText: "The human heart has how many chambers?",
         optionA: "2",
         optionB: "3",
@@ -813,7 +982,7 @@ export const bulkUploadManagedTest = async (req, res) => {
 
     const durationMinutes = Math.max(
       5,
-      toNumber(first.durationminutes || first.durationMinutes, 60)
+      Math.ceil((parsedEnd.getTime() - parsedStart.getTime()) / (60 * 1000))
     );
     const maxViolations = Math.max(
       1,
@@ -876,6 +1045,49 @@ export const bulkUploadManagedTest = async (req, res) => {
       updatedAt: serverTimestamp(),
       bulkUploaded: true,
     });
+
+    // Notifications (best-effort): announcement + email broadcast.
+    try {
+      let recipientIds = [];
+      if (cleanScope === "center") {
+        recipientIds = await getCenterStudentIdsFromAllClasses();
+      } else if (resolvedClassId) {
+        const classSnap = await db.collection(COLLECTIONS.CLASSES).doc(resolvedClassId).get();
+        recipientIds = classSnap.exists ? getClassStudentIds(classSnap.data() || {}) : [];
+      }
+
+      if (recipientIds.length > 0) {
+        await createTestAnnouncement({
+          testId: testRef.id,
+          title: cleanTitle,
+          scope: cleanScope,
+          classId: resolvedClassId,
+          className: resolvedClassName,
+          startAt: parsedStart,
+          endAt: parsedEnd,
+          durationMinutes,
+          recipientIds,
+          postedBy: uid,
+          postedByName: createdByName,
+          postedByRole: role || "teacher",
+        });
+
+        const emails = await getStudentEmailsByIds(recipientIds);
+        if (emails.length > 0 && emails.length <= 1000) {
+          await sendTestScheduleBroadcastEmail(emails, {
+            title: `Test Scheduled: ${cleanTitle}`,
+            message: `A new test has been scheduled for you.`,
+            startAt: parsedStart.toISOString(),
+            endAt: parsedEnd.toISOString(),
+            durationMinutes,
+          });
+        } else if (emails.length > 1000) {
+          console.warn(`[bulkUploadManagedTest] Skipping email broadcast, too many recipients: ${emails.length}`);
+        }
+      }
+    } catch (notifyError) {
+      console.error("bulkUploadManagedTest notify error:", notifyError?.message || notifyError);
+    }
 
     return successResponse(
       res,

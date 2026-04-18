@@ -172,8 +172,9 @@ export const bulkUploadTeacherTest = (file, onUploadProgress) => {
     .then((r) => r.data);
 };
 
-export const downloadTeacherTestTemplate = async () => {
+export const downloadTeacherTestTemplate = async (params = {}) => {
   const response = await api.get("/teacher/tests/template", {
+    params,
     responseType: "blob",
   });
   const disposition = String(response.headers?.["content-disposition"] || "");

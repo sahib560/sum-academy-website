@@ -391,8 +391,9 @@ export const bulkUploadAdminTest = (file, onUploadProgress) => {
     .then((r) => r.data);
 };
 
-export const downloadAdminTestTemplate = async () => {
+export const downloadAdminTestTemplate = async (params = {}) => {
   const response = await api.get("/admin/tests/template", {
+    params,
     responseType: "blob",
   });
   const disposition = String(response.headers?.["content-disposition"] || "");
