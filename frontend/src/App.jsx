@@ -237,7 +237,20 @@ function AppLayout({ showComingSoon }) {
     );
   }
 
-  const maintenanceEnabled = Boolean(settings.maintenance?.enabled);
+  const resolveMaintenanceActive = () => {
+    const maintenance = settings.maintenance || {};
+    if (typeof maintenance.active === "boolean") return maintenance.active;
+    const enabled = Boolean(maintenance.enabled);
+    const startAt = maintenance.startAt ? new Date(maintenance.startAt) : null;
+    const endAt = maintenance.endAt ? new Date(maintenance.endAt) : null;
+    const hasSchedule =
+      startAt && endAt && !Number.isNaN(startAt.getTime()) && !Number.isNaN(endAt.getTime());
+    if (!hasSchedule) return enabled;
+    const now = Date.now();
+    return now >= startAt.getTime() && now < endAt.getTime();
+  };
+
+  const maintenanceEnabled = resolveMaintenanceActive();
   const isLoginRoute =
     location.pathname === "/login" || location.pathname === "/lms-login";
   if (authLoading && maintenanceEnabled) {

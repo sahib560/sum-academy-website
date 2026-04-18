@@ -251,6 +251,8 @@ const DEFAULT_SETTINGS = {
   maintenance: {
     enabled: false,
     message: "We are updating SUM Academy. Back soon!",
+    startAt: null,
+    endAt: null,
   },
   email: {
     smtpHost: "",
@@ -388,7 +390,37 @@ const getNormalizedSettings = async () => {
 
   const data = snap.data() || {};
   const merged = mergeDeep(clone(DEFAULT_SETTINGS), data);
-  return merged;
+
+  const normalizeMaintenanceDate = (value) => {
+    if (!value) return null;
+    if (typeof value?.toDate === "function") {
+      const parsed = value.toDate();
+      return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+    }
+    const parsed = new Date(String(value || "").trim());
+    return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+  };
+
+  const maintenanceStartAt = normalizeMaintenanceDate(merged?.maintenance?.startAt);
+  const maintenanceEndAt = normalizeMaintenanceDate(merged?.maintenance?.endAt);
+  const now = Date.now();
+  const startMs = maintenanceStartAt ? new Date(maintenanceStartAt).getTime() : null;
+  const endMs = maintenanceEndAt ? new Date(maintenanceEndAt).getTime() : null;
+  const maintenanceHasSchedule = Boolean(startMs && endMs);
+  const maintenanceActive = maintenanceHasSchedule
+    ? now >= startMs && now < endMs
+    : Boolean(merged?.maintenance?.enabled);
+
+  return {
+    ...merged,
+    maintenance: {
+      ...(merged.maintenance || {}),
+      startAt: maintenanceStartAt,
+      endAt: maintenanceEndAt,
+      active: maintenanceActive,
+      hasSchedule: maintenanceHasSchedule,
+    },
+  };
 };
 
 const saveSection = async (sectionName, sectionData) => {
@@ -930,9 +962,55 @@ export const updateMaintenance = async (req, res) => {
     const current = await getNormalizedSettings();
     const input = req.body || {};
 
+    const parseMaintenanceDate = (value) => {
+      if (value === null || value === undefined) return null;
+      if (typeof value?.toDate === "function") return value.toDate();
+      const raw = String(value || "").trim();
+      if (!raw) return null;
+      // If stored/sent as local datetime without timezone (no Z / no offset),
+      // interpret it as Pakistan time (Asia/Karachi) to keep admin scheduling consistent.
+      if (
+        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(raw) &&
+        !/Z$|[+-]\d{2}:\d{2}$/.test(raw)
+      ) {
+        const normalized = raw.length === 16 ? `${raw}:00` : raw;
+        const parsedPk = new Date(`${normalized}+05:00`);
+        return Number.isNaN(parsedPk.getTime()) ? null : parsedPk;
+      }
+      const parsed = new Date(raw);
+      return Number.isNaN(parsed.getTime()) ? null : parsed;
+    };
+
+    const startAtRaw = input.startAt ?? undefined;
+    const endAtRaw = input.endAt ?? undefined;
+    const clearedStart = typeof startAtRaw === "string" && !startAtRaw.trim();
+    const clearedEnd = typeof endAtRaw === "string" && !endAtRaw.trim();
+
+    const startAtInput =
+      clearedStart ? null : startAtRaw !== undefined ? startAtRaw : current.maintenance.startAt ?? null;
+    const endAtInput =
+      clearedEnd ? null : endAtRaw !== undefined ? endAtRaw : current.maintenance.endAt ?? null;
+
+    // If admin clears either side of the schedule, clear both to avoid half-schedules.
+    const normalizedStartAtInput = clearedStart || clearedEnd ? null : startAtInput;
+    const normalizedEndAtInput = clearedStart || clearedEnd ? null : endAtInput;
+    const startAtDate = parseMaintenanceDate(normalizedStartAtInput);
+    const endAtDate = parseMaintenanceDate(normalizedEndAtInput);
+    if ((normalizedStartAtInput && !startAtDate) || (normalizedEndAtInput && !endAtDate)) {
+      return errorResponse(res, "startAt/endAt must be valid datetime values", 400);
+    }
+    if ((startAtDate && !endAtDate) || (!startAtDate && endAtDate)) {
+      return errorResponse(res, "Both startAt and endAt are required for scheduling", 400);
+    }
+    if (startAtDate && endAtDate && endAtDate.getTime() <= startAtDate.getTime()) {
+      return errorResponse(res, "endAt must be after startAt", 400);
+    }
+
     const nextMaintenance = {
       enabled: Boolean(input.enabled ?? current.maintenance.enabled),
       message: normalizeString(input.message ?? current.maintenance.message),
+      startAt: startAtDate ? startAtDate.toISOString() : null,
+      endAt: endAtDate ? endAtDate.toISOString() : null,
     };
 
     await settingsRef().set(

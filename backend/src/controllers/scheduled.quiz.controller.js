@@ -674,6 +674,9 @@ export const submitStudentScheduledQuizAttempt = async (req, res) => {
     const questions = Array.isArray(attempt.questions) ? attempt.questions : [];
     if (!questions.length) return errorResponse(res, "Quiz attempt has no questions", 400);
 
+    const letterMap = { A: 0, B: 1, C: 2, D: 3 };
+    const normalizeOptionText = (value = "") => lowerText(trimText(value));
+
     let totalMarks = 0;
     let score = 0;
     const gradedAnswers = questions.map((question) => {
@@ -681,10 +684,26 @@ export const submitStudentScheduledQuizAttempt = async (req, res) => {
       const maxMarks = Math.max(1, toPositiveNumber(question.marks, 1));
       totalMarks += maxMarks;
 
-      const expected = trimText(question.correctAnswer).toUpperCase();
+      const options = Array.isArray(question.options) ? question.options.map((opt) => trimText(opt)) : [];
+      const expectedLetter = trimText(question.correctAnswer).toUpperCase();
+      const expectedIndex = letterMap[expectedLetter];
+      const expectedText = expectedIndex !== undefined ? trimText(options[expectedIndex]) : "";
+
       const submittedRaw = answers[questionId];
-      const submitted = trimText(submittedRaw).toUpperCase();
-      const isCorrect = submitted && expected && submitted === expected;
+      const submittedText = trimText(submittedRaw);
+      const submittedUpper = submittedText.toUpperCase();
+      const submittedIndex = letterMap[submittedUpper];
+      const submittedByLetter =
+        submittedIndex !== undefined ? trimText(options[submittedIndex]) : "";
+
+      const isCorrect =
+        (submittedIndex !== undefined &&
+          expectedIndex !== undefined &&
+          submittedUpper === expectedLetter) ||
+        (normalizeOptionText(submittedByLetter || submittedText) &&
+          normalizeOptionText(submittedByLetter || submittedText) ===
+            normalizeOptionText(expectedText || expectedLetter));
+
       const marksAwarded = isCorrect ? maxMarks : 0;
       score += marksAwarded;
 
@@ -692,8 +711,9 @@ export const submitStudentScheduledQuizAttempt = async (req, res) => {
         questionId,
         subjectId: trimText(question.subjectId),
         questionText: trimText(question.questionText),
-        submittedAnswer: submitted,
-        correctAnswer: expected,
+        submittedAnswer: submittedText,
+        correctAnswer: expectedLetter,
+        correctAnswerText: expectedText,
         isCorrect,
         marksAwarded,
         maxMarks,

@@ -563,9 +563,14 @@ function TeacherQuizzes() {
     const targetCourseId = selectedQuiz?.courseId || "";
     if (!targetCourseId) return rows;
     return rows.filter((row) =>
-      (Array.isArray(row.assignedCourses) ? row.assignedCourses : []).some((entry) => {
+      [
+        ...(Array.isArray(row.assignedCourses) ? row.assignedCourses : []),
+        ...(Array.isArray(row.assignedSubjects) ? row.assignedSubjects : []),
+      ].some((entry) => {
         const courseId = trimText(
-          typeof entry === "string" ? entry : entry?.courseId || entry?.id
+          typeof entry === "string"
+            ? entry
+            : entry?.subjectId || entry?.courseId || entry?.id
         );
         return courseId === targetCourseId;
       })
@@ -576,9 +581,14 @@ function TeacherQuizzes() {
     const rows = Array.isArray(teacherClassesQuery.data) ? teacherClassesQuery.data : [];
     if (!createMeta.courseId) return rows;
     return rows.filter((row) =>
-      (Array.isArray(row.assignedCourses) ? row.assignedCourses : []).some((entry) => {
+      [
+        ...(Array.isArray(row.assignedCourses) ? row.assignedCourses : []),
+        ...(Array.isArray(row.assignedSubjects) ? row.assignedSubjects : []),
+      ].some((entry) => {
         const courseId = trimText(
-          typeof entry === "string" ? entry : entry?.courseId || entry?.id
+          typeof entry === "string"
+            ? entry
+            : entry?.subjectId || entry?.courseId || entry?.id
         );
         return courseId === createMeta.courseId;
       })

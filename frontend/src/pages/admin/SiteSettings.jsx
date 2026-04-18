@@ -320,6 +320,21 @@ function SiteSettings() {
     });
   };
 
+  const toDateTimeLocalValue = (value) => {
+    if (!value) return "";
+    const raw = String(value || "").trim();
+    if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(raw)) return raw;
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return "";
+    const pad = (n) => String(n).padStart(2, "0");
+    const y = parsed.getFullYear();
+    const m = pad(parsed.getMonth() + 1);
+    const d = pad(parsed.getDate());
+    const hh = pad(parsed.getHours());
+    const mm = pad(parsed.getMinutes());
+    return `${y}-${m}-${d}T${hh}:${mm}`;
+  };
+
   const updateNestedArrayItem = (section, nestedKey, listKey, index, patch) => {
     const nested = draft?.[section]?.[nestedKey] || {};
     const list = Array.isArray(nested?.[listKey]) ? nested[listKey] : [];
@@ -1592,6 +1607,29 @@ function SiteSettings() {
             Maintenance Mode
             <input type="checkbox" checked={Boolean(draft.maintenance.enabled)} onChange={(e) => updateSection("maintenance", { enabled: e.target.checked })} />
           </label>
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="space-y-1">
+              <p className={fieldLabelClass}>Start (PK Time)</p>
+              <input
+                type="datetime-local"
+                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                value={toDateTimeLocalValue(draft.maintenance.startAt)}
+                onChange={(e) => updateSection("maintenance", { startAt: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1">
+              <p className={fieldLabelClass}>End (PK Time)</p>
+              <input
+                type="datetime-local"
+                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                value={toDateTimeLocalValue(draft.maintenance.endAt)}
+                onChange={(e) => updateSection("maintenance", { endAt: e.target.value })}
+              />
+            </div>
+          </div>
+          <p className="text-xs text-slate-500">
+            Tip: If you set start/end, maintenance will automatically turn ON at start and OFF at end.
+          </p>
           <div className="space-y-1">
             <p className={fieldLabelClass}>Maintenance Message</p>
             <textarea className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" rows={3} placeholder="Maintenance Message" value={draft.maintenance.message} onChange={(e) => updateSection("maintenance", { message: e.target.value })} />

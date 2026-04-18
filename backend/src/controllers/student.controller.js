@@ -4845,23 +4845,7 @@ export const getQuizById = async (req, res) => {
     if (dueAtDate && dueAtDate.getTime() < Date.now()) {
       return errorResponse(res, "Quiz deadline has passed", 403);
     }
-
-    const quizAccess = await ensureQuizUnlockedForStudent({
-      studentId: uid,
-      courseId,
-      quizId,
-    });
-    if (!quizAccess.allowed) {
-      return errorResponse(
-        res,
-        quizAccess.error,
-        quizAccess.status || 403,
-        {
-          ...(quizAccess.code ? { code: quizAccess.code } : {}),
-          ...(quizAccess.lockReason ? { lockReason: quizAccess.lockReason } : {}),
-        }
-      );
-    }
+    // Quizzes are attemptable even if previous videos are not completed (per product requirement).
 
     const questions = Array.isArray(quizData.questions) ? quizData.questions : [];
     const sanitizedQuestions = questions
@@ -4947,23 +4931,7 @@ export const submitQuizAttempt = async (req, res) => {
     if (dueAtDate && dueAtDate.getTime() < Date.now()) {
       return errorResponse(res, "Quiz deadline has passed", 403);
     }
-
-    const quizAccess = await ensureQuizUnlockedForStudent({
-      studentId: uid,
-      courseId,
-      quizId,
-    });
-    if (!quizAccess.allowed) {
-      return errorResponse(
-        res,
-        quizAccess.error,
-        quizAccess.status || 403,
-        {
-          ...(quizAccess.code ? { code: quizAccess.code } : {}),
-          ...(quizAccess.lockReason ? { lockReason: quizAccess.lockReason } : {}),
-        }
-      );
-    }
+    // Quizzes are attemptable even if previous videos are not completed (per product requirement).
 
     const questions = Array.isArray(quizData.questions) ? quizData.questions : [];
     if (!questions.length) return errorResponse(res, "Quiz has no questions", 400);

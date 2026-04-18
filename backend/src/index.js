@@ -563,9 +563,51 @@ const syncSessionLifecycle = async () => {
   return updates;
 };
 
+const parseMaintenanceDate = (value) => {
+  if (!value) return null;
+  if (typeof value?.toDate === "function") return value.toDate();
+  const parsed = new Date(String(value || "").trim());
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const syncMaintenanceLifecycle = async () => {
+  const settingsRef = db.collection(COLLECTIONS.SETTINGS).doc("siteSettings");
+  const snap = await settingsRef.get();
+  if (!snap.exists) return 0;
+  const settings = snap.data() || {};
+  const maintenance = settings.maintenance || {};
+
+  const startAt = parseMaintenanceDate(maintenance.startAt);
+  const endAt = parseMaintenanceDate(maintenance.endAt);
+  if (!startAt || !endAt) return 0;
+
+  const now = new Date();
+  const desiredEnabled = now.getTime() >= startAt.getTime() && now.getTime() < endAt.getTime();
+  const currentEnabled = Boolean(maintenance.enabled);
+  if (currentEnabled === desiredEnabled) return 0;
+
+  await settingsRef.set(
+    {
+      maintenance: {
+        ...(maintenance || {}),
+        enabled: desiredEnabled,
+      },
+      security: {
+        ...(settings.security || {}),
+        maintenanceMode: desiredEnabled,
+      },
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    },
+    { merge: true }
+  );
+
+  return 1;
+};
+
 const startLifecycleJobs = () => {
   const dailyMs = 24 * 60 * 60 * 1000;
   const fiveMinutesMs = 5 * 60 * 1000;
+  const oneMinuteMs = 60 * 1000;
 
   const runClassSync = async () => {
     try {
@@ -587,10 +629,23 @@ const startLifecycleJobs = () => {
     }
   };
 
+  const runMaintenanceSync = async () => {
+    try {
+      const updated = await syncMaintenanceLifecycle();
+      if (updated > 0) {
+        console.log(`[cron] maintenance lifecycle synced. updated=${updated}`);
+      }
+    } catch (error) {
+      console.error("[cron] maintenance lifecycle failed:", error?.message || error);
+    }
+  };
+
   runClassSync();
   runSessionSync();
+  runMaintenanceSync();
   setInterval(runClassSync, dailyMs);
   setInterval(runSessionSync, fiveMinutesMs);
+  setInterval(runMaintenanceSync, oneMinuteMs);
 };
 
     app.listen(PORT, () => {

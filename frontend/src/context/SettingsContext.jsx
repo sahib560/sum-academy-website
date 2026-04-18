@@ -241,6 +241,10 @@ export const defaultSettings = {
   maintenance: {
     enabled: false,
     message: "We are updating SUM Academy. Back soon!",
+    startAt: null,
+    endAt: null,
+    active: false,
+    hasSchedule: false,
   },
   email: {
     smtpHost: "",

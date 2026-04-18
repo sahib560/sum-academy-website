@@ -118,14 +118,18 @@ function TeacherQuizDetailAssignmentGrading() {
   const assignMutation = useMutation({
     mutationFn: ({ id, payload }) => assignTeacherQuiz(id, payload),
     onSuccess: (response) => {
-      const total = Number(response?.data?.assignment?.totalAssigned || 0);
-      toast.success(`Quiz assigned to ${total} students`);
+      const total = Number(
+        response?.data?.studentsCount ?? response?.data?.assignment?.totalAssigned ?? 0
+      );
+      toast.success(`Quiz assigned to ${total || "selected"} students`);
       queryClient.invalidateQueries({ queryKey: ["teacher-quizzes"] });
       queryClient.invalidateQueries({ queryKey: ["teacher-quiz-by-id", quizId] });
       queryClient.invalidateQueries({ queryKey: ["teacher-quiz-analytics", quizId] });
     },
     onError: (error) => {
-      toast.error(error?.response?.data?.error || "Failed to assign quiz");
+      toast.error(
+        error?.response?.data?.message || error?.response?.data?.error || "Failed to assign quiz"
+      );
     },
   });
 
@@ -154,9 +158,14 @@ function TeacherQuizDetailAssignmentGrading() {
     const targetCourseId = selectedQuiz?.courseId || "";
     if (!targetCourseId) return rows;
     return rows.filter((row) =>
-      (Array.isArray(row.assignedCourses) ? row.assignedCourses : []).some((entry) => {
+      [
+        ...(Array.isArray(row.assignedCourses) ? row.assignedCourses : []),
+        ...(Array.isArray(row.assignedSubjects) ? row.assignedSubjects : []),
+      ].some((entry) => {
         const courseId =
-          (typeof entry === "string" ? entry : entry?.courseId || entry?.id || "")
+          (typeof entry === "string"
+            ? entry
+            : entry?.subjectId || entry?.courseId || entry?.id || "")
             .toString()
             .trim();
         return courseId === targetCourseId;
@@ -301,19 +310,28 @@ function TeacherQuizDetailAssignmentGrading() {
       toast.error("Select a class for class assignment");
       return;
     }
+    if (assignmentTargetType === "subject" && !selectedQuiz?.subjectId) {
+      toast.error("This quiz is missing subject info");
+      return;
+    }
     if (assignmentTargetType === "students" && !assignmentStudentIds.length) {
       toast.error("Select at least one student");
       return;
     }
+
+    const dueDate = new Date(assignmentDueAt).toISOString();
+    const payload =
+      assignmentTargetType === "class"
+        ? { assignTo: "all_class", classId: assignmentClassId, dueDate }
+        : assignmentTargetType === "students"
+          ? { assignTo: "specific", studentIds: assignmentStudentIds, dueDate }
+          : assignmentTargetType === "subject"
+            ? { assignTo: "all_subject", subjectId: selectedQuiz?.subjectId || "", dueDate }
+            : { assignTo: "all_enrolled", dueDate };
+
     assignMutation.mutate({
       id: quizId,
-      payload: {
-        dueAt: new Date(assignmentDueAt).toISOString(),
-        targetType: assignmentTargetType,
-        classId: assignmentTargetType === "class" ? assignmentClassId : "",
-        courseId: assignmentTargetType === "course" ? selectedQuiz?.courseId || "" : "",
-        studentIds: assignmentTargetType === "students" ? assignmentStudentIds : [],
-      },
+      payload,
     });
   };
 
@@ -466,6 +484,7 @@ function TeacherQuizDetailAssignmentGrading() {
                 <div className="flex flex-wrap gap-2">
                   {[
                     { key: "course", label: "Whole Course" },
+                    { key: "subject", label: "Whole Subject" },
                     { key: "class", label: "By Class" },
                     { key: "students", label: "Selected Students" },
                   ].map((item) => (
@@ -504,6 +523,12 @@ function TeacherQuizDetailAssignmentGrading() {
                   <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
                     This will assign the quiz to all students enrolled in{" "}
                     <span className="font-semibold">{selectedQuiz?.courseName || "course"}</span>.
+                  </p>
+                ) : null}
+                {assignmentTargetType === "subject" ? (
+                  <p className="rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-xs text-violet-700">
+                    This will assign the quiz to all students enrolled in{" "}
+                    <span className="font-semibold">{selectedQuiz?.subjectName || "subject"}</span>.
                   </p>
                 ) : null}
                 {assignmentTargetType === "students" ? (

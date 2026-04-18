@@ -772,7 +772,8 @@ function Classes() {
   const [editingShiftId, setEditingShiftId] = useState("");
 
   const [studentSearch, setStudentSearch] = useState("");
-  const [enrollStudentId, setEnrollStudentId] = useState("");
+  const [enrollStudentSearch, setEnrollStudentSearch] = useState("");
+  const [enrollStudentIds, setEnrollStudentIds] = useState([]);
   const [enrollShiftId, setEnrollShiftId] = useState("");
   const [enrollEnrollmentType, setEnrollEnrollmentType] = useState("full_class");
   const [enrollCourseId, setEnrollCourseId] = useState("");
@@ -1084,41 +1085,71 @@ function Classes() {
     },
   });
 
-  const addStudentMutation = useMutation({
-    mutationFn: ({ classId, data }) => addStudentToClass(classId, data),
-    onSuccess: async (response, variables) => {
+  const addStudentsMutation = useMutation({
+    mutationFn: async ({ classId, data, studentIds }) => {
+      const results = {
+        added: [],
+        alreadyEnrolled: [],
+        failed: [],
+        classFull: false,
+        grantedCoursesTotal: 0,
+      };
+
+      for (const studentId of studentIds) {
+        try {
+          const response = await addStudentToClass(classId, { ...data, studentId });
+          results.added.push(studentId);
+          results.grantedCoursesTotal += Number(response?.data?.coursesEnrolled || 0);
+        } catch (error) {
+          const code = error?.response?.data?.errors?.code;
+          if (code === "ALREADY_ENROLLED") {
+            results.alreadyEnrolled.push(studentId);
+            continue;
+          }
+          if (code === "CLASS_FULL") {
+            results.classFull = true;
+            results.failed.push({ studentId, code });
+            break;
+          }
+          results.failed.push({ studentId, code: code || "UNKNOWN" });
+        }
+      }
+
+      return results;
+    },
+    onSuccess: async (results, variables) => {
       await refreshClasses();
       await refreshClassStudents();
-      setEnrollStudentId("");
+      setEnrollStudentIds([]);
+      setEnrollStudentSearch("");
       setEnrollShiftId("");
       setEnrollCourseId("");
       setEnrollEnrollmentType("full_class");
+
       const selectedClass = classes.find((row) => row.id === variables?.classId);
-      const grantedCourses = Number(response?.data?.coursesEnrolled || 0);
-      toast.success(
-        `Student enrolled in ${selectedClass?.name || "class"}! Access granted to ${grantedCourses} course(s).`
-      );
+      const addedCount = results?.added?.length || 0;
+      const alreadyCount = results?.alreadyEnrolled?.length || 0;
+      const failedCount = results?.failed?.length || 0;
+
+      if (addedCount > 0) {
+        toast.success(
+          `${addedCount} student(s) enrolled in ${selectedClass?.name || "class"}.`
+        );
+      } else {
+        toast.error("No students were added.");
+      }
+
+      if (alreadyCount > 0) {
+        toast(`${alreadyCount} already enrolled`);
+      }
+      if (results?.classFull) {
+        toast.error("Class reached capacity while adding students.");
+      } else if (failedCount > 0) {
+        toast.error(`${failedCount} failed to add`);
+      }
     },
     onError: (error) => {
-      const code = error?.response?.data?.errors?.code;
-      const selectedStudent = students.find((row) => row.uid === enrollStudentId);
-      if (code === "CLASS_FULL") {
-        const capacity = Number(error?.response?.data?.errors?.capacity || activeClass?.capacity || 0);
-        const currentCount = Number(
-          error?.response?.data?.errors?.currentCount || activeClass?.enrolledCount || 0
-        );
-        toast.error(
-          `This class is full (${currentCount}/${capacity} students).\nIncrease capacity in class settings or create a new batch.`
-        );
-        return;
-      }
-      if (code === "ALREADY_ENROLLED") {
-        toast.error(
-          `${selectedStudent?.fullName || "Student"} is already in this class.`
-        );
-        return;
-      }
-      toast.error(error?.response?.data?.error || "Failed to add student.");
+      toast.error(error?.response?.data?.error || "Failed to add students.");
     },
   });
 
@@ -1509,6 +1540,25 @@ function Classes() {
       ),
     [students, enrolledStudentIds]
   );
+
+  const filteredAvailableStudentsForClass = useMemo(() => {
+    const query = enrollStudentSearch.trim().toLowerCase();
+    const base = Array.isArray(availableStudentsForClass) ? availableStudentsForClass : [];
+    if (!query) return base;
+    return base.filter((student) => {
+      const fullName = String(student.fullName || student.name || "").toLowerCase();
+      const email = String(student.email || "").toLowerCase();
+      return fullName.includes(query) || email.includes(query);
+    });
+  }, [availableStudentsForClass, enrollStudentSearch]);
+
+  const toggleEnrollStudent = (studentId) => {
+    const clean = String(studentId || "").trim();
+    if (!clean) return;
+    setEnrollStudentIds((prev) =>
+      prev.includes(clean) ? prev.filter((id) => id !== clean) : [...prev, clean]
+    );
+  };
 
   const selectedEnrollShift = useMemo(
     () =>
@@ -2569,20 +2619,78 @@ function Classes() {
                       </label>
                     </div>
                   </div>
-                  <div className="mt-4 grid gap-3 md:grid-cols-3">
-                    <select
-                      value={enrollStudentId}
-                      onChange={(event) => setEnrollStudentId(event.target.value)}
-                      className="rounded-2xl border border-slate-200 px-4 py-3 text-sm"
-                      disabled={isClassFull}
-                    >
-                      <option value="">Select student</option>
-                      {availableStudentsForClass.map((student) => (
-                        <option key={student.uid} value={student.uid}>
-                          {student.fullName} ({student.email})
-                        </option>
-                      ))}
-                    </select>
+                  <div className="mt-4 grid gap-3 md:grid-cols-[1fr_1fr_auto]">
+                    <div className="space-y-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          Select Students ({enrollStudentIds.length} selected)
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700 disabled:opacity-50"
+                            onClick={() =>
+                              setEnrollStudentIds(
+                                filteredAvailableStudentsForClass.map((student) => String(student.uid || "").trim()).filter(Boolean)
+                              )
+                            }
+                            disabled={isClassFull || filteredAvailableStudentsForClass.length < 1}
+                          >
+                            Select All
+                          </button>
+                          <button
+                            type="button"
+                            className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700 disabled:opacity-50"
+                            onClick={() => setEnrollStudentIds([])}
+                            disabled={isClassFull || enrollStudentIds.length < 1}
+                          >
+                            Clear
+                          </button>
+                        </div>
+                      </div>
+
+                      <input
+                        value={enrollStudentSearch}
+                        onChange={(event) => setEnrollStudentSearch(event.target.value)}
+                        className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm"
+                        placeholder="Search student by name/email"
+                        disabled={isClassFull}
+                      />
+
+                      <div className="max-h-60 overflow-auto rounded-2xl border border-slate-200 bg-white p-2">
+                        {filteredAvailableStudentsForClass.length < 1 ? (
+                          <p className="px-2 py-6 text-center text-sm text-slate-500">
+                            No available students found.
+                          </p>
+                        ) : (
+                          filteredAvailableStudentsForClass.map((student) => {
+                            const studentId = String(student.uid || "").trim();
+                            const checked = enrollStudentIds.includes(studentId);
+                            return (
+                              <label
+                                key={studentId}
+                                className="flex cursor-pointer items-center justify-between gap-3 rounded-xl px-3 py-2 text-sm hover:bg-slate-50"
+                              >
+                                <div className="min-w-0">
+                                  <p className="truncate font-semibold text-slate-900">
+                                    {student.fullName || "Student"}
+                                  </p>
+                                  <p className="truncate text-xs text-slate-500">
+                                    {student.email || "No email"}
+                                  </p>
+                                </div>
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={() => toggleEnrollStudent(studentId)}
+                                  disabled={isClassFull}
+                                />
+                              </label>
+                            );
+                          })
+                        )}
+                      </div>
+                    </div>
 
                     <select
                       value={enrollShiftId}
@@ -2602,35 +2710,45 @@ function Classes() {
                     <button
                       type="button"
                       onClick={() => {
-                        if (!enrollStudentId) {
-                          toast.error("Select a student first.");
+                        const remaining = Math.max(0, classCapacity - enrolledStudentsCount);
+                        if (!enrollStudentIds.length) {
+                          toast.error("Select at least one student.");
                           return;
                         }
                         if (!enrollShiftId) {
                           toast.error("Select a shift first.");
                           return;
                         }
-                        if (isClassFull) {
+                        if (isClassFull || remaining < 1) {
                           toast.error("Class is full. Cannot add more students.");
                           return;
                         }
-                        addStudentMutation.mutate({
+                        if (enrollStudentIds.length > remaining) {
+                          toast.error(
+                            `Only ${remaining} seat(s) left. Remove some students or increase capacity.`
+                          );
+                          return;
+                        }
+
+                        addStudentsMutation.mutate({
                           classId: activeClass.id,
+                          studentIds: enrollStudentIds,
                           data: {
-                            studentId: enrollStudentId,
                             shiftId: enrollShiftId,
                             enrollmentType: enrollEnrollmentType,
                           },
                         });
                       }}
-                      className="btn-primary"
-                      disabled={addStudentMutation.isPending || isClassFull}
+                      className="btn-primary h-[52px] self-start"
+                      disabled={addStudentsMutation.isPending || isClassFull}
                     >
                       {isClassFull
                         ? "Class Full"
-                        : addStudentMutation.isPending
+                        : addStudentsMutation.isPending
                         ? "Adding..."
-                        : "Add Student"}
+                        : enrollStudentIds.length > 0
+                          ? `Add ${enrollStudentIds.length} Student(s)`
+                          : "Add Students"}
                     </button>
                   </div>
                   {selectedEnrollShift ? (

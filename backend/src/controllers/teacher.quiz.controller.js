@@ -1154,15 +1154,8 @@ export const assignQuizToStudents = async (req, res) => {
     let announcementTargetName = trimText(quizData.courseName) || "Course";
 
     if (assignTo === "all_subject" || assignTo === "all_enrolled") {
-      // All active enrollments for this course/subject.
-      const enrollSnap = await db
-        .collection(COLLECTIONS.ENROLLMENTS)
-        .where("courseId", "==", quizCourseId)
-        .where("status", "==", "active")
-        .get();
-      targetStudentIds = enrollSnap.docs
-        .map((d) => trimText(d.data()?.studentId))
-        .filter(Boolean);
+      // All students enrolled/linked to this course/subject (not only "active").
+      targetStudentIds = await getStudentIdsForCourse(quizCourseId);
       announcementTargetType = "course";
       announcementTargetId = quizCourseId;
       announcementTargetName = trimText(quizData.courseName) || "Course";
