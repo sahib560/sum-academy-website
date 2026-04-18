@@ -3,7 +3,7 @@ import { AnimatePresence, motion as Motion } from "framer-motion";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Skeleton } from "../../components/Skeleton.jsx";
-import { getStudentQuizzes } from "../../services/student.service.js";
+import { getStudentQuizzes, getStudentScheduledQuizzes } from "../../services/student.service.js";
 import { useAuth } from "../../hooks/useAuth.js";
 
 const fadeUp = {
@@ -13,7 +13,7 @@ const fadeUp = {
   transition: { duration: 0.45 },
 };
 
-const tabs = ["Available", "Attempted", "Expired"];
+const tabs = ["Available", "Upcoming", "Attempted", "Missed"];
 
 const toNumber = (value, fallback = 0) => {
   const parsed = Number(value);
@@ -23,6 +23,12 @@ const toNumber = (value, fallback = 0) => {
 const normalizeStatus = (value = "") => {
   const status = String(value || "").trim().toLowerCase();
   return status || "available";
+};
+
+const normalizeQuizKind = (quiz = {}) => {
+  const kind = String(quiz?.kind || quiz?.quizKind || quiz?.type || "").trim().toLowerCase();
+  if (kind.includes("scheduled")) return "scheduled";
+  return "classic";
 };
 
 const formatDate = (value) => {
@@ -371,14 +377,25 @@ function StudentQuizzes() {
   const [resultPreview, setResultPreview] = useState(null);
 
   const { data, isLoading, isError, error } = useQuery({
-    queryKey: ["student-quizzes"],
-    queryFn: () => getStudentQuizzes(),
+    queryKey: ["student-quizzes", "unified"],
+    queryFn: async () => {
+      const [classic, scheduled] = await Promise.all([
+        getStudentQuizzes().catch(() => []),
+        getStudentScheduledQuizzes().catch(() => []),
+      ]);
+      return {
+        classic: Array.isArray(classic) ? classic : [],
+        scheduled: Array.isArray(scheduled) ? scheduled : [],
+      };
+    },
     staleTime: 30000,
   });
 
   const quizzes = useMemo(() => {
-    const rows = Array.isArray(data) ? data : [];
-    return rows.map((quiz, index) => {
+    const classicRows = Array.isArray(data?.classic) ? data.classic : [];
+    const scheduledRows = Array.isArray(data?.scheduled) ? data.scheduled : [];
+
+    const mappedClassic = classicRows.map((quiz, index) => {
       const dueRaw = quiz?.dueDate || quiz?.dueAt || quiz?.assignment?.dueAt || "";
       const due = dueRaw ? new Date(dueRaw) : null;
       const dueIso = due && !Number.isNaN(due.getTime()) ? due.toISOString() : null;
@@ -388,10 +405,11 @@ function StudentQuizzes() {
       const lastAttemptStatus = normalizeStatus(quiz.lastAttempt?.status);
       const isPartial = attempted && ["pending_review", "partial"].includes(lastAttemptStatus);
 
-      const displayStatus = attempted ? (isPartial ? "partial" : "attempted") : expired ? "expired" : "available";
+      const displayStatus = attempted ? (isPartial ? "partial" : "attempted") : expired ? "missed" : "available";
       const assignmentBadge = String(quiz.assignmentBadge || "");
 
       return {
+        kind: normalizeQuizKind(quiz),
         id: quiz.id || `quiz-${index}`,
         title: quiz.title || "Quiz",
         courseName: quiz.courseName || "Course",
@@ -400,8 +418,10 @@ function StudentQuizzes() {
         totalMarks: Math.max(0, toNumber(quiz.totalMarks, 0)),
         passScore: toNumber(quiz.passScore, 50),
         timeLimit: Math.max(0, toNumber(quiz.timeLimit, 0)),
+        startAtIso: null,
+        endAtIso: dueIso,
         dueIso,
-        isExpired: expired || status === "expired",
+        canAttempt: displayStatus === "available",
         assignmentBadge,
         assignedTo: quiz.assignedTo || null,
         isAssignedToYou: Boolean(quiz.isAssignedToYou),
@@ -409,24 +429,82 @@ function StudentQuizzes() {
         lastAttempt: quiz.lastAttempt || null,
       };
     });
+
+    const mappedScheduled = scheduledRows.map((quiz, index) => {
+      const startAt = quiz?.startAt ? new Date(quiz.startAt) : null;
+      const endAt = quiz?.endAt ? new Date(quiz.endAt) : null;
+      const startAtIso = startAt && !Number.isNaN(startAt.getTime()) ? startAt.toISOString() : null;
+      const endAtIso = endAt && !Number.isNaN(endAt.getTime()) ? endAt.toISOString() : null;
+      const status = normalizeStatus(quiz.status);
+      const attempted = Boolean(quiz.lastAttempt) || Boolean(quiz.submitted);
+      const lastAttemptStatus = normalizeStatus(quiz.lastAttempt?.status);
+      const isPartial = attempted && ["pending_review", "partial"].includes(lastAttemptStatus);
+
+      let displayStatus = "available";
+      if (attempted) displayStatus = isPartial ? "partial" : "attempted";
+      else if (status === "upcoming") displayStatus = "upcoming";
+      else if (status === "missed") displayStatus = "missed";
+      else if (status === "completed") displayStatus = "attempted";
+      else displayStatus = "available";
+
+      const subjectNames = Array.isArray(quiz.subjectNames) ? quiz.subjectNames.filter(Boolean) : [];
+      const subjectName = subjectNames.length > 1 ? `${subjectNames[0]} +${subjectNames.length - 1}` : subjectNames[0] || "Subjects";
+      const courseName = "Scheduled Quiz";
+
+      const questionCount = Math.max(0, toNumber(quiz.questionCount, 0));
+      const marksPerQuestion = 1;
+      const totalMarks = questionCount * marksPerQuestion;
+
+      return {
+        kind: "scheduled",
+        id: quiz.id || `scheduled-${index}`,
+        title: quiz.title || "Scheduled Quiz",
+        courseName,
+        subjectName,
+        questionsCount: questionCount,
+        totalMarks,
+        passScore: toNumber(quiz.passScore, 50),
+        timeLimit: 0,
+        startAtIso,
+        endAtIso,
+        dueIso: endAtIso,
+        canAttempt: Boolean(quiz.canAttempt) && displayStatus === "available",
+        assignmentBadge: "scheduled",
+        assignedTo: "scheduled",
+        isAssignedToYou: true,
+        displayStatus,
+        lastAttempt: quiz.lastAttempt || null,
+      };
+    });
+
+    return [...mappedScheduled, ...mappedClassic].sort((a, b) => {
+      const aTime = a.startAtIso ? new Date(a.startAtIso).getTime() : a.dueIso ? new Date(a.dueIso).getTime() : 0;
+      const bTime = b.startAtIso ? new Date(b.startAtIso).getTime() : b.dueIso ? new Date(b.dueIso).getTime() : 0;
+      return bTime - aTime;
+    });
   }, [data]);
 
   const counts = useMemo(
     () => ({
       Available: quizzes.filter((q) => q.displayStatus === "available").length,
+      Upcoming: quizzes.filter((q) => q.displayStatus === "upcoming").length,
       Attempted: quizzes.filter((q) => q.displayStatus === "attempted" || q.displayStatus === "partial").length,
-      Expired: quizzes.filter((q) => q.displayStatus === "expired").length,
+      Missed: quizzes.filter((q) => q.displayStatus === "missed").length,
     }),
     [quizzes]
   );
 
   const filtered = useMemo(() => {
     if (activeTab === "Available") return quizzes.filter((q) => q.displayStatus === "available");
-    if (activeTab === "Expired") return quizzes.filter((q) => q.displayStatus === "expired");
+    if (activeTab === "Upcoming") return quizzes.filter((q) => q.displayStatus === "upcoming");
+    if (activeTab === "Missed") return quizzes.filter((q) => q.displayStatus === "missed");
     return quizzes.filter((q) => q.displayStatus === "attempted" || q.displayStatus === "partial");
   }, [activeTab, quizzes]);
 
   const resolveAssignmentPill = (quiz) => {
+    if (quiz.assignmentBadge === "scheduled" || quiz.kind === "scheduled") {
+      return { label: "Scheduled", className: "bg-violet-50 text-violet-700 border-violet-200" };
+    }
     if (quiz.assignmentBadge === "assigned_to_you" || quiz.isAssignedToYou) {
       return { label: "Assigned to you", className: "bg-blue-50 text-blue-700 border-blue-200" };
     }
@@ -489,11 +567,12 @@ function StudentQuizzes() {
           filtered.map((quiz) => {
             const isPartial = quiz.displayStatus === "partial";
             const isAvailable = quiz.displayStatus === "available";
+            const isUpcoming = quiz.displayStatus === "upcoming";
             const isAttempted = quiz.displayStatus === "attempted";
-            const isExpired = quiz.displayStatus === "expired";
+            const isMissed = quiz.displayStatus === "missed";
 
             const dueText = quiz.dueIso ? formatDate(quiz.dueIso) : "";
-            const dueColor = isExpired
+            const dueColor = isMissed
               ? "text-rose-700"
               : isWithinDays(quiz.dueIso, 3)
                 ? "text-amber-700"
@@ -521,7 +600,11 @@ function StudentQuizzes() {
                       ) : null}
                       {quiz.dueIso ? (
                         <span className={`rounded-full bg-slate-50 px-3 py-1 text-xs font-semibold ${dueColor}`}>
-                          {isExpired ? "Overdue" : `Due: ${dueText}`}
+                          {isUpcoming
+                            ? `Starts: ${formatDate(quiz.startAtIso || quiz.dueIso)}`
+                            : isMissed
+                              ? "Missed"
+                              : `Due: ${dueText}`}
                         </span>
                       ) : (
                         <span className="rounded-full bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-500">
@@ -533,19 +616,28 @@ function StudentQuizzes() {
 
                   <div className="flex flex-wrap items-center gap-2">
                     {isAvailable ? (
-                      <Link
-                        className="inline-flex rounded-full bg-primary px-4 py-2 text-xs font-semibold text-white"
-                        to={`/student/quizzes/${quiz.id}/attempt`}
-                      >
-                        Start Quiz
-                      </Link>
-                    ) : isExpired && !quiz.lastAttempt ? (
+                      quiz.kind === "scheduled" ? (
+                        <Link
+                          className="inline-flex rounded-full bg-primary px-4 py-2 text-xs font-semibold text-white"
+                          to={`/student/scheduled-quizzes/${quiz.id}/attempt`}
+                        >
+                          Start Quiz
+                        </Link>
+                      ) : (
+                        <Link
+                          className="inline-flex rounded-full bg-primary px-4 py-2 text-xs font-semibold text-white"
+                          to={`/student/quizzes/${quiz.id}/attempt`}
+                        >
+                          Start Quiz
+                        </Link>
+                      )
+                    ) : (isMissed || isUpcoming) && !quiz.lastAttempt ? (
                       <button
                         type="button"
                         className="inline-flex cursor-not-allowed rounded-full bg-slate-100 px-4 py-2 text-xs font-semibold text-slate-500"
                         disabled
                       >
-                        Expired
+                        {isUpcoming ? "Upcoming" : "Missed"}
                       </button>
                     ) : (
                       <button
@@ -638,4 +730,3 @@ function StudentQuizzes() {
 }
 
 export default StudentQuizzes;
-

@@ -1,14 +1,16 @@
 ﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion as Motion } from "framer-motion";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import toast, { Toaster } from "react-hot-toast";
 import { Skeleton } from "../../components/Skeleton.jsx";
 import QuizResultCard from "../../components/QuizResultCard.jsx";
 import {
   getQuizById,
+  getScheduledQuizById,
   reportStudentSecurityViolation,
   submitQuizAttempt,
+  submitScheduledQuizAttempt,
 } from "../../services/student.service.js";
 import { useAuth } from "../../hooks/useAuth.js";
 import { WatermarkOverlay } from "../../utils/security.js";
@@ -81,6 +83,7 @@ const normalizeQuizPayload = (payload = {}) => {
 function StudentQuizAttempt() {
   const { quizId } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const { userProfile } = useAuth();
   const submitLockRef = useRef(false);
   const autoSubmitQueuedRef = useRef(false);
@@ -109,15 +112,39 @@ function StudentQuizAttempt() {
   });
 
   const { data, isLoading, isError, error } = useQuery({
-    queryKey: ["student-quiz-by-id", quizId],
-    queryFn: () => getQuizById(quizId),
+    queryKey: ["student-quiz-by-id", quizId, location.pathname.includes("/scheduled-quizzes/") ? "scheduled" : "classic"],
+    queryFn: () =>
+      location.pathname.includes("/scheduled-quizzes/")
+        ? getScheduledQuizById(quizId)
+        : getQuizById(quizId),
     enabled: Boolean(quizId),
     staleTime: 30000,
   });
 
+  const isScheduled = location.pathname.includes("/scheduled-quizzes/");
   const quiz = useMemo(() => normalizeQuizPayload(data || {}), [data]);
   const questions = quiz.questions;
   const currentQuestion = questions[currentIndex] || null;
+  const canAttempt = isScheduled ? Boolean(data?.canAttempt) : true;
+  const quizWindowStatus = isScheduled ? String(data?.status || "").toLowerCase() : "";
+  const startAtLabel = isScheduled && data?.startAt ? new Date(data.startAt).toLocaleString() : "";
+  const endAtLabel = isScheduled && data?.endAt ? new Date(data.endAt).toLocaleString() : "";
+
+  useEffect(() => {
+    if (!isScheduled) return;
+    if (submittedResult) return;
+    if (started) return;
+    if (!data?.lastAttempt) return;
+    const last = data.lastAttempt || {};
+    setSubmittedResult({
+      ...last,
+      autoScore: toNumber(last?.autoScore ?? last?.score ?? last?.totalScore, 0),
+      totalMarks: toNumber(last?.totalMarks, 0),
+      percentage: toNumber(last?.percentage ?? last?.scorePercent, 0),
+      isPassed: Boolean(last?.isPassed ?? (toNumber(last?.percentage, 0) >= toNumber(quiz.passScore, 50))),
+      totalAttempts: toNumber(last?.totalAttempts ?? last?.totalStudents, 0),
+    });
+  }, [data, isScheduled, quiz.passScore, started, submittedResult]);
 
   const initialDurationSeconds = useMemo(() => {
     if (quiz.timeLimit > 0) return quiz.timeLimit * 60;
@@ -145,11 +172,24 @@ function StudentQuizAttempt() {
   }, [questions]);
 
   const submitMutation = useMutation({
-    mutationFn: (payloadAnswers) => submitQuizAttempt(quizId, payloadAnswers),
+    mutationFn: (payloadAnswers) =>
+      isScheduled
+        ? submitScheduledQuizAttempt(quizId, payloadAnswers)
+        : submitQuizAttempt(quizId, payloadAnswers),
     onSuccess: (response) => {
       const result = response?.data || response;
+      const normalizedResult = isScheduled
+        ? {
+            ...result,
+            autoScore: toNumber(result?.autoScore ?? result?.score ?? result?.totalScore, 0),
+            totalMarks: toNumber(result?.totalMarks, 0),
+            percentage: toNumber(result?.percentage ?? result?.scorePercent, 0),
+            isPassed: Boolean(result?.isPassed ?? (toNumber(result?.percentage, 0) >= toNumber(quiz.passScore, 50))),
+            totalAttempts: toNumber(result?.totalAttempts ?? result?.totalStudents, 0),
+          }
+        : result;
       setAnimatedPercent(0);
-      setSubmittedResult(result);
+      setSubmittedResult(normalizedResult);
       setShowSubmitModal(false);
     },
     onError: (mutationError) => {
@@ -321,6 +361,20 @@ function StudentQuizAttempt() {
 
   const startQuiz = async () => {
     if (started) return;
+    if (isScheduled && !canAttempt) {
+      toast.error(
+        quizWindowStatus === "upcoming"
+          ? "This quiz has not started yet."
+          : quizWindowStatus === "missed"
+            ? "This quiz has ended and is marked as missed."
+            : "You cannot attempt this quiz right now."
+      );
+      return;
+    }
+    if (!Array.isArray(questions) || questions.length < 1) {
+      toast.error("Quiz questions are not available yet.");
+      return;
+    }
     quizStartedAtRef.current = Date.now();
     setTimeLeft(initialDurationSeconds);
     setStarted(true);
@@ -498,7 +552,22 @@ function StudentQuizAttempt() {
               <p className="mt-4 text-sm text-slate-600">
                 This quiz uses active tab monitoring and security protection.
               </p>
-              <button className="btn-primary mt-6" onClick={startQuiz}>
+              {isScheduled ? (
+                <div className="mt-4 text-xs text-slate-600">
+                  {startAtLabel ? <div>Start: {startAtLabel}</div> : null}
+                  {endAtLabel ? <div>End: {endAtLabel}</div> : null}
+                  {!canAttempt && quizWindowStatus ? (
+                    <div className="mt-2 font-semibold text-rose-600">
+                      Status: {quizWindowStatus}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+              <button
+                className={`btn-primary mt-6 ${isScheduled && !canAttempt ? "opacity-60 cursor-not-allowed" : ""}`}
+                onClick={startQuiz}
+                disabled={isScheduled && !canAttempt}
+              >
                 Start Quiz
               </button>
             </div>

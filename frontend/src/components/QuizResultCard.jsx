@@ -8,7 +8,8 @@ const toNumber = (value, fallback = 0) => {
 export default function QuizResultCard({ result, quiz, studentName }) {
   const isPassed = Boolean(result?.isPassed);
   const rank = toNumber(result?.rank, 0) || 1;
-  const total = toNumber(result?.totalAttempts, 0) || 1;
+  const total =
+    toNumber(result?.totalAttempts ?? result?.totalStudents, 0) || 1;
 
   const getRankSuffix = (n) => {
     const s = ["th", "st", "nd", "rd"];
@@ -27,7 +28,9 @@ export default function QuizResultCard({ result, quiz, studentName }) {
   };
 
   const rankColor = getRankColor(rank, total);
-  const percentage = Math.round(toNumber(result?.percentage, 0));
+  const percentage = Math.round(toNumber(result?.percentage ?? result?.scorePercent, 0));
+  const marksScored = toNumber(result?.autoScore ?? result?.score ?? result?.totalScore, 0);
+  const totalMarks = toNumber(result?.totalMarks, 0);
 
   return (
     <div
@@ -176,7 +179,7 @@ export default function QuizResultCard({ result, quiz, studentName }) {
           {[
             {
               label: "Marks",
-              value: `${toNumber(result?.autoScore, 0)} / ${toNumber(result?.totalMarks, 0)}`,
+              value: `${marksScored} / ${totalMarks}`,
               color: "#fff",
             },
             {
@@ -335,4 +338,3 @@ export default function QuizResultCard({ result, quiz, studentName }) {
     </div>
   );
 }
-

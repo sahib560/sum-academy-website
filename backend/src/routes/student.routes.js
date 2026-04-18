@@ -28,6 +28,11 @@ import {
   updateStudentSettings,
 } from "../controllers/student.controller.js";
 import {
+  getStudentScheduledQuizzes,
+  getStudentScheduledQuizById,
+  submitStudentScheduledQuizAttempt,
+} from "../controllers/scheduled.quiz.controller.js";
+import {
   getStudentTests,
   getStudentTestById,
   startStudentTest,
@@ -72,6 +77,9 @@ router.get("/certificates/:id/download", downloadStudentCertificate);
 router.get("/quizzes", getStudentQuizzes);
 router.get("/quizzes/:quizId", getQuizById);
 router.post("/quizzes/:quizId/submit", submitQuizAttempt);
+router.get("/scheduled-quizzes", getStudentScheduledQuizzes);
+router.get("/scheduled-quizzes/:quizId", getStudentScheduledQuizById);
+router.post("/scheduled-quizzes/:quizId/submit", submitStudentScheduledQuizAttempt);
 
 router.get("/announcements", getStudentAnnouncements);
 router.patch("/announcements/:id/read", markAnnouncementRead);

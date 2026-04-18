@@ -27,6 +27,15 @@ import {
   gradeShortAnswerSubmission,
 } from "../controllers/teacher.quiz.controller.js";
 import {
+  createQuestionBankQuestion,
+  getQuestionBankQuestions,
+} from "../controllers/questionBank.controller.js";
+import {
+  createScheduledQuiz,
+  getTeacherScheduledQuizzes,
+  getTeacherScheduledQuizById,
+} from "../controllers/scheduled.quiz.controller.js";
+import {
   getTeacherDashboard,
   getTeacherCourses,
   getTeacherVideoLibrary,
@@ -128,6 +137,11 @@ router.patch("/classes/:classId/reopen", reopenTeacherClass);
 router.get("/timetable", getTeacherTimetable);
 router.get("/announcements", getTeacherOutgoingAnnouncements);
 router.post("/announcements", createTeacherAnnouncement);
+router.get("/question-bank", getQuestionBankQuestions);
+router.post("/question-bank", createQuestionBankQuestion);
+router.get("/scheduled-quizzes", getTeacherScheduledQuizzes);
+router.get("/scheduled-quizzes/:quizId", getTeacherScheduledQuizById);
+router.post("/scheduled-quizzes", createScheduledQuiz);
 router.get("/quizzes/template", downloadQuizBulkTemplate);
 router.get("/quizzes", getTeacherQuizzes);
 router.get("/quizzes/:quizId", getTeacherQuizById);

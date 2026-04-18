@@ -61,6 +61,9 @@ export const getStudentCertificates = () =>
 export const getStudentQuizzes = () =>
   api.get("/student/quizzes").then((r) => r.data.data);
 
+export const getStudentScheduledQuizzes = () =>
+  api.get("/student/scheduled-quizzes").then((r) => r.data.data);
+
 export const getStudentTests = () =>
   api.get("/student/tests").then((r) => r.data.data || []);
 
@@ -96,6 +99,12 @@ export const getQuizById = (quizId) =>
 
 export const submitQuizAttempt = (quizId, answers) =>
   api.post(`/student/quizzes/${quizId}/submit`, { answers }).then((r) => r.data);
+
+export const getScheduledQuizById = (quizId) =>
+  api.get(`/student/scheduled-quizzes/${quizId}`).then((r) => r.data.data);
+
+export const submitScheduledQuizAttempt = (quizId, answers) =>
+  api.post(`/student/scheduled-quizzes/${quizId}/submit`, { answers }).then((r) => r.data);
 
 export const getStudentAnnouncements = () =>
   api.get("/student/announcements").then((r) => r.data.data);

@@ -314,6 +314,14 @@ function AppLayout({ showComingSoon }) {
           }
         />
         <Route
+          path="/student/scheduled-quizzes/:quizId/attempt"
+          element={
+            <ProtectedRoute allowedRoles={["student"]}>
+              <StudentQuizAttempt />
+            </ProtectedRoute>
+          }
+        />
+        <Route
           path="/student/tests/:testId/attempt"
           element={
             <ProtectedRoute allowedRoles={["student"]}>
