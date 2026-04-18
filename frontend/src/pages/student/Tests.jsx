@@ -48,6 +48,11 @@ function StudentTests() {
             const status = String(test.status || "scheduled").toLowerCase();
             const badge = badgeClass[status] || badgeClass.scheduled;
             const showMarks = test.hasSubmittedAttempt;
+            const attempt = test.attempt || null;
+            const obtainedMarks =
+              attempt?.score ?? attempt?.obtainedMarks ?? test.obtainedMarks ?? null;
+            const totalMarks = attempt?.totalMarks || test.totalMarks || 0;
+            const percentage = attempt?.percentage ?? test.percentage ?? null;
             return (
               <article
                 key={test.id}
@@ -65,7 +70,7 @@ function StudentTests() {
                     </p>
                     {showMarks ? (
                       <p className="mt-1 text-xs font-semibold text-primary">
-                        Result: {test.obtainedMarks}/{test.totalMarks} ({test.percentage}%)
+                        Result: {obtainedMarks ?? 0}/{totalMarks} ({percentage ?? 0}%)
                       </p>
                     ) : null}
                   </div>
@@ -78,7 +83,7 @@ function StudentTests() {
                       to={`/student/tests/${test.id}/attempt`}
                     >
                       {test.hasSubmittedAttempt
-                        ? "View Ranking"
+                        ? "View Result"
                         : test.inProgress
                           ? "Resume Test"
                           : "Start Test"}

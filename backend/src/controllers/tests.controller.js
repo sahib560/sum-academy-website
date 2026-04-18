@@ -11,6 +11,7 @@ const toNumber = (value, fallback = 0) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
 };
+const pickFirst = (...values) => values.find((value) => value !== undefined && value !== null);
 const parseDate = (value) => {
   if (!value) return null;
   if (typeof value?.toDate === "function") return value.toDate();
@@ -31,6 +32,38 @@ const chunkArray = (items = [], size = 10) => {
     chunks.push(items.slice(index, index + size));
   }
   return chunks;
+};
+
+const getAttemptScoreValue = (attempt = {}) =>
+  toNumber(
+    pickFirst(
+      attempt?.score,
+      attempt?.obtainedMarks,
+      attempt?.marksObtained,
+      attempt?.result?.score,
+      attempt?.result?.obtainedMarks
+    ),
+    0
+  );
+
+const getAttemptTotalMarksValue = (attempt = {}) =>
+  toNumber(
+    pickFirst(
+      attempt?.totalMarks,
+      attempt?.totalMark,
+      attempt?.maxMarks,
+      attempt?.result?.totalMarks
+    ),
+    0
+  );
+
+const getAttemptPercentageValue = (attempt = {}, obtainedMarks = null, totalMarks = null) => {
+  const direct = pickFirst(attempt?.percentage, attempt?.resultPercentage, attempt?.result?.percentage);
+  if (direct !== undefined && direct !== null) return toNumber(direct, 0);
+  const obtained = obtainedMarks === null ? getAttemptScoreValue(attempt) : toNumber(obtainedMarks, 0);
+  const total = totalMarks === null ? getAttemptTotalMarksValue(attempt) : toNumber(totalMarks, 0);
+  if (total > 0) return Number(((obtained / total) * 100).toFixed(2));
+  return 0;
 };
 
 // ---------------------------
@@ -520,16 +553,20 @@ const buildRankingRows = async (testId = "") => {
   const rows = snap.docs
     .map((doc) => ({ id: doc.id, ...(doc.data() || {}) }))
     .filter((row) => ["submitted", "auto_submitted"].includes(lowerText(row.status)))
-    .map((row) => ({
-      attemptId: row.id,
-      studentId: trimText(row.studentId),
-      studentName: trimText(row.studentName) || "Student",
-      className: trimText(row.className) || "Center",
-      obtainedMarks: toNumber(row.score, 0),
-      totalMarks: Math.max(0, toNumber(row.totalMarks, 0)),
-      percentage: toNumber(row.percentage, 0),
-      submittedAt: toIso(row.submittedAt || row.updatedAt || row.createdAt),
-    }))
+    .map((row) => {
+      const obtainedMarks = getAttemptScoreValue(row);
+      const totalMarks = Math.max(0, getAttemptTotalMarksValue(row));
+      return {
+        attemptId: row.id,
+        studentId: trimText(row.studentId),
+        studentName: trimText(row.studentName) || "Student",
+        className: trimText(row.className) || "Center",
+        obtainedMarks,
+        totalMarks,
+        percentage: getAttemptPercentageValue(row, obtainedMarks, totalMarks),
+        submittedAt: toIso(row.submittedAt || row.updatedAt || row.createdAt),
+      };
+    })
     .sort((a, b) => {
       const marksDiff = b.obtainedMarks - a.obtainedMarks;
       if (marksDiff !== 0) return marksDiff;
@@ -561,7 +598,8 @@ const serializeTestSummary = (testId, testData = {}, latestAttempt = null) => {
   const status = getTestStatus(testData, now);
   const startAt = toIso(testData.startAt);
   const endAt = toIso(testData.endAt);
-  const totalMarks = Math.max(0, toNumber(testData.totalMarks, 0));
+  const attemptTotalMarks = latestAttempt ? getAttemptTotalMarksValue(latestAttempt) : 0;
+  const totalMarks = Math.max(0, toNumber(testData.totalMarks, attemptTotalMarks));
   const questionsCount = Array.isArray(testData.questions) ? testData.questions.length : 0;
   const hasSubmittedAttempt = Boolean(
     latestAttempt && ["submitted", "auto_submitted"].includes(lowerText(latestAttempt.status))
@@ -585,8 +623,8 @@ const serializeTestSummary = (testId, testData = {}, latestAttempt = null) => {
     canAttempt: withinWindow && !hasSubmittedAttempt,
     hasSubmittedAttempt,
     inProgress,
-    obtainedMarks: hasSubmittedAttempt ? toNumber(latestAttempt.score, 0) : null,
-    percentage: hasSubmittedAttempt ? toNumber(latestAttempt.percentage, 0) : null,
+    obtainedMarks: hasSubmittedAttempt ? getAttemptScoreValue(latestAttempt) : null,
+    percentage: hasSubmittedAttempt ? getAttemptPercentageValue(latestAttempt) : null,
     submittedAt: hasSubmittedAttempt ? toIso(latestAttempt.submittedAt || latestAttempt.updatedAt) : null,
   };
 };
@@ -648,9 +686,9 @@ const normalizeAttemptPayload = (row = {}) => ({
   currentIndex: Math.max(0, toNumber(row.currentIndex, 0)),
   totalQuestions: Math.max(0, toNumber(row.totalQuestions, 0)),
   answersCount: Array.isArray(row.answers) ? row.answers.length : 0,
-  score: toNumber(row.score, 0),
-  totalMarks: toNumber(row.totalMarks, 0),
-  percentage: toNumber(row.percentage, 0),
+  score: getAttemptScoreValue(row),
+  totalMarks: getAttemptTotalMarksValue(row),
+  percentage: getAttemptPercentageValue(row),
   startedAt: toIso(row.startedAt),
   updatedAt: toIso(row.updatedAt),
   submittedAt: toIso(row.submittedAt),
@@ -1600,6 +1638,7 @@ export const finishStudentTest = async (req, res) => {
       status: finalStatus,
       currentIndex: existingAnswers.length,
       score: evaluated.score,
+      obtainedMarks: evaluated.score,
       totalMarks: evaluated.totalMarks,
       percentage: evaluated.percentage,
       evaluatedAnswers: evaluated.answers,
