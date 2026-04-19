@@ -824,6 +824,7 @@ export const createTest = async (req, res) => {
           await sendTestScheduleBroadcastEmail(emails, {
             title: `Test Scheduled: ${cleanTitle}`,
             message: `A new test has been scheduled for you.`,
+            testId: testRef.id,
             startAt: parsedStart.toISOString(),
             endAt: parsedEnd.toISOString(),
             durationMinutes: computedDurationMinutes,
@@ -1115,6 +1116,7 @@ export const bulkUploadManagedTest = async (req, res) => {
           await sendTestScheduleBroadcastEmail(emails, {
             title: `Test Scheduled: ${cleanTitle}`,
             message: `A new test has been scheduled for you.`,
+            testId: testRef.id,
             startAt: parsedStart.toISOString(),
             endAt: parsedEnd.toISOString(),
             durationMinutes,

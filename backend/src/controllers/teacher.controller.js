@@ -1624,6 +1624,17 @@ const createCourseStudentAnnouncement = async ({
   });
 };
 
+const formatPkDateTimeLabel = (value) => {
+  if (!value) return "";
+  const parsed = typeof value?.toDate === "function" ? value.toDate() : new Date(value);
+  if (!parsed || Number.isNaN(parsed.getTime())) return "";
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Karachi",
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(parsed);
+};
+
 const getSubjectVideoCount = async ({
   courseId,
   subjectId = "",
@@ -2624,15 +2635,29 @@ export const saveLectureContent = async (req, res) => {
       trimText(updates.videoUrl)
     ) {
       try {
+        const isLiveSession =
+          Boolean(updates.isLiveSession) || lowerText(updates.videoMode || "") === "live_session";
+        const liveStartLabel = isLiveSession
+          ? formatPkDateTimeLabel(updates.liveStartAt || linked.lectureData?.liveStartAt)
+          : "";
+        const liveEndLabel = isLiveSession
+          ? formatPkDateTimeLabel(updates.liveEndAt || linked.lectureData?.liveEndAt)
+          : "";
+        const courseTitle = trimText(linked.courseData.title) || "your course";
+        const lectureTitle = trimText(linked.lectureData.title) || "a lecture";
+        const videoTitle = trimText(updates.videoTitle) || "Lecture Video";
+
         await createCourseStudentAnnouncement({
-          title: `New Video Added: ${trimText(updates.videoTitle) || "Lecture Video"}`,
-          message: `${
-            trimText(linked.lectureData.title) || "A lecture"
-          } now has a new video in ${
-            trimText(linked.courseData.title) || "your course"
-          }.`,
+          title: isLiveSession
+            ? `Live Session Scheduled: ${videoTitle}`
+            : `New Video Added: ${videoTitle}`,
+          message: isLiveSession
+            ? `${lectureTitle} has a live session scheduled in ${courseTitle}${
+                liveStartLabel ? ` (Starts: ${liveStartLabel})` : ""
+              }${liveEndLabel ? ` (Ends: ${liveEndLabel})` : ""}.`
+            : `${lectureTitle} now has a new video in ${courseTitle}.`,
           courseId: trimText(linked.lectureData.courseId),
-          courseName: trimText(linked.courseData.title),
+          courseName: courseTitle,
           postedBy: uid,
           postedByName: await getTeacherDisplayName(uid, req.user?.email || ""),
           postedByRole: role || "teacher",

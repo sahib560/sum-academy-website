@@ -3472,11 +3472,22 @@ export const addCourseContent = async (req, res) => {
           String(req.user?.fullName || req.user?.name || req.user?.email || "")
             .trim()
             .split("@")[0] || "Admin";
+        const isLiveSession =
+          Boolean(contentData.isLiveSession) ||
+          String(contentData.videoMode || "").trim().toLowerCase() === "live_session";
+        const liveStart = String(contentData.liveStartAt || "").trim();
+        const liveEnd = String(contentData.liveEndAt || "").trim();
         await createCourseStudentAnnouncement({
-          title: `New Video Added: ${resolvedTitle}`,
-          message: `${resolvedTitle} was added to ${
-            String(subject?.name || "a subject").trim() || "your subject"
-          } in ${String(courseData?.title || "your course").trim()}.`,
+          title: isLiveSession
+            ? `Live Session Scheduled: ${resolvedTitle}`
+            : `New Video Added: ${resolvedTitle}`,
+          message: isLiveSession
+            ? `${resolvedTitle} is scheduled as a live session in ${
+                String(courseData?.title || "your course").trim()
+              }${liveStart ? ` (Starts: ${liveStart})` : ""}${liveEnd ? ` (Ends: ${liveEnd})` : ""}.`
+            : `${resolvedTitle} was added to ${
+                String(subject?.name || "a subject").trim() || "your subject"
+              } in ${String(courseData?.title || "your course").trim()}.`,
           courseId: cleanCourseId,
           courseName: String(courseData?.title || "").trim(),
           postedBy: req.user?.uid || "",

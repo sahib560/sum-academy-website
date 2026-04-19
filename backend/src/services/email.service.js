@@ -54,6 +54,18 @@ const sendMail = async (options = {}) => {
   return transporter.sendMail(options);
 };
 
+const formatPkDateTimeLabel = (value = "") => {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return raw;
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Karachi",
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(parsed);
+};
+
 export const sendTestScheduleBroadcastEmail = async (emails = [], payload = {}) => {
   const recipients = (Array.isArray(emails) ? emails : [])
     .map((e) => String(e || "").trim())
@@ -62,9 +74,26 @@ export const sendTestScheduleBroadcastEmail = async (emails = [], payload = {}) 
 
   const title = String(payload.title || "New Test Scheduled").trim() || "New Test Scheduled";
   const message = String(payload.message || "").trim();
-  const startAt = String(payload.startAt || "").trim();
-  const endAt = String(payload.endAt || "").trim();
+  const startAtRaw = String(payload.startAt || "").trim();
+  const endAtRaw = String(payload.endAt || "").trim();
+  const startAtLabel = startAtRaw ? formatPkDateTimeLabel(startAtRaw) : "";
+  const endAtLabel = endAtRaw ? formatPkDateTimeLabel(endAtRaw) : "";
   const durationMinutes = Number(payload.durationMinutes || 0) || 0;
+  const testUrl = String(payload.testUrl || "").trim();
+  const testId = String(payload.testId || "").trim();
+  const baseUrl =
+    pickFirst(process.env.CLIENT_URL, process.env.WEBSITE_URL) || "https://sumacademy.net";
+  const resolvedTestUrl =
+    testUrl ||
+    (testId ? `${String(baseUrl).replace(/\/+$/, "")}/student/tests/${testId}/attempt` : "");
+  const safeTestUrl = resolvedTestUrl ? String(resolvedTestUrl).replace(/"/g, "%22") : "";
+  const buttonHtml = safeTestUrl
+    ? `
+      <a href="${safeTestUrl}" style="display:inline-block; margin-top: 14px; background:#4a63f5; color:#fff; text-decoration:none; padding:10px 14px; border-radius:12px; font-weight:700;">
+        Open Test on Website
+      </a>
+    `
+    : "";
 
   const chunkSize = 50;
   let sent = 0;
@@ -80,9 +109,10 @@ export const sendTestScheduleBroadcastEmail = async (emails = [], payload = {}) 
           <h2 style="color: #4a63f5; margin: 0 0 8px;">${title}</h2>
           <p style="color: #334155; margin: 0 0 14px; line-height: 1.6;">${message || "A new test has been scheduled. Please be ready on time."}</p>
           <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 14px 16px;">
-            ${startAt ? `<p style="margin: 0; color: #475569;"><b>Start:</b> ${startAt}</p>` : ""}
-            ${endAt ? `<p style="margin: 6px 0 0; color: #475569;"><b>End:</b> ${endAt}</p>` : ""}
+            ${startAtLabel ? `<p style="margin: 0; color: #475569;"><b>Start:</b> ${startAtLabel} (PKT)</p>` : ""}
+            ${endAtLabel ? `<p style="margin: 6px 0 0; color: #475569;"><b>End:</b> ${endAtLabel} (PKT)</p>` : ""}
             ${durationMinutes ? `<p style="margin: 6px 0 0; color: #475569;"><b>Duration:</b> ${durationMinutes} minutes</p>` : ""}
+            ${buttonHtml}
           </div>
           <p style="margin: 16px 0 0; color: #94a3b8; font-size: 12px;">© 2026 SUM Academy — Karachi, Pakistan</p>
         </div>
