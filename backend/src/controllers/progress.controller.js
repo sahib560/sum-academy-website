@@ -1343,12 +1343,12 @@ export const markLectureComplete = async (req, res) => {
       const batch = db.batch();
       builtAfter.enrollmentRows.forEach((row) => {
         const currentStatus = lowerText(row.status || "active");
-        const nextStatus =
-          currentStatus === "completed"
-            ? "completed"
-            : readyForCompletionApproval
-              ? "pending_completion_review"
-              : "active";
+        // Do not auto-change enrollment status based on current uploaded content completion.
+        // Completion is a staff-only action; students should never be locked out when new
+        // lectures are uploaded later.
+        const normalizedStatus =
+          currentStatus && currentStatus !== "pending_completion_review" ? currentStatus : "active";
+        const nextStatus = currentStatus === "completed" ? "completed" : normalizedStatus;
         const progressValue =
           currentStatus === "completed" ? 100 : toNumber(builtAfter.overallProgress, 0);
         if (currentStatus === "completed") courseCompleted = true;

@@ -942,8 +942,10 @@ const buildClassCompletionStateForStudent = ({
     );
     const progress = normalizeProgressPercent(progressRows, courseId, 0);
     const status = lowerText(enrollment?.status || "active");
-    const completed =
-      progress >= 100 || status === "completed" || Boolean(enrollment?.completedAt);
+    // IMPORTANT:
+    // Do NOT treat "100% of currently-uploaded lectures watched" as course completion.
+    // Courses are only considered completed when staff explicitly marks the enrollment completed.
+    const completed = status === "completed" || Boolean(enrollment?.completedAt);
     return { courseId, progress, completed };
   });
 
@@ -4034,18 +4036,30 @@ export const markLectureComplete = async (req, res) => {
     ).length;
     const completionPercent =
       totalLectures > 0 ? Math.round((completedCount / totalLectures) * 100) : 0;
-    const isCompleted = totalLectures > 0 && completedCount >= totalLectures;
+    const isCompletedByContent = totalLectures > 0 && completedCount >= totalLectures;
+    const enrollmentAlreadyCompleted = enrollmentSnap.docs.some((doc) => {
+      const row = doc.data() || {};
+      return lowerText(row.status || "") === "completed" || Boolean(row.completedAt);
+    });
 
     if (!enrollmentSnap.empty) {
       const batch = db.batch();
-      enrollmentSnap.docs.forEach((doc) =>
+      enrollmentSnap.docs.forEach((doc) => {
+        const row = doc.data() || {};
+        const currentStatus = lowerText(row.status || "active");
+        const normalizedStatus =
+          currentStatus && currentStatus !== "pending_completion_review"
+            ? currentStatus
+            : "active";
         batch.update(doc.ref, {
           progress: clampPercent(completionPercent),
-          status: isCompleted ? "completed" : "active",
-          completedAt: isCompleted ? serverTimestamp() : null,
+          // Do not auto-mark enrollment completed when the student finishes
+          // all currently-available lectures. Completion is staff-only.
+          status: enrollmentAlreadyCompleted ? "completed" : normalizedStatus,
+          completedAt: enrollmentAlreadyCompleted ? row.completedAt || null : null,
           updatedAt: serverTimestamp(),
-        })
-      );
+        });
+      });
       await batch.commit();
     }
 
@@ -4088,20 +4102,7 @@ export const markLectureComplete = async (req, res) => {
 
     let certificate = null;
     let certificatePending = false;
-    if (isCompleted) {
-      if (certificateEligibleNow) {
-        certificate = await ensureCertificateForCompletion({
-          studentId: uid,
-          studentData: profile.studentData,
-          userData: profile.userData,
-          courseId,
-          courseData: courseSnap.data() || {},
-          classContext: certificateAccess.preferredClassContext || null,
-        });
-      } else {
-        certificatePending = true;
-      }
-    }
+    // Certificates are issued only when staff completes the enrollment.
 
     const classCertificateBatch = await ensureCertificatesForFullyCompletedClasses({
       studentId: uid,
@@ -4120,7 +4121,9 @@ export const markLectureComplete = async (req, res) => {
         completedLectures: completedCount,
         totalLectures,
         completionPercent: clampPercent(completionPercent),
-        courseCompleted: isCompleted,
+        // Do not treat "all current lectures watched" as course completion.
+        // Only staff-completed enrollments are considered completed/locked.
+        courseCompleted: enrollmentAlreadyCompleted,
         certificateIssued:
           Boolean(certificate?.created) ||
           Number(classCertificateBatch.createdCertificates || 0) > 0,

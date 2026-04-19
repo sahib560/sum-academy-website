@@ -223,6 +223,7 @@ Rate limit example (some endpoints):
 - GET `/api/payments/my-installments`
 - GET `/api/payments/my-payments`
 - GET `/api/payments/:id/status`
+- POST `/api/payments/:paymentId/finish`
 - POST `/api/payments/:paymentId/receipt` (**multipart/form-data OR JSON**) (non-standard in parts)
 - PATCH `/api/payments/:paymentId/receipt` (**multipart/form-data OR JSON**) (non-standard in parts)
 - POST `/api/payments/validate-promo`
@@ -689,10 +690,28 @@ Success (example):
 #### POST `/api/student/courses/:courseId/lectures/:lectureId/complete` (Student)
 Alias: POST `/api/student/subjects/:subjectId/lectures/:lectureId/complete`
 
-Success (example):
+Success (example) (does NOT auto-complete/lock the course):
 ```json
-{ "success": true, "message": "Lecture marked complete", "data": { "lectureId": "lec_1", "completed": true } }
+{
+  "success": true,
+  "message": "Lecture completed! Keep going.",
+  "data": {
+    "lectureId": "lec_1",
+    "completedCount": 1,
+    "totalLectures": 3,
+    "progressPercent": 34,
+    "chapterCompleted": false,
+    "chapterQuizUnlocked": false,
+    "readyForCompletionApproval": false,
+    "courseCompleted": false,
+    "nextAction": "continue"
+  }
+}
 ```
+
+Notes:
+- `courseCompleted` becomes `true` only when an admin/teacher explicitly completes the enrollment (staff-only).
+- When the student finishes all currently-uploaded content, `readyForCompletionApproval` may become `true`, but the course stays active so new lectures can be added later without locking students.
 
 #### PATCH `/api/student/courses/:courseId/lectures/:lectureId/progress` (Student)
 Alias: PATCH `/api/student/subjects/:subjectId/lectures/:lectureId/progress`
@@ -900,7 +919,11 @@ Error:
 #### POST `/api/payments/initiate`
 Success (example):
 ```json
-{ "success": true, "message": "Payment initiated", "data": { "paymentId": "pay_123", "status": "pending" } }
+{
+  "success": true,
+  "message": "Bank Transfer initiated",
+  "data": { "paymentId": "pay_123", "reference": "SUM-...", "method": "bank_transfer" }
+}
 ```
 
 #### GET `/api/payments/config`
@@ -912,13 +935,13 @@ Success:
 #### GET `/api/payments/:id/status`
 Success:
 ```json
-{ "success": true, "message": "Payment status fetched", "data": { "paymentId": "pay_123", "status": "verified" } }
+{ "success": true, "message": "Payment status fetched", "data": { "id": "pay_123", "status": "awaiting_receipt" } }
 ```
 
 #### GET `/api/payments/my-payments`
 Success:
 ```json
-{ "success": true, "message": "Payments fetched", "data": [ { "paymentId": "pay_123", "status": "pending" } ] }
+{ "success": true, "message": "My payments fetched", "data": [ { "id": "pay_123", "status": "pending_verification" } ] }
 ```
 
 #### GET `/api/payments/my-installments`
@@ -941,9 +964,40 @@ Error:
 - POST `/api/payments/:paymentId/receipt`
 - PATCH `/api/payments/:paymentId/receipt`
 
-Success (example):
+Success (example) (uploads receipt only; does NOT submit for verification):
 ```json
-{ "success": true, "message": "Receipt uploaded", "data": { "paymentId": "pay_123", "receiptUrl": "https://..." } }
+{
+  "success": true,
+  "message": "Receipt uploaded. Click Finish to submit for verification.",
+  "data": { "paymentId": "pay_123", "status": "awaiting_receipt", "receiptUploaded": true }
+}
+```
+
+Error (example):
+```json
+{ "success": false, "message": "Invalid receipt URL", "error": "Invalid receipt URL" }
+```
+
+#### POST `/api/payments/:paymentId/finish` (Auth)
+Submits the payment request to admin for verification (**required after receipt upload**).
+
+Success:
+```json
+{
+  "success": true,
+  "message": "Payment submitted for verification",
+  "data": { "paymentId": "pay_123", "status": "pending_verification" }
+}
+```
+
+Error (receipt missing):
+```json
+{
+  "success": false,
+  "message": "Upload receipt first",
+  "error": "Upload receipt first",
+  "errors": { "code": "RECEIPT_REQUIRED" }
+}
 ```
 
 ---
@@ -1319,7 +1373,8 @@ Success (template endpoints): file download (CSV). Errors are JSON.
 
 ### Admin Payments / Installments
 Endpoints (also exposed by `adminPaymentRoutes`):
-- GET `/api/admin/payments`
+- GET `/api/admin/payments` (default hides `awaiting_receipt`)
+- GET `/api/admin/payments?includeAwaitingReceipt=true` (includes `awaiting_receipt`)
 - PATCH `/api/admin/payments/:paymentId/verify`
 - PATCH `/api/admin/payments/:id/verify` (alias)
 - GET `/api/admin/installments`
