@@ -1,4 +1,5 @@
 import PDFDocument from "pdfkit";
+import NodeCache from "node-cache";
 import { admin, auth, db } from "../config/firebase.js";
 import { COLLECTIONS } from "../config/collections.js";
 import {
@@ -14,6 +15,7 @@ import {
 import { buildCourseContentForStudent } from "./progress.controller.js";
 
 const serverTimestamp = () => admin.firestore.FieldValue.serverTimestamp();
+const publicApiCache = new NodeCache({ stdTTL: 300, checkperiod: 120, maxKeys: 200 });
 const SETTINGS_DOC_ID = "siteSettings";
 const SECURITY_VIOLATION_LIMIT = 3;
 const SECURITY_REASONS = new Set([
@@ -706,17 +708,29 @@ const getEnrolledRows = async (uid) => {
   return snap.docs.map((doc) => ({ id: doc.id, ...(doc.data() || {}) }));
 };
 
-const getStudentClassMembershipRows = async (uid) => {
-  const classesSnap = await db.collection(COLLECTIONS.CLASSES).get();
-  return classesSnap.docs
-    .map((doc) => ({ id: doc.id, ...(doc.data() || {}) }))
-    .filter((row) => {
-      const students = Array.isArray(row.students) ? row.students : [];
-      return students.some((entry) => {
-        if (typeof entry === "string") return trimText(entry) === uid;
-        return trimText(entry?.studentId || entry?.id || entry?.uid) === uid;
-      });
-    });
+const getStudentClassMembershipRows = async (uid, enrollmentsOverride = null) => {
+  // IMPORTANT (billing):
+  // Never scan the entire CLASSES collection for every student request.
+  // Instead, derive class membership from the student's enrollment rows.
+  const enrollments = Array.isArray(enrollmentsOverride)
+    ? enrollmentsOverride
+    : await getEnrolledRows(uid);
+  const classIds = [
+    ...new Set(enrollments.map((row) => trimText(row.classId)).filter(Boolean)),
+  ];
+  if (!classIds.length) return [];
+
+  const snaps = await Promise.all(
+    classIds.map(async (classId) => {
+      try {
+        const snap = await db.collection(COLLECTIONS.CLASSES).doc(classId).get();
+        return snap.exists ? { id: snap.id, ...(snap.data() || {}) } : null;
+      } catch {
+        return null;
+      }
+    })
+  );
+  return snaps.filter(Boolean);
 };
 
 const getStudentCourseIdsFromClassRow = (classData = {}, uid = "") => {
@@ -940,7 +954,15 @@ const buildClassCompletionStateForStudent = ({
         trimText(row.subjectId || row.courseId) === courseId &&
         (!trimText(row.classId) || trimText(row.classId) === classId)
     );
-    const progress = normalizeProgressPercent(progressRows, courseId, 0);
+    const enrollmentPercent = Number(
+      enrollment?.progressPercent ??
+        enrollment?.completionPercent ??
+        enrollment?.progress ??
+        enrollment?.progressValue
+    );
+    const progress = Number.isFinite(enrollmentPercent)
+      ? clampPercent(enrollmentPercent)
+      : normalizeProgressPercent(progressRows, courseId, 0);
     const status = lowerText(enrollment?.status || "active");
     // IMPORTANT:
     // Do NOT treat "100% of currently-uploaded lectures watched" as course completion.
@@ -1130,28 +1152,27 @@ const buildStudentClassAndCourseData = ({
         trimText(subjects[0]?.teacherName) ||
         trimText(shift?.teacherName) ||
         "Teacher";
+      const enrollmentProgressValue = isPaymentLocked
+        ? 0
+        : toNumber(
+            enrollment?.progress ?? enrollment?.progressPercent ?? enrollment?.completionPercent,
+            Number.isFinite(Number(enrollment?.progress)) ? Number(enrollment?.progress) : 0
+          );
       const progress = isPaymentLocked
         ? 0
-        : normalizeProgressPercent(
-            progressRows,
-            cleanCourseId,
-            0
+        : clampPercent(
+            Number.isFinite(enrollmentProgressValue)
+              ? enrollmentProgressValue
+              : normalizeProgressPercent(progressRows, cleanCourseId, 0)
           );
       const courseState = classCompletionState.courseCompletionRows.find(
         (row) => trimText(row.subjectId || row.courseId) === cleanCourseId
       );
       const latestActivity = isPaymentLocked
         ? 0
-        : progressRows
-            .filter(
-              (row) =>
-                trimText(row.subjectId || row.courseId) === cleanCourseId
-            )
-            .map(
-              (row) =>
-                parseDate(row.updatedAt || row.completedAt || row.createdAt)?.getTime() || 0
-            )
-            .sort((a, b) => b - a)[0] || 0;
+        : parseDate(
+            enrollment?.updatedAt || enrollment?.enrolledAt || enrollment?.createdAt || studentEntry?.enrolledAt
+          )?.getTime() || 0;
       const price = 0;
       const discountPercent = 0;
       const finalPrice = 0;
@@ -1180,7 +1201,9 @@ const buildStudentClassAndCourseData = ({
         enrollmentType: lowerText(enrollment?.enrollmentType || ""),
         isPaymentLocked,
         progress,
-        isCompleted: !isPaymentLocked && clampPercent(progress) >= 100,
+        isCompleted:
+          !isPaymentLocked &&
+          (lowerText(enrollment?.status || "") === "completed" || Boolean(enrollment?.completedAt)),
         classCompleted: classCompletionState.completed,
         classStatus,
         classLocked:
@@ -1308,17 +1331,34 @@ const getCourseDocsByIds = async (courseIds = []) => {
 };
 
 const getProgressRowsForStudent = async (uid, courseId = "") => {
-  const snap = await db
-    .collection(COLLECTIONS.PROGRESS)
-    .where("studentId", "==", uid)
-    .get();
-
-  const rows = snap.docs.map((doc) => ({ id: doc.id, ...(doc.data() || {}) }));
   const cleanCourseId = trimText(courseId);
+  const progressRef = db.collection(COLLECTIONS.PROGRESS);
+
+  if (cleanCourseId) {
+    try {
+      const [byCourseSnap, bySubjectSnap] = await Promise.all([
+        progressRef.where("studentId", "==", uid).where("courseId", "==", cleanCourseId).get(),
+        progressRef.where("studentId", "==", uid).where("subjectId", "==", cleanCourseId).get(),
+      ]);
+      const rows = [...byCourseSnap.docs, ...bySubjectSnap.docs]
+        .map((doc) => ({ id: doc.id, ...(doc.data() || {}) }))
+        .filter(
+          (row, index, arr) => arr.findIndex((entry) => trimText(entry.id) === trimText(row.id)) === index
+        );
+      if (rows.length > 0) return rows;
+    } catch {
+      // fall through to legacy scan
+    }
+  }
+
+  // Legacy fallback: scan-and-filter (older progress rows may not have subjectId/courseId).
+  const snap = await progressRef.where("studentId", "==", uid).get();
+  const rows = snap.docs.map((doc) => ({ id: doc.id, ...(doc.data() || {}) }));
   if (!cleanCourseId) return rows;
-  return rows.filter(
-    (row) => trimText(row.subjectId || row.courseId) === cleanCourseId || !trimText(row.subjectId || row.courseId)
-  );
+  return rows.filter((row) => {
+    const rowCourseId = trimText(row.subjectId || row.courseId);
+    return rowCourseId === cleanCourseId || !rowCourseId;
+  });
 };
 
 const getCourseLectures = async (courseId) => {
@@ -1940,52 +1980,27 @@ export const getStudentDashboard = async (req, res) => {
     const uid = trimText(req.user?.uid);
     if (!uid) return errorResponse(res, "Missing student uid", 400);
 
-    const [
-      profile,
-      enrollments,
-      announcementsSnap,
-      sessionsSnap,
-      installmentsSnap,
-      paymentsSnap,
-      classMembershipRows,
-      progressRows,
-    ] =
+    const [profile, enrollments, announcementsSnap, installmentsSnap, paymentsSnap] =
       await Promise.all([
         getStudentAndUser(uid),
         getEnrolledRows(uid),
-        db.collection(COLLECTIONS.ANNOUNCEMENTS).orderBy("createdAt", "desc").get(),
-        db.collection(COLLECTIONS.SESSIONS).get(),
+        // IMPORTANT (billing): never scan the full announcements collection.
+        // Dashboard only needs a small "recent" slice.
+        db.collection(COLLECTIONS.ANNOUNCEMENTS).orderBy("createdAt", "desc").limit(100).get(),
         db.collection(COLLECTIONS.INSTALLMENTS).where("studentId", "==", uid).get(),
         db.collection(COLLECTIONS.PAYMENTS).where("studentId", "==", uid).get(),
-        getStudentClassMembershipRows(uid),
-        getProgressRowsForStudent(uid),
       ]);
+
+    const classMembershipRows = await getStudentClassMembershipRows(uid, enrollments);
 
     const studentData = profile.studentData;
     const userData = profile.userData;
-    const enrollmentClassIds = enrollments
-      .map((row) => trimText(row.classId))
-      .filter(Boolean);
-    const classMap = classMembershipRows.reduce((acc, row) => {
-      acc[trimText(row.id)] = row;
-      return acc;
-    }, {});
-    const missingClassIds = [...new Set(enrollmentClassIds)].filter(
-      (classId) => !classMap[classId]
-    );
-    const missingClassRows = await Promise.all(
-      missingClassIds.map(async (classId) => {
-        const snap = await db.collection(COLLECTIONS.CLASSES).doc(classId).get();
-        return snap.exists ? { id: snap.id, ...(snap.data() || {}) } : null;
+    const allClassRows = (Array.isArray(classMembershipRows) ? classMembershipRows : []).map(
+      (row) => ({
+        ...(row || {}),
+        id: trimText(row?.id),
       })
     );
-    const allClassRows = [
-      ...classMembershipRows,
-      ...missingClassRows.filter(Boolean),
-    ].map((row) => ({
-      ...(row || {}),
-      id: trimText(row?.id),
-    }));
 
     const enrolledCourseIds = [
       ...new Set(
@@ -2001,7 +2016,7 @@ export const getStudentDashboard = async (req, res) => {
       classRows: allClassRows,
       enrollments,
       courseMap,
-      progressRows,
+      progressRows: [],
     });
     const classRows = learningData.classes;
     const courseRows = [...learningData.courseRows].sort(
@@ -2077,8 +2092,30 @@ export const getStudentDashboard = async (req, res) => {
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const upcomingSessions = sessionsSnap.docs
-      .map((doc) => ({ id: doc.id, ...(doc.data() || {}) }))
+
+    // Sessions: query only the student's enrolled classes (avoid scanning whole collection).
+    const sessionDocs = [];
+    const classIdsForSessions = [...classIdSet].filter(Boolean);
+    if (classIdsForSessions.length > 0) {
+      const sessionSnaps = await Promise.all(
+        chunkArray(classIdsForSessions, 10).map(async (ids) => {
+          try {
+            return await db
+              .collection(COLLECTIONS.SESSIONS)
+              .where("classId", "in", ids)
+              .limit(120)
+              .get();
+          } catch {
+            return { docs: [] };
+          }
+        })
+      );
+      sessionSnaps.forEach((snap) => {
+        snap.docs.forEach((doc) => sessionDocs.push({ id: doc.id, ...(doc.data() || {}) }));
+      });
+    }
+
+    const upcomingSessions = sessionDocs
       .filter((row) => classIdSet.has(trimText(row.classId)))
       .filter((row) => {
         const parsedDate = parseDate(row.date);
@@ -2298,31 +2335,9 @@ export const getStudentCourses = async (req, res) => {
     const uid = trimText(req.user?.uid);
     if (!uid) return errorResponse(res, "Missing student uid", 400);
 
-    const [enrollments, classMembershipRows, progressRows] = await Promise.all([
-      getEnrolledRows(uid),
-      getStudentClassMembershipRows(uid),
-      getProgressRowsForStudent(uid),
-    ]);
-    const enrollmentClassIds = enrollments
-      .map((row) => trimText(row.classId))
-      .filter(Boolean);
-    const classMap = classMembershipRows.reduce((acc, row) => {
-      acc[trimText(row.id)] = row;
-      return acc;
-    }, {});
-    const missingClassIds = [...new Set(enrollmentClassIds)].filter(
-      (classId) => !classMap[classId]
-    );
-    const missingClassRows = await Promise.all(
-      missingClassIds.map(async (classId) => {
-        const snap = await db.collection(COLLECTIONS.CLASSES).doc(classId).get();
-        return snap.exists ? { id: snap.id, ...(snap.data() || {}) } : null;
-      })
-    );
-    const classRows = [
-      ...classMembershipRows,
-      ...missingClassRows.filter(Boolean),
-    ].map((row) => ({
+    const enrollments = await getEnrolledRows(uid);
+    const classMembershipRows = await getStudentClassMembershipRows(uid, enrollments);
+    const classRows = (Array.isArray(classMembershipRows) ? classMembershipRows : []).map((row) => ({
       ...(row || {}),
       id: trimText(row?.id),
     }));
@@ -2341,7 +2356,7 @@ export const getStudentCourses = async (req, res) => {
       classRows,
       enrollments,
       courseMap,
-      progressRows,
+      progressRows: [],
     }).courseRows.sort((a, b) => {
       const classCompare = trimText(a.className).localeCompare(trimText(b.className));
       if (classCompare !== 0) return classCompare;
@@ -2397,20 +2412,23 @@ const buildStudentLiveSessions = async (uid) => {
     });
   });
 
-  const [subjectSnaps, liveAccessSnap, lectureRowsBySubject, liveContentBySubject, progressSnap] = await Promise.all([
-    Promise.all(
-      [...subjectIds].map(async (subjectId) => {
-        const [subjectSnap, courseSnap] = await Promise.all([
-          db.collection(COLLECTIONS.SUBJECTS).doc(subjectId).get(),
-          db.collection(COLLECTIONS.COURSES).doc(subjectId).get(),
-        ]);
-        const target = subjectSnap.exists ? subjectSnap : courseSnap;
-        return {
-          id: subjectId,
-          data: target.exists ? target.data() || {} : {},
-        };
-      })
-    ),
+  const subjectSnaps = await Promise.all(
+    [...subjectIds].map(async (subjectId) => {
+      const [subjectSnap, courseSnap] = await Promise.all([
+        db.collection(COLLECTIONS.SUBJECTS).doc(subjectId).get(),
+        db.collection(COLLECTIONS.COURSES).doc(subjectId).get(),
+      ]);
+      const target = subjectSnap.exists ? subjectSnap : courseSnap;
+      return {
+        id: subjectId,
+        data: target.exists ? target.data() || {} : {},
+        parentRef: target.exists ? target.ref : null,
+        parentType: subjectSnap.exists ? "subject" : courseSnap.exists ? "course" : "",
+      };
+    })
+  );
+
+  const [liveAccessSnap, lectureRowsBySubject, liveContentBySubject] = await Promise.all([
     db
       .collection(LIVE_ACCESS_COLLECTION)
       .where("studentId", "==", uid)
@@ -2423,18 +2441,21 @@ const buildStudentLiveSessions = async (uid) => {
       }))
     ),
     Promise.all(
-      [...subjectIds].map(async (subjectId) => {
+      subjectSnaps.map(async (meta) => {
         try {
-          const [subjectSnap, courseSnap] = await Promise.all([
-            db.collection(COLLECTIONS.SUBJECTS).doc(subjectId).get(),
-            db.collection(COLLECTIONS.COURSES).doc(subjectId).get(),
-          ]);
-          const parentRef = subjectSnap.exists ? subjectSnap.ref : courseSnap.exists ? courseSnap.ref : null;
-          if (!parentRef) return { subjectId, videos: [] };
-          const snap = await parentRef.collection("content").get();
-          const videos = snap.docs
+          const parentRef = meta.parentRef || null;
+          if (!parentRef) return { subjectId: meta.id, videos: [] };
+
+          // Only read live-session content items; avoids scanning full content library.
+          const snap = await parentRef
+            .collection("content")
+            .where("isLiveSession", "==", true)
+            .limit(25)
+            .get()
+            .catch(() => ({ docs: [] }));
+          const videos = (snap.docs || [])
             .map((doc) => ({ id: doc.id, ...(doc.data() || {}) }))
-            .filter((row) => lowerText(row.type) === "video" && row.isLiveSession === true)
+            .filter((row) => lowerText(row.type) === "video" || !trimText(row.type))
             .filter((row) => Boolean(trimText(row.url)))
             .map((row) => ({
               id: trimText(row.id),
@@ -2450,19 +2471,14 @@ const buildStudentLiveSessions = async (uid) => {
               liveStartAt: trimText(row.liveStartAt),
               liveEndAt: trimText(row.liveEndAt),
               premiereEndedAt: row.premiereEndedAt || null,
-              parentType: subjectSnap.exists ? "subject" : "course",
+              parentType: meta.parentType || "course",
             }));
-          return { subjectId, videos };
+          return { subjectId: meta.id, videos };
         } catch {
-          return { subjectId, videos: [] };
+          return { subjectId: meta.id, videos: [] };
         }
       })
     ),
-    db
-      .collection(COLLECTIONS.PROGRESS)
-      .where("studentId", "==", uid)
-      .get()
-      .catch(() => ({ docs: [] })),
   ]);
 
   const subjectMap = subjectSnaps.reduce((acc, row) => {
@@ -2557,15 +2573,6 @@ const buildStudentLiveSessions = async (uid) => {
   // This keeps CoursePlayer consistent: live lecture is locked until premiere ends.
   const lectureFinalizePromises = [];
   const progressFinalizePromises = [];
-  const progressByKey = (progressSnap?.docs || []).reduce((acc, doc) => {
-    const row = doc.data() || {};
-    const lectureId = trimText(row.lectureId);
-    if (!lectureId) return acc;
-    const courseId = trimText(row.subjectId || row.courseId);
-    if (!courseId) return acc;
-    acc[`${courseId}::${lectureId}`] = { ref: doc.ref, row };
-    return acc;
-  }, {});
   const liveAccessMap = (liveAccessSnap.docs || []).reduce((acc, doc) => {
     const row = doc.data() || {};
     const sessionId = trimText(row.sessionId);
@@ -2754,8 +2761,6 @@ const buildStudentLiveSessions = async (uid) => {
           parseDurationToSeconds(lecture.videoDurationSec),
           0
         );
-        const progressKey = `${liveCourseId}::${liveLectureId}`;
-        const existingProgress = progressByKey[progressKey] || null;
         progressFinalizePromises.push(
           (async () => {
             try {
@@ -2771,11 +2776,41 @@ const buildStudentLiveSessions = async (uid) => {
                 completedAt: serverTimestamp(),
                 updatedAt: serverTimestamp(),
               };
-              if (!existingProgress) {
+              const progressRef = db.collection(COLLECTIONS.PROGRESS);
+              let existingDoc = null;
+              try {
+                const byCourseSnap = await progressRef
+                  .where("studentId", "==", uid)
+                  .where("courseId", "==", liveCourseId)
+                  .where("lectureId", "==", liveLectureId)
+                  .limit(1)
+                  .get();
+                if (!byCourseSnap.empty) {
+                  existingDoc = byCourseSnap.docs[0];
+                } else {
+                  const bySubjectSnap = await progressRef
+                    .where("studentId", "==", uid)
+                    .where("subjectId", "==", liveCourseId)
+                    .where("lectureId", "==", liveLectureId)
+                    .limit(1)
+                    .get();
+                  if (!bySubjectSnap.empty) existingDoc = bySubjectSnap.docs[0];
+                }
+              } catch {
+                const fallbackSnap = await progressRef
+                  .where("studentId", "==", uid)
+                  .where("lectureId", "==", liveLectureId)
+                  .limit(1)
+                  .get()
+                  .catch(() => ({ empty: true, docs: [] }));
+                if (!fallbackSnap.empty) existingDoc = fallbackSnap.docs[0];
+              }
+
+              if (!existingDoc) {
                 payload.createdAt = serverTimestamp();
-                await db.collection(COLLECTIONS.PROGRESS).add(payload);
-              } else if (!existingProgress.row?.isCompleted) {
-                await existingProgress.ref.set(payload, { merge: true });
+                await progressRef.add(payload);
+              } else if (!(existingDoc.data() || {}).isCompleted) {
+                await existingDoc.ref.set(payload, { merge: true });
               }
 
               await db
@@ -3552,7 +3587,6 @@ export const getStudentCourseProgress = async (req, res) => {
       chaptersSnap,
       lectures,
       progressRows,
-      allProgressRows,
       videoAccessSnap,
       enrollmentRows,
       classMembershipRows,
@@ -3560,7 +3594,6 @@ export const getStudentCourseProgress = async (req, res) => {
       db.collection(COLLECTIONS.CHAPTERS).where("courseId", "==", courseId).get(),
       getCourseLectures(courseId),
       getProgressRowsForStudent(uid, courseId),
-      getProgressRowsForStudent(uid),
       db.collection("videoAccess").where("studentId", "==", uid).get(),
       getEnrolledRows(uid),
       getStudentClassMembershipRows(uid),
@@ -3593,7 +3626,7 @@ export const getStudentCourseProgress = async (req, res) => {
       courseId,
       classRows,
       enrollments: enrollmentRows,
-      progressRows: allProgressRows,
+      progressRows: [],
     });
     const finalQuizState = await resolveFinalQuizRequirementState({
       studentId: uid,
@@ -4012,7 +4045,6 @@ export const markLectureComplete = async (req, res) => {
       courseProgressRows,
       enrollmentSnap,
       profile,
-      allProgressRows,
       allEnrollments,
       classMembershipRows,
     ] = await Promise.all([
@@ -4024,7 +4056,6 @@ export const markLectureComplete = async (req, res) => {
         .where("courseId", "==", courseId)
         .get(),
       getStudentAndUser(uid),
-      getProgressRowsForStudent(uid),
       getEnrolledRows(uid),
       getStudentClassMembershipRows(uid),
     ]);
@@ -4090,7 +4121,7 @@ export const markLectureComplete = async (req, res) => {
       courseId,
       classRows,
       enrollments: allEnrollments,
-      progressRows: allProgressRows,
+      progressRows: [],
     });
     const finalQuizState = await resolveFinalQuizRequirementState({
       studentId: uid,
@@ -4110,7 +4141,7 @@ export const markLectureComplete = async (req, res) => {
       userData: profile.userData,
       classRows,
       enrollments: allEnrollments,
-      progressRows: allProgressRows,
+      progressRows: [],
     });
 
     return successResponse(
@@ -4161,6 +4192,53 @@ export const markLectureComplete = async (req, res) => {
   }
 };
 
+const getExploreCoursesBase = async () => {
+  const cacheKey = "public_explore_courses_base_v1";
+  const cached = publicApiCache.get(cacheKey);
+  if (cached) return cached;
+
+  const [subjectsSnap, coursesSnap, teachersSnap, teacherUsersSnap] = await Promise.all([
+    db.collection(COLLECTIONS.SUBJECTS).get(),
+    db.collection(COLLECTIONS.COURSES).get(),
+    db.collection(COLLECTIONS.TEACHERS).get(),
+    db.collection(COLLECTIONS.USERS).where("role", "==", "teacher").get(),
+  ]);
+
+  const teacherNameMap = {};
+  teachersSnap.docs.forEach((doc) => {
+    const data = doc.data() || {};
+    const name = trimText(data.fullName) || trimText(data.name) || trimText(data.displayName) || "";
+    if (name) teacherNameMap[doc.id] = name;
+  });
+  teacherUsersSnap.docs.forEach((doc) => {
+    const data = doc.data() || {};
+    if (teacherNameMap[doc.id]) return;
+    const name =
+      trimText(data.fullName) || trimText(data.name) || trimText(data.displayName) || getNameFromEmail(data.email);
+    if (name) teacherNameMap[doc.id] = name;
+  });
+
+  const merged = {};
+  const addRow = (id, data = {}, sourceType = "subject") => {
+    const status = lowerText(data.status || data.publishStatus || "");
+    if (["draft", "unpublished", "archived", "deleted", "inactive"].includes(status)) {
+      return;
+    }
+    if (merged[id]?.sourceType === "subject" && sourceType === "course") return;
+    merged[id] = { id, ...(data || {}), sourceType };
+  };
+
+  subjectsSnap.docs.forEach((doc) => addRow(doc.id, doc.data() || {}, "subject"));
+  coursesSnap.docs.forEach((doc) => addRow(doc.id, doc.data() || {}, "course"));
+
+  const base = {
+    teacherNameMap,
+    courses: Object.values(merged),
+  };
+  publicApiCache.set(cacheKey, base, 5 * 60);
+  return base;
+};
+
 export const exploreCourses = async (req, res) => {
   try {
     const category = trimText(req.query?.category).toLowerCase();
@@ -4181,51 +4259,13 @@ export const exploreCourses = async (req, res) => {
       }
     }
 
-    const [subjectsSnap, coursesSnap, teachersSnap, teacherUsersSnap, enrolledCourseIds] =
-      await Promise.all([
-        db.collection(COLLECTIONS.SUBJECTS).get(),
-        db.collection(COLLECTIONS.COURSES).get(),
-        db.collection(COLLECTIONS.TEACHERS).get(),
-        db.collection(COLLECTIONS.USERS).where("role", "==", "teacher").get(),
-        uid ? getStudentEnrolledCourseIds(uid) : Promise.resolve([]),
-      ]);
+    const [{ teacherNameMap, courses: baseCourses }, enrolledCourseIds] = await Promise.all([
+      getExploreCoursesBase(),
+      uid ? getStudentEnrolledCourseIds(uid) : Promise.resolve([]),
+    ]);
     const enrolledSet = new Set(enrolledCourseIds);
 
-    const teacherNameMap = {};
-    teachersSnap.docs.forEach((doc) => {
-      const data = doc.data() || {};
-      const name =
-        trimText(data.fullName) ||
-        trimText(data.name) ||
-        trimText(data.displayName) ||
-        "";
-      if (name) teacherNameMap[doc.id] = name;
-    });
-    teacherUsersSnap.docs.forEach((doc) => {
-      const data = doc.data() || {};
-      if (teacherNameMap[doc.id]) return;
-      const name =
-        trimText(data.fullName) ||
-        trimText(data.name) ||
-        trimText(data.displayName) ||
-        getNameFromEmail(data.email);
-      if (name) teacherNameMap[doc.id] = name;
-    });
-
-    const merged = {};
-    const addRow = (id, data = {}, sourceType = "subject") => {
-      const status = lowerText(data.status || data.publishStatus || "");
-      if (["draft", "unpublished", "archived", "deleted", "inactive"].includes(status)) {
-        return;
-      }
-      if (merged[id]?.sourceType === "subject" && sourceType === "course") return;
-      merged[id] = { id, ...(data || {}), sourceType };
-    };
-
-    subjectsSnap.docs.forEach((doc) => addRow(doc.id, doc.data() || {}, "subject"));
-    coursesSnap.docs.forEach((doc) => addRow(doc.id, doc.data() || {}, "course"));
-
-    let courses = Object.values(merged);
+    let courses = Array.isArray(baseCourses) ? baseCourses : [];
     if (category) {
       courses = courses.filter((row) =>
         lowerText(row.category || row.stream || row.track) === category
@@ -4312,6 +4352,12 @@ export const exploreCourses = async (req, res) => {
 
 export const getPublicTeachers = async (_req, res) => {
   try {
+    const cacheKey = "public_teachers_payload_v1";
+    const cached = publicApiCache.get(cacheKey);
+    if (cached) {
+      return successResponse(res, cached, "Public teachers fetched");
+    }
+
     const [teacherUsersSnap, teacherProfilesSnap, subjectsSnap, coursesSnap, classesSnap] =
       await Promise.all([
         db.collection(COLLECTIONS.USERS).where("role", "==", "teacher").get(),
@@ -4423,6 +4469,8 @@ export const getPublicTeachers = async (_req, res) => {
       .filter(Boolean)
       .sort((a, b) => String(a.fullName || "").localeCompare(String(b.fullName || "")));
 
+    publicApiCache.set(cacheKey, payload, 10 * 60);
+
     return successResponse(res, payload, "Public teachers fetched");
   } catch (error) {
     console.error("getPublicTeachers error:", error);
@@ -4530,21 +4578,51 @@ const getActiveQuizzesForCourseIds = async (courseIds = []) => {
   });
 };
 
-const getLatestQuizAttemptMap = async (studentId) => {
-  const snap = await db
-    .collection(COLLECTIONS.QUIZ_RESULTS)
-    .where("studentId", "==", studentId)
-    .get();
+const getLatestQuizAttemptMap = async (studentId, quizIds = []) => {
+  const cleanStudentId = trimText(studentId);
+  if (!cleanStudentId) return {};
+
+  const cleanQuizIds = [
+    ...new Set((Array.isArray(quizIds) ? quizIds : []).map((id) => trimText(id)).filter(Boolean)),
+  ];
+  const quizIdSet = new Set(cleanQuizIds);
+
+  let docs = [];
+  if (cleanQuizIds.length > 0) {
+    try {
+      const snaps = await Promise.all(
+        chunkArray(cleanQuizIds, 10).map((idsChunk) =>
+          db
+            .collection(COLLECTIONS.QUIZ_RESULTS)
+            .where("studentId", "==", cleanStudentId)
+            .where("quizId", "in", idsChunk)
+            .get()
+        )
+      );
+      docs = snaps.flatMap((snap) => snap.docs || []);
+    } catch {
+      const fallback = await db
+        .collection(COLLECTIONS.QUIZ_RESULTS)
+        .where("studentId", "==", cleanStudentId)
+        .get();
+      docs = (fallback.docs || []).filter((doc) => quizIdSet.has(trimText(doc.data()?.quizId)));
+    }
+  } else {
+    const snap = await db
+      .collection(COLLECTIONS.QUIZ_RESULTS)
+      .where("studentId", "==", cleanStudentId)
+      .get();
+    docs = snap.docs || [];
+  }
 
   const byQuiz = {};
-  snap.docs.forEach((doc) => {
+  docs.forEach((doc) => {
     const data = doc.data() || {};
     const quizId = trimText(data.quizId);
     if (!quizId) return;
     const submittedAt = parseDate(data.submittedAt || data.createdAt)?.getTime() || 0;
     const current = byQuiz[quizId];
-    const currentTime =
-      parseDate(current?.submittedAt || current?.createdAt)?.getTime() || -1;
+    const currentTime = parseDate(current?.submittedAt || current?.createdAt)?.getTime() || -1;
     if (!current || submittedAt >= currentTime) {
       byQuiz[quizId] = { id: doc.id, ...(data || {}) };
     }
@@ -4618,9 +4696,10 @@ export const getStudentQuizzes = async (req, res) => {
       return successResponse(res, [], "Student quizzes fetched");
     }
 
-    const [quizzes, latestAttemptMap, courseMap, approvedFinalQuizCourseIds] = await Promise.all([
-      getActiveQuizzesForCourseIds(enrolledCourseIds),
-      getLatestQuizAttemptMap(uid),
+    const quizzes = await getActiveQuizzesForCourseIds(enrolledCourseIds);
+    const quizIds = quizzes.map((quiz) => trimText(quiz?.id)).filter(Boolean);
+    const [latestAttemptMap, courseMap, approvedFinalQuizCourseIds] = await Promise.all([
+      getLatestQuizAttemptMap(uid, quizIds),
       getCourseDocsByIds(enrolledCourseIds),
       getApprovedFinalQuizCourseIds(uid),
     ]);
@@ -5133,7 +5212,6 @@ export const submitQuizAttempt = async (req, res) => {
         profile,
         courseLectures,
         courseProgressRows,
-        allProgressRows,
         allEnrollments,
         classMembershipRows,
         courseSnap,
@@ -5141,7 +5219,6 @@ export const submitQuizAttempt = async (req, res) => {
         getStudentAndUser(uid),
         getCourseLectures(courseId),
         getProgressRowsForStudent(uid, courseId),
-        getProgressRowsForStudent(uid),
         getEnrolledRows(uid),
         getStudentClassMembershipRows(uid),
         db.collection(COLLECTIONS.COURSES).doc(courseId).get(),
@@ -5182,7 +5259,7 @@ export const submitQuizAttempt = async (req, res) => {
         courseId,
         classRows,
         enrollments: allEnrollments,
-        progressRows: allProgressRows,
+        progressRows: [],
       });
       const finalQuizState = await resolveFinalQuizRequirementState({
         studentId: uid,
@@ -5216,7 +5293,7 @@ export const submitQuizAttempt = async (req, res) => {
         userData: profile.userData,
         classRows,
         enrollments: allEnrollments,
-        progressRows: allProgressRows,
+        progressRows: [],
       });
       classCertificatesIssued = Number(classCertificateBatch.createdCertificates || 0);
       classCertificateBlockedByFinalQuiz = Number(

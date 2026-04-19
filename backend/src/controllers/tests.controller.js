@@ -532,7 +532,22 @@ const ensureStudentCanAccessTest = async ({ testId = "", uid = "" }) => {
     classData = classSnap.data() || {};
     className = className || trimText(classData.name) || "Class";
     if (!isStudentInClass(uid, classData)) {
-      return { error: "You are not assigned to this class test", status: 403 };
+      // Fallback: allow access when the student has an active enrollment in this class
+      // (avoids relying on scanning/maintaining class.students arrays).
+      try {
+        const enrollmentSnap = await db
+          .collection(COLLECTIONS.ENROLLMENTS)
+          .where("studentId", "==", uid)
+          .where("classId", "==", classId)
+          .limit(1)
+          .get();
+        const hasEnrollment = !enrollmentSnap.empty;
+        if (!hasEnrollment) {
+          return { error: "You are not assigned to this class test", status: 403 };
+        }
+      } catch {
+        return { error: "You are not assigned to this class test", status: 403 };
+      }
     }
   } else {
     classId = "";
@@ -1249,40 +1264,69 @@ export const getStudentTests = async (req, res) => {
     const uid = trimText(req.user?.uid);
     if (!uid) return errorResponse(res, "Missing student uid", 400);
 
-    const [testsSnap, attemptsByTest] = await Promise.all([
-      db.collection(COLLECTIONS.TESTS).get(),
-      getStudentAttemptsByTest(uid),
-    ]);
-
+    // IMPORTANT (billing): never read the entire TESTS collection for every student.
+    // Fetch only tests assigned to the student's enrolled classes + center-wide tests.
+    const enrollmentsSnap = await db
+      .collection(COLLECTIONS.ENROLLMENTS)
+      .where("studentId", "==", uid)
+      .get();
     const classIds = [
       ...new Set(
-        testsSnap.docs
-          .map((doc) => trimText(doc.data()?.classId))
+        enrollmentsSnap.docs
+          .map((doc) => trimText((doc.data() || {}).classId))
           .filter(Boolean)
       ),
     ];
 
-    const classDocs = await Promise.all(
-      classIds.map(async (classId) => {
-        const snap = await db.collection(COLLECTIONS.CLASSES).doc(classId).get();
-        return snap.exists ? [classId, snap.data() || {}] : [classId, null];
-      })
-    );
-    const classMap = classDocs.reduce((acc, [classId, classData]) => {
-      acc[classId] = classData;
-      return acc;
-    }, {});
+    const [centerSnap, classSnaps] = await Promise.all([
+      db.collection(COLLECTIONS.TESTS).where("scope", "==", "center").get().catch(() => ({ docs: [] })),
+      Promise.all(
+        chunkArray(classIds, 10).map((ids) =>
+          ids.length
+            ? db.collection(COLLECTIONS.TESTS).where("classId", "in", ids).get().catch(() => ({ docs: [] }))
+            : Promise.resolve({ docs: [] })
+        )
+      ),
+    ]);
 
-    const rows = testsSnap.docs
+    const tests = [...centerSnap.docs, ...classSnaps.flatMap((snap) => snap.docs)]
       .map((doc) => ({ id: doc.id, ...(doc.data() || {}) }))
-      .filter((row) => {
-        const scope = lowerText(row.scope || "class");
-        if (scope === "center") return true;
-        const classId = trimText(row.classId);
-        const classData = classMap[classId];
-        if (!classData) return false;
-        return isStudentInClass(uid, classData);
-      })
+      .filter((row, index, arr) => arr.findIndex((r) => r.id === row.id) === index);
+
+    const testIds = tests.map((row) => trimText(row.id)).filter(Boolean);
+
+    // Attempts: only read attempts for the tests we are returning.
+    const attemptsByTest = {};
+    if (testIds.length > 0) {
+      try {
+        const attemptSnaps = await Promise.all(
+          chunkArray(testIds, 10).map((ids) =>
+            db
+              .collection(COLLECTIONS.TEST_ATTEMPTS)
+              .where("studentId", "==", uid)
+              .where("testId", "in", ids)
+              .get()
+          )
+        );
+        attemptSnaps.forEach((snap) => {
+          snap.docs.forEach((doc) => {
+            const data = doc.data() || {};
+            const testId = trimText(data.testId);
+            if (!testId) return;
+            if (!attemptsByTest[testId]) attemptsByTest[testId] = [];
+            attemptsByTest[testId].push({ id: doc.id, ref: doc.ref, ...data });
+          });
+        });
+      } catch {
+        // Fallback if a composite index is missing: read attempts for the student and filter locally.
+        const fallback = await getStudentAttemptsByTest(uid);
+        Object.keys(fallback).forEach((testId) => {
+          if (testIds.includes(testId)) attemptsByTest[testId] = fallback[testId];
+        });
+      }
+    }
+
+    const rows = tests
       .sort((a, b) => {
         const aTs = parseDate(a.startAt)?.getTime() || 0;
         const bTs = parseDate(b.startAt)?.getTime() || 0;

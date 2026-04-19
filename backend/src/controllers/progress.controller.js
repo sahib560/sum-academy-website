@@ -393,48 +393,115 @@ const getCourseQuizzes = async (courseId) => {
     .sort(sortByOrderThenCreated);
 };
 
+const uniqueById = (rows = []) => {
+  const seen = new Set();
+  const out = [];
+  rows.forEach((row) => {
+    const id = trimText(row?.id);
+    if (!id || seen.has(id)) return;
+    seen.add(id);
+    out.push(row);
+  });
+  return out;
+};
+
 const getStudentProgressRows = async (studentId, lectureIdSet = new Set(), courseId = "") => {
-  const snap = await db.collection("progress").where("studentId", "==", studentId).get();
   const cleanCourseId = trimText(courseId);
-  const rows = snap.docs.map((doc) => ({ id: doc.id, ref: doc.ref, ...(doc.data() || {}) }));
-  return rows.filter((row) => {
+  if (!cleanCourseId) return [];
+
+  // IMPORTANT (billing):
+  // Never read the whole progress collection for a student. Always scope to this courseId/subjectId.
+  const [byCourseSnap, bySubjectSnap] = await Promise.all([
+    db
+      .collection("progress")
+      .where("studentId", "==", studentId)
+      .where("courseId", "==", cleanCourseId)
+      .get()
+      .catch(() => ({ docs: [] })),
+    db
+      .collection("progress")
+      .where("studentId", "==", studentId)
+      .where("subjectId", "==", cleanCourseId)
+      .get()
+      .catch(() => ({ docs: [] })),
+  ]);
+
+  const rows = [...byCourseSnap.docs, ...bySubjectSnap.docs].map((doc) => ({
+    id: doc.id,
+    ref: doc.ref,
+    ...(doc.data() || {}),
+  }));
+
+  const filtered = rows.filter((row) => {
     const rowLectureId = trimText(row.lectureId);
     if (!rowLectureId) return false;
     if (lectureIdSet.size && !lectureIdSet.has(rowLectureId)) return false;
-    const rowCourseId = trimText(row.subjectId || row.courseId);
-    if (!rowCourseId) return false;
-    return rowCourseId === cleanCourseId;
+    return true;
   });
+
+  return uniqueById(filtered);
 };
 
 const getStudentQuizResultRows = async (studentId, courseId = "", quizIdSet = new Set()) => {
-  const snap = await db.collection("quizResults").where("studentId", "==", studentId).get();
   const cleanCourseId = trimText(courseId);
-  return snap.docs
+  if (!cleanCourseId) return [];
+
+  const [byCourseSnap, bySubjectSnap] = await Promise.all([
+    db
+      .collection("quizResults")
+      .where("studentId", "==", studentId)
+      .where("courseId", "==", cleanCourseId)
+      .get()
+      .catch(() => ({ docs: [] })),
+    db
+      .collection("quizResults")
+      .where("studentId", "==", studentId)
+      .where("subjectId", "==", cleanCourseId)
+      .get()
+      .catch(() => ({ docs: [] })),
+  ]);
+
+  const rows = [...byCourseSnap.docs, ...bySubjectSnap.docs]
     .map((doc) => ({ id: doc.id, ...(doc.data() || {}) }))
     .filter((row) => {
       const rowQuizId = trimText(row.quizId);
       if (!rowQuizId) return false;
       if (quizIdSet.size && !quizIdSet.has(rowQuizId)) return false;
-      const rowCourseId = trimText(row.subjectId || row.courseId);
-      if (!rowCourseId) return false;
-      return rowCourseId === cleanCourseId;
+      return true;
     });
+
+  return uniqueById(rows);
 };
 
 const getStudentVideoAccessRows = async (studentId, courseId = "", lectureIdSet = new Set()) => {
-  const snap = await db.collection("videoAccess").where("studentId", "==", studentId).get();
   const cleanCourseId = trimText(courseId);
-  return snap.docs
+  if (!cleanCourseId) return [];
+
+  const [byCourseSnap, bySubjectSnap] = await Promise.all([
+    db
+      .collection("videoAccess")
+      .where("studentId", "==", studentId)
+      .where("courseId", "==", cleanCourseId)
+      .get()
+      .catch(() => ({ docs: [] })),
+    db
+      .collection("videoAccess")
+      .where("studentId", "==", studentId)
+      .where("subjectId", "==", cleanCourseId)
+      .get()
+      .catch(() => ({ docs: [] })),
+  ]);
+
+  const rows = [...byCourseSnap.docs, ...bySubjectSnap.docs]
     .map((doc) => ({ id: doc.id, ...(doc.data() || {}) }))
     .filter((row) => {
       const lectureId = trimText(row.lectureId);
       if (!lectureId) return false;
       if (lectureIdSet.size && !lectureIdSet.has(lectureId)) return false;
-      const rowCourseId = trimText(row.subjectId || row.courseId);
-      if (!rowCourseId) return false;
-      return rowCourseId === cleanCourseId;
+      return true;
     });
+
+  return uniqueById(rows);
 };
 
 const buildProgressMap = (progressRows = []) => {
