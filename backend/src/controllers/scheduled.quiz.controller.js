@@ -17,7 +17,15 @@ const isAdminActor = (req) => getActorRole(req) === "admin";
 const parseDate = (value) => {
   if (!value) return null;
   if (typeof value?.toDate === "function") return value.toDate();
-  const parsed = new Date(value);
+  const raw = String(value || "").trim();
+  // If stored as local datetime without timezone (no Z / no offset),
+  // interpret it as Pakistan time (Asia/Karachi) to avoid server-timezone drift.
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(raw) && !/Z$|[+-]\d{2}:\d{2}$/.test(raw)) {
+    const normalized = raw.length === 16 ? `${raw}:00` : raw;
+    const parsedPk = new Date(`${normalized}+05:00`);
+    return Number.isNaN(parsedPk.getTime()) ? null : parsedPk;
+  }
+  const parsed = new Date(raw);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 };
 const toIso = (value) => {
@@ -409,14 +417,36 @@ export const getStudentScheduledQuizzes = async (req, res) => {
       return successResponse(res, [], "Scheduled quizzes fetched");
     }
 
-    const limitedClassIds = studentClassIds.slice(0, 10);
-    const quizSnap = await db
-      .collection(COLLECTIONS.SCHEDULED_QUIZZES)
-      .where("status", "==", "active")
-      .where("classIds", "array-contains-any", limitedClassIds)
-      .get();
+    // Firestore array-contains-any supports max 10 values; chunk queries.
+    const chunkSize = 10;
+    const maxClassesToQuery = 30;
+    const chunks = [];
+    const scopedClassIds = studentClassIds.slice(0, maxClassesToQuery);
+    for (let i = 0; i < scopedClassIds.length; i += chunkSize) {
+      chunks.push(scopedClassIds.slice(i, i + chunkSize));
+    }
 
-    const quizzes = quizSnap.docs.map((doc) => ({ id: doc.id, ...(doc.data() || {}) }));
+    const quizSnaps = await Promise.all(
+      chunks.map((idsChunk) =>
+        db
+          .collection(COLLECTIONS.SCHEDULED_QUIZZES)
+          .where("status", "==", "active")
+          .where("classIds", "array-contains-any", idsChunk)
+          .get()
+          .catch(() => ({ docs: [] }))
+      )
+    );
+
+    const quizById = new Map();
+    quizSnaps.forEach((snap) => {
+      (snap.docs || []).forEach((doc) => {
+        if (!doc?.id) return;
+        if (quizById.has(doc.id)) return;
+        quizById.set(doc.id, { id: doc.id, ...(doc.data() || {}) });
+      });
+    });
+
+    const quizzes = [...quizById.values()];
     const quizIds = quizzes.map((row) => trimText(row.id)).filter(Boolean);
 
     const attemptRefs = quizIds.map((quizId) =>
