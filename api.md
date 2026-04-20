@@ -1273,13 +1273,19 @@ Success (example):
 
 ### Admin Users
 Endpoints:
-- GET `/api/admin/users`
+- GET `/api/admin/users` (supports pagination)
 - GET `/api/admin/users/:uid`
 - POST `/api/admin/users`
 - PUT `/api/admin/users/:uid`
 - DELETE `/api/admin/users/:uid`
 - PATCH `/api/admin/users/:uid/role`
 - PATCH `/api/admin/users/:uid/reset-device`
+
+GET `/api/admin/users` query params (optional):
+- `pageSize` (number, default `50`, max `200`)
+- `cursor` (string, optional)
+- `legacy=1` (optional): return legacy array response
+- existing filters: `role`, `isActive`, `search` (search is best-effort on legacy mode)
 
 Success (list example):
 ```json
@@ -1296,7 +1302,7 @@ Error (example):
 
 ### Admin Teachers / Students
 Endpoints:
-- GET `/api/admin/teachers`
+- GET `/api/admin/teachers` (supports pagination)
 - GET `/api/admin/teachers/:uid`
 - GET `/api/admin/students` (paginated)
 - GET `/api/admin/students/:uid`

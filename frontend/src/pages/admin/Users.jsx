@@ -5,7 +5,11 @@ import {
   useState,
 } from "react";
 import { AnimatePresence, motion as Motion } from "framer-motion";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { Toaster, toast } from "react-hot-toast";
 import { jsPDF } from "jspdf";
 import {
@@ -20,8 +24,6 @@ import {
 import {
   createUser,
   deleteUser,
-  getStudents,
-  getTeachers,
   getUsers,
   resetDevice,
   setUserRole,
@@ -473,27 +475,22 @@ function Users() {
     return () => clearTimeout(timer);
   }, [searchInput]);
 
-  const usersQuery = useQuery({
-    queryKey: ["admin", "users"],
-    queryFn: () => getUsers(),
-    staleTime: 30000,
-  });
-
-  const teachersQuery = useQuery({
-    queryKey: ["admin", "teachers"],
-    queryFn: getTeachers,
-    staleTime: 30000,
-  });
-
-  const studentsQuery = useQuery({
-    queryKey: ["admin", "students"],
-    queryFn: getStudents,
+  const usersQuery = useInfiniteQuery({
+    queryKey: ["admin", "users", { pageSize: 50 }],
+    queryFn: ({ pageParam }) =>
+      getUsers({ pageSize: 50, cursor: typeof pageParam === "string" ? pageParam : "" }),
+    initialPageParam: "",
+    getNextPageParam: (lastPage) => {
+      const page = lastPage?.page || {};
+      return page.hasMore ? page.nextCursor || "" : undefined;
+    },
     staleTime: 30000,
   });
 
   const invalidateUsersData = async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ["admin", "users"] }),
+      queryClient.invalidateQueries({ queryKey: ["admin", "users", { pageSize: 50 }] }),
       queryClient.invalidateQueries({ queryKey: ["admin", "teachers"] }),
       queryClient.invalidateQueries({ queryKey: ["admin", "students"] }),
     ]);
@@ -598,11 +595,14 @@ function Users() {
   const users = useMemo(
     () =>
       normalizeUsers(
-        usersQuery.data || [],
-        teachersQuery.data || [],
-        studentsQuery.data || []
+        (() => {
+          const pages = Array.isArray(usersQuery.data?.pages) ? usersQuery.data.pages : [];
+          return pages.flatMap((page) => (Array.isArray(page?.items) ? page.items : []));
+        })(),
+        [],
+        []
       ),
-    [studentsQuery.data, teachersQuery.data, usersQuery.data]
+    [usersQuery.data]
   );
 
   const counts = useMemo(
@@ -636,8 +636,7 @@ function Users() {
 
   const addErrors = useMemo(() => validateAddForm(addForm), [addForm]);
   const editErrors = useMemo(() => validateEditForm(editForm), [editForm]);
-  const isLoading =
-    usersQuery.isLoading || teachersQuery.isLoading || studentsQuery.isLoading;
+  const isLoading = usersQuery.isLoading;
 
   const openAddModal = () => {
     setAddForm(emptyAddForm);
@@ -1096,11 +1095,24 @@ function Users() {
           )}
         </div>
 
-        <div className="flex items-center justify-between border-t border-slate-100 px-6 py-4 text-sm text-slate-500">
-          <span>
-            Page {currentPage} of {pageCount}
-          </span>
-          <div className="flex items-center gap-2">
+        <div className="flex flex-col gap-3 border-t border-slate-100 px-6 py-4 text-sm text-slate-500 md:flex-row md:items-center md:justify-between">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            <span>
+              Page {currentPage} of {pageCount}
+            </span>
+            <span className="text-slate-400">Loaded {users.length} users</span>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {usersQuery.hasNextPage ? (
+              <button
+                type="button"
+                onClick={() => usersQuery.fetchNextPage()}
+                disabled={usersQuery.isFetchingNextPage}
+                className="rounded-full border border-emerald-200 px-3 py-1 text-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {usersQuery.isFetchingNextPage ? "Loading..." : "Load more"}
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={() => setPage((prev) => Math.max(1, prev - 1))}

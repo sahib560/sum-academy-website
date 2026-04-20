@@ -575,6 +575,96 @@ export const getAllUsers = async (filters = {}) => {
   });
 };
 
+export const getAllUsersPaginated = async ({
+  pageSize = 50,
+  cursor = "",
+  filters = {},
+} = {}) => {
+  const limitSize = Math.min(200, Math.max(1, toNumber(pageSize, 50)));
+  const cleanCursor = trimText(cursor);
+  const roleFilter = trimText(filters?.role).toLowerCase();
+  const hasRoleFilter = Boolean(roleFilter);
+  const hasActiveFilter = filters?.isActive !== undefined && filters?.isActive !== null;
+  const isActiveFilter = Boolean(filters?.isActive);
+
+  let baseQuery = db.collection(COLLECTIONS.USERS);
+  if (hasRoleFilter) baseQuery = baseQuery.where("role", "==", roleFilter);
+  if (hasActiveFilter) baseQuery = baseQuery.where("isActive", "==", isActiveFilter);
+
+  const usersCollection = db.collection(COLLECTIONS.USERS);
+  let usersSnap = null;
+  try {
+    let q = baseQuery.orderBy("createdAt", "desc").limit(limitSize + 1);
+    if (cleanCursor) {
+      const cursorSnap = await usersCollection.doc(cleanCursor).get();
+      if (cursorSnap.exists) q = q.startAfter(cursorSnap);
+    }
+    usersSnap = await q.get();
+  } catch {
+    // Fallback: avoid composite index issues.
+    let q = baseQuery.limit(limitSize + 1);
+    if (cleanCursor) {
+      const cursorSnap = await usersCollection.doc(cleanCursor).get();
+      if (cursorSnap.exists) q = q.startAfter(cursorSnap);
+    }
+    usersSnap = await q.get();
+  }
+
+  const rawUsers = (usersSnap.docs || []).map((doc) => ({ id: doc.id, data: doc.data() || {} }));
+  const pageUsers = rawUsers.slice(0, limitSize);
+  const hasMore = rawUsers.length > limitSize;
+  const nextCursor = hasMore ? pageUsers[pageUsers.length - 1]?.id || "" : "";
+
+  const teacherIds = [];
+  const studentIds = [];
+  pageUsers.forEach((entry) => {
+    const role = lowerText(entry?.data?.role);
+    if (role === "teacher") teacherIds.push(entry.id);
+    if (role === "student") studentIds.push(entry.id);
+  });
+
+  const [teacherSnaps, studentSnaps] = await Promise.all([
+    Promise.all(
+      [...new Set(teacherIds)].map((id) => db.collection(COLLECTIONS.TEACHERS).doc(id).get())
+    ).catch(() => []),
+    Promise.all(
+      [...new Set(studentIds)].map((id) => db.collection(COLLECTIONS.STUDENTS).doc(id).get())
+    ).catch(() => []),
+  ]);
+  const teacherMap = (teacherSnaps || []).reduce((acc, snap) => {
+    if (!snap?.exists) return acc;
+    acc[snap.id] = snap.data() || {};
+    return acc;
+  }, {});
+  const studentMap = (studentSnaps || []).reduce((acc, snap) => {
+    if (!snap?.exists) return acc;
+    acc[snap.id] = snap.data() || {};
+    return acc;
+  }, {});
+
+  const items = pageUsers.map((entry) => {
+    const uid = entry.id;
+    const userData = entry.data || {};
+    const role = lowerText(userData.role);
+    const roleProfile = role === "teacher" ? teacherMap[uid] || {} : role === "student" ? studentMap[uid] || {} : {};
+    return {
+      id: uid,
+      uid,
+      ...userData,
+      ...roleProfile,
+      role: role || lowerText(roleProfile.role),
+      email: trimText(userData.email || roleProfile.email),
+      isActive: userData.isActive ?? true,
+      createdAt: roleProfile.createdAt || userData.createdAt || null,
+    };
+  });
+
+  return {
+    items,
+    page: { pageSize: limitSize, hasMore, nextCursor },
+  };
+};
+
 export const getAllTeachers = async () => {
   const [teachersSnap, usersSnap] = await Promise.all([
     db.collection(COLLECTIONS.TEACHERS).get(),
@@ -624,6 +714,44 @@ export const getAllTeachers = async () => {
       };
     })
   );
+};
+
+export const getAllTeachersPaginated = async ({
+  pageSize = 50,
+  cursor = "",
+} = {}) => {
+  const page = await getAllUsersPaginated({
+    pageSize,
+    cursor,
+    filters: { role: "teacher" },
+  });
+
+  const items = (page.items || []).map((row) => {
+    const emailPrefix = (row.email || "").split("@")[0];
+    const fallbackName = emailPrefix
+      .split(/[._-]+/)
+      .filter(Boolean)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(" ");
+
+    const fullName =
+      trimText(row.fullName || row.name) ||
+      trimText(row.displayName) ||
+      fallbackName ||
+      "Unknown Teacher";
+
+    return {
+      ...row,
+      id: row.uid || row.id,
+      uid: row.uid || row.id,
+      fullName,
+      email: row.email || "",
+      isActive: row.isActive ?? true,
+      createdAt: row.createdAt || null,
+    };
+  });
+
+  return { items, page: page.page || { pageSize: toNumber(pageSize, 50), hasMore: false, nextCursor: "" } };
 };
 
 export const getAllStudents = async () => {

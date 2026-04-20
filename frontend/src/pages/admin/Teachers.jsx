@@ -5,7 +5,11 @@ import {
   useState,
 } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { Toaster, toast } from "react-hot-toast";
 import { jsPDF } from "jspdf";
 import {
@@ -271,9 +275,15 @@ function Teachers() {
   const [showPassword, setShowPassword] = useState(false);
   const [emailFieldError, setEmailFieldError] = useState("");
 
-  const teachersQuery = useQuery({
-    queryKey: ["admin", "teachers"],
-    queryFn: getTeachers,
+  const teachersQuery = useInfiniteQuery({
+    queryKey: ["admin", "teachers", { pageSize: 50 }],
+    queryFn: ({ pageParam }) =>
+      getTeachers({ pageSize: 50, cursor: typeof pageParam === "string" ? pageParam : "" }),
+    initialPageParam: "",
+    getNextPageParam: (lastPage) => {
+      const page = lastPage?.page || {};
+      return page.hasMore ? page.nextCursor || "" : undefined;
+    },
     staleTime: 30000,
   });
 
@@ -285,10 +295,11 @@ function Teachers() {
     return () => clearTimeout(timeout);
   }, [search]);
 
-  const teachers = useMemo(
-    () => normalizeTeachers(teachersQuery.data || []),
-    [teachersQuery.data]
-  );
+  const teachers = useMemo(() => {
+    const pages = Array.isArray(teachersQuery.data?.pages) ? teachersQuery.data.pages : [];
+    const items = pages.flatMap((page) => (Array.isArray(page?.items) ? page.items : []));
+    return normalizeTeachers(items);
+  }, [teachersQuery.data]);
 
   const filteredTeachers = useMemo(() => {
     const query = debouncedSearch.trim().toLowerCase();
@@ -318,7 +329,7 @@ function Teachers() {
   const editErrors = useMemo(() => validateEditForm(editForm), [editForm]);
 
   const invalidateTeachers = async () => {
-    await queryClient.invalidateQueries({ queryKey: ["admin", "teachers"] });
+    queryClient.removeQueries({ queryKey: ["admin", "teachers"] });
   };
 
   const createTeacherMutation = useMutation({
@@ -707,6 +718,19 @@ function Teachers() {
           ))}
         </div>
       )}
+
+      {teachersQuery.hasNextPage ? (
+        <div className="flex justify-center pt-6">
+          <button
+            type="button"
+            onClick={() => teachersQuery.fetchNextPage()}
+            disabled={teachersQuery.isFetchingNextPage}
+            className="rounded-full border border-blue-200 bg-white px-5 py-2 text-sm font-semibold text-blue-700 shadow-sm hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {teachersQuery.isFetchingNextPage ? "Loading..." : "Load more teachers"}
+          </button>
+        </div>
+      ) : null}
 
       <ModalShell
         open={showAddModal}

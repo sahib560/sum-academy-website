@@ -1,5 +1,12 @@
 import api from "../api/axios.js";
 
+const isQueryFnContext = (value) =>
+  Boolean(value) &&
+  typeof value === "object" &&
+  (Object.prototype.hasOwnProperty.call(value, "queryKey") ||
+    Object.prototype.hasOwnProperty.call(value, "signal") ||
+    Object.prototype.hasOwnProperty.call(value, "meta"));
+
 const requestWithFallback = async (primary, fallback) => {
   try {
     return await primary();
@@ -36,8 +43,12 @@ export const getRecentActivity = () =>
 export const getAnalyticsReport = (days = 30) =>
   api.get(`/admin/analytics-report?days=${days}`).then((r) => r.data.data);
 
-export const getUsers = (params) =>
-  api.get("/admin/users", { params }).then((r) => r.data.data);
+export const getUsers = (params) => {
+  if (!params || isQueryFnContext(params)) {
+    return api.get("/admin/users", { params: { legacy: 1 } }).then((r) => r.data.data);
+  }
+  return api.get("/admin/users", { params }).then((r) => r.data.data);
+};
 
 export const createUser = (data) =>
   api.post("/admin/users", data).then((r) => r.data);
@@ -57,11 +68,15 @@ export const resetUserDevice = (uid, data = { resetDevice: true }) =>
 export const resetDevice = (uid) =>
   api.patch(`/admin/users/${uid}/reset-device`, {}).then((r) => r.data);
 
-export const getTeachers = () =>
-  api.get("/admin/teachers").then((r) => r.data.data);
+export const getTeachers = (params) => {
+  if (!params || isQueryFnContext(params)) {
+    return api.get("/admin/teachers", { params: { legacy: 1 } }).then((r) => r.data.data);
+  }
+  return api.get("/admin/teachers", { params }).then((r) => r.data.data);
+};
 
 export const getStudents = (params) => {
-  if (!params) {
+  if (!params || isQueryFnContext(params)) {
     return api.get("/admin/students", { params: { legacy: 1 } }).then((r) => r.data.data);
   }
   const pageSize = params.pageSize ?? 50;

@@ -1472,6 +1472,21 @@ export const getUsers = async (req, res) => {
       isActive: isActive !== undefined ? isActive === "true" : undefined,
       search,
     };
+    const legacy = String(req.query?.legacy ?? "").trim() === "1";
+    const pageSizeRaw = req.query?.pageSize ?? req.query?.limit;
+    const cursor = String(req.query?.cursor ?? "").trim();
+    const hasPaging = pageSizeRaw !== undefined || Boolean(cursor);
+
+    if (!legacy && hasPaging) {
+      const pageSize = toSafeNumber(pageSizeRaw, 50);
+      const data = await adminService.getAllUsersPaginated({
+        pageSize,
+        cursor,
+        filters,
+      });
+      return successResponse(res, data, "Users fetched");
+    }
+
     const data = await adminService.getAllUsers(filters);
     return successResponse(res, data, "Users fetched");
   } catch (e) {
@@ -1481,6 +1496,17 @@ export const getUsers = async (req, res) => {
 
 export const getTeachers = async (req, res) => {
   try {
+    const legacy = String(req.query?.legacy ?? "").trim() === "1";
+    const pageSizeRaw = req.query?.pageSize ?? req.query?.limit;
+    const cursor = String(req.query?.cursor ?? "").trim();
+    const hasPaging = pageSizeRaw !== undefined || Boolean(cursor);
+
+    if (!legacy && hasPaging) {
+      const pageSize = toSafeNumber(pageSizeRaw, 50);
+      const data = await adminService.getAllTeachersPaginated({ pageSize, cursor });
+      return successResponse(res, data, "Teachers fetched");
+    }
+
     const data = await adminService.getAllTeachers();
     return successResponse(res, data, "Teachers fetched");
   } catch (e) {

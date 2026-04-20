@@ -815,19 +815,20 @@ function Classes() {
     staleTime: 10000,
   });
 
-  const classes = useMemo(
-    () => (classesQuery.data || []).map((item) => normalizeClass(item)),
-    [classesQuery.data]
-  );
+  const classes = useMemo(() => {
+    const raw = classesQuery.data;
+    const list = Array.isArray(raw) ? raw : Array.isArray(raw?.items) ? raw.items : [];
+    return list.map((item) => normalizeClass(item));
+  }, [classesQuery.data]);
   const courses = useMemo(() => coursesQuery.data || [], [coursesQuery.data]);
-  const teachers = useMemo(
-    () =>
-      (teachersQuery.data || []).map((teacher) => ({
-        ...teacher,
-        id: teacher.id || teacher.uid || "",
-      })),
-    [teachersQuery.data]
-  );
+  const teachers = useMemo(() => {
+    const raw = teachersQuery.data;
+    const list = Array.isArray(raw) ? raw : Array.isArray(raw?.items) ? raw.items : [];
+    return list.map((teacher) => ({
+      ...teacher,
+      id: teacher.id || teacher.uid || "",
+    }));
+  }, [teachersQuery.data]);
   const activeTeachers = useMemo(
     () => teachers.filter((teacher) => teacher.isActive !== false),
     [teachers]
@@ -911,17 +912,17 @@ function Classes() {
     () => courses.filter((course) => selectableCourseIdsForClass.has(course.id)),
     [courses, selectableCourseIdsForClass]
   );
-  const students = useMemo(
-    () =>
-      (studentsQuery.data || []).map((student) => ({
-        ...student,
-        uid: student.uid || student.id || "",
-        fullName:
-          student.fullName ||
-          (student.email ? student.email.split("@")[0] : "Unknown Student"),
-      })),
-    [studentsQuery.data]
-  );
+  const students = useMemo(() => {
+    const raw = studentsQuery.data;
+    const list = Array.isArray(raw) ? raw : Array.isArray(raw?.items) ? raw.items : [];
+    return list.map((student) => ({
+      ...student,
+      uid: student.uid || student.id || "",
+      fullName:
+        student.fullName ||
+        (student.email ? student.email.split("@")[0] : "Unknown Student"),
+    }));
+  }, [studentsQuery.data]);
   const classStudents = useMemo(
     () => classStudentsQuery.data || [],
     [classStudentsQuery.data]
