@@ -31,6 +31,7 @@ import {
   createUser,
   deleteUser,
   downloadStudentsBulkTemplate,
+  getStudentCounts,
   getStudents,
   approveStudent,
   rejectStudent,
@@ -383,10 +384,16 @@ function FieldError({ message }) {
 function Students() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [sortBy, setSortBy] = useState("name_asc");
   const [page, setPage] = useState(1);
   const [searchParams] = useSearchParams();
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [search]);
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [showBulkModal, setShowBulkModal] = useState(false);
@@ -420,10 +427,20 @@ function Students() {
   const [bulkFile, setBulkFile] = useState(null);
   const [bulkResult, setBulkResult] = useState(null);
 
+  const studentCountsQuery = useQuery({
+    queryKey: ["admin", "students", "counts"],
+    queryFn: getStudentCounts,
+    staleTime: 5 * 60 * 1000,
+  });
+
   const studentsQuery = useInfiniteQuery({
-    queryKey: ["admin", "students", { pageSize: 50 }],
+    queryKey: ["admin", "students", { pageSize: 50, search: debouncedSearch }],
     queryFn: ({ pageParam }) =>
-      getStudents({ pageSize: 50, cursor: typeof pageParam === "string" ? pageParam : "" }),
+      getStudents({
+        pageSize: 50,
+        cursor: typeof pageParam === "string" ? pageParam : "",
+        search: debouncedSearch || "",
+      }),
     initialPageParam: "",
     getNextPageParam: (lastPage) => {
       const page = lastPage?.page || {};
@@ -479,7 +496,7 @@ function Students() {
 
   const stats = useMemo(
     () => ({
-      total: students.length,
+      total: Number(studentCountsQuery.data?.total ?? students.length),
       active: students.filter((s) => s.isActive).length,
       pending: students.filter((s) => s.status === "pending_approval").length,
       inactive: students.filter((s) => !s.isActive).length,
@@ -491,7 +508,7 @@ function Students() {
       ).length,
       paymentBlocked: students.filter((s) => Boolean(s.paymentApprovalBlocked)).length,
     }),
-    [students]
+    [studentCountsQuery.data, students]
   );
 
   const perPage = 10;

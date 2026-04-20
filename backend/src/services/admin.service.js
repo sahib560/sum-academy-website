@@ -586,82 +586,253 @@ export const getAllUsersPaginated = async ({
   const hasRoleFilter = Boolean(roleFilter);
   const hasActiveFilter = filters?.isActive !== undefined && filters?.isActive !== null;
   const isActiveFilter = Boolean(filters?.isActive);
+  const searchRaw = trimText(filters?.search);
+  const searchNeedle = lowerText(searchRaw);
+  const hasSearch = Boolean(searchNeedle);
 
   let baseQuery = db.collection(COLLECTIONS.USERS);
   if (hasRoleFilter) baseQuery = baseQuery.where("role", "==", roleFilter);
   if (hasActiveFilter) baseQuery = baseQuery.where("isActive", "==", isActiveFilter);
 
   const usersCollection = db.collection(COLLECTIONS.USERS);
-  let usersSnap = null;
-  try {
-    let q = baseQuery.orderBy("createdAt", "desc").limit(limitSize + 1);
-    if (cleanCursor) {
-      const cursorSnap = await usersCollection.doc(cleanCursor).get();
-      if (cursorSnap.exists) q = q.startAfter(cursorSnap);
+  const buildUserItems = async (entries = []) => {
+    const teacherIds = [];
+    const studentIds = [];
+    entries.forEach((entry) => {
+      const role = lowerText(entry?.data?.role);
+      if (role === "teacher") teacherIds.push(entry.id);
+      if (role === "student") studentIds.push(entry.id);
+    });
+
+    const [teacherSnaps, studentSnaps] = await Promise.all([
+      Promise.all(
+        [...new Set(teacherIds)].map((id) =>
+          db.collection(COLLECTIONS.TEACHERS).doc(id).get()
+        )
+      ).catch(() => []),
+      Promise.all(
+        [...new Set(studentIds)].map((id) =>
+          db.collection(COLLECTIONS.STUDENTS).doc(id).get()
+        )
+      ).catch(() => []),
+    ]);
+    const teacherMap = (teacherSnaps || []).reduce((acc, snap) => {
+      if (!snap?.exists) return acc;
+      acc[snap.id] = snap.data() || {};
+      return acc;
+    }, {});
+    const studentMap = (studentSnaps || []).reduce((acc, snap) => {
+      if (!snap?.exists) return acc;
+      acc[snap.id] = snap.data() || {};
+      return acc;
+    }, {});
+
+    return entries.map((entry) => {
+      const uid = entry.id;
+      const userData = entry.data || {};
+      const role = lowerText(userData.role);
+      const roleProfile =
+        role === "teacher"
+          ? teacherMap[uid] || {}
+          : role === "student"
+            ? studentMap[uid] || {}
+            : {};
+      return {
+        id: uid,
+        uid,
+        ...userData,
+        ...roleProfile,
+        role: role || lowerText(roleProfile.role),
+        email: trimText(userData.email || roleProfile.email),
+        isActive: userData.isActive ?? true,
+        createdAt: roleProfile.createdAt || userData.createdAt || null,
+      };
+    });
+  };
+
+  const matchSearch = (user) => {
+    if (!hasSearch) return true;
+    const haystack = [
+      user?.uid,
+      user?.id,
+      user?.email,
+      user?.fullName,
+      user?.name,
+      user?.phone,
+      user?.phoneNumber,
+    ]
+      .filter(Boolean)
+      .map((value) => lowerText(value))
+      .join(" | ");
+    return haystack.includes(searchNeedle);
+  };
+
+  const fetchBatch = async (afterDocId = "") => {
+    let usersSnap = null;
+    try {
+      let q = baseQuery.orderBy("createdAt", "desc").limit(limitSize + 1);
+      if (afterDocId) {
+        const cursorSnap = await usersCollection.doc(afterDocId).get();
+        if (cursorSnap.exists) q = q.startAfter(cursorSnap);
+      }
+      usersSnap = await q.get();
+    } catch {
+      // Fallback: avoid composite index issues.
+      let q = baseQuery.limit(limitSize + 1);
+      if (afterDocId) {
+        const cursorSnap = await usersCollection.doc(afterDocId).get();
+        if (cursorSnap.exists) q = q.startAfter(cursorSnap);
+      }
+      usersSnap = await q.get();
     }
-    usersSnap = await q.get();
-  } catch {
-    // Fallback: avoid composite index issues.
-    let q = baseQuery.limit(limitSize + 1);
-    if (cleanCursor) {
-      const cursorSnap = await usersCollection.doc(cleanCursor).get();
-      if (cursorSnap.exists) q = q.startAfter(cursorSnap);
-    }
-    usersSnap = await q.get();
+    const docs = usersSnap?.docs || [];
+    return docs.map((doc) => ({ id: doc.id, data: doc.data() || {} }));
+  };
+
+  if (!hasRoleFilter && !hasActiveFilter && !hasSearch && !cleanCursor) {
+    const maxAdmins = Math.min(5, Math.max(0, limitSize - 1));
+    const maxTeachers = Math.min(10, Math.max(0, limitSize - 1 - maxAdmins));
+    const remaining = Math.max(0, limitSize - maxAdmins - maxTeachers);
+
+    const [adminDocs, teacherDocs, studentDocs] = await Promise.all([
+      maxAdmins
+        ? usersCollection
+            .where("role", "==", "admin")
+            .orderBy("createdAt", "desc")
+            .limit(maxAdmins)
+            .get()
+            .then((snap) => snap.docs || [])
+            .catch(() => [])
+        : Promise.resolve([]),
+      maxTeachers
+        ? usersCollection
+            .where("role", "==", "teacher")
+            .orderBy("createdAt", "desc")
+            .limit(maxTeachers)
+            .get()
+            .then((snap) => snap.docs || [])
+            .catch(() => [])
+        : Promise.resolve([]),
+      usersCollection
+        .where("role", "==", "student")
+        .orderBy("createdAt", "desc")
+        .limit(remaining + 1)
+        .get()
+        .then((snap) => snap.docs || [])
+        .catch(() => []),
+    ]);
+
+    const adminEntries = adminDocs.map((doc) => ({ id: doc.id, data: doc.data() || {} }));
+    const teacherEntries = teacherDocs.map((doc) => ({ id: doc.id, data: doc.data() || {} }));
+    const studentRaw = studentDocs.map((doc) => ({ id: doc.id, data: doc.data() || {} }));
+    const studentEntries = studentRaw.slice(0, remaining);
+    const hasMore = studentRaw.length > remaining;
+    const nextCursor = hasMore ? studentEntries[studentEntries.length - 1]?.id || "" : "";
+
+    const items = await buildUserItems(
+      [...adminEntries, ...teacherEntries, ...studentEntries].slice(0, limitSize)
+    );
+
+    return { items, page: { pageSize: limitSize, hasMore, nextCursor } };
   }
 
-  const rawUsers = (usersSnap.docs || []).map((doc) => ({ id: doc.id, data: doc.data() || {} }));
-  const pageUsers = rawUsers.slice(0, limitSize);
-  const hasMore = rawUsers.length > limitSize;
-  const nextCursor = hasMore ? pageUsers[pageUsers.length - 1]?.id || "" : "";
+  let scanned = 0;
+  const maxScan = Math.max(200, limitSize * 10);
+  const collected = [];
+  let scanCursor = cleanCursor;
+  let lastScannedId = "";
+  let hasMoreScan = true;
 
-  const teacherIds = [];
-  const studentIds = [];
-  pageUsers.forEach((entry) => {
-    const role = lowerText(entry?.data?.role);
-    if (role === "teacher") teacherIds.push(entry.id);
-    if (role === "student") studentIds.push(entry.id);
-  });
+  while (collected.length < limitSize && hasMoreScan) {
+    const batch = await fetchBatch(scanCursor);
+    scanned += batch.length;
+    if (!batch.length) {
+      hasMoreScan = false;
+      break;
+    }
 
-  const [teacherSnaps, studentSnaps] = await Promise.all([
-    Promise.all(
-      [...new Set(teacherIds)].map((id) => db.collection(COLLECTIONS.TEACHERS).doc(id).get())
-    ).catch(() => []),
-    Promise.all(
-      [...new Set(studentIds)].map((id) => db.collection(COLLECTIONS.STUDENTS).doc(id).get())
-    ).catch(() => []),
-  ]);
-  const teacherMap = (teacherSnaps || []).reduce((acc, snap) => {
-    if (!snap?.exists) return acc;
-    acc[snap.id] = snap.data() || {};
-    return acc;
-  }, {});
-  const studentMap = (studentSnaps || []).reduce((acc, snap) => {
-    if (!snap?.exists) return acc;
-    acc[snap.id] = snap.data() || {};
-    return acc;
-  }, {});
+    const pageEntries = batch.slice(0, limitSize);
+    const hasMore = batch.length > limitSize;
+    lastScannedId = pageEntries[pageEntries.length - 1]?.id || "";
+    scanCursor = lastScannedId;
+    if (!hasSearch) {
+      const items = await buildUserItems(pageEntries);
+      return {
+        items,
+        page: {
+          pageSize: limitSize,
+          hasMore,
+          nextCursor: hasMore ? (pageEntries[pageEntries.length - 1]?.id || "") : "",
+        },
+      };
+    }
 
-  const items = pageUsers.map((entry) => {
-    const uid = entry.id;
-    const userData = entry.data || {};
-    const role = lowerText(userData.role);
-    const roleProfile = role === "teacher" ? teacherMap[uid] || {} : role === "student" ? studentMap[uid] || {} : {};
-    return {
-      id: uid,
-      uid,
-      ...userData,
-      ...roleProfile,
-      role: role || lowerText(roleProfile.role),
-      email: trimText(userData.email || roleProfile.email),
-      isActive: userData.isActive ?? true,
-      createdAt: roleProfile.createdAt || userData.createdAt || null,
-    };
-  });
+    const enriched = await buildUserItems(pageEntries);
+    const matches = enriched.filter(matchSearch);
+    collected.push(...matches);
+
+    hasMoreScan = hasMore;
+    if (scanned >= maxScan) break;
+  }
+
+  const items = collected.slice(0, limitSize);
+  const hasMore = hasMoreScan;
+  const nextCursor = hasMore ? lastScannedId || "" : "";
 
   return {
     items,
     page: { pageSize: limitSize, hasMore, nextCursor },
+  };
+};
+
+export const getUserRoleCounts = async () => {
+  const usersRef = db.collection(COLLECTIONS.USERS);
+  const roles = ["admin", "teacher", "student"];
+
+  const [totalSnap, roleSnaps] = await Promise.all([
+    usersRef.count().get(),
+    Promise.all(roles.map((role) => usersRef.where("role", "==", role).count().get())),
+  ]);
+
+  const byRole = roles.reduce((acc, role, index) => {
+    const snap = roleSnaps[index];
+    const count = typeof snap?.data === "function" ? snap.data().count : snap?.data?.().count;
+    acc[role] = Number(count || 0);
+    return acc;
+  }, {});
+
+  const totalCount = typeof totalSnap?.data === "function" ? totalSnap.data().count : totalSnap?.data?.().count;
+
+  return { total: Number(totalCount || 0), byRole };
+};
+
+export const getStudentCounts = async () => {
+  const usersRef = db.collection(COLLECTIONS.USERS);
+  const base = usersRef.where("role", "==", "student");
+
+  const [
+    totalSnap,
+    activeSnap,
+    inactiveSnap,
+    pendingSnap,
+    paymentBlockedSnap,
+  ] = await Promise.all([
+    base.count().get(),
+    base.where("isActive", "==", true).count().get(),
+    base.where("isActive", "==", false).count().get(),
+    base.where("status", "==", "pending_approval").count().get(),
+    base.where("paymentApprovalBlocked", "==", true).count().get(),
+  ]);
+
+  const readCount = (snap) =>
+    typeof snap?.data === "function" ? snap.data().count : snap?.data?.().count;
+
+  return {
+    total: Number(readCount(totalSnap) || 0),
+    active: Number(readCount(activeSnap) || 0),
+    inactive: Number(readCount(inactiveSnap) || 0),
+    pending: Number(readCount(pendingSnap) || 0),
+    paymentBlocked: Number(readCount(paymentBlockedSnap) || 0),
   };
 };
 
@@ -761,17 +932,22 @@ export const getAllStudents = async () => {
 export const getAllStudentsPaginated = async ({
   pageSize = 50,
   cursor = "",
+  filters = {},
 } = {}) => {
   const limitSize = Math.min(200, Math.max(1, toNumber(pageSize, 50)));
   const cleanCursor = trimText(cursor);
+  const searchNeedle = lowerText(trimText(filters?.search));
+  const hasSearch = Boolean(searchNeedle);
 
   const usersCollection = db.collection(COLLECTIONS.USERS);
   const baseUsersQuery = usersCollection.where("role", "==", "student");
+
+  const fetchPage = async (pageCursor = "") => {
   let usersSnap = null;
   try {
     let usersQuery = baseUsersQuery.orderBy("createdAt", "desc").limit(limitSize + 1);
-    if (cleanCursor) {
-      const cursorSnap = await usersCollection.doc(cleanCursor).get();
+    if (pageCursor) {
+      const cursorSnap = await usersCollection.doc(pageCursor).get();
       if (cursorSnap.exists) {
         usersQuery = usersQuery.startAfter(cursorSnap);
       }
@@ -780,8 +956,8 @@ export const getAllStudentsPaginated = async ({
   } catch {
     // Fallback (no composite index required): paginate by implicit document id ordering.
     let usersQuery = baseUsersQuery.limit(limitSize + 1);
-    if (cleanCursor) {
-      const cursorSnap = await usersCollection.doc(cleanCursor).get();
+    if (pageCursor) {
+      const cursorSnap = await usersCollection.doc(pageCursor).get();
       if (cursorSnap.exists) {
         usersQuery = usersQuery.startAfter(cursorSnap);
       }
@@ -1046,6 +1222,52 @@ export const getAllStudentsPaginated = async ({
       pageSize: limitSize,
       hasMore,
       nextCursor,
+    },
+  };
+  };
+
+  if (!hasSearch) {
+    return fetchPage(cleanCursor);
+  }
+
+  const matchSearch = (row) => {
+    const haystack = [
+      row?.uid,
+      row?.id,
+      row?.email,
+      row?.fullName,
+      row?.name,
+      row?.phone,
+      row?.phoneNumber,
+    ]
+      .filter(Boolean)
+      .map((value) => lowerText(value))
+      .join(" | ");
+    return haystack.includes(searchNeedle);
+  };
+
+  const collected = [];
+  let scanCursor = cleanCursor;
+  let hasMoreScan = true;
+  const maxPages = Math.max(3, Math.ceil(500 / limitSize));
+  let scannedPages = 0;
+
+  while (collected.length < limitSize && hasMoreScan && scannedPages < maxPages) {
+    const page = await fetchPage(scanCursor);
+    const items = Array.isArray(page?.items) ? page.items : [];
+    collected.push(...items.filter(matchSearch));
+    scanCursor = page?.page?.nextCursor || "";
+    hasMoreScan = Boolean(page?.page?.hasMore);
+    scannedPages += 1;
+    if (!scanCursor) break;
+  }
+
+  return {
+    items: collected.slice(0, limitSize),
+    page: {
+      pageSize: limitSize,
+      hasMore: hasMoreScan,
+      nextCursor: hasMoreScan ? scanCursor : "",
     },
   };
 };

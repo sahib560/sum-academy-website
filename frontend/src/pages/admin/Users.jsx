@@ -8,6 +8,7 @@ import { AnimatePresence, motion as Motion } from "framer-motion";
 import {
   useInfiniteQuery,
   useMutation,
+  useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
 import { Toaster, toast } from "react-hot-toast";
@@ -24,6 +25,7 @@ import {
 import {
   createUser,
   deleteUser,
+  getUserCounts,
   getUsers,
   resetDevice,
   setUserRole,
@@ -475,10 +477,28 @@ function Users() {
     return () => clearTimeout(timer);
   }, [searchInput]);
 
+  useEffect(() => {
+    setPage(1);
+  }, [activeTab, debouncedSearch]);
+
+  const userCountsQuery = useQuery({
+    queryKey: ["admin", "users", "counts"],
+    queryFn: getUserCounts,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const roleParam = activeTab === "all" ? "" : activeTab;
+  const searchParam = debouncedSearch || "";
+
   const usersQuery = useInfiniteQuery({
-    queryKey: ["admin", "users", { pageSize: 50 }],
+    queryKey: ["admin", "users", { pageSize: 50, role: roleParam, search: searchParam }],
     queryFn: ({ pageParam }) =>
-      getUsers({ pageSize: 50, cursor: typeof pageParam === "string" ? pageParam : "" }),
+      getUsers({
+        pageSize: 50,
+        cursor: typeof pageParam === "string" ? pageParam : "",
+        role: roleParam || undefined,
+        search: searchParam || undefined,
+      }),
     initialPageParam: "",
     getNextPageParam: (lastPage) => {
       const page = lastPage?.page || {};
@@ -607,20 +627,40 @@ function Users() {
 
   const counts = useMemo(
     () => ({
-      all: users.length,
-      student: users.filter((user) => user.role === "student").length,
-      teacher: users.filter((user) => user.role === "teacher").length,
-      admin: users.filter((user) => user.role === "admin").length,
+      all: Number(userCountsQuery.data?.total ?? users.length),
+      student: Number(
+        userCountsQuery.data?.byRole?.student ??
+          users.filter((user) => user.role === "student").length
+      ),
+      teacher: Number(
+        userCountsQuery.data?.byRole?.teacher ??
+          users.filter((user) => user.role === "teacher").length
+      ),
+      admin: Number(
+        userCountsQuery.data?.byRole?.admin ??
+          users.filter((user) => user.role === "admin").length
+      ),
     }),
-    [users]
+    [userCountsQuery.data, users]
   );
 
   const filteredUsers = useMemo(
     () =>
       users.filter((user) => {
         const tabMatch = activeTab === "all" || user.role === activeTab;
-        const searchMatch =
-          !debouncedSearch || user.email?.toLowerCase().includes(debouncedSearch);
+        const searchMatch = !debouncedSearch
+          ? true
+          : [
+              user.email,
+              user.fullName,
+              user.displayName,
+              user.phone,
+              user.uid,
+            ]
+              .filter(Boolean)
+              .some((value) =>
+                String(value).toLowerCase().includes(debouncedSearch)
+              );
         return tabMatch && searchMatch;
       }),
     [activeTab, debouncedSearch, users]
@@ -836,7 +876,7 @@ function Users() {
               setSearchInput(event.target.value);
               setPage(1);
             }}
-            placeholder="Search by email"
+            placeholder="Search by name, email, phone"
             className="w-full rounded-full border border-slate-200 bg-white py-3 pl-11 pr-4 text-sm text-slate-700 shadow-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/10"
           />
         </div>

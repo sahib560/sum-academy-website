@@ -208,8 +208,17 @@ router.get("/available", async (req, res) => {
       subjectMap[doc.id] = normalizeSubjectMeta(doc.id, doc.data() || {});
     });
     coursesSnap.docs.forEach((doc) => {
-      if (subjectMap[doc.id]) return;
-      subjectMap[doc.id] = normalizeSubjectMeta(doc.id, doc.data() || {});
+      const nextMeta = normalizeSubjectMeta(doc.id, doc.data() || {});
+      const existingMeta = subjectMap[doc.id];
+      if (!existingMeta) {
+        subjectMap[doc.id] = nextMeta;
+        return;
+      }
+      const existingPrice = toNumber(existingMeta.finalPrice, existingMeta.price);
+      const nextPrice = toNumber(nextMeta.finalPrice, nextMeta.price);
+      if (nextPrice > existingPrice) {
+        subjectMap[doc.id] = nextMeta;
+      }
     });
 
     const purchasedKeySet = await getStudentPurchasedKeySet(studentId);

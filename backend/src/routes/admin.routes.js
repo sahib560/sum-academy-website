@@ -82,6 +82,8 @@ router.get(
   adminController.getAnalyticsReport
 );
 
+router.get("/students/counts", adminOnly, adminController.getStudentCounts);
+router.get("/users/counts", adminOnly, adminController.getUserCounts);
 router.get("/users", adminOnly, adminController.getUsers);
 router.get("/users/:uid", adminOnly, adminController.getUserById);
 router.post("/users", adminOnly, adminController.createUser);

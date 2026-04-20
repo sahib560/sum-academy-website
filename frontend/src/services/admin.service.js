@@ -50,6 +50,9 @@ export const getUsers = (params) => {
   return api.get("/admin/users", { params }).then((r) => r.data.data);
 };
 
+export const getUserCounts = () =>
+  api.get("/admin/users/counts").then((r) => r.data.data);
+
 export const createUser = (data) =>
   api.post("/admin/users", data).then((r) => r.data);
 
@@ -81,10 +84,14 @@ export const getStudents = (params) => {
   }
   const pageSize = params.pageSize ?? 50;
   const cursor = params.cursor ?? "";
+  const search = typeof params.search === "string" ? params.search.trim() : "";
   return api
-    .get("/admin/students", { params: { pageSize, cursor } })
+    .get("/admin/students", { params: { pageSize, cursor, ...(search ? { search } : {}) } })
     .then((r) => r.data.data);
 };
+
+export const getStudentCounts = () =>
+  api.get("/admin/students/counts").then((r) => r.data.data);
 
 export const rebuildClassAnalytics = ({
   pageSize = 50,

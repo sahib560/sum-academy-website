@@ -747,10 +747,29 @@ const getCourseMeta = async (courseId) => {
     db.collection(COLLECTIONS.SUBJECTS).doc(cleanCourseId).get(),
     db.collection(COLLECTIONS.COURSES).doc(cleanCourseId).get(),
   ]);
-  const snap = subjectSnap.exists ? subjectSnap : courseSnap;
-  if (!snap.exists) return null;
+  if (!subjectSnap.exists && !courseSnap.exists) return null;
 
-  const row = snap.data() || {};
+  const computePricing = (row = {}) => {
+    const price = Math.max(0, toSafeNumber(row.price, 0));
+    const discountPercent = Math.max(
+      0,
+      Math.min(100, toSafeNumber(row.discountPercent ?? row.discount, 0))
+    );
+    const finalPrice = Math.max(
+      Number((price - (price * discountPercent) / 100).toFixed(2)),
+      0
+    );
+    return { price, discountPercent, finalPrice };
+  };
+
+  const subjectRow = subjectSnap.exists ? subjectSnap.data() || {} : null;
+  const courseRow = courseSnap.exists ? courseSnap.data() || {} : null;
+  const subjectPricing = subjectRow ? computePricing(subjectRow) : { finalPrice: -1 };
+  const coursePricing = courseRow ? computePricing(courseRow) : { finalPrice: -1 };
+  const row =
+    courseRow && coursePricing.finalPrice > subjectPricing.finalPrice
+      ? courseRow
+      : subjectRow || courseRow || {};
   const legacySubjects = Array.isArray(row.subjects) ? row.subjects : [];
   const subjectName =
     String(row.subjectName || "").trim() ||
@@ -763,15 +782,7 @@ const getCourseMeta = async (courseId) => {
     String(row.teacherName || "").trim() ||
     String(legacySubjects?.[0]?.teacherName || "").trim() ||
     "Teacher";
-  const price = Math.max(0, toSafeNumber(row.price, 0));
-  const discountPercent = Math.max(
-    0,
-    Math.min(100, toSafeNumber(row.discountPercent ?? row.discount, 0))
-  );
-  const finalPrice = Math.max(
-    Number((price - (price * discountPercent) / 100).toFixed(2)),
-    0
-  );
+  const { price, discountPercent, finalPrice } = computePricing(row);
 
   return {
     subjectId: cleanCourseId,
@@ -1494,6 +1505,24 @@ export const getUsers = async (req, res) => {
   }
 };
 
+export const getUserCounts = async (_req, res) => {
+  try {
+    const data = await adminService.getUserRoleCounts();
+    return successResponse(res, data, "User counts fetched");
+  } catch (e) {
+    return errorResponse(res, "Failed to fetch user counts", 500);
+  }
+};
+
+export const getStudentCounts = async (_req, res) => {
+  try {
+    const data = await adminService.getStudentCounts();
+    return successResponse(res, data, "Student counts fetched");
+  } catch (e) {
+    return errorResponse(res, "Failed to fetch student counts", 500);
+  }
+};
+
 export const getTeachers = async (req, res) => {
   try {
     const legacy = String(req.query?.legacy ?? "").trim() === "1";
@@ -1519,8 +1548,13 @@ export const getStudents = async (req, res) => {
     const pageSize = Number(req.query?.pageSize ?? req.query?.limit ?? 50);
     const cursor = String(req.query?.cursor ?? "").trim();
     const legacy = String(req.query?.legacy ?? "").trim() === "1";
+    const search = String(req.query?.search ?? "").trim();
 
-    const data = await adminService.getAllStudentsPaginated({ pageSize, cursor });
+    const data = await adminService.getAllStudentsPaginated({
+      pageSize,
+      cursor,
+      filters: { search },
+    });
     return successResponse(res, legacy ? data.items : data, "Students fetched");
   } catch (e) {
     return errorResponse(res, "Failed to fetch students", 500);
