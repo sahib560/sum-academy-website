@@ -5,7 +5,12 @@ import {
   useState,
 } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { Toaster, toast } from "react-hot-toast";
 import { jsPDF } from "jspdf";
 import {
@@ -415,9 +420,15 @@ function Students() {
   const [bulkFile, setBulkFile] = useState(null);
   const [bulkResult, setBulkResult] = useState(null);
 
-  const studentsQuery = useQuery({
-    queryKey: ["admin", "students"],
-    queryFn: getStudents,
+  const studentsQuery = useInfiniteQuery({
+    queryKey: ["admin", "students", { pageSize: 50 }],
+    queryFn: ({ pageParam }) =>
+      getStudents({ pageSize: 50, cursor: typeof pageParam === "string" ? pageParam : "" }),
+    initialPageParam: "",
+    getNextPageParam: (lastPage) => {
+      const page = lastPage?.page || {};
+      return page.hasMore ? page.nextCursor || "" : undefined;
+    },
     staleTime: 30000,
   });
 
@@ -442,10 +453,11 @@ function Students() {
     },
   });
 
-  const students = useMemo(
-    () => normalizeStudents(studentsQuery.data || []),
-    [studentsQuery.data]
-  );
+  const students = useMemo(() => {
+    const pages = Array.isArray(studentsQuery.data?.pages) ? studentsQuery.data.pages : [];
+    const items = pages.flatMap((page) => (Array.isArray(page?.items) ? page.items : []));
+    return normalizeStudents(items);
+  }, [studentsQuery.data]);
 
   const filteredStudents = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -504,7 +516,7 @@ function Students() {
   const addErrors = useMemo(() => validateAddForm(addForm), [addForm]);
   const editErrors = useMemo(() => validateEditForm(editForm), [editForm]);
   const invalidateStudents = async () => {
-    await queryClient.invalidateQueries({ queryKey: ["admin", "students"] });
+    queryClient.removeQueries({ queryKey: ["admin", "students"] });
   };
 
   const createStudentMutation = useMutation({
@@ -1180,9 +1192,22 @@ function Students() {
           )}
         </div>
 
-        <div className="flex items-center justify-between border-t border-slate-100 px-6 py-4 text-sm text-slate-500">
-          <span>Page {page} of {pageCount}</span>
-          <div className="flex items-center gap-2">
+        <div className="flex flex-col gap-3 border-t border-slate-100 px-6 py-4 text-sm text-slate-500 md:flex-row md:items-center md:justify-between">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            <span>Page {page} of {pageCount}</span>
+            <span className="text-slate-400">Loaded {students.length} students</span>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {studentsQuery.hasNextPage && (
+              <button
+                type="button"
+                onClick={() => studentsQuery.fetchNextPage()}
+                disabled={studentsQuery.isFetchingNextPage}
+                className="rounded-full border border-emerald-200 px-3 py-1 text-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {studentsQuery.isFetchingNextPage ? "Loading..." : "Load more"}
+              </button>
+            )}
             <button type="button" onClick={() => setPage((prev) => Math.max(1, prev - 1))} disabled={page === 1} className="rounded-full border border-slate-200 px-3 py-1 disabled:cursor-not-allowed disabled:opacity-50">Prev</button>
             <button type="button" onClick={() => setPage((prev) => Math.min(pageCount, prev + 1))} disabled={page === pageCount} className="rounded-full border border-slate-200 px-3 py-1 disabled:cursor-not-allowed disabled:opacity-50">Next</button>
           </div>

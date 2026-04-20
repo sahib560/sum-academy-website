@@ -1253,6 +1253,7 @@ Success envelope:
 Notes:
 - Some downloads return CSV/PDF instead of JSON (templates, ranking/pdf, bulk templates).
 - Bulk upload endpoints use `multipart/form-data` with `file`.
+- `GET /api/admin/top-classes` and `GET /api/admin/class-performance` use pre-calculated class fields (`enrollmentCount`, `activeStudents`, `totalRevenue`) to avoid heavy Firestore scans.
 
 ### Admin Dashboard
 Endpoints:
@@ -1297,7 +1298,7 @@ Error (example):
 Endpoints:
 - GET `/api/admin/teachers`
 - GET `/api/admin/teachers/:uid`
-- GET `/api/admin/students`
+- GET `/api/admin/students` (paginated)
 - GET `/api/admin/students/:uid`
 - GET `/api/admin/students/:uid/progress`
 - PATCH `/api/admin/students/:uid/approve`
@@ -1306,9 +1307,33 @@ Endpoints:
 - GET `/api/admin/students/template` (CSV download)
 - POST `/api/admin/students/bulk-upload` (multipart `file`)
 
-Success (students list example):
+GET `/api/admin/students` query params:
+- `pageSize` (number, default `50`, max `200`)
+- `cursor` (string, optional): pass the `nextCursor` from previous response
+- `legacy=1` (optional): return legacy array response (no pagination metadata)
+
+Success (students list paginated example):
 ```json
-{ "success": true, "message": "Students fetched", "data": [ { "uid": "s1", "fullName": "Student", "status": "approved" } ] }
+{
+  "success": true,
+  "message": "Students fetched",
+  "data": {
+    "items": [
+      { "uid": "s1", "fullName": "Student", "status": "approved" }
+    ],
+    "page": { "pageSize": 50, "hasMore": true, "nextCursor": "s1" }
+  }
+}
+```
+
+Success (legacy array example):
+```json
+{ "success": true, "message": "Students fetched", "data": [ { "uid": "s1", "fullName": "Student" } ] }
+```
+
+Error (example):
+```json
+{ "success": false, "message": "Failed to fetch students", "error": "Failed to fetch students" }
 ```
 
 ### Admin Courses / Subjects / Content
@@ -1333,6 +1358,7 @@ Success (course list example):
 ### Admin Classes
 Endpoints:
 - GET `/api/admin/classes`
+- POST `/api/admin/classes/analytics/rebuild` (maintenance)
 - POST `/api/admin/classes`
 - PUT `/api/admin/classes/:classId`
 - PATCH `/api/admin/classes/:classId/reopen`
@@ -1346,6 +1372,27 @@ Endpoints:
 - GET `/api/admin/classes/:classId/students`
 - POST `/api/admin/classes/:classId/enroll`
 - DELETE `/api/admin/classes/:classId/students/:studentId`
+
+POST `/api/admin/classes/analytics/rebuild` query params:
+- `pageSize` (number, default `50`, max `200`)
+- `cursor` (string, optional): classId cursor for paging
+- `includeRevenue` (`1|0`, default `1`): also recompute `totalRevenue` (reads payments by classId)
+- `dryRun` (`1|0`, default `0`): preview only, no writes
+
+Success (example):
+```json
+{
+  "success": true,
+  "message": "Class analytics rebuilt",
+  "data": {
+    "updatedClasses": 50,
+    "scannedClasses": 50,
+    "page": { "pageSize": 50, "hasMore": true, "nextCursor": "class_123" },
+    "includeRevenue": true,
+    "dryRun": false
+  }
+}
+```
 
 Success (class list example):
 ```json

@@ -60,8 +60,28 @@ export const resetDevice = (uid) =>
 export const getTeachers = () =>
   api.get("/admin/teachers").then((r) => r.data.data);
 
-export const getStudents = () =>
-  api.get("/admin/students").then((r) => r.data.data);
+export const getStudents = (params) => {
+  if (!params) {
+    return api.get("/admin/students", { params: { legacy: 1 } }).then((r) => r.data.data);
+  }
+  const pageSize = params.pageSize ?? 50;
+  const cursor = params.cursor ?? "";
+  return api
+    .get("/admin/students", { params: { pageSize, cursor } })
+    .then((r) => r.data.data);
+};
+
+export const rebuildClassAnalytics = ({
+  pageSize = 50,
+  cursor = "",
+  includeRevenue = true,
+  dryRun = false,
+} = {}) =>
+  api
+    .post("/admin/classes/analytics/rebuild", null, {
+      params: { pageSize, cursor, includeRevenue: includeRevenue ? 1 : 0, dryRun: dryRun ? 1 : 0 },
+    })
+    .then((r) => r.data.data);
 
 export const approveStudent = (uid) =>
   api.patch(`/admin/students/${uid}/approve`).then((r) => r.data);

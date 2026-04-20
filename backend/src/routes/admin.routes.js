@@ -217,6 +217,7 @@ router.delete(
 );
 
 router.get("/classes", adminOnly, adminController.getClasses);
+router.post("/classes/analytics/rebuild", adminOnly, adminController.rebuildClassAnalytics);
 router.post("/classes", adminOnly, adminController.createClass);
 router.put(
   "/classes/:classId",

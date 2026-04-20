@@ -19,6 +19,7 @@ import {
   removeStudentFromClass,
   updateClass,
   updateClassShift,
+  rebuildClassAnalytics,
 } from "../../services/admin.service.js";
 
 const STATUS_OPTIONS = [
@@ -964,6 +965,46 @@ function Classes() {
   const refreshClasses = async () => {
     await queryClient.invalidateQueries({ queryKey: ["admin", "classes"] });
   };
+
+  const rebuildAnalyticsMutation = useMutation({
+    mutationFn: async () => {
+      const toastId = "rebuild-class-analytics";
+      toast.loading("Rebuilding class analytics…", { id: toastId });
+      let cursor = "";
+      let updated = 0;
+      let pages = 0;
+
+      while (true) {
+        const result = await rebuildClassAnalytics({
+          pageSize: 50,
+          cursor,
+          includeRevenue: true,
+          dryRun: false,
+        });
+        updated += Number(result?.updatedClasses || 0);
+        cursor = String(result?.page?.nextCursor || "").trim();
+        pages += 1;
+
+        toast.loading(`Rebuilding… updated ${updated} classes`, { id: toastId });
+
+        if (!result?.page?.hasMore) break;
+        if (!cursor) break;
+        if (pages >= 50) {
+          throw new Error("Rebuild stopped after 50 pages (safety limit). Run again to continue.");
+        }
+      }
+
+      toast.success(`Class analytics rebuilt (${updated} classes)`, { id: toastId });
+      return { updated };
+    },
+    onSuccess: async () => {
+      await refreshClasses();
+    },
+    onError: (error) => {
+      const message = String(error?.message || "Failed to rebuild analytics");
+      toast.error(message);
+    },
+  });
   const refreshClassStudents = async () => {
     if (!drawerClassId) return;
     await queryClient.invalidateQueries({
@@ -1797,9 +1838,27 @@ function Classes() {
             Create classes, assign subjects and shifts, and manage student enrollment.
           </p>
         </div>
-        <button type="button" onClick={openCreateClassModal} className="btn-primary">
-          Add Class
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              if (rebuildAnalyticsMutation.isPending) return;
+              const ok = window.confirm(
+                "This will recalculate enrollmentCount/activeStudents/totalRevenue for classes. Continue?"
+              );
+              if (!ok) return;
+              rebuildAnalyticsMutation.mutate();
+            }}
+            disabled={rebuildAnalyticsMutation.isPending}
+            className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+            title="Rebuild class analytics fields (one-time maintenance)"
+          >
+            {rebuildAnalyticsMutation.isPending ? "Rebuilding…" : "Rebuild Analytics"}
+          </button>
+          <button type="button" onClick={openCreateClassModal} className="btn-primary">
+            Add Class
+          </button>
+        </div>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">

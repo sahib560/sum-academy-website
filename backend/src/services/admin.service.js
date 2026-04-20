@@ -433,34 +433,64 @@ const buildClassRevenueStats = (paymentRows = []) => {
   }, {});
 };
 
-export const getTopClasses = async (limit = 5) => {
-  const [classesSnap, enrollmentsSnap, paymentsSnap] = await Promise.all([
-    db.collection(COLLECTIONS.CLASSES).get(),
-    db.collection(COLLECTIONS.ENROLLMENTS).get(),
-    db.collection(COLLECTIONS.PAYMENTS).get(),
+let cachedCourseNameById = null;
+let cachedCourseNameExpiresAt = 0;
+const getCourseNameByIdMap = async () => {
+  const now = Date.now();
+  if (cachedCourseNameById && cachedCourseNameExpiresAt > now) {
+    return cachedCourseNameById;
+  }
+
+  const [subjectsSnap, coursesSnap] = await Promise.all([
+    db.collection(COLLECTIONS.SUBJECTS).get(),
+    db.collection(COLLECTIONS.COURSES).get(),
   ]);
 
+  const courseNameById = {};
+  subjectsSnap.docs.forEach((doc) => {
+    courseNameById[doc.id] = trimText(doc.data()?.title) || "Subject";
+  });
+  coursesSnap.docs.forEach((doc) => {
+    if (courseNameById[doc.id]) return;
+    courseNameById[doc.id] = trimText(doc.data()?.title) || "Subject";
+  });
+
+  cachedCourseNameById = courseNameById;
+  cachedCourseNameExpiresAt = now + 10 * 60 * 1000;
+  return courseNameById;
+};
+
+export const getTopClasses = async (limit = 5) => {
+  const limitSize = Math.min(25, Math.max(1, toNumber(limit, 5)));
+  let classesSnap = null;
+  try {
+    classesSnap = await db
+      .collection(COLLECTIONS.CLASSES)
+      .orderBy("enrollmentCount", "desc")
+      .limit(limitSize)
+      .get();
+  } catch {
+    // Fallback if field/index missing: still avoid enrollment/payment full scans.
+    classesSnap = await db.collection(COLLECTIONS.CLASSES).get();
+  }
+
   const classRows = classesSnap.docs.map((doc) => ({ id: doc.id, ...(doc.data() || {}) }));
-  const enrollmentRows = enrollmentsSnap.docs.map((doc) => doc.data() || {});
-  const paymentRows = paymentsSnap.docs.map((doc) => doc.data() || {});
-
-  const enrollmentStats = buildClassEnrollmentStats(enrollmentRows);
-  const revenueStats = buildClassRevenueStats(paymentRows);
-
   const mapped = classRows.map((row) => {
-    const entry = enrollmentStats[row.id] || { enrolled: 0, completed: 0 };
-    const fallbackCount =
-      Array.isArray(row.students) ? row.students.length : toNumber(row.studentCount, 0);
-    const enrolled = entry.enrolled || fallbackCount || 0;
+    const fallbackCount = Math.max(
+      toNumber(row.enrollmentCount, 0),
+      toNumber(row.activeStudents, 0),
+      toNumber(row.enrolledCount, 0),
+      Array.isArray(row.students) ? row.students.length : toNumber(row.studentCount, 0)
+    );
     return {
       id: row.id,
       className: trimText(row.name) || "Class",
       title: trimText(row.name) || "Class",
       batchCode: trimText(row.batchCode),
       teacherName: resolveClassTeacherName(row),
-      enrollmentCount: enrolled,
-      completedCount: entry.completed,
-      revenue: toNumber(revenueStats[row.id], 0),
+      enrollmentCount: fallbackCount,
+      completedCount: Math.max(0, toNumber(row.completedCount, 0)),
+      revenue: Math.max(0, toNumber(row.totalRevenue ?? row.revenue, 0)),
     };
   });
 
@@ -474,25 +504,17 @@ export const getTopClasses = async (limit = 5) => {
 };
 
 export const getClassPerformance = async () => {
-  const [classesSnap, enrollmentsSnap, paymentsSnap] = await Promise.all([
-    db.collection(COLLECTIONS.CLASSES).get(),
-    db.collection(COLLECTIONS.ENROLLMENTS).get(),
-    db.collection(COLLECTIONS.PAYMENTS).get(),
-  ]);
-
+  const classesSnap = await db.collection(COLLECTIONS.CLASSES).get();
   const classRows = classesSnap.docs.map((doc) => ({ id: doc.id, ...(doc.data() || {}) }));
-  const enrollmentRows = enrollmentsSnap.docs.map((doc) => doc.data() || {});
-  const paymentRows = paymentsSnap.docs.map((doc) => doc.data() || {});
-
-  const enrollmentStats = buildClassEnrollmentStats(enrollmentRows);
-  const revenueStats = buildClassRevenueStats(paymentRows);
 
   return classRows.map((row) => {
-    const entry = enrollmentStats[row.id] || { enrolled: 0, completed: 0 };
-    const fallbackCount =
-      Array.isArray(row.students) ? row.students.length : toNumber(row.studentCount, 0);
-    const enrolled = entry.enrolled || fallbackCount || 0;
-    const completed = entry.completed || 0;
+    const enrolled = Math.max(
+      toNumber(row.enrollmentCount, 0),
+      toNumber(row.activeStudents, 0),
+      toNumber(row.enrolledCount, 0),
+      Array.isArray(row.students) ? row.students.length : toNumber(row.studentCount, 0)
+    );
+    const completed = Math.max(0, toNumber(row.completedCount, 0));
     const completionRate = enrolled ? Math.round((completed / enrolled) * 100) : 0;
     return {
       id: row.id,
@@ -502,7 +524,7 @@ export const getClassPerformance = async () => {
       enrolled,
       completed,
       completionRate,
-      revenue: toNumber(revenueStats[row.id], 0),
+      revenue: Math.max(0, toNumber(row.totalRevenue ?? row.revenue, 0)),
     };
   });
 };
@@ -605,113 +627,135 @@ export const getAllTeachers = async () => {
 };
 
 export const getAllStudents = async () => {
-  const [
-    studentsSnap,
-    usersSnap,
-    enrollmentsSnap,
-    classesSnap,
-    subjectsSnap,
-    coursesSnap,
-    progressSnap,
-    securityViolationsSnap,
-  ] = await Promise.all([
-    db.collection(COLLECTIONS.STUDENTS).get(),
-    db.collection(COLLECTIONS.USERS).where("role", "==", "student").get(),
-    db.collection(COLLECTIONS.ENROLLMENTS).get(),
-    db.collection(COLLECTIONS.CLASSES).get(),
-    db.collection(COLLECTIONS.SUBJECTS).get(),
-    db.collection(COLLECTIONS.COURSES).get(),
-    db.collection(COLLECTIONS.PROGRESS).get(),
-    db.collection(COLLECTIONS.SECURITY_VIOLATIONS).get(),
-  ]);
+  return getAllStudentsPaginated();
+};
 
-  const studentsMap = {};
-  studentsSnap.docs.forEach((doc) => {
-    studentsMap[doc.id] = doc.data();
-  });
+export const getAllStudentsPaginated = async ({
+  pageSize = 50,
+  cursor = "",
+} = {}) => {
+  const limitSize = Math.min(200, Math.max(1, toNumber(pageSize, 50)));
+  const cleanCursor = trimText(cursor);
 
-  const courseNameById = {};
-  subjectsSnap.docs.forEach((doc) => {
-    courseNameById[doc.id] = trimText(doc.data()?.title) || "Subject";
-  });
-  coursesSnap.docs.forEach((doc) => {
-    if (courseNameById[doc.id]) return;
-    courseNameById[doc.id] = trimText(doc.data()?.title) || "Subject";
-  });
+  let usersQuery = db
+    .collection(COLLECTIONS.USERS)
+    .where("role", "==", "student")
+    .orderBy("createdAt", "desc")
+    .limit(limitSize + 1);
 
-  const directEnrollments = enrollmentsSnap.docs.map((doc) => ({
-    id: doc.id,
-    ...(doc.data() || {}),
-  }));
-  const classDocs = classesSnap.docs.map((doc) => ({
-    id: doc.id,
-    data: doc.data() || {},
-  }));
-  const classMap = classDocs.reduce((acc, row) => {
-    acc[row.id] = row.data || {};
+  if (cleanCursor) {
+    const cursorSnap = await db.collection(COLLECTIONS.USERS).doc(cleanCursor).get();
+    if (cursorSnap.exists) {
+      usersQuery = usersQuery.startAfter(cursorSnap);
+    }
+  }
+
+  const usersSnap = await usersQuery.get();
+  const rawUsers = usersSnap.docs.map((doc) => ({ id: doc.id, data: doc.data() || {} }));
+  const pageUsers = rawUsers.slice(0, limitSize);
+  const hasMore = rawUsers.length > limitSize;
+  const nextCursor = hasMore ? pageUsers[pageUsers.length - 1]?.id || "" : "";
+
+  const studentIds = pageUsers.map((row) => row.id).filter(Boolean);
+  if (!studentIds.length) {
+    return {
+      items: [],
+      page: { pageSize: limitSize, hasMore: false, nextCursor: "" },
+    };
+  }
+
+  const [studentSnaps, enrollmentsSnaps, securityViolationBatches, courseNameById] =
+    await Promise.all([
+      Promise.all(studentIds.map((id) => db.collection(COLLECTIONS.STUDENTS).doc(id).get())),
+      Promise.all(
+        chunkArray(studentIds, 10).map((chunk) =>
+          db.collection(COLLECTIONS.ENROLLMENTS).where("studentId", "in", chunk).get()
+        )
+      ).catch(() => []),
+      Promise.all(
+        studentIds.map(async (studentId) => {
+          try {
+            return await db
+              .collection(COLLECTIONS.SECURITY_VIOLATIONS)
+              .where("studentId", "==", studentId)
+              .orderBy("createdAt", "desc")
+              .limit(10)
+              .get();
+          } catch {
+            return await db
+              .collection(COLLECTIONS.SECURITY_VIOLATIONS)
+              .where("studentId", "==", studentId)
+              .limit(25)
+              .get()
+              .catch(() => ({ docs: [] }));
+          }
+        })
+      ),
+      getCourseNameByIdMap(),
+    ]);
+
+  const studentsMap = studentSnaps.reduce((acc, snap) => {
+    if (!snap.exists) return acc;
+    acc[snap.id] = snap.data() || {};
     return acc;
   }, {});
-  const classMembershipByStudent = classDocs.reduce((acc, row) => {
-    const classId = trimText(row.id);
-    if (!classId) return acc;
-    const entries = getClassStudentEntries(row.data || {});
-    entries.forEach((entry) => {
-      const studentId = trimText(entry.studentId);
+
+  const safeCourseNameById = courseNameById || {};
+
+  const directEnrollments = (Array.isArray(enrollmentsSnaps) ? enrollmentsSnaps : [])
+    .flatMap((snap) => (snap?.docs || []).map((doc) => ({ id: doc.id, ...(doc.data() || {}) })));
+  const enrollmentsByStudentId = directEnrollments.reduce((acc, row) => {
+    const studentId = trimText(row.studentId);
+    if (!studentId) return acc;
+    if (!acc[studentId]) acc[studentId] = [];
+    acc[studentId].push(row);
+    return acc;
+  }, {});
+
+  const classIds = [
+    ...new Set(
+      directEnrollments.map((row) => trimText(row.classId)).filter(Boolean)
+    ),
+  ];
+  const classSnaps = await Promise.all(
+    classIds.map((classId) => db.collection(COLLECTIONS.CLASSES).doc(classId).get())
+  ).catch(() => []);
+  const classMap = (classSnaps || []).reduce((acc, snap) => {
+    if (!snap?.exists) return acc;
+    acc[snap.id] = snap.data() || {};
+    return acc;
+  }, {});
+
+  const violationsByStudentId = securityViolationBatches.reduce((acc, snap) => {
+    const docs = snap?.docs || [];
+    docs.forEach((doc) => {
+      const row = doc.data() || {};
+      const studentId = trimText(row.studentId || row.uid);
       if (!studentId) return;
-      if (!acc[studentId]) acc[studentId] = new Set();
-      acc[studentId].add(classId);
+      if (!acc[studentId]) acc[studentId] = [];
+      acc[studentId].push({ id: doc.id, ...row });
     });
     return acc;
   }, {});
 
-  const inferredEnrollments = buildClassDerivedEnrollmentRows(classDocs);
-  const mergedEnrollments = mergeEnrollmentRowsByStudentCourse(
-    directEnrollments,
-    inferredEnrollments
-  );
-  const enrollmentsByStudentId = mergedEnrollments.reduce((acc, row) => {
-    const studentId = trimText(row.studentId);
-    if (!studentId) return acc;
-    if (!acc[studentId]) acc[studentId] = [];
-    acc[studentId].push(row);
-    return acc;
-  }, {});
-
-  const progressByStudentId = progressSnap.docs.reduce((acc, doc) => {
-    const row = doc.data() || {};
-    const studentId = trimText(row.studentId);
-    if (!studentId) return acc;
-    if (!acc[studentId]) acc[studentId] = [];
-    acc[studentId].push(row);
-    return acc;
-  }, {});
-
-  const violationsByStudentId = securityViolationsSnap.docs.reduce((acc, doc) => {
-    const row = doc.data() || {};
-    const studentId = trimText(row.studentId || row.uid);
-    if (!studentId) return acc;
-    if (!acc[studentId]) acc[studentId] = [];
-    acc[studentId].push({
-      id: doc.id,
-      ...row,
-    });
-    return acc;
-  }, {});
-
-  return usersSnap.docs.map((doc) => {
-    const userData = doc.data();
-    const studentData = studentsMap[doc.id] || {};
-    const studentId = doc.id;
-    const enrolledClasses = Array.from(classMembershipByStudent[studentId] || []);
+  const items = pageUsers.map((entry) => {
+    const userData = entry.data || {};
+    const studentId = entry.id;
+    const studentData = studentsMap[studentId] || {};
     const studentEnrollments = Array.isArray(enrollmentsByStudentId[studentId])
       ? enrollmentsByStudentId[studentId]
-      : [];
-    const studentProgressRows = Array.isArray(progressByStudentId[studentId])
-      ? progressByStudentId[studentId]
       : [];
     const studentViolationRows = Array.isArray(violationsByStudentId[studentId])
       ? [...violationsByStudentId[studentId]]
       : [];
+
+    const enrollmentClassIds = studentEnrollments
+      .map((row) => trimText(row.classId))
+      .filter(Boolean);
+    const studentStoredClasses = Array.isArray(studentData.enrolledClasses)
+      ? studentData.enrolledClasses.map((id) => trimText(id)).filter(Boolean)
+      : [];
+    const enrolledClasses = [...new Set([...studentStoredClasses, ...enrollmentClassIds])];
 
     const emailPrefix = (userData.email || "").split("@")[0];
     const fallbackName = emailPrefix
@@ -763,15 +807,11 @@ export const getAllStudents = async () => {
             lowerText(enrollment.enrollmentType) === "full_class"
               ? "full_class"
               : "single_course",
-          courseName: courseNameById[courseId] || "Subject",
-          subjectName: courseNameById[courseId] || "Subject",
+          courseName: safeCourseNameById[courseId] || "Subject",
+          subjectName: safeCourseNameById[courseId] || "Subject",
           enrolledAt: enrollment.createdAt || enrollment.enrolledAt || null,
           completedAt: enrollment.completedAt || null,
-          progress: extractCourseProgress(
-            studentProgressRows,
-            courseId,
-            enrollment.progress
-          ),
+          progress: extractCourseProgress([], courseId, enrollment.progress),
         };
       })
       .filter(Boolean);
@@ -789,8 +829,8 @@ export const getAllStudents = async () => {
         classId: row.classId,
         subjectId: row.courseId,
         courseId: row.courseId,
-        courseName: courseNameById[row.courseId] || "Subject",
-        subjectName: courseNameById[row.courseId] || "Subject",
+        courseName: safeCourseNameById[row.courseId] || "Subject",
+        subjectName: safeCourseNameById[row.courseId] || "Subject",
       }));
     const avgProgress =
       enrolledCourses.length > 0
@@ -862,6 +902,15 @@ export const getAllStudents = async () => {
       recentSecurityViolations,
     };
   });
+
+  return {
+    items,
+    page: {
+      pageSize: limitSize,
+      hasMore,
+      nextCursor,
+    },
+  };
 };
 
 export const getAllCourses = async () => {

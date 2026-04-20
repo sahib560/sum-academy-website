@@ -1939,6 +1939,11 @@ export const verifyBankTransfer = async (req, res) => {
         throw new Error("CLASS_HAS_NO_COURSES");
       }
 
+      const paymentAmount = Math.max(
+        0,
+        toNumber(freshPayment.totalAmount ?? freshPayment.amount, 0)
+      );
+
       const completedSubjectIds = [];
       for (const courseId of enrollmentCourseIds) {
         const [subjectSnap, courseSnap] = await Promise.all([
@@ -2094,8 +2099,20 @@ export const verifyBankTransfer = async (req, res) => {
         transaction.update(classRef, {
           students: normalizedClassStudents,
           enrolledCount: normalizedClassStudents.length,
+          enrollmentCount: normalizedClassStudents.length,
+          activeStudents: normalizedClassStudents.length,
+          ...(paymentAmount > 0 ? { totalRevenue: FieldValue.increment(paymentAmount) } : {}),
           updatedAt: FieldValue.serverTimestamp(),
         });
+      } else if (classRef && classData && paymentAmount > 0) {
+        transaction.set(
+          classRef,
+          {
+            totalRevenue: FieldValue.increment(paymentAmount),
+            updatedAt: FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
       }
     });
 

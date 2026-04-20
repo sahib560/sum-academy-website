@@ -1490,8 +1490,12 @@ export const getTeachers = async (req, res) => {
 
 export const getStudents = async (req, res) => {
   try {
-    const data = await adminService.getAllStudents();
-    return successResponse(res, data, "Students fetched");
+    const pageSize = Number(req.query?.pageSize ?? req.query?.limit ?? 50);
+    const cursor = String(req.query?.cursor ?? "").trim();
+    const legacy = String(req.query?.legacy ?? "").trim() === "1";
+
+    const data = await adminService.getAllStudentsPaginated({ pageSize, cursor });
+    return successResponse(res, legacy ? data.items : data, "Students fetched");
   } catch (e) {
     return errorResponse(res, "Failed to fetch students", 500);
   }
@@ -2703,13 +2707,10 @@ export const resetUserDevice = async (req, res) => {
 
 export const getCourses = async (req, res) => {
   try {
-    const [subjectsSnap, enrollmentsSnap] = await Promise.all([
-      db
-        .collection(COLLECTIONS.SUBJECTS)
-        .orderBy("createdAt", "desc")
-        .get(),
-      db.collection(COLLECTIONS.ENROLLMENTS).get(),
-    ]);
+    const subjectsSnap = await db
+      .collection(COLLECTIONS.SUBJECTS)
+      .orderBy("createdAt", "desc")
+      .get();
     const rowsById = {};
     subjectsSnap.docs.forEach((doc) => {
       const row = doc.data() || {};
@@ -2739,34 +2740,6 @@ export const getCourses = async (req, res) => {
         createdAt: row.createdAt || null,
         updatedAt: row.updatedAt || null,
       };
-    });
-
-    const countableStatuses = new Set([
-      "",
-      "active",
-      "completed",
-      "upcoming",
-      "pending_review",
-    ]);
-    const enrollmentSetBySubject = {};
-    enrollmentsSnap.docs.forEach((doc) => {
-      const row = doc.data() || {};
-      const subjectId = String(row.subjectId || row.courseId || "").trim();
-      const studentId = String(row.studentId || "").trim();
-      const status = String(row.status || "").trim().toLowerCase();
-      if (!subjectId || !studentId) return;
-      if (!countableStatuses.has(status)) return;
-      if (!enrollmentSetBySubject[subjectId]) {
-        enrollmentSetBySubject[subjectId] = new Set();
-      }
-      enrollmentSetBySubject[subjectId].add(studentId);
-    });
-
-    Object.keys(rowsById).forEach((subjectId) => {
-      const enrolledStudentSet = enrollmentSetBySubject[subjectId];
-      rowsById[subjectId].enrollmentCount = enrolledStudentSet
-        ? enrolledStudentSet.size
-        : 0;
     });
 
     const data = Object.values(rowsById).sort((a, b) => {
@@ -3629,6 +3602,144 @@ export const getClasses = async (req, res) => {
   }
 };
 
+export const rebuildClassAnalytics = async (req, res) => {
+  try {
+    const pageSize = Math.min(200, Math.max(1, toSafeNumber(req.query?.pageSize ?? 50, 50)));
+    const cursor = String(req.query?.cursor || "").trim();
+    const includeRevenue =
+      String(req.query?.includeRevenue ?? "1").trim() !== "0" &&
+      String(req.query?.includeRevenue ?? "true").trim().toLowerCase() !== "false";
+    const dryRun =
+      String(req.query?.dryRun ?? "0").trim() === "1" ||
+      String(req.query?.dryRun ?? "false").trim().toLowerCase() === "true";
+
+    let classesQuery = db
+      .collection(COLLECTIONS.CLASSES)
+      .orderBy("createdAt", "desc")
+      .limit(pageSize + 1);
+
+    if (cursor) {
+      const cursorSnap = await db.collection(COLLECTIONS.CLASSES).doc(cursor).get();
+      if (cursorSnap.exists) {
+        classesQuery = classesQuery.startAfter(cursorSnap);
+      }
+    }
+
+    const classSnap = await classesQuery.get();
+    const docs = classSnap.docs || [];
+    const pageDocs = docs.slice(0, pageSize);
+    const hasMore = docs.length > pageSize;
+    const nextCursor = hasMore ? pageDocs[pageDocs.length - 1]?.id || "" : "";
+
+    const classRows = pageDocs.map((doc) => ({ id: doc.id, data: doc.data() || {}, ref: doc.ref }));
+    const classIds = classRows.map((row) => row.id).filter(Boolean);
+
+    const normalizeStudentId = (entry) => {
+      if (!entry) return "";
+      if (typeof entry === "string") return String(entry).trim();
+      return String(entry.studentId || entry.id || entry.uid || "").trim();
+    };
+    const getUniqueStudentCount = (classData = {}) => {
+      const students = Array.isArray(classData.students) ? classData.students : [];
+      const set = new Set(students.map(normalizeStudentId).filter(Boolean));
+      if (set.size > 0) return set.size;
+      const fallback = toSafeNumber(classData.enrolledCount ?? classData.enrollmentCount ?? classData.studentCount, 0);
+      return Math.max(0, fallback);
+    };
+
+    const revenueByClassId = {};
+    if (includeRevenue && classIds.length > 0) {
+      const chunks = [];
+      for (let index = 0; index < classIds.length; index += 10) {
+        chunks.push(classIds.slice(index, index + 10));
+      }
+      const snaps = await Promise.all(
+        chunks.map(async (chunk) => {
+          try {
+            return await db
+              .collection(COLLECTIONS.PAYMENTS)
+              .where("classId", "in", chunk)
+              .where("status", "==", "paid")
+              .get();
+          } catch {
+            return await db
+              .collection(COLLECTIONS.PAYMENTS)
+              .where("classId", "in", chunk)
+              .get()
+              .catch(() => ({ docs: [] }));
+          }
+        })
+      );
+      snaps.forEach((snap) => {
+        (snap?.docs || []).forEach((doc) => {
+          const row = doc.data() || {};
+          const classId = String(row.classId || "").trim();
+          if (!classId) return;
+          const status = String(row.status || "").trim().toLowerCase();
+          if (status && status !== "paid") return;
+          const amount = Math.max(0, toSafeNumber(row.totalAmount ?? row.amount, 0));
+          revenueByClassId[classId] = toSafeNumber(revenueByClassId[classId], 0) + amount;
+        });
+      });
+    }
+
+    const updates = classRows.map((row) => {
+      const classData = row.data || {};
+      const enrollmentCount = getUniqueStudentCount(classData);
+      const activeStudents = enrollmentCount;
+      const totalRevenue = includeRevenue ? Math.max(0, toSafeNumber(revenueByClassId[row.id], 0)) : undefined;
+
+      const payload = {
+        enrollmentCount,
+        activeStudents,
+        enrolledCount: Math.max(enrollmentCount, toSafeNumber(classData.enrolledCount, 0)),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      };
+      if (includeRevenue) payload.totalRevenue = totalRevenue;
+      return { id: row.id, ref: row.ref, payload };
+    });
+
+    if (!dryRun) {
+      let updated = 0;
+      for (let index = 0; index < updates.length; index += 400) {
+        const batch = db.batch();
+        updates.slice(index, index + 400).forEach((entry) => {
+          batch.set(entry.ref, entry.payload, { merge: true });
+          updated += 1;
+        });
+        await batch.commit();
+      }
+
+      return successResponse(
+        res,
+        {
+          updatedClasses: updated,
+          scannedClasses: classRows.length,
+          page: { pageSize, hasMore, nextCursor },
+          includeRevenue,
+          dryRun: false,
+        },
+        "Class analytics rebuilt"
+      );
+    }
+
+    return successResponse(
+      res,
+      {
+        scannedClasses: classRows.length,
+        preview: updates.map((row) => ({ classId: row.id, ...row.payload })),
+        page: { pageSize, hasMore, nextCursor },
+        includeRevenue,
+        dryRun: true,
+      },
+      "Class analytics preview generated"
+    );
+  } catch (e) {
+    console.error("rebuildClassAnalytics error:", e);
+    return errorResponse(res, "Failed to rebuild class analytics", 500);
+  }
+};
+
 export const createClass = async (req, res) => {
   try {
     const {
@@ -4477,12 +4588,14 @@ const enrollStudentInClassCore = async ({
           enrolledAt,
         },
       ];
-      transaction.update(classRef, {
-        students: nextStudents,
-        enrolledCount: nextStudents.length,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
-    }
+        transaction.update(classRef, {
+          students: nextStudents,
+          enrolledCount: nextStudents.length,
+          enrollmentCount: nextStudents.length,
+          activeStudents: nextStudents.length,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      }
 
     let createdEnrollmentCount = 0;
     for (const courseIdRow of targetCourseIds) {
@@ -5132,6 +5245,8 @@ export const removeStudentFromClass = async (req, res) => {
     batch.update(classRef, {
       students: nextStudents,
       enrolledCount: nextStudents.length,
+      enrollmentCount: nextStudents.length,
+      activeStudents: nextStudents.length,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
