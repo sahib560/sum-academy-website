@@ -637,20 +637,29 @@ export const getAllStudentsPaginated = async ({
   const limitSize = Math.min(200, Math.max(1, toNumber(pageSize, 50)));
   const cleanCursor = trimText(cursor);
 
-  let usersQuery = db
-    .collection(COLLECTIONS.USERS)
-    .where("role", "==", "student")
-    .orderBy("createdAt", "desc")
-    .limit(limitSize + 1);
-
-  if (cleanCursor) {
-    const cursorSnap = await db.collection(COLLECTIONS.USERS).doc(cleanCursor).get();
-    if (cursorSnap.exists) {
-      usersQuery = usersQuery.startAfter(cursorSnap);
+  const usersCollection = db.collection(COLLECTIONS.USERS);
+  const baseUsersQuery = usersCollection.where("role", "==", "student");
+  let usersSnap = null;
+  try {
+    let usersQuery = baseUsersQuery.orderBy("createdAt", "desc").limit(limitSize + 1);
+    if (cleanCursor) {
+      const cursorSnap = await usersCollection.doc(cleanCursor).get();
+      if (cursorSnap.exists) {
+        usersQuery = usersQuery.startAfter(cursorSnap);
+      }
     }
+    usersSnap = await usersQuery.get();
+  } catch {
+    // Fallback (no composite index required): paginate by implicit document id ordering.
+    let usersQuery = baseUsersQuery.limit(limitSize + 1);
+    if (cleanCursor) {
+      const cursorSnap = await usersCollection.doc(cleanCursor).get();
+      if (cursorSnap.exists) {
+        usersQuery = usersQuery.startAfter(cursorSnap);
+      }
+    }
+    usersSnap = await usersQuery.get();
   }
-
-  const usersSnap = await usersQuery.get();
   const rawUsers = usersSnap.docs.map((doc) => ({ id: doc.id, data: doc.data() || {} }));
   const pageUsers = rawUsers.slice(0, limitSize);
   const hasMore = rawUsers.length > limitSize;
