@@ -3239,7 +3239,11 @@ export const getSessionStatus = async (req, res) => {
           ? "ended"
           : "upcoming";
     const canJoin = Boolean(session.canJoin);
-    const isLocked = Boolean(session.status === "ended");
+    const hasPlaybackSource = Boolean(
+      trimText(session.hlsUrl) || trimText(session.videoUrl)
+    );
+    // Ended sessions should remain rewatchable as recorded content (unless recording is missing).
+    const isLocked = normalizedStatus === "ended" ? !hasPlaybackSource : false;
 
     return successResponse(
       res,

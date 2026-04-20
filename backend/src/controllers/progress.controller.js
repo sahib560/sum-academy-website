@@ -722,7 +722,36 @@ export const buildCourseContentForStudent = async (
       const isLiveConfigured =
         Boolean(lecture.isLiveSession) || configuredVideoMode === "live_session";
       const premiereEndedAt = toIso(lecture.premiereEndedAt);
-      const isPremiereLive = isLiveConfigured && !premiereEndedAt;
+      const liveStartAtDate = toDate(lecture.liveStartAt);
+      const liveEndAtDate = toDate(lecture.liveEndAt);
+      const scheduleEndMs = liveEndAtDate
+        ? liveEndAtDate.getTime()
+        : liveStartAtDate
+          ? liveStartAtDate.getTime() +
+            Math.max(
+              60,
+              parseDurationToSeconds(
+                lecture.durationSec ??
+                  lecture.videoDurationSec ??
+                  lecture.videoDuration ??
+                  lecture.duration
+              )
+            ) *
+              1000
+          : 0;
+      const scheduleStartMs = liveStartAtDate ? liveStartAtDate.getTime() : 0;
+      const scheduleHasEnded = Boolean(scheduleEndMs && scheduleEndMs <= nowMs);
+      const scheduleNotStarted = Boolean(scheduleStartMs && scheduleStartMs > nowMs);
+      const scheduleIsLive = Boolean(
+        scheduleStartMs &&
+          scheduleEndMs &&
+          nowMs >= scheduleStartMs &&
+          nowMs < scheduleEndMs
+      );
+      const effectivePremiereEndedAt =
+        premiereEndedAt ||
+        (scheduleHasEnded && scheduleEndMs ? new Date(scheduleEndMs).toISOString() : null);
+      const isPremiereLive = isLiveConfigured && !premiereEndedAt && !scheduleHasEnded;
       const lectureDurationSec = Math.max(
         0,
         parseDurationToSeconds(
@@ -783,7 +812,11 @@ export const buildCourseContentForStudent = async (
         lockReason = "Locked by teacher/admin";
       } else if (livePremiereLocked) {
         isLocked = true;
-        lockReason = "This is a scheduled live session. Join it from the Live page during class time.";
+        lockReason = scheduleNotStarted
+          ? "This is a scheduled live session. Join it from the Live page when it starts."
+          : scheduleIsLive
+            ? "This live session is currently running. Join it from the Live page."
+            : "This is a scheduled live session. Join it from the Live page during class time.";
       } else if (missingVideoLocked) {
         isLocked = true;
         lockReason = "Lecture video is not uploaded yet";
@@ -830,6 +863,7 @@ export const buildCourseContentForStudent = async (
         isPremiereLive,
         livePlaybackMode: isPremiereLive ? "live" : "recorded",
         disableSeeking: isPremiereLive,
+        premiereEndedAt: effectivePremiereEndedAt,
         isLocked,
         lockReason,
         unlocked,
@@ -1567,8 +1601,15 @@ export const updateVideoAccess = async (req, res) => {
       return errorResponse(res, permission.error, permission.status || 403);
     }
 
-    const lectures = await getCourseLectures(courseId);
-    const lectureIdSet = new Set(lectures.map((lecture) => trimText(lecture.id)).filter(Boolean));
+    let lectures = await getCourseLectures(courseId);
+    if (!lectures.length) {
+      const chapters = await getCourseChapters(courseId);
+      const chapterIds = chapters.map((chapter) => trimText(chapter.id)).filter(Boolean);
+      lectures = await getCourseLectures(courseId, chapterIds);
+    }
+    const lectureIdSet = new Set(
+      lectures.map((lecture) => trimText(lecture.id)).filter(Boolean)
+    );
     const normalizedRows = lectureAccess
       .map((row) => ({
         lectureId: trimText(row?.lectureId),
@@ -1580,7 +1621,9 @@ export const updateVideoAccess = async (req, res) => {
       return errorResponse(res, "No valid lectureId provided", 400);
     }
 
-    const invalidLecture = normalizedRows.find((row) => !lectureIdSet.has(row.lectureId));
+    const invalidLecture = lectureIdSet.size
+      ? normalizedRows.find((row) => !lectureIdSet.has(row.lectureId))
+      : null;
     if (invalidLecture) {
       return errorResponse(
         res,
@@ -1640,7 +1683,12 @@ export const unlockAllVideosForStudent = async (req, res) => {
       return errorResponse(res, permission.error, permission.status || 403);
     }
 
-    const lectures = await getCourseLectures(courseId);
+    let lectures = await getCourseLectures(courseId);
+    if (!lectures.length) {
+      const chapters = await getCourseChapters(courseId);
+      const chapterIds = chapters.map((chapter) => trimText(chapter.id)).filter(Boolean);
+      lectures = await getCourseLectures(courseId, chapterIds);
+    }
     const batch = db.batch();
 
     lectures.forEach((lecture) => {

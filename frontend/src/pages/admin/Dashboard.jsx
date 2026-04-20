@@ -78,6 +78,22 @@ const timeAgo = (date) => {
   return `${days} days ago`;
 };
 
+const formatCompactPKR = (value) => {
+  const numeric = Number(value || 0);
+  if (!Number.isFinite(numeric)) return "0";
+  const abs = Math.abs(numeric);
+  if (abs >= 1_000_000) {
+    return `${Math.round(numeric / 1_000_000)}M`;
+  }
+  if (abs >= 10_000) {
+    return `${Math.round(numeric / 1_000)}k`;
+  }
+  if (abs >= 1_000) {
+    return `${(numeric / 1_000).toFixed(1)}k`;
+  }
+  return Math.round(numeric).toLocaleString();
+};
+
 const statusClass = (status) => {
   const normalized = (status || "").toLowerCase();
   if (normalized === "paid") return "bg-emerald-50 text-emerald-600";
@@ -414,7 +430,7 @@ function Dashboard() {
                 <YAxis
                   tickLine={false}
                   axisLine={false}
-                  tickFormatter={(value) => `${Math.round(value / 1000)}k`}
+                  tickFormatter={(value) => formatCompactPKR(value)}
                 />
                 <Tooltip
                   formatter={(value) => [

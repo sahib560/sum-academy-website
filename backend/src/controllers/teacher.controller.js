@@ -2938,7 +2938,19 @@ export const updateVideoAccess = async (req, res) => {
     if (linkedLecture.error) {
       return errorResponse(res, linkedLecture.error, linkedLecture.status);
     }
-    if (trimText(linkedLecture.lectureData.courseId) !== courseId) {
+    const lectureCourseId = trimText(
+      linkedLecture.lectureData.courseId || linkedLecture.lectureData.subjectId
+    );
+    let resolvedCourseId = lectureCourseId;
+    if (!resolvedCourseId) {
+      const chapterId = trimText(linkedLecture.lectureData.chapterId);
+      if (chapterId) {
+        const chapterSnap = await db.collection("chapters").doc(chapterId).get().catch(() => null);
+        const chapterData = chapterSnap?.exists ? chapterSnap.data() || {} : {};
+        resolvedCourseId = trimText(chapterData.courseId || chapterData.subjectId);
+      }
+    }
+    if (resolvedCourseId && resolvedCourseId !== courseId) {
       return errorResponse(res, "Lecture does not belong to this course", 400);
     }
 
