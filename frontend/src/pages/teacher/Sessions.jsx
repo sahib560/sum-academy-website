@@ -340,21 +340,21 @@ function TeacherSessions() {
   const sessionsQuery = useQuery({
     queryKey: ["teacher-sessions"],
     queryFn: getTeacherSessionsApi,
-    staleTime: 30000,
-    refetchInterval: 60000,
+    staleTime: 5 * 60 * 1000,
+    refetchInterval: 5 * 60 * 1000,
   });
 
   const classesQuery = useQuery({
     queryKey: ["teacher-classes"],
     queryFn: getTeacherClassesApi,
-    staleTime: 30000,
-    refetchInterval: 60000,
+    staleTime: 5 * 60 * 1000,
+    refetchInterval: 5 * 60 * 1000,
   });
 
   const coursesQuery = useQuery({
     queryKey: ["teacher-courses", "for-session-form"],
     queryFn: getTeacherCourses,
-    staleTime: 60000,
+    staleTime: 5 * 60 * 1000,
   });
 
   const detailQuery = useQuery({

@@ -6,7 +6,7 @@ import api from "../api/axios.js";
 const AuthContext = createContext(null);
 const LOGIN_ALERT_STORAGE_KEY = "sumacademy:login-alert";
 const LOGIN_ALERT_EVENT = "sumacademy:login-alert";
-const PROFILE_HEARTBEAT_MS = 10000;
+const PROFILE_HEARTBEAT_MS = 5 * 60 * 1000;
 
 function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
@@ -21,6 +21,9 @@ function AuthProvider({ children }) {
     let retryTimer = null;
     let heartbeatTimer = null;
     let cancelled = false;
+    let lastProfileFetchAt = 0;
+    let visibilityHandler = null;
+    let focusHandler = null;
 
     const clearHeartbeat = () => {
       if (heartbeatTimer) {
@@ -137,6 +140,17 @@ function AuthProvider({ children }) {
       }
     };
 
+    const maybeFetchProfile = (options = {}) => {
+      const currentUser = firebaseAuth.currentUser;
+      if (!currentUser || cancelled) return;
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      const now = Date.now();
+      const minGapMs = options.force ? 0 : 30 * 1000;
+      if (now - lastProfileFetchAt < minGapMs) return;
+      lastProfileFetchAt = now;
+      fetchProfile(currentUser, 0, { forceRefresh: Boolean(options.forceRefresh) });
+    };
+
     const unsubscribe = onAuthStateChanged(
       firebaseAuth,
       async (firebaseUser) => {
@@ -154,19 +168,40 @@ function AuthProvider({ children }) {
         }
 
         setUser(firebaseUser);
-        fetchProfile(firebaseUser, 0, { forceRefresh: true });
+        lastProfileFetchAt = 0;
+        await fetchProfile(firebaseUser, 0, { forceRefresh: true });
         heartbeatTimer = setInterval(() => {
-          const currentUser = firebaseAuth.currentUser;
-          if (!currentUser || cancelled) return;
-          fetchProfile(currentUser, 0, { forceRefresh: false });
+          maybeFetchProfile({ forceRefresh: false });
         }, PROFILE_HEARTBEAT_MS);
       }
     );
+
+    if (typeof document !== "undefined") {
+      visibilityHandler = () => {
+        if (document.visibilityState === "visible") {
+          maybeFetchProfile({ forceRefresh: false });
+        }
+      };
+      document.addEventListener("visibilitychange", visibilityHandler);
+    }
+
+    if (typeof window !== "undefined") {
+      focusHandler = () => {
+        maybeFetchProfile({ forceRefresh: false });
+      };
+      window.addEventListener("focus", focusHandler);
+    }
 
     return () => {
       cancelled = true;
       if (retryTimer) clearTimeout(retryTimer);
       clearHeartbeat();
+      if (visibilityHandler && typeof document !== "undefined") {
+        document.removeEventListener("visibilitychange", visibilityHandler);
+      }
+      if (focusHandler && typeof window !== "undefined") {
+        window.removeEventListener("focus", focusHandler);
+      }
       unsubscribe();
     };
   }, []);

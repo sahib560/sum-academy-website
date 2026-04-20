@@ -117,7 +117,7 @@ export default function LiveSession() {
     queryFn: () => getStudentSessionSync(sessionId),
     enabled: Boolean(sessionId),
     staleTime: 5000,
-    refetchInterval: 10000,
+    refetchInterval: 30000,
   });
 
   const session = sessionQuery.data || {};

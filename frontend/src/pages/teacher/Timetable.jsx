@@ -40,7 +40,7 @@ function TeacherTimetable() {
     queryKey: ["teacher-timetable"],
     queryFn: getTeacherTimetable,
     staleTime: 30 * 1000,
-    refetchInterval: 60 * 1000,
+    refetchInterval: 5 * 60 * 1000,
   });
 
   const classes = Array.isArray(timetableQuery.data?.classes)
@@ -171,4 +171,3 @@ function TeacherTimetable() {
 }
 
 export default TeacherTimetable;
-

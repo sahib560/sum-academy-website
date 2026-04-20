@@ -69,8 +69,8 @@ function TeacherMyQuizzes() {
   const quizzesQuery = useQuery({
     queryKey: ["teacher-quizzes"],
     queryFn: getTeacherQuizzes,
-    staleTime: 30 * 1000,
-    refetchInterval: 60 * 1000,
+    staleTime: 5 * 60 * 1000,
+    refetchInterval: 5 * 60 * 1000,
   });
 
   const quizzes = Array.isArray(quizzesQuery.data) ? quizzesQuery.data : [];

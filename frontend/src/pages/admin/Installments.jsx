@@ -84,8 +84,8 @@ function Installments() {
   const { data: plans = [], isLoading } = useQuery({
     queryKey: ["admin-installments", filters],
     queryFn: () => getInstallmentsAdmin(filters),
-    staleTime: 30000,
-    refetchInterval: 60000,
+    staleTime: 5 * 60 * 1000,
+    refetchInterval: 5 * 60 * 1000,
   });
 
   const { data: selectedPlan, isFetching: planLoading } = useQuery({
@@ -116,8 +116,8 @@ function Installments() {
   const { data: paymentRequests = [] } = useQuery({
     queryKey: ["admin-payments-installments"],
     queryFn: getAdminPayments,
-    staleTime: 30000,
-    refetchInterval: 60000,
+    staleTime: 5 * 60 * 1000,
+    refetchInterval: 5 * 60 * 1000,
   });
 
   const markPaidMutation = useMutation({

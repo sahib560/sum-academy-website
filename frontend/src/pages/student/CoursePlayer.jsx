@@ -326,7 +326,7 @@ function StudentCoursePlayer() {
     queryFn: () => getCourseContent(courseId),
     enabled: Boolean(courseId),
     staleTime: 30000,
-    refetchInterval: 15000,
+    refetchInterval: false,
   });
 
   const finalQuizStatusQuery = useQuery({
@@ -334,7 +334,7 @@ function StudentCoursePlayer() {
     queryFn: () => getFinalQuizRequestStatus(courseId),
     enabled: Boolean(courseId),
     staleTime: 30000,
-    refetchInterval: 15000,
+    refetchInterval: false,
   });
 
   const normalized = useMemo(

@@ -354,26 +354,26 @@ function TeacherQuizzes() {
   const coursesQuery = useQuery({
     queryKey: ["teacher-courses-for-quiz"],
     queryFn: getTeacherCourses,
-    staleTime: 60 * 1000,
+    staleTime: 5 * 60 * 1000,
   });
 
   const quizzesQuery = useQuery({
     queryKey: ["teacher-quizzes"],
     queryFn: getTeacherQuizzes,
-    staleTime: 30 * 1000,
-    refetchInterval: 60 * 1000,
+    staleTime: 5 * 60 * 1000,
+    refetchInterval: 5 * 60 * 1000,
   });
 
   const teacherStudentsQuery = useQuery({
     queryKey: ["teacher-students-for-quiz-assign"],
     queryFn: getTeacherStudents,
-    staleTime: 60 * 1000,
+    staleTime: 5 * 60 * 1000,
   });
 
   const teacherClassesQuery = useQuery({
     queryKey: ["teacher-classes-for-quiz-assign"],
     queryFn: getTeacherClasses,
-    staleTime: 60 * 1000,
+    staleTime: 5 * 60 * 1000,
   });
 
   const createSubjectOptions = useMemo(() => {
@@ -413,14 +413,14 @@ function TeacherQuizzes() {
     ],
     queryFn: () => getChapters(createMeta.courseId, createMeta.subjectId),
     enabled: Boolean(createMeta.courseId && createMeta.subjectId),
-    staleTime: 60 * 1000,
+    staleTime: 5 * 60 * 1000,
   });
 
   const bulkChaptersQuery = useQuery({
     queryKey: ["teacher-quiz-chapters-bulk", bulkTarget.courseId, bulkTarget.subjectId],
     queryFn: () => getChapters(bulkTarget.courseId, bulkTarget.subjectId),
     enabled: Boolean(bulkTarget.courseId && bulkTarget.subjectId),
-    staleTime: 60 * 1000,
+    staleTime: 5 * 60 * 1000,
   });
 
   const selectedBulkChapter = useMemo(
@@ -439,8 +439,8 @@ function TeacherQuizzes() {
     queryKey: ["teacher-quiz-analytics", selectedQuizId],
     queryFn: () => getTeacherQuizAnalytics(selectedQuizId),
     enabled: Boolean(selectedQuizId),
-    staleTime: 30 * 1000,
-    refetchInterval: 60 * 1000,
+    staleTime: 5 * 60 * 1000,
+    refetchInterval: 5 * 60 * 1000,
   });
 
   const createQuizMutation = useMutation({

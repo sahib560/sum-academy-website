@@ -20,7 +20,7 @@ function StudentTests() {
     queryKey: ["student-tests"],
     queryFn: getStudentTests,
     staleTime: 30000,
-    refetchInterval: 30000,
+    refetchInterval: false,
   });
 
   const tests = Array.isArray(testsQuery.data) ? testsQuery.data : [];

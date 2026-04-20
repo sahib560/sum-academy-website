@@ -76,8 +76,8 @@ function TeacherQuizDetailAssignmentGrading() {
   const quizzesQuery = useQuery({
     queryKey: ["teacher-quizzes"],
     queryFn: getTeacherQuizzes,
-    staleTime: 30 * 1000,
-    refetchInterval: 60 * 1000,
+    staleTime: 5 * 60 * 1000,
+    refetchInterval: 5 * 60 * 1000,
   });
 
   const quizDetailQuery = useQuery({
@@ -91,28 +91,28 @@ function TeacherQuizDetailAssignmentGrading() {
     queryKey: ["teacher-quiz-analytics", quizId],
     queryFn: () => getTeacherQuizAnalytics(quizId),
     enabled: Boolean(quizId),
-    staleTime: 30 * 1000,
-    refetchInterval: 60 * 1000,
+    staleTime: 5 * 60 * 1000,
+    refetchInterval: 5 * 60 * 1000,
   });
 
   const submissionsQuery = useQuery({
     queryKey: ["teacher-quiz-submissions", quizId],
     queryFn: () => getTeacherQuizSubmissions(quizId),
     enabled: Boolean(quizId),
-    staleTime: 30 * 1000,
-    refetchInterval: 60 * 1000,
+    staleTime: 5 * 60 * 1000,
+    refetchInterval: 5 * 60 * 1000,
   });
 
   const teacherStudentsQuery = useQuery({
     queryKey: ["teacher-students-for-quiz-assign"],
     queryFn: getTeacherStudents,
-    staleTime: 60 * 1000,
+    staleTime: 5 * 60 * 1000,
   });
 
   const teacherClassesQuery = useQuery({
     queryKey: ["teacher-classes-for-quiz-assign"],
     queryFn: getTeacherClasses,
-    staleTime: 60 * 1000,
+    staleTime: 5 * 60 * 1000,
   });
 
   const assignMutation = useMutation({

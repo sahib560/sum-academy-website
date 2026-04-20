@@ -10,11 +10,11 @@ const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       // Keep data fresh across tabs/devices without manual refresh.
-      staleTime: 10 * 1000,
-      refetchOnMount: "always",
-      refetchOnWindowFocus: true,
+      staleTime: 5 * 60 * 1000,
+      refetchOnMount: true,
+      refetchOnWindowFocus: false,
       refetchOnReconnect: true,
-      refetchInterval: 20 * 1000,
+      refetchInterval: false,
       refetchIntervalInBackground: false,
       retry: 1,
     },

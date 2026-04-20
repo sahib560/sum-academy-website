@@ -120,8 +120,8 @@ function AdminLayout({ children }) {
   const announcementsQuery = useQuery({
     queryKey: ["my-announcements", "admin", userProfile?.uid],
     queryFn: getMyAnnouncements,
-    staleTime: 60 * 1000,
-    refetchInterval: 60 * 1000,
+    staleTime: 5 * 60 * 1000,
+    refetchInterval: 5 * 60 * 1000,
     enabled: Boolean(userProfile?.uid),
   });
   const notifications = announcementsQuery.data || [];

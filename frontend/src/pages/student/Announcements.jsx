@@ -95,7 +95,7 @@ function StudentAnnouncements() {
     queryKey: ["student-announcements"],
     queryFn: getStudentAnnouncements,
     staleTime: 60 * 1000,
-    refetchInterval: 60 * 1000,
+    refetchInterval: 5 * 60 * 1000,
   });
 
   const announcements = useMemo(() => {

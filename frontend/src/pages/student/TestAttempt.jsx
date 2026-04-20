@@ -40,7 +40,7 @@ function StudentTestAttempt() {
     queryFn: () => getStudentTestById(testId),
     enabled: Boolean(testId),
     staleTime: 10000,
-    refetchInterval: 10000,
+    refetchInterval: false,
   });
 
   useEffect(() => {

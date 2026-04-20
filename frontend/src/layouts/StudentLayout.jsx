@@ -90,8 +90,8 @@ function StudentLayout() {
   const announcementsQuery = useQuery({
     queryKey: ["my-announcements", "student", userProfile?.uid],
     queryFn: getMyAnnouncements,
-    staleTime: 60 * 1000,
-    refetchInterval: 60 * 1000,
+    staleTime: 5 * 60 * 1000,
+    refetchInterval: 5 * 60 * 1000,
     enabled: Boolean(userProfile?.uid),
   });
   const notifications = announcementsQuery.data || [];
@@ -100,8 +100,8 @@ function StudentLayout() {
     queryKey: ["student-layout-dashboard-summary", userProfile?.uid],
     queryFn: () => getStudentDashboard(),
     enabled: Boolean(userProfile?.uid),
-    staleTime: 60 * 1000,
-    refetchInterval: 60 * 1000,
+    staleTime: 5 * 60 * 1000,
+    refetchInterval: 5 * 60 * 1000,
   });
 
   const pageTitle = useMemo(() => {

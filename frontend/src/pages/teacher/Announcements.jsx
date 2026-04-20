@@ -78,7 +78,7 @@ function TeacherAnnouncements() {
     queryKey: ["teacher-announcements", "outgoing"],
     queryFn: getTeacherAnnouncements,
     staleTime: 60 * 1000,
-    refetchInterval: 60 * 1000,
+    refetchInterval: 5 * 60 * 1000,
   });
 
   const teacherCoursesQuery = useQuery({

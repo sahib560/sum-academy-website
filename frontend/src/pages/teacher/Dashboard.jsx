@@ -159,8 +159,8 @@ function TeacherDashboard() {
     queryKey: ["teacher-dashboard", userProfile?.uid],
     queryFn: getTeacherDashboard,
     enabled: canQuery,
-    staleTime: 60 * 1000,
-    refetchInterval: 60 * 1000,
+    staleTime: 5 * 60 * 1000,
+    refetchInterval: 5 * 60 * 1000,
   });
   const showLoading = !canQuery || isLoading;
 
