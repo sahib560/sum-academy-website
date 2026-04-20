@@ -687,11 +687,18 @@ function Checkout() {
                       initiatedPayment.paymentId,
                       uploaded.url
                     );
-                    if (receiptRes?.receiptUploaded) {
+                    if (receiptRes?.receiptUploaded || receiptRes?.url) {
                       setReceiptUploaded(true);
                     }
-                    setReceiptSubmitted(false);
-                    toast.success("Receipt uploaded. Click Finish to submit.");
+                    const alreadySubmitted =
+                      receiptRes?.status === "pending_verification" ||
+                      receiptRes?.status === "pending";
+                    setReceiptSubmitted(alreadySubmitted);
+                    toast.success(
+                      alreadySubmitted
+                        ? "Receipt uploaded. Waiting for admin verification."
+                        : "Receipt uploaded. Click Finish to submit."
+                    );
                     return uploaded;
                   }}
                 />

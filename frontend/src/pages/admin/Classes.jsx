@@ -1626,6 +1626,7 @@ function Classes() {
     Math.round((enrolledStudentsCount / classCapacity) * 100)
   );
   const isClassFull = enrolledStudentsCount >= classCapacity;
+  const remainingSeats = Math.max(0, classCapacity - enrolledStudentsCount);
   const classFillColor =
     classFillPercent >= 100
       ? "bg-rose-500"
@@ -2726,6 +2727,9 @@ function Classes() {
                           filteredAvailableStudentsForClass.map((student) => {
                             const studentId = String(student.uid || "").trim();
                             const checked = enrollStudentIds.includes(studentId);
+                            const seatLimitReached =
+                              !checked && remainingSeats > 0 && enrollStudentIds.length >= remainingSeats;
+                            const checkboxDisabled = isClassFull || seatLimitReached;
                             return (
                               <label
                                 key={studentId}
@@ -2738,12 +2742,17 @@ function Classes() {
                                   <p className="truncate text-xs text-slate-500">
                                     {student.email || "No email"}
                                   </p>
+                                  {seatLimitReached ? (
+                                    <p className="mt-1 text-[11px] text-amber-600">
+                                      Seat limit reached ({remainingSeats} left).
+                                    </p>
+                                  ) : null}
                                 </div>
                                 <input
                                   type="checkbox"
                                   checked={checked}
                                   onChange={() => toggleEnrollStudent(studentId)}
-                                  disabled={isClassFull}
+                                  disabled={checkboxDisabled}
                                 />
                               </label>
                             );

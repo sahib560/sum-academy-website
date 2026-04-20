@@ -270,11 +270,16 @@ export const uploadPaymentReceipt = async (req, res) => {
       return errorResponse(res, "No file uploaded", 400);
     }
 
+    const nextStatus =
+      currentStatus === "pending_verification" || currentStatus === "pending"
+        ? currentStatus
+        : "awaiting_receipt";
+
     await paymentRef.update({
       receiptUrl: result.url,
       receiptName: req.file?.originalname || null,
       receiptSize: result.size || null,
-      status: "pending_verification",
+      status: nextStatus,
       receiptUploadedAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
@@ -284,9 +289,12 @@ export const uploadPaymentReceipt = async (req, res) => {
       {
         url: result.url,
         paymentId,
-        status: "pending_verification",
+        status: nextStatus,
+        receiptUploaded: true,
       },
-      "Receipt uploaded. Awaiting admin verification."
+      nextStatus === "pending_verification" || nextStatus === "pending"
+        ? "Receipt uploaded. Payment already submitted for verification."
+        : "Receipt uploaded. Click Finish to submit for verification."
     );
   } catch (error) {
     return errorResponse(

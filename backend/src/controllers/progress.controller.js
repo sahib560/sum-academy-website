@@ -749,13 +749,11 @@ export const buildCourseContentForStudent = async (
       const lectureVideoMeta = normalizeLectureVideoMeta(lecture);
       const hasVideoSource = Boolean(trimText(lectureVideoMeta.videoUrl));
 
-      const progressLocked =
-        !manualAccess &&
-        !isCompleted &&
-        (index === 0 ? !previousChapterComplete : !previousLectureCompleted);
-      const progressLockReason = index === 0
-        ? "Complete previous chapter first"
-        : "Complete previous lecture first";
+      // Product requirement:
+      // Do not lock lectures based on sequential progress (previous lecture/chapter completion).
+      // Only lock when payment/class completion/manual lock/missing video/live session rules apply.
+      const progressLocked = false;
+      const progressLockReason = "";
       const completionLocked = false;
       const completedLectureLocked = false;
       const missingVideoLocked = !hasVideoSource;
@@ -873,12 +871,12 @@ export const buildCourseContentForStudent = async (
       const dueAtDate = toDate(quiz.dueAt || quiz.assignmentDueAt || null);
       const dueAt = dueAtDate ? dueAtDate.toISOString() : null;
       const isExpired = Boolean(dueAtDate && dueAtDate.getTime() < nowMs && !result);
+      // Quizzes are attemptable even if previous videos are not completed (per product requirement).
       const quizLocked =
         isExpired ||
         isPaymentLockedByState ||
         isClassLockedByState ||
-        permanentlyCompleted ||
-        (!enrollmentCompleted && !allLecturesDone);
+        permanentlyCompleted;
       return {
         id: quizId,
         quizId,
@@ -934,12 +932,12 @@ export const buildCourseContentForStudent = async (
     const dueAtDate = toDate(quiz.dueAt || quiz.assignmentDueAt || null);
     const dueAt = dueAtDate ? dueAtDate.toISOString() : null;
     const isExpired = Boolean(dueAtDate && dueAtDate.getTime() < nowMs && !result);
+    // Quizzes are attemptable even if previous chapters are not completed (per product requirement).
     const quizLocked =
       isExpired ||
       isPaymentLockedByState ||
       isClassLockedByState ||
-      permanentlyCompleted ||
-      !allChaptersComplete;
+      permanentlyCompleted;
     return {
       id: quizId,
       quizId,

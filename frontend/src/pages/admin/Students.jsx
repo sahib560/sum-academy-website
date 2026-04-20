@@ -497,16 +497,24 @@ function Students() {
   const stats = useMemo(
     () => ({
       total: Number(studentCountsQuery.data?.total ?? students.length),
-      active: students.filter((s) => s.isActive).length,
-      pending: students.filter((s) => s.status === "pending_approval").length,
-      inactive: students.filter((s) => !s.isActive).length,
+      active: Number(studentCountsQuery.data?.active ?? students.filter((s) => s.isActive).length),
+      pending: Number(
+        studentCountsQuery.data?.pending ??
+          students.filter((s) => s.status === "pending_approval").length
+      ),
+      inactive: Number(
+        studentCountsQuery.data?.inactive ?? students.filter((s) => !s.isActive).length
+      ),
       enrolledStudents: students.filter((s) => s.enrolledCourses.length > 0).length,
       flagged: students.filter(
         (s) =>
           Number(s.securityViolationCount || 0) >= Number(s.securityViolationLimit || 3) ||
           Boolean(s.securityDeactivatedAt)
       ).length,
-      paymentBlocked: students.filter((s) => Boolean(s.paymentApprovalBlocked)).length,
+      paymentBlocked: Number(
+        studentCountsQuery.data?.paymentBlocked ??
+          students.filter((s) => Boolean(s.paymentApprovalBlocked)).length
+      ),
     }),
     [studentCountsQuery.data, students]
   );

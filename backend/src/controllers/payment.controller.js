@@ -262,9 +262,31 @@ const getCourseById = async (courseId) => {
     db.collection(COLLECTIONS.SUBJECTS).doc(courseId).get(),
     db.collection(COLLECTIONS.COURSES).doc(courseId).get(),
   ]);
-  const rowSnap = subjectSnap.exists ? subjectSnap : courseSnap;
-  if (!rowSnap.exists) return null;
-  return { id: rowSnap.id, ...(rowSnap.data() || {}) };
+  if (!subjectSnap.exists && !courseSnap.exists) return null;
+
+  const computePricing = (row = {}) => {
+    const price = Math.max(0, toNumber(row.price, 0));
+    const discountPercent = Math.max(
+      0,
+      Math.min(100, toNumber(row.discountPercent ?? row.discount, 0))
+    );
+    const finalPrice = Math.max(
+      Number((price - (price * discountPercent) / 100).toFixed(2)),
+      0
+    );
+    return { price, discountPercent, finalPrice };
+  };
+
+  const subjectRow = subjectSnap.exists ? subjectSnap.data() || {} : null;
+  const courseRow = courseSnap.exists ? courseSnap.data() || {} : null;
+  const subjectPricing = subjectRow ? computePricing(subjectRow) : { finalPrice: -1 };
+  const coursePricing = courseRow ? computePricing(courseRow) : { finalPrice: -1 };
+  const row =
+    courseRow && coursePricing.finalPrice > subjectPricing.finalPrice
+      ? courseRow
+      : subjectRow || courseRow || {};
+
+  return { id: courseId, ...row };
 };
 
 const getCompletedSubjectIds = async (courseIds = []) => {
@@ -959,10 +981,22 @@ export const initiatePayment = async (req, res) => {
       classCourseIds.map(async (id) => {
         const course = await getCourseById(id);
         if (!course) return null;
+        const price = Math.max(0, toNumber(course.price, 0));
+        const discountPercent = Math.max(
+          0,
+          Math.min(100, toNumber(course.discountPercent ?? course.discount, 0))
+        );
+        const finalPrice = Math.max(
+          Number((price - (price * discountPercent) / 100).toFixed(2)),
+          0
+        );
         return {
           courseId: id,
           subjectId: id,
           title: course.title || "Subject",
+          price,
+          discountPercent,
+          finalPrice,
         };
       })
     );
@@ -970,22 +1004,26 @@ export const initiatePayment = async (req, res) => {
     if (!resolvedClassCourses.length) {
       return errorResponse(res, "No valid courses found for this class", 400);
     }
-    const classPrice = Math.max(
-      toNumber(classData.price ?? classData.totalPrice, 0),
-      0
-    );
-    if (!classPrice) {
-      return errorResponse(res, "Class price is not set", 400);
-    }
-
     const payableClassCourses = resolvedClassCourses.filter(
       (row) => !paidCourseIds.has(row.courseId)
     );
 
-    const originalAmount = Number(classPrice.toFixed(2));
+    const originalAmount = Number(
+      resolvedClassCourses
+        .reduce((sum, row) => sum + toNumber(row.finalPrice, row.price), 0)
+        .toFixed(2)
+    );
     const courseDiscountAmount = 0;
-    const amountAfterCourseDiscount = Number(classPrice.toFixed(2));
+    const amountAfterCourseDiscount = Number(
+      payableClassCourses
+        .reduce((sum, row) => sum + toNumber(row.finalPrice, row.price), 0)
+        .toFixed(2)
+    );
     const courseDiscountPercent = 0;
+
+    if (!amountAfterCourseDiscount) {
+      return errorResponse(res, "Class price is not set", 400);
+    }
 
     if (promoCode) {
       return errorResponse(

@@ -849,16 +849,20 @@ const getStudentEnrolledCourseIds = async (uid, includeClassFallback = true) => 
     .map((row) => trimText(row.subjectId || row.courseId))
     .filter(Boolean);
 
-  if (enrollmentIds.length > 0 || !includeClassFallback) {
+  if (!includeClassFallback) {
     return [...new Set(enrollmentIds)];
   }
 
-  const classMembershipRows = await getStudentClassMembershipRows(uid);
+  // IMPORTANT:
+  // Some students may have partial enrollment rows (e.g. one subject paid) but still belong to a class
+  // that contains multiple subjects. Always union class-linked courseIds for downstream features
+  // like quizzes & content catalog, without scanning the whole classes collection.
+  const classMembershipRows = await getStudentClassMembershipRows(uid, enrollments);
   const classCourseIds = classMembershipRows.flatMap((row) =>
     getStudentCourseIdsFromClassRow(row, uid)
   );
 
-  return [...new Set([...classCourseIds, ...enrollmentIds])];
+  return [...new Set([...enrollmentIds, ...classCourseIds])];
 };
 
 const getStudentClassIds = async (uid, enrollments = null) => {
@@ -981,7 +985,10 @@ const buildClassCompletionStateForStudent = ({
     Boolean(classData.isCompleted);
   const endedByDate = status === "completed";
   const completed = manualCompleted || endedByDate || allCoursesCompleted;
-  const lockAfterCompletion = classData.lockAfterCompletion !== false;
+  // Product requirement:
+  // Do not lock class/course content by default after completion.
+  // Only lock when staff explicitly enables lockAfterCompletion on the class.
+  const lockAfterCompletion = classData.lockAfterCompletion === true;
   const studentUnlocked = isClassUnlockedForStudent(classData, uid);
   const isLocked = completed && lockAfterCompletion && !studentUnlocked;
 
@@ -4686,17 +4693,48 @@ const isAnnouncementVisibleToStudent = (
   return false;
 };
 
+const getActiveQuizzesAssignedToStudent = async (studentId = "") => {
+  const uid = trimText(studentId);
+  if (!uid) return [];
+  try {
+    const snap = await db
+      .collection(COLLECTIONS.QUIZZES)
+      .where("status", "==", "active")
+      .where("assignedStudents", "array-contains", uid)
+      .get();
+    return snap.docs.map((doc) => ({ id: doc.id, ...(doc.data() || {}) }));
+  } catch {
+    const snap = await db
+      .collection(COLLECTIONS.QUIZZES)
+      .where("assignedStudents", "array-contains", uid)
+      .get();
+    return snap.docs
+      .map((doc) => ({ id: doc.id, ...(doc.data() || {}) }))
+      .filter((row) => lowerText(row.status || "active") === "active");
+  }
+};
+
 export const getStudentQuizzes = async (req, res) => {
   try {
     const uid = trimText(req.user?.uid);
     if (!uid) return errorResponse(res, "Missing student uid", 400);
 
     const enrolledCourseIds = await getStudentEnrolledCourseIds(uid);
-    if (!enrolledCourseIds.length) {
+    const [quizzesByCourse, quizzesByAssignment] = await Promise.all([
+      enrolledCourseIds.length ? getActiveQuizzesForCourseIds(enrolledCourseIds) : Promise.resolve([]),
+      getActiveQuizzesAssignedToStudent(uid),
+    ]);
+    const seenQuizIds = new Set();
+    const quizzes = [...quizzesByCourse, ...quizzesByAssignment].filter((row) => {
+      const id = trimText(row?.id);
+      if (!id) return false;
+      if (seenQuizIds.has(id)) return false;
+      seenQuizIds.add(id);
+      return true;
+    });
+    if (!quizzes.length) {
       return successResponse(res, [], "Student quizzes fetched");
     }
-
-    const quizzes = await getActiveQuizzesForCourseIds(enrolledCourseIds);
     const quizIds = quizzes.map((quiz) => trimText(quiz?.id)).filter(Boolean);
     const [latestAttemptMap, courseMap, approvedFinalQuizCourseIds] = await Promise.all([
       getLatestQuizAttemptMap(uid, quizIds),

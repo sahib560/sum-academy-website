@@ -694,32 +694,30 @@ export const getAllUsersPaginated = async ({
     const maxTeachers = Math.min(10, Math.max(0, limitSize - 1 - maxAdmins));
     const remaining = Math.max(0, limitSize - maxAdmins - maxTeachers);
 
+    const fetchRoleDocs = async (role, limit) => {
+      if (!limit) return [];
+      try {
+        const snap = await usersCollection
+          .where("role", "==", role)
+          .orderBy("createdAt", "desc")
+          .limit(limit)
+          .get();
+        return snap.docs || [];
+      } catch {
+        // Fallback: avoid composite index requirements.
+        const snap = await usersCollection
+          .where("role", "==", role)
+          .limit(limit)
+          .get()
+          .catch(() => ({ docs: [] }));
+        return snap.docs || [];
+      }
+    };
+
     const [adminDocs, teacherDocs, studentDocs] = await Promise.all([
-      maxAdmins
-        ? usersCollection
-            .where("role", "==", "admin")
-            .orderBy("createdAt", "desc")
-            .limit(maxAdmins)
-            .get()
-            .then((snap) => snap.docs || [])
-            .catch(() => [])
-        : Promise.resolve([]),
-      maxTeachers
-        ? usersCollection
-            .where("role", "==", "teacher")
-            .orderBy("createdAt", "desc")
-            .limit(maxTeachers)
-            .get()
-            .then((snap) => snap.docs || [])
-            .catch(() => [])
-        : Promise.resolve([]),
-      usersCollection
-        .where("role", "==", "student")
-        .orderBy("createdAt", "desc")
-        .limit(remaining + 1)
-        .get()
-        .then((snap) => snap.docs || [])
-        .catch(() => []),
+      fetchRoleDocs("admin", maxAdmins),
+      fetchRoleDocs("teacher", maxTeachers),
+      fetchRoleDocs("student", remaining + 1),
     ]);
 
     const adminEntries = adminDocs.map((doc) => ({ id: doc.id, data: doc.data() || {} }));
