@@ -17,9 +17,18 @@ import {
   reportStudentSecurityViolation,
 } from "../../services/student.service.js";
 
+const PK_TIMEZONE = "Asia/Karachi";
+
 const toDateTime = (date, time) => {
   if (!date || !time) return null;
-  const parsed = new Date(`${date}T${time}`);
+  const cleanDate = String(date || "").trim();
+  const cleanTime = String(time || "").trim();
+  const hasOffset = /Z$|[+-]\d{2}:\d{2}$/.test(cleanTime) || /Z$|[+-]\d{2}:\d{2}$/.test(cleanDate);
+  const candidate =
+    /^\d{2}:\d{2}$/.test(cleanTime) && !hasOffset
+      ? `${cleanDate}T${cleanTime}:00+05:00`
+      : `${cleanDate}T${cleanTime}`;
+  const parsed = new Date(candidate);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 };
 
@@ -27,6 +36,7 @@ const formatLongDate = (date, time = "00:00") => {
   const parsed = toDateTime(date, time);
   if (!parsed) return "-";
   return parsed.toLocaleDateString("en-US", {
+    timeZone: PK_TIMEZONE,
     weekday: "long",
     month: "long",
     day: "numeric",
@@ -45,6 +55,7 @@ const formatHHMMSS = (seconds = 0) => {
 const formatTimeHHMM = (dateObj) => {
   if (!(dateObj instanceof Date) || Number.isNaN(dateObj.getTime())) return "--:--";
   return dateObj.toLocaleTimeString("en-US", {
+    timeZone: PK_TIMEZONE,
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
@@ -518,7 +529,15 @@ export default function LiveSession() {
             </div>
             <h1 className="mt-5 font-heading text-3xl font-semibold">{session.lectureTitle || "Live Session"}</h1>
             <p className="mt-2 text-sm text-slate-300">
-              {startAt ? startAt.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" }) : "-"}
+              {startAt
+                ? startAt.toLocaleDateString("en-US", {
+                    timeZone: PK_TIMEZONE,
+                    weekday: "long",
+                    month: "long",
+                    day: "numeric",
+                    year: "numeric",
+                  })
+                : "-"}
             </p>
             <p className="text-sm text-slate-200">{formatTimeHHMM(startAt)} - {formatTimeHHMM(endAt)}</p>
           </div>

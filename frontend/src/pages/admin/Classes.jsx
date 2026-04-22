@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion as Motion } from "framer-motion";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Toaster, toast } from "react-hot-toast";
 import { FiX } from "react-icons/fi";
 import {
@@ -802,9 +802,17 @@ function Classes() {
     staleTime: 30000,
   });
 
-  const studentsQuery = useQuery({
-    queryKey: ["admin", "students"],
-    queryFn: getStudents,
+  const studentsQuery = useInfiniteQuery({
+    queryKey: ["admin", "students", enrollStudentSearch.trim()],
+    queryFn: ({ pageParam }) =>
+      getStudents({
+        pageSize: 50,
+        cursor: String(pageParam || ""),
+        search: enrollStudentSearch.trim(),
+      }),
+    initialPageParam: "",
+    getNextPageParam: (lastPage) =>
+      lastPage?.page?.hasMore ? String(lastPage.page.nextCursor || "") : undefined,
     staleTime: 30000,
   });
 
@@ -913,15 +921,27 @@ function Classes() {
     [courses, selectableCourseIdsForClass]
   );
   const students = useMemo(() => {
-    const raw = studentsQuery.data;
-    const list = Array.isArray(raw) ? raw : Array.isArray(raw?.items) ? raw.items : [];
-    return list.map((student) => ({
-      ...student,
-      uid: student.uid || student.id || "",
-      fullName:
-        student.fullName ||
-        (student.email ? student.email.split("@")[0] : "Unknown Student"),
-    }));
+    const pages = Array.isArray(studentsQuery.data?.pages)
+      ? studentsQuery.data.pages
+      : [];
+    const merged = pages.flatMap((page) =>
+      Array.isArray(page) ? page : Array.isArray(page?.items) ? page.items : []
+    );
+    const byId = new Map();
+    merged.forEach((student) => {
+      const uid = String(student?.uid || student?.id || "").trim();
+      if (!uid) return;
+      if (!byId.has(uid)) {
+        byId.set(uid, {
+          ...student,
+          uid,
+          fullName:
+            student.fullName ||
+            (student.email ? student.email.split("@")[0] : "Unknown Student"),
+        });
+      }
+    });
+    return Array.from(byId.values());
   }, [studentsQuery.data]);
   const classStudents = useMemo(
     () => classStudentsQuery.data || [],
@@ -2721,7 +2741,9 @@ function Classes() {
                       <div className="max-h-60 overflow-auto rounded-2xl border border-slate-200 bg-white p-2">
                         {filteredAvailableStudentsForClass.length < 1 ? (
                           <p className="px-2 py-6 text-center text-sm text-slate-500">
-                            No available students found.
+                            {studentsQuery.isLoading || studentsQuery.isFetching
+                              ? "Loading students..."
+                              : "No available students found."}
                           </p>
                         ) : (
                           filteredAvailableStudentsForClass.map((student) => {
@@ -2758,6 +2780,21 @@ function Classes() {
                             );
                           })
                         )}
+                      </div>
+                      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+                        <span>
+                          Showing {filteredAvailableStudentsForClass.length} of {students.length} loaded
+                        </span>
+                        {studentsQuery.hasNextPage ? (
+                          <button
+                            type="button"
+                            className="rounded-full border border-slate-200 bg-white px-3 py-1 font-semibold text-slate-700 disabled:opacity-50"
+                            onClick={() => studentsQuery.fetchNextPage()}
+                            disabled={studentsQuery.isFetchingNextPage}
+                          >
+                            {studentsQuery.isFetchingNextPage ? "Loading..." : "Load more"}
+                          </button>
+                        ) : null}
                       </div>
                     </div>
 

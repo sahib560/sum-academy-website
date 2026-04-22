@@ -92,6 +92,7 @@ function StudentQuizAttempt() {
   const violationsRef = useRef(0);
   const cleanupRef = useRef(null);
   const quizStartedAtRef = useRef(0);
+  const quizDeadlineMsRef = useRef(0);
 
   const [started, setStarted] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -281,16 +282,17 @@ function StudentQuizAttempt() {
 
   useEffect(() => {
     if (!started || submittedResult || submitMutation.isPending) return undefined;
-    const intervalId = window.setInterval(() => {
-      setTimeLeft((previous) => {
-        if (previous <= 1) {
-          window.clearInterval(intervalId);
-          finalizeSubmit("timeout");
-          return 0;
-        }
-        return previous - 1;
-      });
-    }, 1000);
+    const tick = () => {
+      const deadlineMs = Number(quizDeadlineMsRef.current || 0);
+      if (!deadlineMs) return;
+      const remain = Math.max(0, Math.floor((deadlineMs - Date.now()) / 1000));
+      setTimeLeft(remain);
+      if (remain > 0 || autoSubmitQueuedRef.current) return;
+      autoSubmitQueuedRef.current = true;
+      finalizeSubmit("timeout");
+    };
+    tick();
+    const intervalId = window.setInterval(tick, 1000);
     return () => window.clearInterval(intervalId);
   }, [started, submittedResult, submitMutation.isPending, finalizeSubmit]);
 
@@ -375,8 +377,16 @@ function StudentQuizAttempt() {
       toast.error("Quiz questions are not available yet.");
       return;
     }
-    quizStartedAtRef.current = Date.now();
-    setTimeLeft(initialDurationSeconds);
+    const startedAtMs = Date.now();
+    quizStartedAtRef.current = startedAtMs;
+    const defaultDeadline = startedAtMs + initialDurationSeconds * 1000;
+    const scheduledEndMs = isScheduled && data?.endAt ? new Date(data.endAt).getTime() : 0;
+    const deadlineMs =
+      scheduledEndMs && !Number.isNaN(scheduledEndMs)
+        ? Math.min(defaultDeadline, scheduledEndMs)
+        : defaultDeadline;
+    quizDeadlineMsRef.current = deadlineMs;
+    setTimeLeft(Math.max(0, Math.floor((deadlineMs - Date.now()) / 1000)));
     setStarted(true);
   };
 

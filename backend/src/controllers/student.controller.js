@@ -4819,7 +4819,18 @@ export const getStudentQuizzes = async (req, res) => {
             0,
             toNumber(quiz.questionCount, Array.isArray(quiz.questions) ? quiz.questions.length : 0)
           ),
-          timeLimit: Math.max(0, toNumber(quiz.timeLimit, 0)),
+          timeLimit: Math.max(
+            0,
+            toNumber(
+              quiz.timeLimit ??
+                quiz.timeLimitMinutes ??
+                quiz.durationMinutes ??
+                quiz.duration ??
+                quiz.quizDuration ??
+                0,
+              0
+            )
+          ),
           passScore,
           assignedTo: assignedTo || null,
           isAssignedToYou,
@@ -5004,7 +5015,18 @@ export const getQuizById = async (req, res) => {
           )
         ),
         passScore: toNumber(quizData.passScore, 50),
-        timeLimit: Math.max(0, toNumber(quizData.timeLimit, 0)),
+        timeLimit: Math.max(
+          0,
+          toNumber(
+            quizData.timeLimit ??
+              quizData.timeLimitMinutes ??
+              quizData.durationMinutes ??
+              quizData.duration ??
+              quizData.quizDuration ??
+              0,
+            0
+          )
+        ),
         questions: sanitizedQuestions,
       },
       "Quiz fetched"

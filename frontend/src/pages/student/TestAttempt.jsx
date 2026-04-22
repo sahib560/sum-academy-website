@@ -148,9 +148,20 @@ function StudentTestAttempt() {
 
   useEffect(() => {
     if (!inProgress || !test) return;
-    const endAt = attempt?.expiresAt || test.endAt;
-    const endTime = endAt ? new Date(endAt).getTime() : 0;
-    if (!endTime || Number.isNaN(endTime)) return;
+    const toMs = (value) => {
+      if (!value) return 0;
+      const parsed = new Date(value).getTime();
+      return Number.isNaN(parsed) ? 0 : parsed;
+    };
+    const explicitEndMs = toMs(attempt?.expiresAt) || toMs(test.endAt);
+    const durationMinutes = Math.max(0, Number(test.durationMinutes || 0));
+    const startedAtMs = toMs(attempt?.startedAt);
+    const derivedEndMs =
+      startedAtMs && durationMinutes
+        ? startedAtMs + durationMinutes * 60 * 1000
+        : 0;
+    const endTime = explicitEndMs || derivedEndMs;
+    if (!endTime) return;
 
     const tick = () => {
       const now = Date.now() + (serverOffsetMsRef.current || 0);
@@ -164,7 +175,14 @@ function StudentTestAttempt() {
     tick();
     const timer = setInterval(tick, 1000);
     return () => clearInterval(timer);
-  }, [attempt?.expiresAt, finishMutation, inProgress, test]);
+  }, [
+    attempt?.expiresAt,
+    attempt?.startedAt,
+    finishMutation,
+    inProgress,
+    test?.endAt,
+    test?.durationMinutes,
+  ]);
 
   useEffect(() => {
     if (!inProgress) return undefined;

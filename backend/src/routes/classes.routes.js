@@ -71,15 +71,55 @@ const getClassSubjectIds = (classData = {}) => {
 };
 
 const normalizeSubjectMeta = (id, row = {}) => {
-  const price = Math.max(0, toNumber(row.price, 0));
-  const discountPercent = Math.max(
-    0,
-    Math.min(100, toNumber(row.discountPercent ?? row.discount, 0))
-  );
-  const finalPrice = Math.max(
+  const resolveBasePrice = (source = {}) => {
+    const candidates = [
+      source.price,
+      source.originalPrice,
+      source.original_amount,
+      source.coursePrice,
+      source.courseFee,
+      source.subjectPrice,
+      source.fee,
+      source.amount,
+      source.totalPrice,
+      source.totalAmount,
+      source.tuitionFee,
+    ];
+    for (const value of candidates) {
+      const parsed = toNumber(value, NaN);
+      if (Number.isFinite(parsed) && parsed >= 0) return parsed;
+    }
+    const fallbackFinal = toNumber(source.finalPrice, NaN);
+    if (Number.isFinite(fallbackFinal) && fallbackFinal >= 0) return fallbackFinal;
+    return 0;
+  };
+
+  const resolveDiscountPercent = (source = {}) => {
+    const candidates = [
+      source.discountPercent,
+      source.discount_percentage,
+      source.discount,
+      source.courseDiscountPercent,
+      source.subjectDiscountPercent,
+    ];
+    for (const value of candidates) {
+      const parsed = toNumber(value, NaN);
+      if (Number.isFinite(parsed)) {
+        return Math.max(0, Math.min(100, parsed));
+      }
+    }
+    return 0;
+  };
+
+  const price = Math.max(0, resolveBasePrice(row));
+  const discountPercent = resolveDiscountPercent(row);
+  const computedFinalPrice = Math.max(
     Number((price - (price * discountPercent) / 100).toFixed(2)),
     0
   );
+  const storedFinal = toNumber(row.finalPrice, NaN);
+  const finalPrice =
+    Number.isFinite(storedFinal) && storedFinal >= 0 ? storedFinal : computedFinalPrice;
   const title = trimText(row.title || row.courseName || row.name) || "Subject";
   return {
     subjectId: id,

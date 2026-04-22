@@ -23,11 +23,14 @@ const STATUS_STYLES = {
   expired: "bg-slate-200 text-slate-700 border border-slate-300",
 };
 
+const PK_TIMEZONE = "Asia/Karachi";
+
 const formatDateTime = (value) => {
   if (!value) return "-";
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return "-";
   return parsed.toLocaleString("en-US", {
+    timeZone: PK_TIMEZONE,
     day: "2-digit",
     month: "short",
     year: "numeric",
@@ -45,7 +48,12 @@ const formatTimeRange = (startAt, endAt, fallbackStart = "-", fallbackEnd = "-")
     return `${fallbackStart || "-"} - ${fallbackEnd || "-"}`;
   }
   const toHHMM = (d) =>
-    d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false });
+    d.toLocaleTimeString("en-US", {
+      timeZone: PK_TIMEZONE,
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    });
   return `${toHHMM(start)} - ${toHHMM(end)}`;
 };
 
