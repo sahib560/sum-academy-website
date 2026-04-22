@@ -298,12 +298,37 @@ router.get("/available", async (req, res) => {
         const purchasedSubjects = assignedSubjects.filter((row) => row.alreadyPurchased);
         const unpurchasedSubjects = assignedSubjects.filter((row) => !row.alreadyPurchased);
 
-        const totalPrice = Math.round(
-          assignedSubjects.reduce((sum, row) => sum + toNumber(row.finalPrice, row.price), 0)
+        const computedSubjectsTotal = Math.round(
+          assignedSubjects.reduce(
+            (sum, row) => sum + toNumber(row.finalPrice, row.price),
+            0
+          )
         );
-        const remainingPrice = Math.round(
-          unpurchasedSubjects.reduce((sum, row) => sum + toNumber(row.finalPrice, row.price), 0)
+        const computedRemainingFromSubjects = Math.round(
+          unpurchasedSubjects.reduce(
+            (sum, row) => sum + toNumber(row.finalPrice, row.price),
+            0
+          )
         );
+        const purchasedSubjectsValue = Math.round(
+          purchasedSubjects.reduce(
+            (sum, row) => sum + toNumber(row.finalPrice, row.price),
+            0
+          )
+        );
+
+        const explicitClassPrice = toNumber(classItem.price ?? classItem.totalPrice, NaN);
+        const explicitRemainingPrice = toNumber(classItem.remainingPrice, NaN);
+        const hasExplicitClassPrice = Number.isFinite(explicitClassPrice) && explicitClassPrice > 0;
+
+        const totalPrice = hasExplicitClassPrice
+          ? Math.round(explicitClassPrice)
+          : computedSubjectsTotal;
+        const remainingPrice = hasExplicitClassPrice
+          ? Number.isFinite(explicitRemainingPrice) && explicitRemainingPrice >= 0
+            ? Math.round(explicitRemainingPrice)
+            : Math.max(0, Math.round(totalPrice - purchasedSubjectsValue))
+          : computedRemainingFromSubjects;
         const isFullyEnrolled =
           assignedSubjects.length > 0 && unpurchasedSubjects.length === 0;
         const isPartiallyEnrolled =
@@ -380,6 +405,7 @@ router.get("/available", async (req, res) => {
           endDate: classItem.endDate || null,
           daysUntilStart,
           daysUntilEnd,
+          price: totalPrice,
           totalPrice,
           remainingPrice,
           isFullyEnrolled,
