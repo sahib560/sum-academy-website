@@ -1014,9 +1014,12 @@ const loginUser = async (req, res) => {
         userData.assignedWebDevice !== "" &&
         userData.assignedUniqueDeviceId &&
         userData.assignedUniqueDeviceId !== ""
-      ) {
-        const deviceMatch =
-          userData.assignedUniqueDeviceId === req.uniqueDeviceId;
+	      ) {
+	        const deviceMatch =
+	          userData.assignedUniqueDeviceId === req.uniqueDeviceId;
+	        const deviceResetPending =
+	          userData.deviceResetPending === true ||
+	          (!!userData.deviceResetAt && !userData.deviceResetConsumedAt);
 
         console.log(`[Security Check]`);
         console.log(`  Assigned DeviceID: ${userData.assignedUniqueDeviceId}`);
@@ -1025,12 +1028,36 @@ const loginUser = async (req, res) => {
         console.log(`  Assigned Device  : ${userData.assignedWebDevice}`);
         console.log(`  Current  Device  : ${req.clientDevice}`);
 
-        if (!deviceMatch) {
-          await db.collection("auditLogs").add({
-            uid,
-            email: userData.email,
-            action: "blocked_login",
-            reason: "device_mismatch",
+	        if (!deviceMatch) {
+	          if (deviceResetPending) {
+	            const claimedDeviceId = String(req.uniqueDeviceId || "").trim();
+	            await db.collection("users").doc(uid).update({
+	              assignedWebDevice: req.clientDevice || "",
+	              assignedWebIp: req.clientIP || "",
+	              assignedUniqueDeviceId: claimedDeviceId,
+	              lastKnownWebIp: req.clientIP || "",
+	              deviceResetPending: false,
+	              deviceResetConsumedAt: admin.firestore.FieldValue.serverTimestamp(),
+	              deviceResetConsumedByDeviceId: claimedDeviceId,
+	              deviceResetConsumedByDevice: req.clientDevice || "",
+	            });
+
+	            await db.collection("auditLogs").add({
+	              uid,
+	              email: userData.email,
+	              action: "device_reset_consumed",
+	              resetBy: userData.deviceResetBy || null,
+	              assignedDeviceId: claimedDeviceId,
+	              assignedDeviceName: req.clientDevice,
+	              ip: req.clientIP,
+	              timestamp: admin.firestore.FieldValue.serverTimestamp(),
+	            });
+	          } else {
+	          await db.collection("auditLogs").add({
+	            uid,
+	            email: userData.email,
+	            action: "blocked_login",
+	            reason: "device_mismatch",
             assignedDeviceId: userData.assignedUniqueDeviceId,
             attemptDeviceId: req.uniqueDeviceId,
             assignedDeviceName: userData.assignedWebDevice,
@@ -1039,22 +1066,23 @@ const loginUser = async (req, res) => {
             timestamp: admin.firestore.FieldValue.serverTimestamp(),
           });
 
-          return errorResponse(
-            res,
-            "You are trying to login from a different device. Please use your registered device or contact your admin or teacher to reset your device.",
-            403,
+	          return errorResponse(
+	            res,
+	            "You are trying to login from a different device. Please use your registered device or contact your admin or teacher to reset your device.",
+	            403,
             {
               code: "DEVICE_MISMATCH",
               contactAdmin: true,
               registeredDevice: userData.assignedWebDevice,
               currentDevice: req.clientDevice,
-            }
-          );
-        }
-      } else {
-        await db.collection("users").doc(uid).update({
-          assignedWebDevice: req.clientDevice,
-          assignedWebIp: req.clientIP,
+	            }
+	          );
+	          }
+	        }
+	      } else {
+	        await db.collection("users").doc(uid).update({
+	          assignedWebDevice: req.clientDevice,
+	          assignedWebIp: req.clientIP,
           assignedUniqueDeviceId: req.uniqueDeviceId,
           lastKnownWebIp: req.clientIP,
         });
@@ -1196,19 +1224,49 @@ const getMe = async (req, res) => {
       );
     }
 
-    if (role === "student") {
-      const assignedDevice = trimText(userData.assignedWebDevice);
-      const assignedDeviceId = trimText(userData.assignedUniqueDeviceId);
-      const currentDeviceId = trimText(req.uniqueDeviceId);
+	    if (role === "student") {
+	      const assignedDevice = trimText(userData.assignedWebDevice);
+	      const assignedDeviceId = trimText(userData.assignedUniqueDeviceId);
+	      const currentDeviceId = trimText(req.uniqueDeviceId);
+	      const deviceResetPending =
+	        userData.deviceResetPending === true ||
+	        (!!userData.deviceResetAt && !userData.deviceResetConsumedAt);
 
-      if (assignedDevice && assignedDeviceId) {
-        const deviceMatch = assignedDeviceId === currentDeviceId;
+	      if (assignedDevice && assignedDeviceId) {
+	        const deviceMatch = assignedDeviceId === currentDeviceId;
 
-        if (!deviceMatch) {
-          await db.collection("auditLogs").add({
-            uid,
-            email: userData.email || "",
-            action: "blocked_login",
+	        if (!deviceMatch) {
+	          if (deviceResetPending) {
+	            await db.collection("users").doc(uid).set(
+	              {
+	                assignedWebDevice: clientDevice,
+	                assignedWebIp: clientIP,
+	                assignedUniqueDeviceId: currentDeviceId,
+	                lastKnownWebIp: clientIP,
+	                deviceResetPending: false,
+	                deviceResetConsumedAt: admin.firestore.FieldValue.serverTimestamp(),
+	                deviceResetConsumedByDeviceId: currentDeviceId,
+	                deviceResetConsumedByDevice: clientDevice,
+	                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+	              },
+	              { merge: true }
+	            );
+
+	            await db.collection("auditLogs").add({
+	              uid,
+	              email: userData.email || "",
+	              action: "device_reset_consumed",
+	              resetBy: userData.deviceResetBy || null,
+	              assignedDeviceId: currentDeviceId,
+	              assignedDeviceName: clientDevice,
+	              ip: clientIP,
+	              timestamp: admin.firestore.FieldValue.serverTimestamp(),
+	            });
+	          } else {
+	          await db.collection("auditLogs").add({
+	            uid,
+	            email: userData.email || "",
+	            action: "blocked_login",
             reason: "device_mismatch",
             assignedDeviceId,
             attemptDeviceId: currentDeviceId,
@@ -1218,21 +1276,22 @@ const getMe = async (req, res) => {
             timestamp: admin.firestore.FieldValue.serverTimestamp(),
           });
 
-          return errorResponse(
-            res,
-            "You are trying to login from a different device. Please use your registered device or contact your admin or teacher to reset your device.",
-            403,
+	          return errorResponse(
+	            res,
+	            "You are trying to login from a different device. Please use your registered device or contact your admin or teacher to reset your device.",
+	            403,
             {
               code: "DEVICE_MISMATCH",
               contactAdmin: true,
               registeredDevice: assignedDevice,
               currentDevice: clientDevice,
-            }
-          );
-        }
-      } else if (clientDevice && clientIP) {
-        await db.collection("users").doc(uid).set(
-          {
+	            }
+	          );
+	          }
+	        }
+	      } else if (clientDevice && clientIP) {
+	        await db.collection("users").doc(uid).set(
+	          {
             assignedWebDevice: clientDevice,
             assignedWebIp: clientIP,
             assignedUniqueDeviceId: currentDeviceId,

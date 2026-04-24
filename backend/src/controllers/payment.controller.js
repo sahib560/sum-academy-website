@@ -92,10 +92,7 @@ const getEnrollmentStatusFromClassDates = (classData = {}) => {
   }
 
   const capacity = Math.max(1, toNumber(classData?.capacity, 30));
-  const enrolledCount = Math.max(
-    toNumber(classData?.enrolledCount, 0),
-    Array.isArray(classData?.students) ? classData.students.length : 0
-  );
+  const enrolledCount = Array.isArray(classData?.students) ? classData.students.length : 0;
   if (enrolledCount >= capacity) return "full";
 
   if (start) {

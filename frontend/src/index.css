@@ -39,6 +39,18 @@
   a {
     @apply text-slate-700 transition-colors hover:text-primary dark:text-slate-200 dark:hover:text-white;
   }
+
+  sup {
+    font-size: 0.75em;
+    vertical-align: super;
+    line-height: 0;
+  }
+
+  sub {
+    font-size: 0.75em;
+    vertical-align: sub;
+    line-height: 0;
+  }
 }
 
 @layer components {

@@ -105,6 +105,9 @@ export const rebuildClassAnalytics = ({
     })
     .then((r) => r.data.data);
 
+export const fixClassEnrollmentCounts = () =>
+  api.post("/admin/classes/fix-enrollment-counts").then((r) => r.data.data);
+
 export const approveStudent = (uid) =>
   api.patch(`/admin/students/${uid}/approve`).then((r) => r.data);
 
@@ -421,6 +424,15 @@ export const getAdminTestById = (testId) =>
 
 export const getAdminTestRanking = (testId) =>
   api.get(`/admin/tests/${testId}/ranking`).then((r) => r.data.data || {});
+
+export const updateAdminTest = (testId, data) =>
+  api.put(`/admin/tests/${testId}`, data).then((r) => r.data);
+
+export const deleteAdminTest = (testId) =>
+  api.delete(`/admin/tests/${testId}`).then((r) => r.data);
+
+export const reassignAdminTest = (testId, data) =>
+  api.patch(`/admin/tests/${testId}/reassign`, data).then((r) => r.data);
 
 export const bulkUploadAdminTest = (file, onUploadProgress) => {
   const formData = new FormData();

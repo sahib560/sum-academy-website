@@ -2740,6 +2740,10 @@ export const resetUserDevice = async (req, res) => {
       assignedWebIp:          "",
       assignedUniqueDeviceId: "",
       lastKnownWebIp:         "",
+      deviceResetPending:     true,
+      deviceResetConsumedAt:  null,
+      deviceResetConsumedByDeviceId: "",
+      deviceResetConsumedByDevice: "",
       deviceResetBy:          req.user.uid,
       deviceResetAt:          admin.firestore.FieldValue
                                 .serverTimestamp(),
@@ -3659,6 +3663,66 @@ export const getClasses = async (req, res) => {
     return successResponse(res, data, "Classes fetched");
   } catch (e) {
     return errorResponse(res, "Failed to fetch classes", 500);
+  }
+};
+
+export const fixClassEnrollmentCounts = async (req, res) => {
+  try {
+    const snap = await db.collection(COLLECTIONS.CLASSES).get();
+    const fixedClasses = [];
+    let fixed = 0;
+
+    const normalizeStudentId = (entry) => {
+      if (!entry) return "";
+      if (typeof entry === "string") return String(entry).trim();
+      return String(entry.studentId || entry.id || entry.uid || "").trim();
+    };
+
+    for (let index = 0; index < snap.docs.length; index += 400) {
+      const batch = db.batch();
+      const slice = snap.docs.slice(index, index + 400);
+      slice.forEach((doc) => {
+        const data = doc.data() || {};
+        const students = Array.isArray(data.students) ? data.students : [];
+        const unique = new Set(students.map(normalizeStudentId).filter(Boolean));
+        const actualCount = Math.max(0, unique.size || students.length || 0);
+        const prev = Number(data.enrolledCount ?? data.enrollmentCount ?? 0);
+        if (prev !== actualCount || prev < 0) {
+          fixed += 1;
+          fixedClasses.push({
+            classId: doc.id,
+            before: prev,
+            after: actualCount,
+          });
+          batch.set(
+            doc.ref,
+            {
+              enrolledCount: actualCount,
+              enrollmentCount: actualCount,
+              activeStudents: actualCount,
+              updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            },
+            { merge: true }
+          );
+        }
+      });
+      if (fixedClasses.length) {
+        await batch.commit();
+      }
+    }
+
+    return successResponse(
+      res,
+      {
+        fixed,
+        classes: fixedClasses.slice(0, 200),
+        truncated: fixedClasses.length > 200,
+      },
+      `Fixed ${fixed} classes with incorrect counts`
+    );
+  } catch (error) {
+    console.error("fixClassEnrollmentCounts error:", error);
+    return errorResponse(res, "Failed to fix enrollment counts", 500);
   }
 };
 

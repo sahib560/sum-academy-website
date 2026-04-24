@@ -1,5 +1,6 @@
 import PDFDocument from "pdfkit";
-import { admin, db } from "../config/firebase.js";
+import { v4 as uuidv4 } from "uuid";
+import { admin, db, bucket } from "../config/firebase.js";
 import { COLLECTIONS } from "../config/collections.js";
 import { successResponse, errorResponse } from "../utils/response.utils.js";
 import { sendTestScheduleBroadcastEmail } from "../services/email.service.js";
@@ -230,13 +231,69 @@ const toAnswerLetter = (rawAnswer = "", options = []) => {
   return "";
 };
 
+const escapeHtml = (value = "") =>
+  String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+
+const stripAllHtmlExceptSupSub = (value = "") => {
+  const raw = String(value ?? "");
+  // Preserve <sup>/<sub> tags (no attributes) via placeholders, strip all other tags.
+  const placeholders = {
+    "[[SUP_O]]": "<sup>",
+    "[[SUP_C]]": "</sup>",
+    "[[SUB_O]]": "<sub>",
+    "[[SUB_C]]": "</sub>",
+  };
+
+  let text = raw
+    .replace(/<\s*sup\s*>/gi, "[[SUP_O]]")
+    .replace(/<\s*\/\s*sup\s*>/gi, "[[SUP_C]]")
+    .replace(/<\s*sub\s*>/gi, "[[SUB_O]]")
+    .replace(/<\s*\/\s*sub\s*>/gi, "[[SUB_C]]");
+
+  text = text.replace(/<\/?[^>]+>/g, "");
+  text = escapeHtml(text);
+
+  Object.entries(placeholders).forEach(([key, tag]) => {
+    text = text.replaceAll(key, tag);
+  });
+
+  return text;
+};
+
+const applyFormulaNotations = (value = "") => {
+  let text = String(value ?? "");
+  // Superscript/subscript notations
+  text = text.replace(/\^(\w+)/g, "<sup>$1</sup>");
+  text = text.replace(/_(\w+)/g, "<sub>$1</sub>");
+  // Common chemistry shorthand: H2SO4 => H<sub>2</sub>SO<sub>4</sub>
+  text = text.replace(/([A-Za-z])(\d+)/g, "$1<sub>$2</sub>");
+  return text;
+};
+
+const sanitizeTestQuestionHtml = (value = "") => {
+  const stripped = stripAllHtmlExceptSupSub(value);
+  return applyFormulaNotations(stripped);
+};
+
+const stripHtmlToPlainText = (value = "") =>
+  String(value ?? "").replace(/<\/?[^>]+>/g, "").trim();
+
 const normalizeQuestions = (questions = []) => {
   if (!Array.isArray(questions) || questions.length < 1) {
     throw new Error("At least one question is required");
   }
   return questions.map((question, index) => {
-    const questionText = trimText(question?.questionText || question?.text || question?.question);
-    if (questionText.length < 3) {
+    const rawQuestionText = trimText(
+      question?.questionText || question?.text || question?.question
+    );
+    const safeQuestionHtml = sanitizeTestQuestionHtml(rawQuestionText);
+    const plainText = stripHtmlToPlainText(safeQuestionHtml);
+    if (plainText.length < 3) {
       throw new Error(`Question ${index + 1}: text is too short`);
     }
     const options = normalizeOptions(question);
@@ -254,10 +311,12 @@ const normalizeQuestions = (questions = []) => {
     return {
       questionId: trimText(question?.questionId) || makeId("q"),
       order: index + 1,
-      questionText,
+      questionText: safeQuestionHtml,
       options,
       correctAnswer,
       marks,
+      imageUrl: trimText(question?.imageUrl) || null,
+      imagePath: trimText(question?.imagePath) || null,
     };
   });
 };
@@ -269,7 +328,109 @@ const sanitizeQuestionsForStudent = (questions = []) =>
     questionText: trimText(question.questionText),
     options: Array.isArray(question.options) ? question.options : [],
     marks: Math.max(1, toNumber(question.marks, 1)),
+    imageUrl: trimText(question.imageUrl) || null,
   }));
+
+const TEST_QUESTION_IMAGE_PREFIX = "test/questions";
+const MAX_TEST_QUESTION_IMAGE_SIZE_BYTES = 2 * 1024 * 1024;
+const ALLOWED_TEST_IMAGE_MIMES = new Set(["image/jpeg", "image/png", "image/webp"]);
+const safeStorageFilename = (filename = "") =>
+  trimText(filename).replace(/[^\w.-]+/g, "_").slice(0, 120) || "image";
+const buildFirebaseDownloadUrl = ({ path, token }) => {
+  const bucketName = bucket?.name || "";
+  if (!bucketName || !path || !token) return "";
+  return `https://firebasestorage.googleapis.com/v0/b/${encodeURIComponent(
+    bucketName
+  )}/o/${encodeURIComponent(path)}?alt=media&token=${encodeURIComponent(token)}`;
+};
+
+export const uploadTestQuestionImage = async (req, res) => {
+  try {
+    const uid = trimText(req.user?.uid);
+    const role = lowerText(req.user?.role || "");
+    if (!uid) return errorResponse(res, "Missing user uid", 400);
+    if (!(role === "admin" || role === "teacher")) {
+      return errorResponse(res, "Access denied", 403);
+    }
+
+    const file = req.file || null;
+    if (!file) return errorResponse(res, "image file is required", 400);
+
+    const mime = trimText(file.mimetype);
+    if (!ALLOWED_TEST_IMAGE_MIMES.has(mime)) {
+      return errorResponse(res, "Only JPG, PNG, WEBP images are allowed", 400, {
+        code: "INVALID_FILE_TYPE",
+      });
+    }
+
+    const size = Number(file.size || 0);
+    if (size > MAX_TEST_QUESTION_IMAGE_SIZE_BYTES) {
+      return errorResponse(res, "Max image size is 2MB", 400, {
+        code: "FILE_TOO_LARGE",
+        maxBytes: MAX_TEST_QUESTION_IMAGE_SIZE_BYTES,
+      });
+    }
+
+    const token = uuidv4();
+    const safeName = safeStorageFilename(file.originalname);
+    const path = `${TEST_QUESTION_IMAGE_PREFIX}/${Date.now()}-${safeName}`;
+    const storageFile = bucket.file(path);
+
+    await storageFile.save(file.buffer, {
+      contentType: mime,
+      resumable: false,
+      metadata: {
+        metadata: {
+          firebaseStorageDownloadTokens: token,
+          uploadedBy: uid,
+          uploadedByRole: role,
+        },
+      },
+    });
+
+    const imageUrl = buildFirebaseDownloadUrl({ path, token });
+    return successResponse(
+      res,
+      { imageUrl, imagePath: path },
+      "Question image uploaded",
+      201
+    );
+  } catch (error) {
+    console.error("uploadTestQuestionImage error:", error);
+    return errorResponse(res, "Failed to upload image", 500);
+  }
+};
+
+export const deleteTestQuestionImage = async (req, res) => {
+  try {
+    const uid = trimText(req.user?.uid);
+    const role = lowerText(req.user?.role || "");
+    if (!uid) return errorResponse(res, "Missing user uid", 400);
+    if (!(role === "admin" || role === "teacher")) {
+      return errorResponse(res, "Access denied", 403);
+    }
+
+    const imagePath = trimText(req.body?.imagePath);
+    if (!imagePath) return errorResponse(res, "imagePath is required", 400);
+    if (!imagePath.startsWith(`${TEST_QUESTION_IMAGE_PREFIX}/`)) {
+      return errorResponse(res, "Invalid imagePath", 400, {
+        code: "INVALID_IMAGE_PATH",
+      });
+    }
+
+    try {
+      await bucket.file(imagePath).delete();
+    } catch (storageError) {
+      const code = storageError?.code || storageError?.statusCode;
+      if (!(code === 404 || code === 400)) throw storageError;
+    }
+
+    return successResponse(res, { imagePath }, "Question image deleted");
+  } catch (error) {
+    console.error("deleteTestQuestionImage error:", error);
+    return errorResponse(res, "Failed to delete image", 500);
+  }
+};
 
 const computeScore = (questions = [], answers = []) => {
   const byQuestion = questions.reduce((acc, question) => {
@@ -521,6 +682,21 @@ const ensureStudentCanAccessTest = async ({ testId = "", uid = "" }) => {
   if (!testSnap.exists) return { error: "Test not found", status: 404 };
   const testData = testSnap.data() || {};
   const scope = lowerText(testData.scope || "class");
+  const assignedStudents = Array.isArray(testData.assignedStudents)
+    ? testData.assignedStudents.map((id) => trimText(id)).filter(Boolean)
+    : [];
+  if (scope === "specific") {
+    if (!assignedStudents.includes(trimText(uid))) {
+      return { error: "You are not assigned to this test", status: 403 };
+    }
+    return {
+      testRef: testSnap.ref,
+      testData,
+      classId: "",
+      className: "Assigned Test",
+      classData: null,
+    };
+  }
   let classData = null;
   let classId = trimText(testData.classId);
   let className = trimText(testData.className);
@@ -717,6 +893,22 @@ const ensureActiveScheduleWindow = (testData = {}) => {
   return { ok: true };
 };
 
+const collectTestQuestionImagePaths = (questions = []) => {
+  const paths = (Array.isArray(questions) ? questions : [])
+    .map((q) => trimText(q?.imagePath))
+    .filter(Boolean)
+    .filter((p) => p.startsWith(`${TEST_QUESTION_IMAGE_PREFIX}/`));
+  return [...new Set(paths)];
+};
+
+const deleteStoragePathsBestEffort = async (paths = []) => {
+  const unique = [...new Set((Array.isArray(paths) ? paths : []).map((p) => trimText(p)).filter(Boolean))];
+  if (!unique.length) return { deleted: 0 };
+  const results = await Promise.allSettled(unique.map((p) => bucket.file(p).delete()));
+  const deleted = results.filter((r) => r.status === "fulfilled").length;
+  return { deleted };
+};
+
 export const createTest = async (req, res) => {
   try {
     const uid = trimText(req.user?.uid);
@@ -729,6 +921,7 @@ export const createTest = async (req, res) => {
       startAt,
       endAt,
       durationMinutes = 60,
+      perQuestionTimeLimit = 60,
       questions = [],
       maxViolations = 3,
     } = req.body || {};
@@ -796,6 +989,7 @@ export const createTest = async (req, res) => {
       startAt: parsedStart,
       endAt: parsedEnd,
       durationMinutes: computedDurationMinutes,
+      perQuestionTimeLimit: Math.max(10, Math.min(600, toNumber(perQuestionTimeLimit, 60))),
       maxViolations: Math.max(1, toNumber(maxViolations, 3)),
       questions: normalizedQuestions,
       totalMarks,
@@ -1087,6 +1281,7 @@ export const bulkUploadManagedTest = async (req, res) => {
       startAt: parsedStart,
       endAt: parsedEnd,
       durationMinutes,
+      perQuestionTimeLimit: 60,
       maxViolations,
       questions: normalizedQuestions,
       totalMarks,
@@ -1221,7 +1416,8 @@ export const getManagedTestById = async (req, res) => {
         ...serializeTestSummary(testId, testData, null),
         description: trimText(testData.description),
         maxViolations: Math.max(1, toNumber(testData.maxViolations, 3)),
-        questions: sanitizeQuestionsForStudent(testData.questions || []),
+        perQuestionTimeLimit: Math.max(10, Math.min(600, toNumber(testData.perQuestionTimeLimit, 60))),
+        questions: Array.isArray(testData.questions) ? testData.questions : [],
         ranking: ranking.slice(0, 100),
       },
       "Test details fetched"
@@ -1229,6 +1425,237 @@ export const getManagedTestById = async (req, res) => {
   } catch (error) {
     console.error("getManagedTestById error:", error);
     return errorResponse(res, "Failed to fetch test details", 500);
+  }
+};
+
+export const updateManagedTest = async (req, res) => {
+  try {
+    const uid = trimText(req.user?.uid);
+    const role = lowerText(req.user?.role || "teacher");
+    const testId = trimText(req.params?.testId);
+    if (!uid) return errorResponse(res, "Missing user uid", 400);
+    if (!testId) return errorResponse(res, "testId is required", 400);
+
+    const access = await ensureTestManageAccess({ testId, uid, role });
+    if (access.error) return errorResponse(res, access.error, access.status || 403);
+    const { testRef, testData } = access;
+
+    const updates = {};
+    const hasField = (key) => Object.prototype.hasOwnProperty.call(req.body || {}, key);
+
+    if (hasField("title")) {
+      const cleanTitle = trimText(req.body?.title);
+      if (cleanTitle.length < 3) return errorResponse(res, "title is required (min 3 chars)", 400);
+      updates.title = cleanTitle;
+    }
+    if (hasField("description")) updates.description = trimText(req.body?.description);
+
+    if (hasField("startAt") || hasField("endAt")) {
+      const parsedStart = parseDate(hasField("startAt") ? req.body?.startAt : testData.startAt);
+      const parsedEnd = parseDate(hasField("endAt") ? req.body?.endAt : testData.endAt);
+      if (!parsedStart || !parsedEnd) {
+        return errorResponse(res, "startAt and endAt are required", 400);
+      }
+      if (parsedEnd.getTime() <= parsedStart.getTime()) {
+        return errorResponse(res, "endAt must be after startAt", 400);
+      }
+      updates.startAt = parsedStart;
+      updates.endAt = parsedEnd;
+      updates.durationMinutes = Math.max(
+        5,
+        Math.ceil((parsedEnd.getTime() - parsedStart.getTime()) / (60 * 1000))
+      );
+    }
+
+    if (hasField("maxViolations")) {
+      updates.maxViolations = Math.max(1, toNumber(req.body?.maxViolations, 3));
+    }
+
+    if (hasField("perQuestionTimeLimit")) {
+      updates.perQuestionTimeLimit = Math.max(
+        10,
+        Math.min(600, toNumber(req.body?.perQuestionTimeLimit, 60))
+      );
+    }
+
+    let deletedImagesCount = 0;
+    if (hasField("questions")) {
+      const normalizedQuestions = normalizeQuestions(req.body?.questions || []);
+      const totalMarks = normalizedQuestions.reduce(
+        (sum, q) => sum + Math.max(1, toNumber(q.marks, 1)),
+        0
+      );
+
+      const beforePaths = collectTestQuestionImagePaths(testData.questions || []);
+      const afterPaths = collectTestQuestionImagePaths(normalizedQuestions);
+      const removedPaths = beforePaths.filter((p) => !afterPaths.includes(p));
+      if (removedPaths.length) {
+        const deleted = await deleteStoragePathsBestEffort(removedPaths);
+        deletedImagesCount = deleted.deleted;
+      }
+
+      updates.questions = normalizedQuestions;
+      updates.totalMarks = totalMarks;
+      updates.questionsCount = normalizedQuestions.length;
+    }
+
+    updates.updatedAt = serverTimestamp();
+    await testRef.set(updates, { merge: true });
+
+    return successResponse(
+      res,
+      { testId, deletedImagesCount },
+      "Test updated"
+    );
+  } catch (error) {
+    console.error("updateManagedTest error:", error);
+    return errorResponse(res, "Failed to update test", 500);
+  }
+};
+
+export const deleteManagedTest = async (req, res) => {
+  try {
+    const uid = trimText(req.user?.uid);
+    const role = lowerText(req.user?.role || "teacher");
+    const testId = trimText(req.params?.testId);
+    if (!uid) return errorResponse(res, "Missing user uid", 400);
+    if (!testId) return errorResponse(res, "testId is required", 400);
+
+    const access = await ensureTestManageAccess({ testId, uid, role });
+    if (access.error) return errorResponse(res, access.error, access.status || 403);
+
+    const imagePaths = collectTestQuestionImagePaths(access.testData.questions || []);
+    const deleted = await deleteStoragePathsBestEffort(imagePaths);
+
+    await access.testRef.delete();
+    return successResponse(
+      res,
+      { testId, deletedImagesCount: deleted.deleted },
+      "Test deleted"
+    );
+  } catch (error) {
+    console.error("deleteManagedTest error:", error);
+    return errorResponse(res, "Failed to delete test", 500);
+  }
+};
+
+export const reassignManagedTest = async (req, res) => {
+  try {
+    const uid = trimText(req.user?.uid);
+    const role = lowerText(req.user?.role || "teacher");
+    const testId = trimText(req.params?.testId);
+    if (!uid) return errorResponse(res, "Missing user uid", 400);
+    if (!testId) return errorResponse(res, "testId is required", 400);
+
+    const access = await ensureTestManageAccess({ testId, uid, role });
+    if (access.error) return errorResponse(res, access.error, access.status || 403);
+
+    const assignTo = lowerText(req.body?.assignTo || "");
+    const classId = trimText(req.body?.classId);
+    const studentIds = [
+      ...new Set(
+        (Array.isArray(req.body?.studentIds) ? req.body.studentIds : [])
+          .map((id) => trimText(id))
+          .filter(Boolean)
+      ),
+    ];
+
+    if (!["all_class", "center", "specific"].includes(assignTo)) {
+      return errorResponse(res, "assignTo must be all_class, center or specific", 400);
+    }
+
+    const updates = {};
+    let recipientIds = [];
+    let scope = "center";
+    let resolvedClassId = "";
+    let resolvedClassName = "Entire Center";
+
+    if (assignTo === "all_class") {
+      if (!classId) return errorResponse(res, "classId is required", 400);
+      const classSnap = await db.collection(COLLECTIONS.CLASSES).doc(classId).get();
+      if (!classSnap.exists) return errorResponse(res, "Class not found", 404);
+      const classData = classSnap.data() || {};
+      scope = "class";
+      resolvedClassId = classId;
+      resolvedClassName = trimText(classData.name) || "Class";
+      recipientIds = getClassStudentIds(classData);
+    } else if (assignTo === "specific") {
+      if (!studentIds.length) return errorResponse(res, "studentIds is required", 400);
+      scope = "specific";
+      recipientIds = studentIds;
+    } else {
+      scope = "center";
+      recipientIds = await getCenterStudentIdsFromAllClasses();
+    }
+
+    updates.scope = scope;
+    updates.classId = resolvedClassId;
+    updates.className = resolvedClassName;
+    updates.assignedStudents = scope === "specific" ? recipientIds : [];
+    updates.assignedAt = serverTimestamp();
+    updates.assignedBy = uid;
+
+    if (req.body?.startAt || req.body?.endAt) {
+      const parsedStart = parseDate(req.body?.startAt || access.testData.startAt);
+      const parsedEnd = parseDate(req.body?.endAt || access.testData.endAt);
+      if (!parsedStart || !parsedEnd) return errorResponse(res, "startAt and endAt are required", 400);
+      if (parsedEnd.getTime() <= parsedStart.getTime()) {
+        return errorResponse(res, "endAt must be after startAt", 400);
+      }
+      updates.startAt = parsedStart;
+      updates.endAt = parsedEnd;
+      updates.durationMinutes = Math.max(
+        5,
+        Math.ceil((parsedEnd.getTime() - parsedStart.getTime()) / (60 * 1000))
+      );
+    }
+
+    updates.updatedAt = serverTimestamp();
+    await access.testRef.set(updates, { merge: true });
+
+    // Notifications best-effort
+    try {
+      const createdByName = await getActorDisplayName(uid, req.user?.name || "Admin");
+      if (recipientIds.length > 0) {
+        await createTestAnnouncement({
+          testId,
+          title: trimText(access.testData.title) || "Test",
+          scope,
+          classId: resolvedClassId,
+          className: resolvedClassName,
+          startAt: parseDate(updates.startAt || access.testData.startAt),
+          endAt: parseDate(updates.endAt || access.testData.endAt),
+          durationMinutes: toNumber(updates.durationMinutes || access.testData.durationMinutes, 60),
+          recipientIds,
+          postedBy: uid,
+          postedByName: createdByName,
+          postedByRole: role || "admin",
+        });
+
+        const emails = await getStudentEmailsByIds(recipientIds);
+        if (emails.length > 0 && emails.length <= 1000) {
+          await sendTestScheduleBroadcastEmail(emails, {
+            title: `Test Scheduled: ${trimText(access.testData.title) || "Test"}`,
+            message: `A test has been assigned to you.`,
+            testId,
+            startAt: (parseDate(updates.startAt || access.testData.startAt) || new Date()).toISOString(),
+            endAt: (parseDate(updates.endAt || access.testData.endAt) || new Date()).toISOString(),
+            durationMinutes: toNumber(updates.durationMinutes || access.testData.durationMinutes, 60),
+          });
+        }
+      }
+    } catch (notifyError) {
+      console.error("reassignManagedTest notify error:", notifyError?.message || notifyError);
+    }
+
+    return successResponse(
+      res,
+      { testId, scope, classId: resolvedClassId, studentsCount: recipientIds.length },
+      "Test reassigned"
+    );
+  } catch (error) {
+    console.error("reassignManagedTest error:", error);
+    return errorResponse(res, "Failed to reassign test", 500);
   }
 };
 
@@ -1278,8 +1705,13 @@ export const getStudentTests = async (req, res) => {
       ),
     ];
 
-    const [centerSnap, classSnaps] = await Promise.all([
+    const [centerSnap, specificSnap, classSnaps] = await Promise.all([
       db.collection(COLLECTIONS.TESTS).where("scope", "==", "center").get().catch(() => ({ docs: [] })),
+      db
+        .collection(COLLECTIONS.TESTS)
+        .where("assignedStudents", "array-contains", uid)
+        .get()
+        .catch(() => ({ docs: [] })),
       Promise.all(
         chunkArray(classIds, 10).map((ids) =>
           ids.length
@@ -1289,7 +1721,11 @@ export const getStudentTests = async (req, res) => {
       ),
     ]);
 
-    const tests = [...centerSnap.docs, ...classSnaps.flatMap((snap) => snap.docs)]
+    const tests = [
+      ...centerSnap.docs,
+      ...specificSnap.docs,
+      ...classSnaps.flatMap((snap) => snap.docs),
+    ]
       .map((doc) => ({ id: doc.id, ...(doc.data() || {}) }))
       .filter((row, index, arr) => arr.findIndex((r) => r.id === row.id) === index);
 
@@ -1370,6 +1806,7 @@ export const getStudentTestById = async (req, res) => {
       questionsCount: Math.max(0, toNumber(testData.questionsCount, testData.questions?.length || 0)),
       totalMarks: Math.max(0, toNumber(testData.totalMarks, 0)),
       durationMinutes: Math.max(1, toNumber(testData.durationMinutes, 30)),
+      perQuestionTimeLimit: Math.max(10, Math.min(600, toNumber(testData.perQuestionTimeLimit, 60))),
     };
 
     let rankingPreview = null;
@@ -1497,7 +1934,7 @@ export const submitStudentTestAnswer = async (req, res) => {
   try {
     const uid = trimText(req.user?.uid);
     const testId = trimText(req.params?.testId);
-    const { questionId = "", selectedAnswer = "" } = req.body || {};
+    const { questionId = "", selectedAnswer = "", direction = "" } = req.body || {};
 
     const access = await ensureStudentCanAccessTest({ testId, uid });
     if (access.error) return errorResponse(res, access.error, access.status || 403);
@@ -1520,39 +1957,77 @@ export const submitStudentTestAnswer = async (req, res) => {
     const questions = (Array.isArray(testData.questions) ? testData.questions : [])
       .slice()
       .sort((a, b) => toNumber(a.order, 0) - toNumber(b.order, 0));
+    const cleanQuestionId = trimText(questionId);
+    if (!cleanQuestionId) return errorResponse(res, "questionId is required", 400);
+
     const currentIndex = Math.max(0, toNumber(inProgress.currentIndex, 0));
-    const expected = questions[currentIndex];
-    if (!expected) {
-      return errorResponse(res, "Test already completed. Submit finalization instead.", 409);
+    const expected = questions[currentIndex] || null;
+    const expectedQuestionId = trimText(expected?.questionId);
+    const questionIndex = questions.findIndex(
+      (row) => trimText(row?.questionId) === cleanQuestionId
+    );
+    if (questionIndex < 0) {
+      return errorResponse(res, "Question not found in this test", 404, {
+        code: "QUESTION_NOT_FOUND",
+      });
     }
 
-    const expectedQuestionId = trimText(expected.questionId);
-    const cleanQuestionId = trimText(questionId);
-    if (!cleanQuestionId || cleanQuestionId !== expectedQuestionId) {
-      return errorResponse(
-        res,
-        "Invalid question order. You can only answer the current question.",
-        409,
-        { code: "STRICT_PROGRESS_ENFORCED", expectedQuestionId }
-      );
+    const cleanDirection = lowerText(direction);
+    const flexible =
+      cleanDirection === "next" || cleanDirection === "prev" || cleanDirection === "stay";
+
+    // Backwards compatibility: if the client does not specify navigation intent,
+    // enforce the legacy strict flow (answer current question once).
+    if (!flexible) {
+      if (!expected) {
+        return errorResponse(
+          res,
+          "Test already completed. Submit finalization instead.",
+          409
+        );
+      }
+      if (cleanQuestionId !== expectedQuestionId) {
+        return errorResponse(
+          res,
+          "Invalid question order. You can only answer the current question.",
+          409,
+          { code: "STRICT_PROGRESS_ENFORCED", expectedQuestionId }
+        );
+      }
+      const cleanSelected = trimText(selectedAnswer);
+      if (!cleanSelected) return errorResponse(res, "selectedAnswer is required", 400);
+      const existingAnswers = Array.isArray(inProgress.answers) ? inProgress.answers : [];
+      if (existingAnswers.some((row) => trimText(row.questionId) === expectedQuestionId)) {
+        return errorResponse(res, "Question already answered", 409);
+      }
     }
 
     const cleanSelected = trimText(selectedAnswer);
-    if (!cleanSelected) return errorResponse(res, "selectedAnswer is required", 400);
-
     const existingAnswers = Array.isArray(inProgress.answers) ? inProgress.answers : [];
-    if (existingAnswers.some((row) => trimText(row.questionId) === expectedQuestionId)) {
-      return errorResponse(res, "Question already answered", 409);
-    }
+    const answerIndex = existingAnswers.findIndex(
+      (row) => trimText(row?.questionId) === cleanQuestionId
+    );
 
     const newAnswer = {
-      questionId: expectedQuestionId,
+      questionId: cleanQuestionId,
       selectedAnswer: cleanSelected,
       answeredAt: new Date().toISOString(),
-      questionOrder: currentIndex + 1,
+      questionOrder: questionIndex + 1,
     };
-    const updatedAnswers = [...existingAnswers, newAnswer];
-    const nextIndex = currentIndex + 1;
+
+    const updatedAnswers =
+      answerIndex >= 0
+        ? existingAnswers.map((row, idx) => (idx === answerIndex ? newAnswer : row))
+        : [...existingAnswers, newAnswer];
+
+    let nextIndex = currentIndex;
+    if (cleanDirection === "prev") {
+      nextIndex = Math.max(0, currentIndex - 1);
+    } else if (cleanDirection === "next") {
+      nextIndex = currentIndex + 1;
+    } else if (!flexible) {
+      nextIndex = currentIndex + 1;
+    }
     const nowIso = new Date().toISOString();
 
     if (nextIndex >= questions.length) {

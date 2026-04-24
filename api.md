@@ -1055,12 +1055,12 @@ Success (example):
   "message": "Test fetched",
   "data": {
     "serverNow": "2026-04-18T10:00:00.000Z",
-    "test": { "id": "testId", "title": "Weekly Test", "totalMarks": 20, "questionsCount": 20 },
+    "test": { "id": "testId", "title": "Weekly Test", "totalMarks": 20, "questionsCount": 20, "perQuestionTimeLimit": 60 },
     "questions": [
-      { "questionId": "q1", "order": 1, "questionText": "2+2?", "options": ["3","4"], "marks": 1 }
+      { "questionId": "q1", "order": 1, "questionText": "m/s<sup>2</sup>", "options": ["3","4"], "marks": 1, "imageUrl": "https://..." }
     ],
     "attempt": { "id": "attemptId", "status": "in_progress", "currentIndex": 0, "totalQuestions": 20 },
-    "currentQuestion": { "questionId": "q1", "order": 1, "questionText": "2+2?", "options": ["3","4"], "marks": 1 },
+    "currentQuestion": { "questionId": "q1", "order": 1, "questionText": "m/s<sup>2</sup>", "options": ["3","4"], "marks": 1, "imageUrl": "https://..." },
     "rankingPreview": null
   }
 }
@@ -1088,7 +1088,7 @@ Error codes (examples):
 #### POST `/api/student/tests/:testId/answer`
 Request:
 ```json
-{ "questionId": "q1", "selectedAnswer": "4" }
+{ "questionId": "q1", "selectedAnswer": "4", "direction": "next|prev|stay" }
 ```
 Success (mid-test):
 ```json
@@ -1153,9 +1153,36 @@ Managed tests endpoints (teacher + admin have the same paths under their prefix)
 - GET `/api/teacher/tests/:testId` / GET `/api/admin/tests/:testId`
 - GET `/api/teacher/tests/:testId/ranking` / GET `/api/admin/tests/:testId/ranking`
 
+Question images (teacher/admin):
+- POST `/api/teacher/tests/questions/image` / POST `/api/admin/tests/questions/image` (multipart `image`)
+- POST `/api/teacher/tests/questions/image/delete` / POST `/api/admin/tests/questions/image/delete`
+
+Admin-only test management:
+- PUT `/api/admin/tests/:testId` (update test + questions)
+- DELETE `/api/admin/tests/:testId` (deletes test + question images)
+- PATCH `/api/admin/tests/:testId/reassign` (assign test to class/center/specific)
+
 Success (list example):
 ```json
 { "success": true, "message": "Tests fetched", "data": [ { "id": "testId", "title": "Test" } ] }
+```
+
+Success (question image upload example):
+```json
+{
+  "success": true,
+  "message": "Question image uploaded",
+  "data": { "imageUrl": "https://...", "imagePath": "test/questions/1710000000000-figure.png" }
+}
+```
+
+Success (admin delete test example):
+```json
+{
+  "success": true,
+  "message": "Test deleted",
+  "data": { "testId": "testId", "deletedImagesCount": 3 }
+}
 ```
 
 ---
@@ -1281,6 +1308,20 @@ Endpoints:
 - PATCH `/api/admin/users/:uid/role`
 - PATCH `/api/admin/users/:uid/reset-device`
 
+PATCH `/api/admin/users/:uid/reset-device`
+- Applies to `student` users only.
+- Clears the stored device fingerprint and opens a **one-time** reset window so the **next login from any device** can claim the account (then the new device becomes the registered device again).
+
+Success:
+```json
+{ "success": true, "message": "Device reset successfully. Student can now login from any device once.", "data": { "uid": "studentUid" } }
+```
+
+Error (non-student):
+```json
+{ "success": false, "message": "Device reset only applies to students", "error": "Device reset only applies to students" }
+```
+
 GET `/api/admin/users` query params (optional):
 - `pageSize` (number, default `50`, max `200`)
 - `cursor` (string, optional)
@@ -1365,6 +1406,7 @@ Success (course list example):
 Endpoints:
 - GET `/api/admin/classes`
 - POST `/api/admin/classes/analytics/rebuild` (maintenance)
+- POST `/api/admin/classes/fix-enrollment-counts` (one-time maintenance)
 - POST `/api/admin/classes`
 - PUT `/api/admin/classes/:classId`
 - PATCH `/api/admin/classes/:classId/reopen`
@@ -1405,6 +1447,19 @@ Success (class list example):
 { "success": true, "message": "Classes fetched", "data": [ { "id": "classId", "name": "Class 9", "capacity": 30 } ] }
 ```
 
+Success (fix enrollment counts example):
+```json
+{
+  "success": true,
+  "message": "Fixed 12 classes with incorrect counts",
+  "data": {
+    "fixed": 12,
+    "classes": [{ "classId": "class_1", "before": -3, "after": 0 }],
+    "truncated": false
+  }
+}
+```
+
 ### Admin Quizzes / Tests (Managed)
 Quizzes:
 - GET `/api/admin/quizzes`
@@ -1421,6 +1476,11 @@ Tests:
 - GET `/api/admin/tests/:testId/ranking`
 - GET `/api/admin/tests/template` (CSV download)
 - POST `/api/admin/tests` / POST `/api/admin/tests/bulk-upload` (multipart `file`)
+- PUT `/api/admin/tests/:testId`
+- DELETE `/api/admin/tests/:testId`
+- PATCH `/api/admin/tests/:testId/reassign`
+- POST `/api/admin/tests/questions/image` (multipart `image`)
+- POST `/api/admin/tests/questions/image/delete`
 
 Success (template endpoints): file download (CSV). Errors are JSON.
 

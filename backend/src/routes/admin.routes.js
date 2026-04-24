@@ -30,17 +30,26 @@ import {
 } from "../controllers/teacher.controller.js";
 import {
   createTest,
+  uploadTestQuestionImage,
+  deleteTestQuestionImage,
   downloadTestBulkTemplate,
   getManagedTests,
   getManagedTestById,
   getManagedTestRanking,
   bulkUploadManagedTest,
+  updateManagedTest,
+  deleteManagedTest,
+  reassignManagedTest,
 } from "../controllers/tests.controller.js";
 
 const router = Router();
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 },
+});
+const questionImageUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 2 * 1024 * 1024 },
 });
 const adminOnly = [verifyToken, requireRole("admin")];
 const adminOrStudent = [verifyToken, requireRole("admin", "student")];
@@ -142,6 +151,16 @@ router.get("/tests/template", adminOnly, downloadTestBulkTemplate);
 router.post("/tests/bulk-upload", adminOnly, upload.single("file"), bulkUploadManagedTest);
 router.get("/tests/:testId", adminOnly, getManagedTestById);
 router.get("/tests/:testId/ranking", adminOnly, getManagedTestRanking);
+router.put("/tests/:testId", adminOnly, updateManagedTest);
+router.delete("/tests/:testId", adminOnly, deleteManagedTest);
+router.patch("/tests/:testId/reassign", adminOnly, reassignManagedTest);
+router.post(
+  "/tests/questions/image",
+  adminOnly,
+  questionImageUpload.single("image"),
+  uploadTestQuestionImage
+);
+router.post("/tests/questions/image/delete", adminOnly, deleteTestQuestionImage);
 router.get("/final-quiz-requests", adminOnly, getFinalQuizRequests);
 router.patch(
   "/final-quiz-requests/:requestId",
@@ -220,6 +239,11 @@ router.delete(
 
 router.get("/classes", adminOnly, adminController.getClasses);
 router.post("/classes/analytics/rebuild", adminOnly, adminController.rebuildClassAnalytics);
+router.post(
+  "/classes/fix-enrollment-counts",
+  adminOnly,
+  adminController.fixClassEnrollmentCounts
+);
 router.post("/classes", adminOnly, adminController.createClass);
 router.put(
   "/classes/:classId",

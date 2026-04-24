@@ -29,8 +29,10 @@ function StudentTestAttempt() {
   const [test, setTest] = useState(null);
   const [currentQuestion, setCurrentQuestion] = useState(null);
   const [selectedAnswer, setSelectedAnswer] = useState("");
-  const [timeLeft, setTimeLeft] = useState(0);
+  const [questionTimeLeft, setQuestionTimeLeft] = useState(0);
   const autoFinishRef = useRef(false);
+  const autoAdvanceRef = useRef({ questionId: "", fired: false });
+  const warnedTenRef = useRef({ questionId: "", fired: false });
   const serverOffsetMsRef = useRef(0);
   const [securityDeactivatedInfo, setSecurityDeactivatedInfo] = useState(null);
   const lastViolationRef = useRef({ reason: "", count: 0, at: 0 });
@@ -126,15 +128,23 @@ function StudentTestAttempt() {
       setCurrentQuestion(data.currentQuestion || null);
     },
     onError: (error) => {
+      const code = error?.response?.data?.errors?.code || error?.response?.data?.code;
+      if (code === "TEST_EXPIRED" && !autoFinishRef.current) {
+        autoFinishRef.current = true;
+        toast.error("Test time is over. Submitting...", { duration: 2000 });
+        finishMutation.mutate("timeout");
+        return;
+      }
       toast.error(error?.response?.data?.message || "Could not save answer");
     },
   });
 
-  const submitCurrentAnswer = () => {
-    if (!currentQuestion || !selectedAnswer || submitMutation.isPending) return;
+  const saveAndNavigate = (direction) => {
+    if (!currentQuestion || submitMutation.isPending) return;
     submitMutation.mutate({
       questionId: currentQuestion.questionId,
-      selectedAnswer,
+      selectedAnswer: selectedAnswer || "",
+      direction,
     });
   };
 
@@ -147,42 +157,58 @@ function StudentTestAttempt() {
     );
 
   useEffect(() => {
-    if (!inProgress || !test) return;
-    const toMs = (value) => {
-      if (!value) return 0;
-      const parsed = new Date(value).getTime();
-      return Number.isNaN(parsed) ? 0 : parsed;
-    };
-    const explicitEndMs = toMs(attempt?.expiresAt) || toMs(test.endAt);
-    const durationMinutes = Math.max(0, Number(test.durationMinutes || 0));
-    const startedAtMs = toMs(attempt?.startedAt);
-    const derivedEndMs =
-      startedAtMs && durationMinutes
-        ? startedAtMs + durationMinutes * 60 * 1000
-        : 0;
-    const endTime = explicitEndMs || derivedEndMs;
-    if (!endTime) return;
+    if (!currentQuestion?.questionId) return;
+    const answers = Array.isArray(attempt?.answers) ? attempt.answers : [];
+    const existing = answers.find(
+      (row) => String(row?.questionId || "").trim() === currentQuestion.questionId
+    );
+    setSelectedAnswer(existing?.selectedAnswer || "");
+  }, [attempt?.answers, currentQuestion?.questionId]);
+
+  const perQuestionLimitSeconds = useMemo(() => {
+    const raw = Number(test?.perQuestionTimeLimit || 60);
+    return Number.isFinite(raw) ? Math.max(10, Math.min(600, raw)) : 60;
+  }, [test?.perQuestionTimeLimit]);
+
+  useEffect(() => {
+    if (!inProgress || !currentQuestion?.questionId) return;
+    setQuestionTimeLeft(perQuestionLimitSeconds);
+    autoAdvanceRef.current = { questionId: currentQuestion.questionId, fired: false };
+    warnedTenRef.current = { questionId: currentQuestion.questionId, fired: false };
+  }, [currentQuestion?.questionId, inProgress, perQuestionLimitSeconds]);
+
+  useEffect(() => {
+    if (!inProgress || !currentQuestion?.questionId) return undefined;
 
     const tick = () => {
-      const now = Date.now() + (serverOffsetMsRef.current || 0);
-      const remain = Math.max(0, Math.floor((endTime - now) / 1000));
-      setTimeLeft(remain);
-      if (remain > 0 || autoFinishRef.current) return;
-      autoFinishRef.current = true;
-      finishMutation.mutate("timeout");
+      setQuestionTimeLeft((prev) => {
+        const next = Math.max(0, Number(prev || 0) - 1);
+        if (next === 10) {
+          if (
+            warnedTenRef.current.questionId === currentQuestion.questionId &&
+            !warnedTenRef.current.fired
+          ) {
+            warnedTenRef.current.fired = true;
+            toast.error("10 seconds remaining for this question", { duration: 2500 });
+          }
+        }
+        if (next <= 0) {
+          if (
+            autoAdvanceRef.current.questionId === currentQuestion.questionId &&
+            !autoAdvanceRef.current.fired
+          ) {
+            autoAdvanceRef.current.fired = true;
+            toast("Time up! Moving to next question...", { duration: 1800 });
+            saveAndNavigate("next");
+          }
+        }
+        return next;
+      });
     };
 
-    tick();
     const timer = setInterval(tick, 1000);
     return () => clearInterval(timer);
-  }, [
-    attempt?.expiresAt,
-    attempt?.startedAt,
-    finishMutation,
-    inProgress,
-    test?.endAt,
-    test?.durationMinutes,
-  ]);
+  }, [currentQuestion?.questionId, inProgress]);
 
   useEffect(() => {
     if (!inProgress) return undefined;
@@ -316,17 +342,50 @@ function StudentTestAttempt() {
         <h1 className="font-heading text-2xl text-slate-900">{test?.title || "Test"}</h1>
         <p className="mt-1 text-sm text-slate-500">{headerMeta}</p>
         {inProgress ? (
-          <p className="mt-2 text-sm font-semibold text-primary">
-            Time left: {formatSeconds(timeLeft)}
-          </p>
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm font-semibold text-slate-700">
+              Per-question timer:{" "}
+              <span className="text-primary">{formatSeconds(questionTimeLeft)}</span>
+            </p>
+            <div className="flex items-center gap-2">
+              <div
+                className={`h-2.5 w-44 overflow-hidden rounded-full border ${
+                  questionTimeLeft <= 10
+                    ? "border-rose-300 bg-rose-50"
+                    : questionTimeLeft <= 20
+                      ? "border-amber-300 bg-amber-50"
+                      : "border-emerald-300 bg-emerald-50"
+                }`}
+              >
+                <div
+                  className={`h-full transition-all ${
+                    questionTimeLeft <= 10
+                      ? "bg-rose-500"
+                      : questionTimeLeft <= 20
+                        ? "bg-amber-500"
+                        : "bg-emerald-500"
+                  } ${questionTimeLeft <= 5 ? "animate-pulse" : ""}`}
+                  style={{
+                    width: `${Math.max(
+                      0,
+                      Math.min(
+                        100,
+                        Math.round((questionTimeLeft / perQuestionLimitSeconds) * 100)
+                      )
+                    )}%`,
+                  }}
+                />
+              </div>
+            </div>
+          </div>
         ) : null}
       </section>
 
       {!attempt && !submitted ? (
         <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-sm text-slate-600">
-            Start this test during the scheduled window. You cannot go back to previous
-            questions once answered.
+            Start this test during the scheduled window. Each question has its own timer.
+            You can move back and forth, and the timer resets when you change the question.
           </p>
           <button
             type="button"
@@ -351,9 +410,27 @@ function StudentTestAttempt() {
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
             Question {Number(attempt?.currentIndex || 0) + 1} of {attempt?.totalQuestions || 0}
           </p>
-          <h2 className="mt-2 text-lg font-semibold text-slate-900">
-            {currentQuestion.questionText}
-          </h2>
+          {currentQuestion.imageUrl ? (
+            <img
+              src={currentQuestion.imageUrl}
+              alt="Question figure"
+              style={{
+                maxWidth: "100%",
+                maxHeight: "300px",
+                borderRadius: "12px",
+                marginTop: "12px",
+                marginBottom: "16px",
+                border: "1px solid #252a45",
+                display: "block",
+              }}
+              onContextMenu={(e) => e.preventDefault()}
+              draggable={false}
+            />
+          ) : null}
+          <div
+            className="mt-2 text-lg font-semibold text-slate-900"
+            dangerouslySetInnerHTML={{ __html: currentQuestion.questionText || "" }}
+          />
           <div className="mt-4 space-y-2">
             {(currentQuestion.options || []).map((option) => (
               <label
@@ -378,11 +455,19 @@ function StudentTestAttempt() {
           <div className="mt-5 flex flex-wrap gap-2">
             <button
               type="button"
-              onClick={submitCurrentAnswer}
-              disabled={!selectedAnswer || submitMutation.isPending}
+              onClick={() => saveAndNavigate("prev")}
+              disabled={submitMutation.isPending || Number(attempt?.currentIndex || 0) <= 0}
+              className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Back
+            </button>
+            <button
+              type="button"
+              onClick={() => saveAndNavigate("next")}
+              disabled={submitMutation.isPending}
               className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {submitMutation.isPending ? "Saving..." : "Next Question"}
+              {submitMutation.isPending ? "Saving..." : "Next"}
             </button>
             <button
               type="button"
@@ -393,9 +478,6 @@ function StudentTestAttempt() {
               Submit Test
             </button>
           </div>
-          <p className="mt-3 text-xs text-slate-500">
-            One-way progression enabled: previous questions cannot be reopened.
-          </p>
         </section>
       ) : null}
 

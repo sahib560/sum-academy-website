@@ -7,6 +7,8 @@ import {
 } from "../controllers/announcement.controller.js";
 import {
   createTest,
+  uploadTestQuestionImage,
+  deleteTestQuestionImage,
   downloadTestBulkTemplate,
   getManagedTests,
   getManagedTestById,
@@ -82,6 +84,10 @@ import {
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
+const questionImageUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 2 * 1024 * 1024 },
+});
 router.use(verifyToken, requireRole("teacher", "admin"));
 
 router.get("/dashboard", getTeacherDashboard);
@@ -160,6 +166,8 @@ router.get("/tests", getManagedTests);
 router.post("/tests", createTest);
 router.get("/tests/template", downloadTestBulkTemplate);
 router.post("/tests/bulk-upload", upload.single("file"), bulkUploadManagedTest);
+router.post("/tests/questions/image", questionImageUpload.single("image"), uploadTestQuestionImage);
+router.post("/tests/questions/image/delete", deleteTestQuestionImage);
 router.get("/tests/:testId", getManagedTestById);
 router.get("/tests/:testId/ranking", getManagedTestRanking);
 router.get("/settings/profile", getTeacherSettingsProfile);

@@ -1316,7 +1316,18 @@ export const getAllClasses = async () => {
     .collection(COLLECTIONS.CLASSES)
     .orderBy("createdAt", "desc")
     .get();
-  return snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+  return snap.docs.map((doc) => {
+    const data = doc.data() || {};
+    const students = Array.isArray(data.students) ? data.students : [];
+    const actualCount = students.length;
+    return {
+      id: doc.id,
+      ...data,
+      enrolledCount: actualCount,
+      enrollmentCount: actualCount,
+      activeStudents: actualCount,
+    };
+  });
 };
 
 export const getAllPayments = async (filters = {}) => {

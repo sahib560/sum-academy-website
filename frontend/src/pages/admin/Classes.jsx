@@ -3,7 +3,7 @@ import { AnimatePresence, motion as Motion } from "framer-motion";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Toaster, toast } from "react-hot-toast";
 import { FiX } from "react-icons/fi";
-import {
+ import {
   addClassCourse,
   addClassShift,
   addStudentToClass,
@@ -20,6 +20,7 @@ import {
   updateClass,
   updateClassShift,
   rebuildClassAnalytics,
+  fixClassEnrollmentCounts,
 } from "../../services/admin.service.js";
 
 const STATUS_OPTIONS = [
@@ -223,21 +224,24 @@ const normalizeClass = (row = {}) => {
         }))
       );
 
-  return {
-    ...row,
-    id: row.id || row.uid || "",
-    name: row.name || "",
-    batchCode: row.batchCode || "",
-    description: row.description || "",
-    status: normalizeStatus(row.status),
-    capacity: Number(row.capacity || 0),
-    enrolledCount: Number(row.enrolledCount || 0),
-    totalPrice: Number(row.totalPrice || 0),
-    coursesCount: Number(row.coursesCount || assignedCourses.length || 0),
-    students: Array.isArray(row.students) ? row.students : [],
-    assignedCourses,
-    shifts,
-    teachers,
+	  return {
+	    ...row,
+	    id: row.id || row.uid || "",
+	    name: row.name || "",
+	    batchCode: row.batchCode || "",
+	    description: row.description || "",
+	    status: normalizeStatus(row.status),
+	    capacity: Number(row.capacity || 0),
+	    enrolledCount: Math.max(
+	      0,
+	      Array.isArray(row.students) ? row.students.length : Number(row.enrolledCount || 0)
+	    ),
+	    totalPrice: Number(row.totalPrice || 0),
+	    coursesCount: Number(row.coursesCount || assignedCourses.length || 0),
+	    students: Array.isArray(row.students) ? row.students : [],
+	    assignedCourses,
+	    shifts,
+	    teachers,
     startDate: row.startDate || null,
     endDate: row.endDate || null,
   };
@@ -1024,6 +1028,23 @@ function Classes() {
     onError: (error) => {
       const message = String(error?.message || "Failed to rebuild analytics");
       toast.error(message);
+    },
+  });
+
+  const fixEnrollmentCountsMutation = useMutation({
+    mutationFn: async () => {
+      const toastId = "fix-enrollment-counts";
+      toast.loading("Fixing enrollment counts…", { id: toastId });
+      const result = await fixClassEnrollmentCounts();
+      const fixed = Number(result?.fixed || 0);
+      toast.success(`Fixed ${fixed} classes with incorrect counts`, { id: toastId });
+      return result;
+    },
+    onSuccess: async () => {
+      await refreshClasses();
+    },
+    onError: (error) => {
+      toast.error(error?.response?.data?.message || "Failed to fix enrollment counts");
     },
   });
   const refreshClassStudents = async () => {
@@ -1860,27 +1881,43 @@ function Classes() {
             Create classes, assign subjects and shifts, and manage student enrollment.
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={() => {
-              if (rebuildAnalyticsMutation.isPending) return;
-              const ok = window.confirm(
-                "This will recalculate enrollmentCount/activeStudents/totalRevenue for classes. Continue?"
-              );
-              if (!ok) return;
-              rebuildAnalyticsMutation.mutate();
-            }}
-            disabled={rebuildAnalyticsMutation.isPending}
-            className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-            title="Rebuild class analytics fields (one-time maintenance)"
-          >
-            {rebuildAnalyticsMutation.isPending ? "Rebuilding…" : "Rebuild Analytics"}
-          </button>
-          <button type="button" onClick={openCreateClassModal} className="btn-primary">
-            Add Class
-          </button>
-        </div>
+	        <div className="flex flex-wrap items-center gap-2">
+	          <button
+	            type="button"
+	            onClick={() => {
+	              if (rebuildAnalyticsMutation.isPending) return;
+	              const ok = window.confirm(
+	                "This will recalculate enrollmentCount/activeStudents/totalRevenue for classes. Continue?"
+	              );
+	              if (!ok) return;
+	              rebuildAnalyticsMutation.mutate();
+	            }}
+	            disabled={rebuildAnalyticsMutation.isPending}
+	            className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+	            title="Rebuild class analytics fields (one-time maintenance)"
+	          >
+	            {rebuildAnalyticsMutation.isPending ? "Rebuilding…" : "Rebuild Analytics"}
+	          </button>
+	          <button
+	            type="button"
+	            onClick={() => {
+	              if (fixEnrollmentCountsMutation.isPending) return;
+	              const ok = window.confirm(
+	                "This will sync enrolledCount with the actual students list for all classes. Continue?"
+	              );
+	              if (!ok) return;
+	              fixEnrollmentCountsMutation.mutate();
+	            }}
+	            disabled={fixEnrollmentCountsMutation.isPending}
+	            className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+	            title="Fix class enrolledCount field (one-time maintenance)"
+	          >
+	            {fixEnrollmentCountsMutation.isPending ? "Fixing…" : "Fix Enrollment Counts"}
+	          </button>
+	          <button type="button" onClick={openCreateClassModal} className="btn-primary">
+	            Add Class
+	          </button>
+	        </div>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
