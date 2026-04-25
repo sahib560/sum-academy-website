@@ -12,6 +12,8 @@ const defaultQuestion = () => ({
   optionD: "",
   correctAnswer: "A",
   marks: 1,
+  imageUrl: "",
+  imagePath: "",
 });
 
 const normalizeCorrectAnswer = (value) => {
@@ -135,6 +137,7 @@ export default function TestsManager({
   const [bulkErrors, setBulkErrors] = useState([]);
   const [bulkPreview, setBulkPreview] = useState(null);
   const [bulkBusyRow, setBulkBusyRow] = useState({});
+  const [manualBusyRow, setManualBusyRow] = useState({});
   const questionRefs = useRef([]);
   const [adminEditOpen, setAdminEditOpen] = useState(false);
   const [adminDeleteOpen, setAdminDeleteOpen] = useState(false);
@@ -496,6 +499,8 @@ export default function TestsManager({
         correctAnswer: q.correctAnswer,
         expectedAnswer: "",
         marks: Number(q.marks || 1),
+        imageUrl: q.imageUrl ? String(q.imageUrl) : null,
+        imagePath: q.imagePath ? String(q.imagePath) : null,
       })),
     };
     createMutation.mutate(payload);
@@ -924,16 +929,24 @@ export default function TestsManager({
             <div key={`q-${idx}`} className="rounded-2xl border border-slate-200 p-3">
               <div className="mb-2 flex items-center justify-between">
                 <p className="text-sm font-semibold text-slate-800">Question {idx + 1}</p>
-                {form.questions.length > 1 ? (
+              {form.questions.length > 1 ? (
                   <button
                     type="button"
                     className="text-xs text-rose-500"
-                    onClick={() =>
+                    onClick={async () => {
+                      const imagePath = String(form.questions?.[idx]?.imagePath || "");
+                      if (imagePath) {
+                        try {
+                          await removeQuestionImage(imagePath);
+                        } catch {
+                          // best-effort cleanup
+                        }
+                      }
                       setForm((p) => ({
                         ...p,
                         questions: p.questions.filter((_, i) => i !== idx),
-                      }))
-                    }
+                      }));
+                    }}
                   >
                     Remove
                   </button>
@@ -969,7 +982,7 @@ export default function TestsManager({
                   className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-primary/40 hover:bg-primary/5 hover:text-primary"
                   onClick={() => wrapSelection(idx, "sub")}
                 >
-                  x₂‚
+                  x₂
                 </button>
                 <span className="text-xs text-slate-500">
                   Tip: also supports `^2` and `_2`
@@ -981,6 +994,120 @@ export default function TestsManager({
                     __html: sanitizeQuestionHtml(question.questionText || ""),
                   }}
                 />
+              </div>
+
+              <div className="mt-3">
+                {question.imageUrl ? (
+                  <div className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white p-3">
+                    <img
+                      src={question.imageUrl}
+                      alt="question"
+                      className="h-14 w-14 rounded-xl border border-slate-200 object-cover"
+                      draggable={false}
+                      onContextMenu={(e) => e.preventDefault()}
+                    />
+                    <div className="flex-1 text-xs text-slate-500">
+                      Optional question image attached.
+                    </div>
+                    <button
+                      type="button"
+                      disabled={Boolean(manualBusyRow[idx])}
+                      className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 disabled:opacity-60"
+                      onClick={async () => {
+                        const imagePath = String(question.imagePath || "");
+                        if (!imagePath) {
+                          setForm((p) => ({
+                            ...p,
+                            questions: p.questions.map((q, i) =>
+                              i === idx ? { ...q, imageUrl: "", imagePath: "" } : q
+                            ),
+                          }));
+                          return;
+                        }
+                        setManualBusyRow((p) => ({ ...p, [idx]: true }));
+                        try {
+                          await removeQuestionImage(imagePath);
+                          toast.success("Question image removed");
+                          setForm((p) => ({
+                            ...p,
+                            questions: p.questions.map((q, i) =>
+                              i === idx ? { ...q, imageUrl: "", imagePath: "" } : q
+                            ),
+                          }));
+                        } catch (err) {
+                          toast.error(err?.response?.data?.message || "Failed to remove image");
+                        } finally {
+                          setManualBusyRow((p) => ({ ...p, [idx]: false }));
+                        }
+                      }}
+                    >
+                      Remove Image
+                    </button>
+                  </div>
+                ) : (
+                  <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-dashed border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:border-primary/40 hover:bg-primary/5 hover:text-primary">
+                    {manualBusyRow[idx] ? "Uploading..." : "Add Question Image (optional)"}
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp"
+                      className="hidden"
+                      disabled={Boolean(manualBusyRow[idx])}
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0] || null;
+                        e.target.value = "";
+                        if (!file) return;
+                        const mime = String(file.type || "");
+                        const size = Number(file.size || 0);
+                        if (!["image/jpeg", "image/png", "image/webp"].includes(mime)) {
+                          toast.error("Only JPG, PNG, WEBP images are allowed");
+                          return;
+                        }
+                        if (size > 2 * 1024 * 1024) {
+                          toast.error("Max image size is 2MB");
+                          return;
+                        }
+
+                        setManualBusyRow((p) => ({ ...p, [idx]: true }));
+                        try {
+                          const existingPath = String(form.questions?.[idx]?.imagePath || "");
+                          if (existingPath) {
+                            try {
+                              await removeQuestionImage(existingPath);
+                            } catch {
+                              // ignore cleanup failure
+                            }
+                          }
+
+                          const uploaded = await uploadQuestionImage(file);
+                          if (!uploaded?.imageUrl || !uploaded?.imagePath) {
+                            throw new Error("Upload did not return imageUrl");
+                          }
+                          toast.success("Question image added");
+                          setForm((p) => ({
+                            ...p,
+                            questions: p.questions.map((q, i) =>
+                              i === idx
+                                ? {
+                                    ...q,
+                                    imageUrl: uploaded.imageUrl,
+                                    imagePath: uploaded.imagePath,
+                                  }
+                                : q
+                            ),
+                          }));
+                        } catch (err) {
+                          toast.error(
+                            err?.response?.data?.message ||
+                              err?.message ||
+                              "Failed to upload image"
+                          );
+                        } finally {
+                          setManualBusyRow((p) => ({ ...p, [idx]: false }));
+                        }
+                      }}
+                    />
+                  </label>
+                )}
               </div>
               <div className="mt-2 grid gap-2 md:grid-cols-2">
                 {["A", "B", "C", "D"].map((letter) => (
@@ -1736,4 +1863,5 @@ export default function TestsManager({
     </div>
   );
 }
+
 
