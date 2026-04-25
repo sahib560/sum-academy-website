@@ -619,9 +619,30 @@ function StudentQuizAttempt() {
                     <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
                       Question {currentIndex + 1}
                     </span>
-                    <h2 className="mt-4 text-2xl font-semibold text-slate-900">
-                      {currentQuestion?.questionText}
-                    </h2>
+                    {currentQuestion?.imageUrl ? (
+                      <div className="mt-4">
+                        <img
+                          src={currentQuestion.imageUrl}
+                          alt="Question figure"
+                          style={{
+                            maxWidth: "100%",
+                            maxHeight: "280px",
+                            borderRadius: "12px",
+                            border: "1px solid #252a45",
+                            display: "block",
+                            margin: "0 auto",
+                            objectFit: "contain",
+                            background: "#1e293b",
+                          }}
+                          onContextMenu={(e) => e.preventDefault()}
+                          draggable={false}
+                        />
+                      </div>
+                    ) : null}
+                    <div
+                      className="question-text mt-4 text-2xl font-semibold text-slate-900"
+                      dangerouslySetInnerHTML={{ __html: currentQuestion?.questionText || "" }}
+                    />
 
                     <div className="mt-5 space-y-3">
                       {currentQuestion?.type === "mcq" &&
@@ -637,7 +658,10 @@ function StudentQuizAttempt() {
                               }`}
                               onClick={() => onSelectMcq(option)}
                             >
-                              {option}
+                              <span
+                                className="option-text"
+                                dangerouslySetInnerHTML={{ __html: option || "" }}
+                              />
                             </button>
                           );
                         })}

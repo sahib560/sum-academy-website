@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+﻿import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import api from "../../api/axios.js";
+import { parseFormula, stripFormulaHtml } from "../../utils/parseFormula.js";
 
 const defaultQuestion = () => ({
   questionText: "",
@@ -43,45 +44,7 @@ const computeDurationMinutes = (startAt, endAt) => {
   return Math.max(5, Math.ceil(diff / (60 * 1000)));
 };
 
-const escapeHtml = (value = "") =>
-  String(value ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-
-const stripAllHtmlExceptSupSub = (value = "") => {
-  const raw = String(value ?? "");
-  const placeholders = {
-    "[[SUP_O]]": "<sup>",
-    "[[SUP_C]]": "</sup>",
-    "[[SUB_O]]": "<sub>",
-    "[[SUB_C]]": "</sub>",
-  };
-  let text = raw
-    .replace(/<\s*sup\s*>/gi, "[[SUP_O]]")
-    .replace(/<\s*\/\s*sup\s*>/gi, "[[SUP_C]]")
-    .replace(/<\s*sub\s*>/gi, "[[SUB_O]]")
-    .replace(/<\s*\/\s*sub\s*>/gi, "[[SUB_C]]");
-  text = text.replace(/<\/?[^>]+>/g, "");
-  text = escapeHtml(text);
-  Object.entries(placeholders).forEach(([key, tag]) => {
-    text = text.split(key).join(tag);
-  });
-  return text;
-};
-
-const applyFormulaNotations = (value = "") => {
-  let text = String(value ?? "");
-  text = text.replace(/\^(\w+)/g, "<sup>$1</sup>");
-  text = text.replace(/_(\w+)/g, "<sub>$1</sub>");
-  text = text.replace(/([A-Za-z])(\d+)/g, "$1<sub>$2</sub>");
-  return text;
-};
-
-const sanitizeQuestionHtml = (value = "") =>
-  applyFormulaNotations(stripAllHtmlExceptSupSub(value));
+const sanitizeQuestionHtml = (value = "") => parseFormula(String(value ?? ""));
 
 const TEST_CSV_HEADERS = [
   "scope",
@@ -327,8 +290,13 @@ export default function TestsManager({
   };
 
   const parseBulkCsvFile = async (file) => {
-    const text = await file.text();
-    const parsed = parseCsvToRows(text);
+    const text = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error("Failed to read CSV file"));
+      reader.onload = () => resolve(String(reader.result || ""));
+      reader.readAsText(file, "UTF-8");
+    });
+    const parsed = parseCsvToRows(String(text || "").replace(/^\uFEFF/, ""));
     const headers = parsed.headers || [];
     const rows = parsed.rows || [];
     const missing = TEST_CSV_HEADERS.filter((h) => !headers.includes(h));
@@ -385,7 +353,9 @@ export default function TestsManager({
       const marks = Number.isFinite(marksRaw) ? Math.max(1, marksRaw) : 1;
 
       const errors = [];
-      if (questionTextRaw.length < 3) errors.push("Question text too short");
+      if (stripFormulaHtml(sanitizeQuestionHtml(questionTextRaw)).length < 3) {
+        errors.push("Question text too short");
+      }
       if (!optionA || !optionB || !optionC || !optionD) errors.push("Options A-D are required");
       if (!["A", "B", "C", "D"].includes(correct)) errors.push("Correct must be A/B/C/D");
 
@@ -397,6 +367,10 @@ export default function TestsManager({
         optionB,
         optionC,
         optionD,
+        optionAHtml: sanitizeQuestionHtml(optionA),
+        optionBHtml: sanitizeQuestionHtml(optionB),
+        optionCHtml: sanitizeQuestionHtml(optionC),
+        optionDHtml: sanitizeQuestionHtml(optionD),
         correct,
         marks,
         imageUrl: "",
@@ -714,10 +688,18 @@ export default function TestsManager({
                           <td className="px-3 py-2">
                             <div dangerouslySetInnerHTML={{ __html: row.questionTextHtml }} />
                           </td>
-                          <td className={`px-3 py-2 ${correctClass("A")}`}>{row.optionA}</td>
-                          <td className={`px-3 py-2 ${correctClass("B")}`}>{row.optionB}</td>
-                          <td className={`px-3 py-2 ${correctClass("C")}`}>{row.optionC}</td>
-                          <td className={`px-3 py-2 ${correctClass("D")}`}>{row.optionD}</td>
+                          <td className={`px-3 py-2 ${correctClass("A")}`}>
+                            <div dangerouslySetInnerHTML={{ __html: row.optionAHtml || "" }} />
+                          </td>
+                          <td className={`px-3 py-2 ${correctClass("B")}`}>
+                            <div dangerouslySetInnerHTML={{ __html: row.optionBHtml || "" }} />
+                          </td>
+                          <td className={`px-3 py-2 ${correctClass("C")}`}>
+                            <div dangerouslySetInnerHTML={{ __html: row.optionCHtml || "" }} />
+                          </td>
+                          <td className={`px-3 py-2 ${correctClass("D")}`}>
+                            <div dangerouslySetInnerHTML={{ __html: row.optionDHtml || "" }} />
+                          </td>
                           <td className="px-3 py-2 font-semibold text-slate-900">{row.correct}</td>
                           <td className="px-3 py-2">{row.marks}</td>
                           <td className="px-3 py-2">
@@ -987,7 +969,7 @@ export default function TestsManager({
                   className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-primary/40 hover:bg-primary/5 hover:text-primary"
                   onClick={() => wrapSelection(idx, "sub")}
                 >
-                  x₂
+                  x₂‚
                 </button>
                 <span className="text-xs text-slate-500">
                   Tip: also supports `^2` and `_2`
@@ -1754,3 +1736,4 @@ export default function TestsManager({
     </div>
   );
 }
+

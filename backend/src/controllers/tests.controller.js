@@ -239,21 +239,50 @@ const escapeHtml = (value = "") =>
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
 
-const stripAllHtmlExceptSupSub = (value = "") => {
-  const raw = String(value ?? "");
-  // Preserve <sup>/<sub> tags (no attributes) via placeholders, strip all other tags.
+// ─────────────────────────────────────────────────────────────────────────────
+// Formula Parser (Tests)
+// Supports:
+// - Word/CSV encoding fixes (â‚‚ -> ₂ etc)
+// - Subscript: H_2O / H_{2O}
+// - Superscript: x^2 / x^{n+1}
+// - Greek: \alpha, \beta, ...
+// - Math symbols: \times, \pm, ->, <=, >=, degC, ...
+// Output is sanitized HTML allowing only safe tags (no attributes):
+//   sup sub br b i em strong
+// ─────────────────────────────────────────────────────────────────────────────
+const sanitizeAllowedHtml = (input = "") => {
+  const raw = String(input ?? "");
   const placeholders = {
     "[[SUP_O]]": "<sup>",
     "[[SUP_C]]": "</sup>",
     "[[SUB_O]]": "<sub>",
     "[[SUB_C]]": "</sub>",
+    "[[BR]]": "<br>",
+    "[[B_O]]": "<b>",
+    "[[B_C]]": "</b>",
+    "[[I_O]]": "<i>",
+    "[[I_C]]": "</i>",
+    "[[EM_O]]": "<em>",
+    "[[EM_C]]": "</em>",
+    "[[STR_O]]": "<strong>",
+    "[[STR_C]]": "</strong>",
   };
 
+  // Only preserve tags if they have no attributes.
   let text = raw
     .replace(/<\s*sup\s*>/gi, "[[SUP_O]]")
     .replace(/<\s*\/\s*sup\s*>/gi, "[[SUP_C]]")
     .replace(/<\s*sub\s*>/gi, "[[SUB_O]]")
-    .replace(/<\s*\/\s*sub\s*>/gi, "[[SUB_C]]");
+    .replace(/<\s*\/\s*sub\s*>/gi, "[[SUB_C]]")
+    .replace(/<\s*br\s*\/?\s*>/gi, "[[BR]]")
+    .replace(/<\s*b\s*>/gi, "[[B_O]]")
+    .replace(/<\s*\/\s*b\s*>/gi, "[[B_C]]")
+    .replace(/<\s*i\s*>/gi, "[[I_O]]")
+    .replace(/<\s*\/\s*i\s*>/gi, "[[I_C]]")
+    .replace(/<\s*em\s*>/gi, "[[EM_O]]")
+    .replace(/<\s*\/\s*em\s*>/gi, "[[EM_C]]")
+    .replace(/<\s*strong\s*>/gi, "[[STR_O]]")
+    .replace(/<\s*\/\s*strong\s*>/gi, "[[STR_C]]");
 
   text = text.replace(/<\/?[^>]+>/g, "");
   text = escapeHtml(text);
@@ -261,23 +290,154 @@ const stripAllHtmlExceptSupSub = (value = "") => {
   Object.entries(placeholders).forEach(([key, tag]) => {
     text = text.replaceAll(key, tag);
   });
-
   return text;
 };
 
-const applyFormulaNotations = (value = "") => {
-  let text = String(value ?? "");
-  // Superscript/subscript notations
-  text = text.replace(/\^(\w+)/g, "<sup>$1</sup>");
-  text = text.replace(/_(\w+)/g, "<sub>$1</sub>");
-  // Common chemistry shorthand: H2SO4 => H<sub>2</sub>SO<sub>4</sub>
-  text = text.replace(/([A-Za-z])(\d+)/g, "$1<sub>$2</sub>");
-  return text;
-};
+const parseFormula = (text) => {
+  if (!text || typeof text !== "string") return String(text ?? "");
 
-const sanitizeTestQuestionHtml = (value = "") => {
-  const stripped = stripAllHtmlExceptSupSub(value);
-  return applyFormulaNotations(stripped);
+  let result = String(text);
+
+  // Step 1: Fix common encoding issues from Word paste / non-UTF8 CSV.
+  const encodingFixes = {
+    "â‚‚": "₂",
+    "â‚ƒ": "₃",
+    "â‚„": "₄",
+    "â‚…": "₅",
+    "â‚†": "₆",
+    "â‚‡": "₇",
+    "â‚ˆ": "₈",
+    "â‚‰": "₉",
+    "â‚€": "₀",
+    "Â²": "²",
+    "Â³": "³",
+    "â°": "⁰",
+    "âº": "⁺",
+    "â»": "⁻",
+    "â¼": "⁼",
+    "â€™": "'",
+    "â€œ": '"',
+    "â€": '"',
+    "Ã±": "ñ",
+    "Ã©": "é",
+  };
+  Object.entries(encodingFixes).forEach(([bad, good]) => {
+    result = result.split(bad).join(good);
+  });
+
+  // Step 2: Convert caret notation to superscript HTML.
+  result = result.replace(/\^\{([^}]+)\}/g, "<sup>$1</sup>");
+  result = result.replace(/\^([a-zA-Z0-9+\-*/=]+)/g, "<sup>$1</sup>");
+
+  // Step 3: Convert underscore notation to subscript HTML.
+  result = result.replace(/\_\{([^}]+)\}/g, "<sub>$1</sub>");
+  result = result.replace(/\_([a-zA-Z0-9]+)/g, "<sub>$1</sub>");
+
+  // Step 4: Auto-detect common chemical formulas (best-effort).
+  const chemFormulas = {
+    H2O: "H<sub>2</sub>O",
+    CO2: "CO<sub>2</sub>",
+    O2: "O<sub>2</sub>",
+    N2: "N<sub>2</sub>",
+    H2: "H<sub>2</sub>",
+    H2SO4: "H<sub>2</sub>SO<sub>4</sub>",
+    CaCO3: "CaCO<sub>3</sub>",
+    NH3: "NH<sub>3</sub>",
+    CH4: "CH<sub>4</sub>",
+    C6H12O6: "C<sub>6</sub>H<sub>12</sub>O<sub>6</sub>",
+    C2H5OH: "C<sub>2</sub>H<sub>5</sub>OH",
+    HNO3: "HNO<sub>3</sub>",
+    H2O2: "H<sub>2</sub>O<sub>2</sub>",
+    SO2: "SO<sub>2</sub>",
+    SO3: "SO<sub>3</sub>",
+    NO2: "NO<sub>2</sub>",
+    Fe2O3: "Fe<sub>2</sub>O<sub>3</sub>",
+    Al2O3: "Al<sub>2</sub>O<sub>3</sub>",
+    KMnO4: "KMnO<sub>4</sub>",
+    Na2CO3: "Na<sub>2</sub>CO<sub>3</sub>",
+    CuSO4: "CuSO<sub>4</sub>",
+  };
+
+  Object.entries(chemFormulas).forEach(([formula, html]) => {
+    const escaped = formula.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const regex = new RegExp(`\\b${escaped}\\b`, "g");
+    result = result.replace(regex, html);
+  });
+
+  // Step 5: Greek letters from text notation.
+  const greekLetters = {
+    "\\alpha": "α",
+    "\\Alpha": "Α",
+    "\\beta": "β",
+    "\\Beta": "Β",
+    "\\gamma": "γ",
+    "\\Gamma": "Γ",
+    "\\delta": "δ",
+    "\\Delta": "Δ",
+    "\\epsilon": "ε",
+    "\\Epsilon": "Ε",
+    "\\theta": "θ",
+    "\\Theta": "Θ",
+    "\\lambda": "λ",
+    "\\Lambda": "Λ",
+    "\\mu": "μ",
+    "\\Mu": "Μ",
+    "\\pi": "π",
+    "\\Pi": "Π",
+    "\\sigma": "σ",
+    "\\Sigma": "Σ",
+    "\\omega": "ω",
+    "\\Omega": "Ω",
+    "\\phi": "φ",
+    "\\Phi": "Φ",
+    "\\psi": "ψ",
+    "\\Psi": "Ψ",
+    "\\rho": "ρ",
+    "\\tau": "τ",
+    "\\nu": "ν",
+    "\\xi": "ξ",
+    "\\eta": "η",
+    "\\chi": "χ",
+    "\\zeta": "ζ",
+    "\\kappa": "κ",
+    "\\iota": "ι",
+  };
+  Object.entries(greekLetters).forEach(([code, char]) => {
+    result = result.split(code).join(char);
+  });
+
+  // Step 6: Math/physics symbols and common ASCII shorthands.
+  const mathSymbols = {
+    "\\times": "×",
+    "\\div": "÷",
+    "\\pm": "±",
+    "\\neq": "≠",
+    "\\leq": "≤",
+    "\\geq": "≥",
+    "\\approx": "≈",
+    "\\infty": "∞",
+    "\\degree": "°",
+    "\\sqrt": "√",
+    "<->": "↔",
+    "->": "→",
+    "=>": "⇒",
+    "!=": "≠",
+    "<=": "≤",
+    ">=": "≥",
+    "+-": "±",
+    "...": "…",
+    "1/2": "½",
+    "1/4": "¼",
+    "3/4": "¾",
+    degC: "°C",
+    degF: "°F",
+  };
+  Object.entries(mathSymbols).forEach(([code, char]) => {
+    result = result.split(code).join(char);
+  });
+
+  // Step 7: Sanitize (safe HTML tags only, no attributes).
+  return sanitizeAllowedHtml(result);
 };
 
 const stripHtmlToPlainText = (value = "") =>
@@ -291,12 +451,12 @@ const normalizeQuestions = (questions = []) => {
     const rawQuestionText = trimText(
       question?.questionText || question?.text || question?.question
     );
-    const safeQuestionHtml = sanitizeTestQuestionHtml(rawQuestionText);
+    const safeQuestionHtml = parseFormula(rawQuestionText);
     const plainText = stripHtmlToPlainText(safeQuestionHtml);
     if (plainText.length < 3) {
       throw new Error(`Question ${index + 1}: text is too short`);
     }
-    const options = normalizeOptions(question);
+    const options = normalizeOptions(question).map((option) => parseFormula(option));
     if (options.length < 2) {
       throw new Error(`Question ${index + 1}: at least 2 options are required`);
     }
@@ -1171,7 +1331,7 @@ export const bulkUploadManagedTest = async (req, res) => {
 
     const fileBuffer = req.file?.buffer;
     const csvText = fileBuffer
-      ? fileBuffer.toString("utf8")
+      ? fileBuffer.toString("utf-8").replace(/^\uFEFF/, "")
       : trimText(req.body?.csvText || "");
     if (!csvText) return errorResponse(res, "CSV file is required", 400);
 

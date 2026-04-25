@@ -21,6 +21,7 @@ import {
   downloadQuizBulkTemplate,
   bulkUploadTeacherQuiz,
   getQuizSubmissions,
+  parseFormulaPreview,
 } from "../controllers/teacher.quiz.controller.js";
 import {
   getFinalQuizRequests,
@@ -144,6 +145,7 @@ router.get("/quizzes/:quizId/analytics", adminOnly, getQuizAnalytics);
 router.post("/quizzes", adminOnly, createTeacherQuiz);
 router.post("/quizzes/bulk-upload", adminOnly, upload.single("file"), bulkUploadTeacherQuiz);
 router.patch("/quizzes/:quizId/assign", adminOnly, assignQuiz);
+router.post("/quizzes/parse-formula", adminOnly, parseFormulaPreview);
 router.get("/quizzes/:quizId/submissions", adminOnly, getQuizSubmissions);
 router.get("/tests", adminOnly, getManagedTests);
 router.post("/tests", adminOnly, createTest);

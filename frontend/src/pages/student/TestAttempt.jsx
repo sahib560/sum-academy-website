@@ -448,7 +448,7 @@ function StudentTestAttempt() {
                   checked={selectedAnswer === option}
                   onChange={() => setSelectedAnswer(option)}
                 />
-                <span>{option}</span>
+                <span dangerouslySetInnerHTML={{ __html: option || "" }} />
               </label>
             ))}
           </div>

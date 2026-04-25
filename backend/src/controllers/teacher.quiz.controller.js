@@ -5,6 +5,149 @@ import { successResponse, errorResponse } from "../utils/response.utils.js";
 const serverTimestamp = () => admin.firestore.FieldValue.serverTimestamp();
 const trimText = (value = "") => String(value || "").trim();
 const lowerText = (value = "") => trimText(value).toLowerCase();
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Formula Parser (Quizzes)
+// Sanitized HTML output (safe tags only, no attributes):
+//   sup sub br b i em strong
+// Also fixes common Word/CSV encoding issues.
+// ─────────────────────────────────────────────────────────────────────────────
+const escapeHtml = (value = "") =>
+  String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+
+const sanitizeAllowedHtml = (input = "") => {
+  const raw = String(input ?? "");
+  const placeholders = {
+    "[[SUP_O]]": "<sup>",
+    "[[SUP_C]]": "</sup>",
+    "[[SUB_O]]": "<sub>",
+    "[[SUB_C]]": "</sub>",
+    "[[BR]]": "<br>",
+    "[[B_O]]": "<b>",
+    "[[B_C]]": "</b>",
+    "[[I_O]]": "<i>",
+    "[[I_C]]": "</i>",
+    "[[EM_O]]": "<em>",
+    "[[EM_C]]": "</em>",
+    "[[STR_O]]": "<strong>",
+    "[[STR_C]]": "</strong>",
+  };
+
+  let text = raw
+    .replace(/<\s*sup\s*>/gi, "[[SUP_O]]")
+    .replace(/<\s*\/\s*sup\s*>/gi, "[[SUP_C]]")
+    .replace(/<\s*sub\s*>/gi, "[[SUB_O]]")
+    .replace(/<\s*\/\s*sub\s*>/gi, "[[SUB_C]]")
+    .replace(/<\s*br\s*\/?\s*>/gi, "[[BR]]")
+    .replace(/<\s*b\s*>/gi, "[[B_O]]")
+    .replace(/<\s*\/\s*b\s*>/gi, "[[B_C]]")
+    .replace(/<\s*i\s*>/gi, "[[I_O]]")
+    .replace(/<\s*\/\s*i\s*>/gi, "[[I_C]]")
+    .replace(/<\s*em\s*>/gi, "[[EM_O]]")
+    .replace(/<\s*\/\s*em\s*>/gi, "[[EM_C]]")
+    .replace(/<\s*strong\s*>/gi, "[[STR_O]]")
+    .replace(/<\s*\/\s*strong\s*>/gi, "[[STR_C]]");
+
+  text = text.replace(/<\/?[^>]+>/g, "");
+  text = escapeHtml(text);
+  Object.entries(placeholders).forEach(([key, tag]) => {
+    text = text.replaceAll(key, tag);
+  });
+  return text;
+};
+
+const parseFormula = (text) => {
+  if (!text || typeof text !== "string") return String(text ?? "");
+  let result = String(text);
+
+  const encodingFixes = {
+    "â‚‚": "₂",
+    "â‚ƒ": "₃",
+    "â‚„": "₄",
+    "â‚…": "₅",
+    "â‚†": "₆",
+    "â‚‡": "₇",
+    "â‚ˆ": "₈",
+    "â‚‰": "₉",
+    "â‚€": "₀",
+    "Â²": "²",
+    "Â³": "³",
+    "â°": "⁰",
+    "âº": "⁺",
+    "â»": "⁻",
+    "â¼": "⁼",
+    "â€™": "'",
+    "â€œ": '"',
+    "â€": '"',
+    "Ã±": "ñ",
+    "Ã©": "é",
+  };
+  Object.entries(encodingFixes).forEach(([bad, good]) => {
+    result = result.split(bad).join(good);
+  });
+
+  result = result.replace(/\^\{([^}]+)\}/g, "<sup>$1</sup>");
+  result = result.replace(/\^([a-zA-Z0-9+\-*/=]+)/g, "<sup>$1</sup>");
+
+  result = result.replace(/\_\{([^}]+)\}/g, "<sub>$1</sub>");
+  result = result.replace(/\_([a-zA-Z0-9]+)/g, "<sub>$1</sub>");
+
+  const greekLetters = {
+    "\\alpha": "α",
+    "\\beta": "β",
+    "\\gamma": "γ",
+    "\\delta": "δ",
+    "\\theta": "θ",
+    "\\lambda": "λ",
+    "\\mu": "μ",
+    "\\pi": "π",
+    "\\sigma": "σ",
+    "\\omega": "ω",
+    "\\Delta": "Δ",
+    "\\Gamma": "Γ",
+    "\\Theta": "Θ",
+    "\\Lambda": "Λ",
+    "\\Omega": "Ω",
+    "\\Phi": "Φ",
+    "\\Psi": "Ψ",
+  };
+  Object.entries(greekLetters).forEach(([code, char]) => {
+    result = result.split(code).join(char);
+  });
+
+  const mathSymbols = {
+    "\\times": "×",
+    "\\div": "÷",
+    "\\pm": "±",
+    "\\neq": "≠",
+    "\\leq": "≤",
+    "\\geq": "≥",
+    "\\approx": "≈",
+    "\\infty": "∞",
+    "\\degree": "°",
+    "\\sqrt": "√",
+    "<->": "↔",
+    "->": "→",
+    "=>": "⇒",
+    "!=": "≠",
+    "<=": "≤",
+    ">=": "≥",
+    "+-": "±",
+    "...": "…",
+    degC: "°C",
+    degF: "°F",
+  };
+  Object.entries(mathSymbols).forEach(([code, char]) => {
+    result = result.split(code).join(char);
+  });
+
+  return sanitizeAllowedHtml(result);
+};
 const PERMANENT_COMPLETION_MESSAGE =
   "This class or subject is completed. Your certificate is generated. Thank you for joining us. Keep exploring our other subjects and classes. Thank you.";
 const isMarkedCompletedState = (row = {}) => {
@@ -228,16 +371,17 @@ const normalizeMcqCorrectAnswer = (rawAnswer, options = []) => {
 
 const normalizeQuestionInput = (questionInput = {}, rowRef = 1) => {
   const type = mapQuestionType(questionInput.type || questionInput.questionType);
-  const questionText = trimText(
+  const questionText = parseFormula(trimText(
     questionInput.questionText || questionInput.question || questionInput.text
-  );
+  ));
   const marks = Math.max(1, toPositiveNumber(questionInput.marks, 1));
   const rowLabel = Number.isFinite(Number(rowRef)) ? Number(rowRef) : rowRef;
 
   if (!QUESTION_TYPES.has(type)) {
     throw new Error(`Invalid questionType at row ${rowLabel}`);
   }
-  if (questionText.length < 3) {
+  const plainQuestionText = String(questionText || "").replace(/<\/?[^>]+>/g, "").trim();
+  if (plainQuestionText.length < 3) {
     throw new Error(`Question text too short at row ${rowLabel}`);
   }
 
@@ -279,10 +423,10 @@ const normalizeQuestionInput = (questionInput = {}, rowRef = 1) => {
     }
 
     const optionMap = {
-      A: options[0] || "",
-      B: options[1] || "",
-      C: options[2] || "",
-      D: options[3] || "",
+      A: parseFormula(options[0] || ""),
+      B: parseFormula(options[1] || ""),
+      C: parseFormula(options[2] || ""),
+      D: parseFormula(options[3] || ""),
     };
 
     return {
@@ -319,8 +463,9 @@ const normalizeQuestionInput = (questionInput = {}, rowRef = 1) => {
   }
 
   if (type === "short_answer") {
-    const expectedAnswer = trimText(questionInput.expectedAnswer);
-    if (!expectedAnswer) {
+    const expectedAnswer = parseFormula(trimText(questionInput.expectedAnswer));
+    const plainExpected = String(expectedAnswer || "").replace(/<\/?[^>]+>/g, "").trim();
+    if (!plainExpected) {
       throw new Error(`Short answer must have expectedAnswer at row ${rowLabel}`);
     }
     return {
@@ -1809,7 +1954,7 @@ export const bulkUploadTeacherQuiz = async (req, res) => {
     if (!uid) return errorResponse(res, "Missing user uid", 400);
     const fileBuffer = req.file?.buffer;
     const csvText = fileBuffer
-      ? fileBuffer.toString("utf8")
+      ? fileBuffer.toString("utf-8").replace(/^\uFEFF/, "")
       : trimText(req.body?.csvText || "");
     if (!csvText) {
       return errorResponse(res, "CSV file is required", 400);
@@ -2060,6 +2205,22 @@ export const previewQuizEvaluation = async (req, res) => {
   } catch (error) {
     console.error("previewQuizEvaluation error:", error);
     return errorResponse(res, "Failed to evaluate quiz answers", 500);
+  }
+};
+
+export const parseFormulaPreview = async (req, res) => {
+  try {
+    const uid = trimText(req.user?.uid);
+    if (!uid) return errorResponse(res, "Missing user uid", 400);
+    const text = String(req.body?.text ?? "");
+    return successResponse(
+      res,
+      { original: text, parsed: parseFormula(text) },
+      "Formula parsed"
+    );
+  } catch (error) {
+    console.error("parseFormulaPreview error:", error);
+    return errorResponse(res, "Failed to parse formula", 500);
   }
 };
 
