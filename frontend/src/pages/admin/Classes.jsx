@@ -1180,10 +1180,24 @@ function Classes() {
 
       for (const studentId of studentIds) {
         try {
-          const response = await addStudentToClass(classId, { ...data, studentId });
+          const shiftId = String(data?.shiftId || "").trim();
+          if (!shiftId) {
+            throw new Error("SHIFT_REQUIRED");
+          }
+
+          // Backend now enforces full-class enrollment only.
+          const response = await addStudentToClass(classId, {
+            studentId,
+            shiftId,
+            enrollmentType: "full_class",
+          });
           results.added.push(studentId);
           results.grantedCoursesTotal += Number(response?.data?.coursesEnrolled || 0);
         } catch (error) {
+          if (error?.message === "SHIFT_REQUIRED") {
+            results.failed.push({ studentId, code: "SHIFT_REQUIRED" });
+            continue;
+          }
           const code = error?.response?.data?.errors?.code;
           if (code === "ALREADY_ENROLLED") {
             results.alreadyEnrolled.push(studentId);
@@ -1232,7 +1246,11 @@ function Classes() {
       }
     },
     onError: (error) => {
-      toast.error(error?.response?.data?.error || "Failed to add students.");
+      toast.error(
+        error?.response?.data?.message ||
+          error?.response?.data?.error ||
+          "Failed to add students."
+      );
     },
   });
 
