@@ -1685,6 +1685,16 @@ function Classes() {
     Math.round((enrolledStudentsCount / classCapacity) * 100)
   );
   const isClassFull = enrolledStudentsCount >= classCapacity;
+  const isClassExpired = useMemo(() => {
+    if (!activeClass?.endDate) return false;
+    const end = new Date(activeClass.endDate);
+    if (Number.isNaN(end.getTime())) return false;
+    const endDay = new Date(end);
+    endDay.setHours(0, 0, 0, 0);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return today.getTime() > endDay.getTime();
+  }, [activeClass?.endDate]);
   const remainingSeats = Math.max(0, classCapacity - enrolledStudentsCount);
   const classFillColor =
     classFillPercent >= 100
@@ -2730,6 +2740,11 @@ function Classes() {
                   <p className="mt-1 text-sm text-slate-500">
                     Full class price: PKR {Number(activeClass?.totalPrice || 0).toLocaleString("en-PK")}
                   </p>
+                  {isClassExpired ? (
+                    <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">
+                      This class is expired. Enrollment is disabled.
+                    </div>
+                  ) : null}
                   {isClassFull ? (
                     <div className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">
                       Class is full ({enrolledStudentsCount}/{classCapacity} students)
@@ -2749,7 +2764,7 @@ function Classes() {
                             setEnrollEnrollmentType("full_class");
                             setEnrollCourseId("");
                           }}
-                          disabled={isClassFull}
+                          disabled={isClassFull || isClassExpired}
                         />
                         Full Class (PKR {Number(activeClass?.totalPrice || 0).toLocaleString("en-PK")})
                       </label>
@@ -2778,7 +2793,7 @@ function Classes() {
                             type="button"
                             className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700 disabled:opacity-50"
                             onClick={() => setEnrollStudentIds([])}
-                            disabled={isClassFull || enrollStudentIds.length < 1}
+                            disabled={isClassFull || isClassExpired || enrollStudentIds.length < 1}
                           >
                             Clear
                           </button>
@@ -2790,7 +2805,7 @@ function Classes() {
                         onChange={(event) => setEnrollStudentSearch(event.target.value)}
                         className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm"
                         placeholder="Search student by name/email"
-                        disabled={isClassFull}
+                        disabled={isClassFull || isClassExpired}
                       />
 
                       <div className="max-h-60 overflow-auto rounded-2xl border border-slate-200 bg-white p-2">
@@ -2806,7 +2821,7 @@ function Classes() {
                             const checked = enrollStudentIds.includes(studentId);
                             const seatLimitReached =
                               !checked && remainingSeats > 0 && enrollStudentIds.length >= remainingSeats;
-                            const checkboxDisabled = isClassFull || seatLimitReached;
+                            const checkboxDisabled = isClassFull || isClassExpired || seatLimitReached;
                             return (
                               <label
                                 key={studentId}
@@ -2857,8 +2872,8 @@ function Classes() {
                       value={enrollShiftId}
                       onChange={(event) => setEnrollShiftId(event.target.value)}
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm"
-                      disabled={isClassFull}
-                    >
+	                      disabled={isClassFull || isClassExpired}
+	                    >
                       <option value="">Select shift</option>
                       {availableShiftsForEnrollment.map((shift) => (
                         <option key={shift.id} value={shift.id}>
@@ -2872,6 +2887,10 @@ function Classes() {
                       type="button"
                       onClick={() => {
                         const remaining = Math.max(0, classCapacity - enrolledStudentsCount);
+                        if (isClassExpired) {
+                          toast.error("This class is expired. Enrollment is disabled.");
+                          return;
+                        }
                         if (!enrollStudentIds.length) {
                           toast.error("Select at least one student.");
                           return;
@@ -2901,16 +2920,18 @@ function Classes() {
                         });
                       }}
                       className="btn-primary h-[52px] self-start"
-                      disabled={addStudentsMutation.isPending || isClassFull}
-                    >
-                      {isClassFull
-                        ? "Class Full"
-                        : addStudentsMutation.isPending
-                        ? "Adding..."
-                        : enrollStudentIds.length > 0
-                          ? `Add ${enrollStudentIds.length} Student(s)`
-                          : "Add Students"}
-                    </button>
+	                      disabled={addStudentsMutation.isPending || isClassFull || isClassExpired}
+	                    >
+	                      {isClassExpired
+	                        ? "Class Expired"
+	                        : isClassFull
+	                        ? "Class Full"
+	                        : addStudentsMutation.isPending
+	                        ? "Adding..."
+	                        : enrollStudentIds.length > 0
+	                          ? `Add ${enrollStudentIds.length} Student(s)`
+	                          : "Add Students"}
+	                    </button>
                   </div>
                   {selectedEnrollShift ? (
                     <p className="mt-3 text-xs text-slate-500">
