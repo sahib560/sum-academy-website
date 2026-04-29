@@ -1586,41 +1586,58 @@ function TeacherQuizzes() {
 	                  {bulkPreview.rowPreviews.length > 0 ? (
 	                    <div className="overflow-x-auto rounded-xl border border-slate-200">
 	                      <table className="min-w-full text-left text-xs">
-                        <thead className="bg-slate-100 text-slate-600">
-                          <tr>
-                            <th className="px-3 py-2">Row</th>
-                            <th className="px-3 py-2">quizTitle</th>
-                            <th className="px-3 py-2">questionText</th>
-                            <th className="px-3 py-2">answer key</th>
-                            <th className="px-3 py-2">marks</th>
-                            <th className="px-3 py-2">errors</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {bulkPreview.rowPreviews.slice(0, 5).map((row) => (
-                            <tr
-                              key={row.rowNo}
-                              className={
-                                row.errors.length
-                                  ? "border-t border-rose-200 bg-rose-50"
-                                  : "border-t border-slate-200"
-                              }
-                            >
-                              <td className="px-3 py-2 text-slate-500">{row.rowNo}</td>
-                              <td className="px-3 py-2 text-slate-700">{row.quizTitle}</td>
-                              <td className="px-3 py-2 text-slate-700">{row.questionText}</td>
-                              <td className="px-3 py-2">
-                                <span className="text-xs font-semibold text-emerald-700">
-                                  Correct: {row.correctAnswer || "-"}
-                                </span>
-                              </td>
-                              <td className="px-3 py-2 text-slate-700">{row.marks}</td>
-                              <td className="px-3 py-2 text-rose-600">
-                                {row.errors.join(", ") || "-"}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
+	                        <thead className="bg-slate-100 text-slate-600">
+	                          <tr>
+	                            <th className="px-3 py-2">Row</th>
+	                            <th className="px-3 py-2">quizTitle</th>
+	                            <th className="px-3 py-2">questionText</th>
+	                            <th className="px-3 py-2">image</th>
+	                            <th className="px-3 py-2">answer key</th>
+	                            <th className="px-3 py-2">marks</th>
+	                            <th className="px-3 py-2">errors</th>
+	                          </tr>
+	                        </thead>
+	                        <tbody>
+		                          {bulkPreview.rowPreviews.slice(0, 5).map((row) => {
+		                            const rowWithImage =
+		                              bulkPreview.rows?.find((r) => r.rowNo === row.rowNo) || {};
+		                            return (
+		                              <tr
+		                                key={row.rowNo}
+		                                className={
+		                                  row.errors.length
+		                                    ? "border-t border-rose-200 bg-rose-50"
+		                                    : "border-t border-slate-200"
+		                                }
+		                              >
+		                              <td className="px-3 py-2 text-slate-500">{row.rowNo}</td>
+		                              <td className="px-3 py-2 text-slate-700">{row.quizTitle}</td>
+		                              <td className="px-3 py-2 text-slate-700">{row.questionText}</td>
+		                              <td className="px-3 py-2">
+		                                {rowWithImage.imageUrl ? (
+	                                  <img
+	                                    src={rowWithImage.imageUrl}
+	                                    alt="Q"
+	                                    className="h-8 w-8 rounded-lg border border-slate-200 object-cover"
+	                                    draggable={false}
+	                                  />
+	                                ) : (
+	                                  <span className="text-slate-400">-</span>
+	                                )}
+	                              </td>
+	                              <td className="px-3 py-2">
+	                                <span className="text-xs font-semibold text-emerald-700">
+	                                  Correct: {row.correctAnswer || "-"}
+	                                </span>
+	                              </td>
+	                              <td className="px-3 py-2 text-slate-700">{row.marks}</td>
+		                              <td className="px-3 py-2 text-rose-600">
+		                                {row.errors.join(", ") || "-"}
+		                              </td>
+		                              </tr>
+		                            );
+		                          })}
+		                        </tbody>
 	                      </table>
 	                    </div>
 	                  ) : null}

@@ -1098,14 +1098,14 @@ const loginUser = async (req, res) => {
 	      if (
 	        userData[assignedDeviceField] &&
 	        userData[assignedDeviceField] !== "" &&
-        userData[assignedUniqueDeviceIdField] &&
-        userData[assignedUniqueDeviceIdField] !== ""
-	      ) {
-	        const deviceMatch =
-	          userData[assignedUniqueDeviceIdField] === req.uniqueDeviceId;
-	        const deviceResetPending =
-	          userData.deviceResetPending === true ||
-	          (!!userData.deviceResetAt && !userData.deviceResetConsumedAt);
+	        userData[assignedUniqueDeviceIdField] &&
+	        userData[assignedUniqueDeviceIdField] !== ""
+		      ) {
+		        const deviceMatch =
+		          userData[assignedUniqueDeviceIdField] === req.uniqueDeviceId;
+		        const deviceResetPending =
+		          userData.deviceResetPending === true ||
+		          (!!userData.deviceResetAt && !userData.deviceResetConsumedAt);
 
         console.log(`[Security Check]`);
         console.log(`  Device Type      : ${isMobileDevice ? "mobile" : "web"}`);
@@ -1115,8 +1115,24 @@ const loginUser = async (req, res) => {
         console.log(`  Assigned Device  : ${userData[assignedDeviceField]}`);
         console.log(`  Current  Device  : ${req.clientDevice}`);
 
-	        if (!deviceMatch) {
-	          if (deviceResetPending) {
+		        // If the mobile app doesn't provide a stable fingerprint, we allow a "soft match"
+		        // when device name matches and only the computed uniqueDeviceId changed.
+		        const softMatchAllowed =
+		          isMobileDevice &&
+		          trimText(userData[assignedDeviceField]) &&
+		          trimText(userData[assignedDeviceField]) === trimText(req.clientDevice) &&
+		          trimText(req.uniqueDeviceId);
+
+		        if (!deviceMatch && softMatchAllowed) {
+		          await db.collection("users").doc(uid).update({
+		            [assignedIpField]: req.clientIP || "",
+		            [assignedUniqueDeviceIdField]: trimText(req.uniqueDeviceId),
+		            [lastKnownIpField]: req.clientIP || "",
+		            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+		          });
+		          console.log("[Security] Soft match accepted for mobile device; refreshed fingerprint.");
+		        } else if (!deviceMatch) {
+		          if (deviceResetPending) {
 	            const claimedDeviceId = String(req.uniqueDeviceId || "").trim();
 	            await db.collection("users").doc(uid).update({
 	              [assignedDeviceField]: req.clientDevice || "",
@@ -1153,33 +1169,33 @@ const loginUser = async (req, res) => {
             timestamp: admin.firestore.FieldValue.serverTimestamp(),
           });
 
-	          return errorResponse(
-	            res,
-	            "You are trying to login from a different device. Please use your registered device or contact your admin or teacher to reset your device.",
-	            403,
-            {
-              code: "DEVICE_MISMATCH",
-              contactAdmin: true,
-              registeredDevice: userData[assignedDeviceField],
-              currentDevice: req.clientDevice,
-	            }
-	          );
-	          }
-	        }
-	      } else {
+		          return errorResponse(
+		            res,
+		            "You are trying to login from a different device. Please use your registered device or contact your admin or teacher to reset your device.",
+		            403,
+		            {
+		              code: "DEVICE_MISMATCH",
+		              contactAdmin: true,
+		              registeredDevice: userData[assignedDeviceField],
+		              currentDevice: req.clientDevice,
+		            }
+		          );
+		          }
+		        }
+		      } else {
 	        await db.collection("users").doc(uid).update({
 	          [assignedDeviceField]: req.clientDevice,
 	          [assignedIpField]: req.clientIP,
           [assignedUniqueDeviceIdField]: req.uniqueDeviceId,
           [lastKnownIpField]: req.clientIP,
-        });
-        console.log(
-          `[Security] First login - device fingerprint saved (${isMobileDevice ? "mobile" : "web"})`
-        );
-      }
-    } else if (userData.role === "admin" || userData.role === "teacher") {
-      console.log("[Security] Role is admin/teacher — device check skipped");
-    }
+	        });
+	        console.log(
+	          `[Security] First login - device fingerprint saved (${isMobileDevice ? "mobile" : "web"})`
+	        );
+	      }
+	    } else if (userData.role === "admin" || userData.role === "teacher") {
+	      console.log("[Security] Role is admin/teacher — device check skipped");
+	    }
 
     // Single device enforcement — deactivate old sessions
     const sessionsSnap = await db
@@ -1365,11 +1381,27 @@ const getMe = async (req, res) => {
 	        userData.deviceResetPending === true ||
 	        (!!userData.deviceResetAt && !userData.deviceResetConsumedAt);
 
-	      if (assignedDevice && assignedDeviceId) {
-	        const deviceMatch = assignedDeviceId === currentDeviceId;
+		      if (assignedDevice && assignedDeviceId) {
+		        const deviceMatch = assignedDeviceId === currentDeviceId;
 
-	        if (!deviceMatch) {
-	          if (deviceResetPending) {
+		        const softMatchAllowed =
+		          isMobileDevice &&
+		          assignedDevice &&
+		          assignedDevice === trimText(clientDevice) &&
+		          currentDeviceId;
+
+		        if (!deviceMatch && softMatchAllowed) {
+		          await db.collection("users").doc(uid).set(
+		            {
+		              [assignedIpField]: clientIP,
+		              [assignedUniqueDeviceIdField]: currentDeviceId,
+		              [lastKnownIpField]: clientIP,
+		              updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+		            },
+		            { merge: true }
+		          );
+		        } else if (!deviceMatch) {
+		          if (deviceResetPending) {
 	            await db.collection("users").doc(uid).set(
 	              {
 	                [assignedDeviceField]: clientDevice,
@@ -1409,20 +1441,20 @@ const getMe = async (req, res) => {
             timestamp: admin.firestore.FieldValue.serverTimestamp(),
           });
 
-	          return errorResponse(
-	            res,
-	            "You are trying to login from a different device. Please use your registered device or contact your admin or teacher to reset your device.",
-	            403,
-            {
-              code: "DEVICE_MISMATCH",
-              contactAdmin: true,
-              registeredDevice: assignedDevice,
-              currentDevice: clientDevice,
-	            }
-	          );
-	          }
-	        }
-	      } else if (clientDevice && clientIP) {
+		          return errorResponse(
+		            res,
+		            "You are trying to login from a different device. Please use your registered device or contact your admin or teacher to reset your device.",
+		            403,
+		            {
+		              code: "DEVICE_MISMATCH",
+		              contactAdmin: true,
+		              registeredDevice: assignedDevice,
+		              currentDevice: clientDevice,
+		            }
+		          );
+		          }
+		        }
+		      } else if (clientDevice && clientIP) {
 	        await db.collection("users").doc(uid).set(
 	          {
             [assignedDeviceField]: clientDevice,

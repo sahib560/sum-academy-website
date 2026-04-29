@@ -1502,7 +1502,7 @@ function Classes() {
     setDrawerTab(defaultTab);
     setDrawerCourseId("");
     setStudentSearch("");
-    setEnrollStudentId("");
+    setEnrollStudentIds([]);
     setEnrollShiftId("");
     setEnrollEnrollmentType("full_class");
     setEnrollCourseId("");
