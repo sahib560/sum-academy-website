@@ -214,6 +214,22 @@ export const bulkUploadTeacherQuiz = (file, onUploadProgress) => {
     .then((r) => r.data);
 };
 
+export const uploadQuizQuestionImage = (file, onUploadProgress) => {
+  const formData = new FormData();
+  formData.append("image", file);
+  return api
+    .post("/teacher/quizzes/questions/image", formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+      onUploadProgress,
+    })
+    .then((r) => r.data.data);
+};
+
+export const deleteQuizQuestionImage = (imagePath) =>
+  api
+    .post("/teacher/quizzes/questions/image/delete", { imagePath })
+    .then((r) => r.data.data);
+
 export const downloadTeacherQuizTemplate = async (params) => {
   const response = await api.get("/teacher/quizzes/template", {
     params,

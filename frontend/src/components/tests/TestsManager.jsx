@@ -139,6 +139,7 @@ export default function TestsManager({
   const [bulkBusyRow, setBulkBusyRow] = useState({});
   const [manualBusyRow, setManualBusyRow] = useState({});
   const questionRefs = useRef([]);
+  const optionRefs = useRef([]);
   const [adminEditOpen, setAdminEditOpen] = useState(false);
   const [adminDeleteOpen, setAdminDeleteOpen] = useState(false);
   const [adminReassignOpen, setAdminReassignOpen] = useState(false);
@@ -492,10 +493,10 @@ export default function TestsManager({
       maxViolations: Number(form.maxViolations || 3),
       questions: form.questions.map((q) => ({
         questionText: sanitizeQuestionHtml(q.questionText),
-        optionA: q.optionA,
-        optionB: q.optionB,
-        optionC: q.optionC,
-        optionD: q.optionD,
+        optionA: sanitizeQuestionHtml(q.optionA),
+        optionB: sanitizeQuestionHtml(q.optionB),
+        optionC: sanitizeQuestionHtml(q.optionC),
+        optionD: sanitizeQuestionHtml(q.optionD),
         correctAnswer: q.correctAnswer,
         expectedAnswer: "",
         marks: Number(q.marks || 1),
@@ -504,6 +505,37 @@ export default function TestsManager({
       })),
     };
     createMutation.mutate(payload);
+  };
+
+  const wrapOptionSelection = (questionIndex, optionKey, tagName) => {
+    const element = optionRefs.current?.[questionIndex]?.[optionKey];
+    if (!element) return;
+    const start = Number(element.selectionStart || 0);
+    const end = Number(element.selectionEnd || 0);
+    const current = String(form.questions?.[questionIndex]?.[optionKey] || "");
+    const before = current.slice(0, start);
+    const selected = current.slice(start, end);
+    const after = current.slice(end);
+    const fallbackText = selected || "2";
+    const insert = `<${tagName}>${fallbackText}</${tagName}>`;
+
+    setForm((p) => ({
+      ...p,
+      questions: (p.questions || []).map((q, idx) =>
+        idx === questionIndex ? { ...q, [optionKey]: `${before}${insert}${after}` } : q
+      ),
+    }));
+
+    setTimeout(() => {
+      try {
+        element.focus();
+        const caret = before.length + tagName.length + 2;
+        const selEnd = caret + fallbackText.length;
+        element.setSelectionRange(caret, selEnd);
+      } catch {
+        // ignore
+      }
+    }, 0);
   };
 
   const wrapSelection = (questionIndex, tagName) => {
@@ -1111,20 +1143,52 @@ export default function TestsManager({
               </div>
               <div className="mt-2 grid gap-2 md:grid-cols-2">
                 {["A", "B", "C", "D"].map((letter) => (
-                  <input
-                    key={letter}
-                    className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                    placeholder={`Option ${letter}`}
-                    value={question[`option${letter}`]}
-                    onChange={(e) =>
-                      setForm((p) => ({
-                        ...p,
-                        questions: p.questions.map((q, i) =>
-                          i === idx ? { ...q, [`option${letter}`]: e.target.value } : q
-                        ),
-                      }))
-                    }
-                  />
+                  <div key={letter} className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <input
+                        className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                        placeholder={`Option ${letter}`}
+                        value={question[`option${letter}`]}
+                        ref={(el) => {
+                          if (!optionRefs.current[idx]) optionRefs.current[idx] = {};
+                          optionRefs.current[idx][`option${letter}`] = el;
+                        }}
+                        onChange={(e) =>
+                          setForm((p) => ({
+                            ...p,
+                            questions: p.questions.map((q, i) =>
+                              i === idx ? { ...q, [`option${letter}`]: e.target.value } : q
+                            ),
+                          }))
+                        }
+                      />
+                      <div className="flex shrink-0 items-center gap-1">
+                        <button
+                          type="button"
+                          className="rounded-lg border border-slate-200 px-2 py-1 text-[11px] font-semibold text-slate-700 hover:border-primary/40 hover:bg-primary/5 hover:text-primary"
+                          onClick={() => wrapOptionSelection(idx, `option${letter}`, "sup")}
+                          title="Superscript"
+                        >
+                          x²
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded-lg border border-slate-200 px-2 py-1 text-[11px] font-semibold text-slate-700 hover:border-primary/40 hover:bg-primary/5 hover:text-primary"
+                          onClick={() => wrapOptionSelection(idx, `option${letter}`, "sub")}
+                          title="Subscript"
+                        >
+                          x₂
+                        </button>
+                      </div>
+                    </div>
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+                      <div
+                        dangerouslySetInnerHTML={{
+                          __html: sanitizeQuestionHtml(question[`option${letter}`] || ""),
+                        }}
+                      />
+                    </div>
+                  </div>
                 ))}
                 <select
                   className="rounded-xl border border-slate-200 px-3 py-2 text-sm"

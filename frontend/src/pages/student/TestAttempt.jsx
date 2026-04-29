@@ -30,6 +30,7 @@ function StudentTestAttempt() {
   const [currentQuestion, setCurrentQuestion] = useState(null);
   const [selectedAnswer, setSelectedAnswer] = useState("");
   const [questionTimeLeft, setQuestionTimeLeft] = useState(0);
+  const [hasReachedLast, setHasReachedLast] = useState(false);
   const autoFinishRef = useRef(false);
   const autoAdvanceRef = useRef({ questionId: "", fired: false });
   const warnedTenRef = useRef({ questionId: "", fired: false });
@@ -155,6 +156,14 @@ function StudentTestAttempt() {
     ["submitted", "auto_submitted"].includes(
       String(attempt.status || "").toLowerCase()
     );
+
+  const currentIndex = Number(attempt?.currentIndex || 0);
+  const totalQuestions = Number(attempt?.totalQuestions || 0);
+  const isLastQuestion = totalQuestions > 0 && currentIndex >= totalQuestions - 1;
+
+  useEffect(() => {
+    if (isLastQuestion) setHasReachedLast(true);
+  }, [isLastQuestion]);
 
   useEffect(() => {
     if (!currentQuestion?.questionId) return;
@@ -408,7 +417,7 @@ function StudentTestAttempt() {
             }}
           />
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-            Question {Number(attempt?.currentIndex || 0) + 1} of {attempt?.totalQuestions || 0}
+            Question {currentIndex + 1} of {totalQuestions || 0}
           </p>
           {currentQuestion.imageUrl ? (
             <img
@@ -472,10 +481,19 @@ function StudentTestAttempt() {
             <button
               type="button"
               onClick={() => finishMutation.mutate("manual")}
-              disabled={finishMutation.isPending}
-              className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700"
+              disabled={finishMutation.isPending || !hasReachedLast}
+              title={
+                hasReachedLast
+                  ? "Submit test"
+                  : "Go to the last question first to enable submit"
+              }
+              className={`rounded-xl border px-4 py-2 text-sm font-semibold ${
+                hasReachedLast
+                  ? "border-slate-300 text-slate-700 hover:border-primary/40 hover:bg-primary/5 hover:text-primary"
+                  : "border-slate-200 text-slate-400 cursor-not-allowed opacity-70"
+              }`}
             >
-              Submit Test
+              {hasReachedLast ? "Submit Test" : "Submit (Reach Last Question)"}
             </button>
           </div>
         </section>

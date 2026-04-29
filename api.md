@@ -1556,3 +1556,76 @@ Returns the Android APK file. Error response (JSON) if missing:
 ```json
 { "success": false, "message": "APK file not found" }
 ```
+
+---
+
+## 2026-04-29 Updates
+
+### Quiz Bulk CSV: Question Image Upload (Teacher/Admin)
+
+These endpoints let the UI upload an image per CSV row (question) before creating quizzes.
+
+#### POST `/api/teacher/quizzes/questions/image`
+#### POST `/api/admin/quizzes/questions/image`
+- Auth: `Bearer`
+- Role: `teacher` or `admin`
+- Content-Type: `multipart/form-data`
+- Form field: `image` (JPG/PNG/WEBP, max 2MB)
+
+Success:
+```json
+{
+  "success": true,
+  "message": "Quiz question image uploaded",
+  "data": {
+    "imageUrl": "https://firebasestorage.googleapis.com/v0/b/<bucket>/o/quizzes%2Fquestions%2F...jpg?alt=media&token=...",
+    "imagePath": "quizzes/questions/1713880000000-example.jpg"
+  }
+}
+```
+
+Error (invalid type):
+```json
+{
+  "success": false,
+  "message": "Only JPG, PNG, WEBP images are allowed",
+  "errors": { "code": "INVALID_FILE_TYPE" }
+}
+```
+
+Error (too large):
+```json
+{
+  "success": false,
+  "message": "Max image size is 2MB",
+  "errors": { "code": "FILE_TOO_LARGE", "maxBytes": 2097152 }
+}
+```
+
+#### POST `/api/teacher/quizzes/questions/image/delete`
+#### POST `/api/admin/quizzes/questions/image/delete`
+- Auth: `Bearer`
+- Role: `teacher` or `admin`
+- Body:
+```json
+{ "imagePath": "quizzes/questions/1713880000000-example.jpg" }
+```
+
+Success:
+```json
+{
+  "success": true,
+  "message": "Quiz question image deleted",
+  "data": { "imagePath": "quizzes/questions/1713880000000-example.jpg" }
+}
+```
+
+### Device Binding (Web vs Mobile)
+
+Device binding is stored separately for web and mobile so a student can log in on Android and later log in on the website without getting blocked.
+
+User fields (Firestore: `users/{uid}`):
+- Web: `assignedWebDevice`, `assignedWebIp`, `assignedUniqueDeviceId`, `lastKnownWebIp`
+- Mobile: `assignedMobileDevice`, `assignedMobileIp`, `assignedMobileUniqueDeviceId`, `lastKnownMobileIp`
+
+Admin reset clears both web and mobile fields and sets `deviceResetPending=true` so the next login on that platform can bind a fresh device.

@@ -1,6 +1,7 @@
-import { db, admin } from "../config/firebase.js";
+import { db, admin, bucket } from "../config/firebase.js";
 import { COLLECTIONS } from "../config/collections.js";
 import { successResponse, errorResponse } from "../utils/response.utils.js";
+import { v4 as uuidv4 } from "uuid";
 
 const serverTimestamp = () => admin.firestore.FieldValue.serverTimestamp();
 const trimText = (value = "") => String(value || "").trim();
@@ -147,6 +148,107 @@ const parseFormula = (text) => {
   });
 
   return sanitizeAllowedHtml(result);
+};
+
+// ---------------------------
+// Quiz Question Image Upload
+// ---------------------------
+const QUIZ_QUESTION_IMAGE_PREFIX = "quiz/questions";
+const MAX_QUIZ_QUESTION_IMAGE_SIZE_BYTES = 2 * 1024 * 1024;
+const ALLOWED_QUIZ_IMAGE_MIMES = new Set(["image/jpeg", "image/png", "image/webp"]);
+
+const safeStorageFilename = (filename = "") =>
+  trimText(filename).replace(/[^\w.-]+/g, "_").slice(0, 120) || "image";
+
+const buildFirebaseDownloadUrl = ({ path, token }) => {
+  const bucketName = bucket?.name || "";
+  if (!bucketName || !path || !token) return "";
+  return `https://firebasestorage.googleapis.com/v0/b/${encodeURIComponent(
+    bucketName
+  )}/o/${encodeURIComponent(path)}?alt=media&token=${encodeURIComponent(token)}`;
+};
+
+export const uploadQuizQuestionImage = async (req, res) => {
+  try {
+    const uid = trimText(req.user?.uid);
+    const role = lowerText(req.user?.role || "");
+    if (!uid) return errorResponse(res, "Missing user uid", 400);
+    if (!(role === "admin" || role === "teacher")) {
+      return errorResponse(res, "Access denied", 403);
+    }
+
+    const file = req.file || null;
+    if (!file) return errorResponse(res, "image file is required", 400);
+
+    const mime = trimText(file.mimetype);
+    if (!ALLOWED_QUIZ_IMAGE_MIMES.has(mime)) {
+      return errorResponse(res, "Only JPG, PNG, WEBP images are allowed", 400, {
+        code: "INVALID_FILE_TYPE",
+      });
+    }
+
+    const size = Number(file.size || 0);
+    if (size > MAX_QUIZ_QUESTION_IMAGE_SIZE_BYTES) {
+      return errorResponse(res, "Max image size is 2MB", 400, {
+        code: "FILE_TOO_LARGE",
+        maxBytes: MAX_QUIZ_QUESTION_IMAGE_SIZE_BYTES,
+      });
+    }
+
+    const token = uuidv4();
+    const safeName = safeStorageFilename(file.originalname);
+    const path = `${QUIZ_QUESTION_IMAGE_PREFIX}/${Date.now()}-${safeName}`;
+    const storageFile = bucket.file(path);
+
+    await storageFile.save(file.buffer, {
+      contentType: mime,
+      metadata: { firebaseStorageDownloadTokens: token },
+      resumable: false,
+    });
+
+    return successResponse(
+      res,
+      {
+        imageUrl: buildFirebaseDownloadUrl({ path, token }),
+        imagePath: path,
+      },
+      "Quiz question image uploaded"
+    );
+  } catch (error) {
+    console.error("uploadQuizQuestionImage error:", error);
+    return errorResponse(res, "Failed to upload image", 500);
+  }
+};
+
+export const deleteQuizQuestionImage = async (req, res) => {
+  try {
+    const uid = trimText(req.user?.uid);
+    const role = lowerText(req.user?.role || "");
+    if (!uid) return errorResponse(res, "Missing user uid", 400);
+    if (!(role === "admin" || role === "teacher")) {
+      return errorResponse(res, "Access denied", 403);
+    }
+
+    const imagePath = trimText(req.body?.imagePath);
+    if (!imagePath) return errorResponse(res, "imagePath is required", 400);
+    if (!imagePath.startsWith(`${QUIZ_QUESTION_IMAGE_PREFIX}/`)) {
+      return errorResponse(res, "Invalid imagePath", 400, {
+        code: "INVALID_IMAGE_PATH",
+      });
+    }
+
+    try {
+      await bucket.file(imagePath).delete();
+    } catch (storageError) {
+      const code = storageError?.code || storageError?.statusCode;
+      if (!(code === 404 || code === 400)) throw storageError;
+    }
+
+    return successResponse(res, { imagePath }, "Quiz question image deleted");
+  } catch (error) {
+    console.error("deleteQuizQuestionImage error:", error);
+    return errorResponse(res, "Failed to delete image", 500);
+  }
 };
 const PERMANENT_COMPLETION_MESSAGE =
   "This class or subject is completed. Your certificate is generated. Thank you for joining us. Keep exploring our other subjects and classes. Thank you.";
@@ -438,6 +540,8 @@ const normalizeQuestionInput = (questionInput = {}, rowRef = 1) => {
       correctAnswer,
       expectedAnswer: "",
       marks,
+      imageUrl: trimText(questionInput.imageUrl) || null,
+      imagePath: trimText(questionInput.imagePath) || null,
       requiresManualReview: false,
       order: Number.isFinite(Number(rowRef)) ? Number(rowRef) : 1,
     };
@@ -457,6 +561,8 @@ const normalizeQuestionInput = (questionInput = {}, rowRef = 1) => {
       correctAnswer,
       expectedAnswer: "",
       marks,
+      imageUrl: trimText(questionInput.imageUrl) || null,
+      imagePath: trimText(questionInput.imagePath) || null,
       requiresManualReview: false,
       order: Number.isFinite(Number(rowRef)) ? Number(rowRef) : 1,
     };
@@ -477,6 +583,8 @@ const normalizeQuestionInput = (questionInput = {}, rowRef = 1) => {
       correctAnswer: "",
       expectedAnswer,
       marks,
+      imageUrl: trimText(questionInput.imageUrl) || null,
+      imagePath: trimText(questionInput.imagePath) || null,
       requiresManualReview: true,
       order: Number.isFinite(Number(rowRef)) ? Number(rowRef) : 1,
     };

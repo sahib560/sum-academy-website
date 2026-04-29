@@ -1,4 +1,4 @@
-import { admin, db } from "../config/firebase.js";
+﻿import { admin, db } from "../config/firebase.js";
 import { successResponse, errorResponse } from "../utils/response.utils.js";
 import {
   isPakistanPhone,
@@ -898,6 +898,8 @@ const registerUser = async (req, res) => {
           ? rawIp.replace("::ffff:", "")
           : rawIp;
 
+    const isMobileDevice = String(req.deviceType || "").toLowerCase() === "mobile";
+
     const userRef = db.collection("users").doc(uid);
     batch.set(userRef, {
       uid,
@@ -909,10 +911,16 @@ const registerUser = async (req, res) => {
       isActive: false,
       status: "pending_approval",
       registeredAt: admin.firestore.FieldValue.serverTimestamp(),
-      assignedWebDevice: safeDevice,
-      assignedWebIp: safeIp,
-      assignedUniqueDeviceId: safeUniqueDeviceId,
-      lastKnownWebIp: safeIp,
+      // Device binding is kept separate for web vs mobile, so first-time web login
+      // doesn't get blocked just because the student previously logged in on Android.
+      assignedWebDevice: isMobileDevice ? "" : safeDevice,
+      assignedWebIp: isMobileDevice ? "" : safeIp,
+      assignedUniqueDeviceId: isMobileDevice ? "" : safeUniqueDeviceId,
+      lastKnownWebIp: isMobileDevice ? "" : safeIp,
+      assignedMobileDevice: isMobileDevice ? safeDevice : "",
+      assignedMobileIp: isMobileDevice ? safeIp : "",
+      assignedMobileUniqueDeviceId: isMobileDevice ? safeUniqueDeviceId : "",
+      lastKnownMobileIp: isMobileDevice ? safeIp : "",
       lastLoginAt: admin.firestore.FieldValue.serverTimestamp(),
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
@@ -1007,35 +1015,114 @@ const loginUser = async (req, res) => {
       );
     }
 
-    // Device check
-    if (userData.role === "student") {
-      if (
-        userData.assignedWebDevice &&
-        userData.assignedWebDevice !== "" &&
-        userData.assignedUniqueDeviceId &&
-        userData.assignedUniqueDeviceId !== ""
+	    // Device check
+	    if (userData.role === "student") {
+	      const isMobileDevice = String(req.deviceType || "").toLowerCase() === "mobile";
+	      const assignedDeviceField = isMobileDevice ? "assignedMobileDevice" : "assignedWebDevice";
+	      const assignedIpField = isMobileDevice ? "assignedMobileIp" : "assignedWebIp";
+	      const assignedUniqueDeviceIdField = isMobileDevice
+	        ? "assignedMobileUniqueDeviceId"
+	        : "assignedUniqueDeviceId";
+	      const lastKnownIpField = isMobileDevice ? "lastKnownMobileIp" : "lastKnownWebIp";
+
+	      // Migration safeguard:
+	      // Older records sometimes stored a mobile assignment inside web fields (or vice-versa).
+	      // If we detect that pattern, move the assignment to the right fields once.
+	      const looksMobileDevice = (value = "") =>
+	        /android|iphone|ipad|ios|mobile/i.test(String(value || ""));
+	      const looksWebDevice = (value = "") =>
+	        /windows|macos|linux|chrome|firefox|edge|safari/i.test(String(value || ""));
+
+	      if (!isMobileDevice) {
+	        const webAssigned = trimText(userData.assignedWebDevice);
+	        const webAssignedId = trimText(userData.assignedUniqueDeviceId);
+	        const mobileAssignedId = trimText(userData.assignedMobileUniqueDeviceId);
+	        if (webAssigned && webAssignedId && !mobileAssignedId && looksMobileDevice(webAssigned)) {
+	          await db.collection("users").doc(uid).set(
+	            {
+	              assignedMobileDevice: webAssigned,
+	              assignedMobileIp: trimText(userData.assignedWebIp),
+	              assignedMobileUniqueDeviceId: webAssignedId,
+	              lastKnownMobileIp:
+	                trimText(userData.lastKnownWebIp) || trimText(userData.assignedWebIp),
+	              assignedWebDevice: "",
+	              assignedWebIp: "",
+	              assignedUniqueDeviceId: "",
+	              lastKnownWebIp: "",
+	              updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+	            },
+	            { merge: true }
+	          );
+	          userData.assignedMobileDevice = webAssigned;
+	          userData.assignedMobileIp = trimText(userData.assignedWebIp);
+	          userData.assignedMobileUniqueDeviceId = webAssignedId;
+	          userData.lastKnownMobileIp =
+	            trimText(userData.lastKnownWebIp) || trimText(userData.assignedWebIp);
+	          userData.assignedWebDevice = "";
+	          userData.assignedWebIp = "";
+	          userData.assignedUniqueDeviceId = "";
+	          userData.lastKnownWebIp = "";
+	        }
+	      } else {
+	        const mobileAssigned = trimText(userData.assignedMobileDevice);
+	        const mobileAssignedId = trimText(userData.assignedMobileUniqueDeviceId);
+	        const webAssignedId = trimText(userData.assignedUniqueDeviceId);
+	        if (mobileAssigned && mobileAssignedId && !webAssignedId && looksWebDevice(mobileAssigned)) {
+	          await db.collection("users").doc(uid).set(
+	            {
+	              assignedWebDevice: mobileAssigned,
+	              assignedWebIp: trimText(userData.assignedMobileIp),
+	              assignedUniqueDeviceId: mobileAssignedId,
+	              lastKnownWebIp:
+	                trimText(userData.lastKnownMobileIp) || trimText(userData.assignedMobileIp),
+	              assignedMobileDevice: "",
+	              assignedMobileIp: "",
+	              assignedMobileUniqueDeviceId: "",
+	              lastKnownMobileIp: "",
+	              updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+	            },
+	            { merge: true }
+	          );
+	          userData.assignedWebDevice = mobileAssigned;
+	          userData.assignedWebIp = trimText(userData.assignedMobileIp);
+	          userData.assignedUniqueDeviceId = mobileAssignedId;
+	          userData.lastKnownWebIp =
+	            trimText(userData.lastKnownMobileIp) || trimText(userData.assignedMobileIp);
+	          userData.assignedMobileDevice = "";
+	          userData.assignedMobileIp = "";
+	          userData.assignedMobileUniqueDeviceId = "";
+	          userData.lastKnownMobileIp = "";
+	        }
+	      }
+
+	      if (
+	        userData[assignedDeviceField] &&
+	        userData[assignedDeviceField] !== "" &&
+        userData[assignedUniqueDeviceIdField] &&
+        userData[assignedUniqueDeviceIdField] !== ""
 	      ) {
 	        const deviceMatch =
-	          userData.assignedUniqueDeviceId === req.uniqueDeviceId;
+	          userData[assignedUniqueDeviceIdField] === req.uniqueDeviceId;
 	        const deviceResetPending =
 	          userData.deviceResetPending === true ||
 	          (!!userData.deviceResetAt && !userData.deviceResetConsumedAt);
 
         console.log(`[Security Check]`);
-        console.log(`  Assigned DeviceID: ${userData.assignedUniqueDeviceId}`);
+        console.log(`  Device Type      : ${isMobileDevice ? "mobile" : "web"}`);
+        console.log(`  Assigned DeviceID: ${userData[assignedUniqueDeviceIdField]}`);
         console.log(`  Current  DeviceID: ${req.uniqueDeviceId}`);
         console.log(`  Device Match     : ${deviceMatch}`);
-        console.log(`  Assigned Device  : ${userData.assignedWebDevice}`);
+        console.log(`  Assigned Device  : ${userData[assignedDeviceField]}`);
         console.log(`  Current  Device  : ${req.clientDevice}`);
 
 	        if (!deviceMatch) {
 	          if (deviceResetPending) {
 	            const claimedDeviceId = String(req.uniqueDeviceId || "").trim();
 	            await db.collection("users").doc(uid).update({
-	              assignedWebDevice: req.clientDevice || "",
-	              assignedWebIp: req.clientIP || "",
-	              assignedUniqueDeviceId: claimedDeviceId,
-	              lastKnownWebIp: req.clientIP || "",
+	              [assignedDeviceField]: req.clientDevice || "",
+	              [assignedIpField]: req.clientIP || "",
+	              [assignedUniqueDeviceIdField]: claimedDeviceId,
+	              [lastKnownIpField]: req.clientIP || "",
 	              deviceResetPending: false,
 	              deviceResetConsumedAt: admin.firestore.FieldValue.serverTimestamp(),
 	              deviceResetConsumedByDeviceId: claimedDeviceId,
@@ -1058,9 +1145,9 @@ const loginUser = async (req, res) => {
 	            email: userData.email,
 	            action: "blocked_login",
 	            reason: "device_mismatch",
-            assignedDeviceId: userData.assignedUniqueDeviceId,
+            assignedDeviceId: userData[assignedUniqueDeviceIdField],
             attemptDeviceId: req.uniqueDeviceId,
-            assignedDeviceName: userData.assignedWebDevice,
+            assignedDeviceName: userData[assignedDeviceField],
             attemptDeviceName: req.clientDevice,
             ip: req.clientIP,
             timestamp: admin.firestore.FieldValue.serverTimestamp(),
@@ -1073,7 +1160,7 @@ const loginUser = async (req, res) => {
             {
               code: "DEVICE_MISMATCH",
               contactAdmin: true,
-              registeredDevice: userData.assignedWebDevice,
+              registeredDevice: userData[assignedDeviceField],
               currentDevice: req.clientDevice,
 	            }
 	          );
@@ -1081,12 +1168,14 @@ const loginUser = async (req, res) => {
 	        }
 	      } else {
 	        await db.collection("users").doc(uid).update({
-	          assignedWebDevice: req.clientDevice,
-	          assignedWebIp: req.clientIP,
-          assignedUniqueDeviceId: req.uniqueDeviceId,
-          lastKnownWebIp: req.clientIP,
+	          [assignedDeviceField]: req.clientDevice,
+	          [assignedIpField]: req.clientIP,
+          [assignedUniqueDeviceIdField]: req.uniqueDeviceId,
+          [lastKnownIpField]: req.clientIP,
         });
-        console.log(`[Security] First login — device fingerprint saved`);
+        console.log(
+          `[Security] First login - device fingerprint saved (${isMobileDevice ? "mobile" : "web"})`
+        );
       }
     } else if (userData.role === "admin" || userData.role === "teacher") {
       console.log("[Security] Role is admin/teacher — device check skipped");
@@ -1113,7 +1202,7 @@ const loginUser = async (req, res) => {
       active: true,
       ip: req.clientIP,
       device: req.clientDevice,
-      deviceType: "web",
+      deviceType: String(req.deviceType || "web"),
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
@@ -1205,9 +1294,9 @@ const getMe = async (req, res) => {
       return errorResponse(res, "User not found", 404);
     }
 
-    const userData = userSnap.data();
-    const role = String(userData.role || "").toLowerCase();
-    const { clientIP, clientDevice } = resolveClientContext(req);
+	    const userData = userSnap.data() || {};
+	    const role = String(userData.role || "").toLowerCase();
+	    const { clientIP, clientDevice } = resolveClientContext(req);
 
     if (userData.isActive === false) {
       return errorResponse(
@@ -1224,9 +1313,53 @@ const getMe = async (req, res) => {
       );
     }
 
-	    if (role === "student") {
-	      const assignedDevice = trimText(userData.assignedWebDevice);
-	      const assignedDeviceId = trimText(userData.assignedUniqueDeviceId);
+		    if (role === "student") {
+	        const isMobileDevice = String(req.deviceType || "").toLowerCase() === "mobile";
+	        const assignedDeviceField = isMobileDevice ? "assignedMobileDevice" : "assignedWebDevice";
+	        const assignedIpField = isMobileDevice ? "assignedMobileIp" : "assignedWebIp";
+	        const assignedUniqueDeviceIdField = isMobileDevice
+	          ? "assignedMobileUniqueDeviceId"
+	          : "assignedUniqueDeviceId";
+	        const lastKnownIpField = isMobileDevice ? "lastKnownMobileIp" : "lastKnownWebIp";
+
+	        // Migration safeguard (same intent as loginUser):
+	        // If older records stored a mobile assignment in web fields, move it once.
+	        const looksMobileDevice = (value = "") =>
+	          /android|iphone|ipad|ios|mobile/i.test(String(value || ""));
+	        if (!isMobileDevice) {
+	          const webAssigned = trimText(userData.assignedWebDevice);
+	          const webAssignedId = trimText(userData.assignedUniqueDeviceId);
+	          const mobileAssignedId = trimText(userData.assignedMobileUniqueDeviceId);
+	          if (webAssigned && webAssignedId && !mobileAssignedId && looksMobileDevice(webAssigned)) {
+	            await db.collection("users").doc(uid).set(
+	              {
+	                assignedMobileDevice: webAssigned,
+	                assignedMobileIp: trimText(userData.assignedWebIp),
+	                assignedMobileUniqueDeviceId: webAssignedId,
+	                lastKnownMobileIp:
+	                  trimText(userData.lastKnownWebIp) || trimText(userData.assignedWebIp),
+	                assignedWebDevice: "",
+	                assignedWebIp: "",
+	                assignedUniqueDeviceId: "",
+	                lastKnownWebIp: "",
+	                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+	              },
+	              { merge: true }
+	            );
+	            userData.assignedMobileDevice = webAssigned;
+	            userData.assignedMobileIp = trimText(userData.assignedWebIp);
+	            userData.assignedMobileUniqueDeviceId = webAssignedId;
+	            userData.lastKnownMobileIp =
+	              trimText(userData.lastKnownWebIp) || trimText(userData.assignedWebIp);
+	            userData.assignedWebDevice = "";
+	            userData.assignedWebIp = "";
+	            userData.assignedUniqueDeviceId = "";
+	            userData.lastKnownWebIp = "";
+	          }
+	        }
+
+		      const assignedDevice = trimText(userData?.[assignedDeviceField]);
+		      const assignedDeviceId = trimText(userData?.[assignedUniqueDeviceIdField]);
 	      const currentDeviceId = trimText(req.uniqueDeviceId);
 	      const deviceResetPending =
 	        userData.deviceResetPending === true ||
@@ -1239,10 +1372,10 @@ const getMe = async (req, res) => {
 	          if (deviceResetPending) {
 	            await db.collection("users").doc(uid).set(
 	              {
-	                assignedWebDevice: clientDevice,
-	                assignedWebIp: clientIP,
-	                assignedUniqueDeviceId: currentDeviceId,
-	                lastKnownWebIp: clientIP,
+	                [assignedDeviceField]: clientDevice,
+	                [assignedIpField]: clientIP,
+	                [assignedUniqueDeviceIdField]: currentDeviceId,
+	                [lastKnownIpField]: clientIP,
 	                deviceResetPending: false,
 	                deviceResetConsumedAt: admin.firestore.FieldValue.serverTimestamp(),
 	                deviceResetConsumedByDeviceId: currentDeviceId,
@@ -1292,10 +1425,10 @@ const getMe = async (req, res) => {
 	      } else if (clientDevice && clientIP) {
 	        await db.collection("users").doc(uid).set(
 	          {
-            assignedWebDevice: clientDevice,
-            assignedWebIp: clientIP,
-            assignedUniqueDeviceId: currentDeviceId,
-            lastKnownWebIp: clientIP,
+            [assignedDeviceField]: clientDevice,
+            [assignedIpField]: clientIP,
+            [assignedUniqueDeviceIdField]: currentDeviceId,
+            [lastKnownIpField]: clientIP,
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
           },
           { merge: true }
@@ -1341,6 +1474,10 @@ const getMe = async (req, res) => {
     delete fullProfile.assignedWebIp;
     delete fullProfile.lastKnownWebIp;
     delete fullProfile.assignedUniqueDeviceId;
+    delete fullProfile.assignedMobileDevice;
+    delete fullProfile.assignedMobileIp;
+    delete fullProfile.lastKnownMobileIp;
+    delete fullProfile.assignedMobileUniqueDeviceId;
 
     return successResponse(res, { user: fullProfile }, "Profile fetched");
   } catch (error) {

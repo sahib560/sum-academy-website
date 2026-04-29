@@ -25,6 +25,8 @@ import {
   bulkUploadTeacherQuiz,
   previewQuizEvaluation,
   parseFormulaPreview,
+  uploadQuizQuestionImage,
+  deleteQuizQuestionImage,
   submitQuizAttempt,
   getQuizSubmissions,
   gradeShortAnswerSubmission,
@@ -157,6 +159,12 @@ router.post("/quizzes", createTeacherQuiz);
 router.post("/quizzes/bulk-upload", upload.single("file"), bulkUploadTeacherQuiz);
 router.patch("/quizzes/:quizId/assign", assignQuiz);
 router.post("/quizzes/parse-formula", parseFormulaPreview);
+router.post(
+  "/quizzes/questions/image",
+  questionImageUpload.single("image"),
+  uploadQuizQuestionImage
+);
+router.post("/quizzes/questions/image/delete", deleteQuizQuestionImage);
 router.post("/quizzes/:quizId/evaluate", previewQuizEvaluation);
 router.post("/quizzes/:quizId/submissions", submitQuizAttempt);
 router.get("/quizzes/:quizId/submissions", getQuizSubmissions);

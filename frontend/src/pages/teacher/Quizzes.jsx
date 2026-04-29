@@ -31,6 +31,8 @@ import {
   getTeacherQuizSubmissions,
   gradeTeacherShortAnswers,
   getChapters,
+  uploadQuizQuestionImage,
+  deleteQuizQuestionImage,
 } from "../../services/teacher.service.js";
 
 const fadeUp = {
@@ -152,7 +154,7 @@ const parseCsvLine = (line = "") => {
 };
 
 const parseCsvForPreview = (csvText = "") => {
-  const rawLines = String(csvText || "").split(/\r?\n/);
+  const rawLines = String(csvText || "").replace(/^\uFEFF/, "").split(/\r?\n/);
   let commentRowsDetected = false;
   let headers = [];
   let headerFound = false;
@@ -208,6 +210,8 @@ const parseCsvForPreview = (csvText = "") => {
     correctAnswer: trimText(row.correctanswer),
     marks: trimText(row.marks),
     legacyQuestionType: trimText(row.questiontype),
+    imageUrl: "",
+    imagePath: "",
   }));
 
   if (normalizedRows.length === 0) {
@@ -299,6 +303,7 @@ const parseCsvForPreview = (csvText = "") => {
   const isValid = uniqueGlobalErrors.length === 0 && !hasRowErrors && rowPreviews.length > 0;
 
   return {
+    rows: normalizedRows,
     rowPreviews,
     questionCount: rowPreviews.length,
     commentRowsDetected,
@@ -334,6 +339,7 @@ function TeacherQuizzes() {
   const [bulkTarget, setBulkTarget] = useState(createDefaultBulkTarget());
   const [bulkFile, setBulkFile] = useState(null);
   const [bulkPreview, setBulkPreview] = useState(null);
+  const [bulkRowBusy, setBulkRowBusy] = useState({});
   const [templateDownloaded, setTemplateDownloaded] = useState(false);
   const [dragActive, setDragActive] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -821,6 +827,7 @@ function TeacherQuizzes() {
     setBulkTarget(createDefaultBulkTarget());
     setBulkFile(null);
     setBulkPreview(null);
+    setBulkRowBusy({});
     setTemplateDownloaded(false);
     setUploadResult(null);
     setUploadProgress(0);
@@ -838,10 +845,12 @@ function TeacherQuizzes() {
     }
 
     try {
+      // Ensure UTF-8 (handles BOM and Word-copied symbols more reliably)
       const text = await file.text();
       const preview = parseCsvForPreview(text);
       setBulkFile(file);
       setBulkPreview(preview);
+      setBulkRowBusy({});
       setUploadResult(null);
       setUploadProgress(0);
 
@@ -874,6 +883,130 @@ function TeacherQuizzes() {
       return;
     }
     bulkUploadMutation.mutate({ file: bulkFile });
+  };
+
+  const setBulkRowImage = (rowNo, patch) => {
+    setBulkPreview((prev) => {
+      if (!prev?.rows) return prev;
+      const nextRows = prev.rows.map((row) =>
+        row.rowNo === rowNo ? { ...row, ...patch } : row
+      );
+      return { ...prev, rows: nextRows };
+    });
+  };
+
+  const handleBulkAttachImage = async (rowNo, file) => {
+    if (!file) return;
+    const allowed = new Set(["image/jpeg", "image/png", "image/webp"]);
+    if (!allowed.has(String(file.type || ""))) {
+      toast.error("Only JPG, PNG, WEBP images are allowed");
+      return;
+    }
+    if (Number(file.size || 0) > 2 * 1024 * 1024) {
+      toast.error("Max image size is 2MB");
+      return;
+    }
+
+    try {
+      setBulkRowBusy((p) => ({ ...p, [rowNo]: true }));
+      const data = await uploadQuizQuestionImage(file);
+      setBulkRowImage(rowNo, { imageUrl: data.imageUrl, imagePath: data.imagePath });
+      toast.success("Image attached");
+    } catch (error) {
+      toast.error(error?.response?.data?.message || "Failed to upload image");
+    } finally {
+      setBulkRowBusy((p) => ({ ...p, [rowNo]: false }));
+    }
+  };
+
+  const handleBulkRemoveImage = async (rowNo) => {
+    const row = bulkPreview?.rows?.find((r) => r.rowNo === rowNo);
+    if (!row?.imagePath) {
+      setBulkRowImage(rowNo, { imageUrl: "", imagePath: "" });
+      return;
+    }
+    try {
+      setBulkRowBusy((p) => ({ ...p, [rowNo]: true }));
+      await deleteQuizQuestionImage(row.imagePath);
+      setBulkRowImage(rowNo, { imageUrl: "", imagePath: "" });
+      toast.success("Image removed");
+    } catch (error) {
+      toast.error(error?.response?.data?.message || "Failed to remove image");
+    } finally {
+      setBulkRowBusy((p) => ({ ...p, [rowNo]: false }));
+    }
+  };
+
+  const createQuizzesFromPreview = async () => {
+    if (!bulkPreview?.isValid || !Array.isArray(bulkPreview.rows) || bulkPreview.rows.length === 0) {
+      toast.error("Fix errors in CSV before creating quizzes");
+      return;
+    }
+
+    const groups = new Map();
+    bulkPreview.rows.forEach((row) => {
+      const title = trimText(row.quizTitle) || "Quiz";
+      if (!groups.has(title)) groups.set(title, []);
+      groups.get(title).push(row);
+    });
+
+    const entries = Array.from(groups.entries());
+    let created = 0;
+    let questionsCreated = 0;
+    const createdQuizzes = [];
+
+    for (let i = 0; i < entries.length; i += 1) {
+      const [title, rowsForQuiz] = entries[i];
+      const meta = rowsForQuiz[0] || {};
+      const passScore = Number(meta.passScore) || 70;
+
+      const questionsPayload = rowsForQuiz.map((row, idx) => ({
+        id: `q_${Date.now()}_${row.rowNo}_${idx}`,
+        questionType: "mcq",
+        questionText: row.questionText,
+        options: {
+          A: row.optionA || "",
+          B: row.optionB || "",
+          C: row.optionC || "",
+          D: row.optionD || "",
+        },
+        correctAnswer: String(row.correctAnswer || "").toUpperCase(),
+        expectedAnswer: "",
+        marks: Number(row.marks) || 1,
+        imageUrl: row.imageUrl || null,
+        imagePath: row.imagePath || null,
+      }));
+
+      const payload = {
+        scope: meta.scope === "chapter" ? "chapter" : "subject",
+        courseId: meta.courseId,
+        subjectId: meta.subjectId,
+        chapterId: meta.scope === "chapter" ? meta.chapterId : "",
+        title,
+        description: "",
+        passScore,
+        questions: questionsPayload,
+      };
+
+      // eslint-disable-next-line no-await-in-loop
+      const resp = await createQuizMutation.mutateAsync(payload);
+      const quizId = resp?.data?.quizId || resp?.data?.id || resp?.quizId || resp?.id || "";
+      created += 1;
+      questionsCreated += questionsPayload.length;
+      createdQuizzes.push({
+        id: quizId || `${title}-${i}`,
+        title,
+        questionsCount: questionsPayload.length,
+      });
+    }
+
+    toast.success(`${created} quiz(es) created`);
+    setUploadResult({
+      quizzesCreated: created,
+      questionsCreated,
+      quizzes: createdQuizzes,
+    });
+    queryClient.invalidateQueries({ queryKey: ["teacher-quizzes"] });
   };
 
   const submissions = Array.isArray(submissionsQuery.data) ? submissionsQuery.data : [];
@@ -1450,9 +1583,9 @@ function TeacherQuizzes() {
                   <p className="text-xs font-semibold text-slate-600">
                     {bulkPreview.questionCount} questions found in file
                   </p>
-                  {bulkPreview.rowPreviews.length > 0 ? (
-                    <div className="overflow-x-auto rounded-xl border border-slate-200">
-                      <table className="min-w-full text-left text-xs">
+	                  {bulkPreview.rowPreviews.length > 0 ? (
+	                    <div className="overflow-x-auto rounded-xl border border-slate-200">
+	                      <table className="min-w-full text-left text-xs">
                         <thead className="bg-slate-100 text-slate-600">
                           <tr>
                             <th className="px-3 py-2">Row</th>
@@ -1488,11 +1621,79 @@ function TeacherQuizzes() {
                             </tr>
                           ))}
                         </tbody>
-                      </table>
-                    </div>
-                  ) : null}
-                </div>
-              ) : null}
+	                      </table>
+	                    </div>
+	                  ) : null}
+
+	                  {Array.isArray(bulkPreview.rows) && bulkPreview.rows.length > 0 ? (
+	                    <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-3">
+	                      <p className="text-xs font-semibold text-slate-700">
+	                        Optional: Attach images per question
+	                      </p>
+	                      <p className="mt-1 text-[11px] text-slate-500">
+	                        You can upload an image for any row below (JPG/PNG/WEBP, max 2MB). Images
+	                        are saved and linked to the created quiz questions.
+	                      </p>
+
+	                      <div className="mt-3 space-y-2">
+	                        {bulkPreview.rows.slice(0, 20).map((row) => (
+	                          <div
+	                            key={row.rowNo}
+	                            className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 px-3 py-2"
+	                          >
+	                            <div className="min-w-[44px] text-xs font-semibold text-slate-600">
+	                              Row {row.rowNo}
+	                            </div>
+	                            <div className="flex-1 text-xs text-slate-700 line-clamp-2">
+	                              {row.questionText || "-"}
+	                            </div>
+
+	                            {row.imageUrl ? (
+	                              <div className="flex items-center gap-2">
+	                                <img
+	                                  src={row.imageUrl}
+	                                  alt="Question"
+	                                  className="h-10 w-10 rounded-lg border border-slate-200 object-cover"
+	                                  draggable={false}
+	                                />
+	                                <button
+	                                  type="button"
+	                                  className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+	                                  onClick={() => handleBulkRemoveImage(row.rowNo)}
+	                                  disabled={Boolean(bulkRowBusy[row.rowNo])}
+	                                >
+	                                  {bulkRowBusy[row.rowNo] ? "Removing..." : "Remove"}
+	                                </button>
+	                              </div>
+	                            ) : (
+	                              <label className="cursor-pointer rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+	                                {bulkRowBusy[row.rowNo] ? "Uploading..." : "Attach Image"}
+	                                <input
+	                                  type="file"
+	                                  accept="image/png,image/jpeg,image/webp"
+	                                  className="hidden"
+	                                  disabled={Boolean(bulkRowBusy[row.rowNo])}
+	                                  onChange={(event) => {
+	                                    const file = event.target.files?.[0];
+	                                    event.target.value = "";
+	                                    handleBulkAttachImage(row.rowNo, file);
+	                                  }}
+	                                />
+	                              </label>
+	                            )}
+	                          </div>
+	                        ))}
+	                        {bulkPreview.rows.length > 20 ? (
+	                          <p className="text-[11px] text-slate-500">
+	                            Showing first 20 rows. Create the quizzes, then you can edit
+	                            remaining questions manually if needed.
+	                          </p>
+	                        ) : null}
+	                      </div>
+	                    </div>
+	                  ) : null}
+	                </div>
+	              ) : null}
 
               {bulkUploadMutation.isPending ? (
                 <div className="mt-3">
@@ -1506,19 +1707,27 @@ function TeacherQuizzes() {
                 </div>
               ) : null}
 
-              <div className="mt-4 flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  className="btn-primary"
-                  onClick={handleBulkUpload}
-                  disabled={!bulkFile || !bulkPreview?.isValid || bulkUploadMutation.isPending}
-                >
-                  {bulkUploadMutation.isPending ? "Uploading..." : "Upload CSV"}
-                </button>
-                <button type="button" className="btn-outline" onClick={resetBulkFlow}>
-                  Start Over
-                </button>
-              </div>
+	              <div className="mt-4 flex flex-wrap gap-2">
+	                <button
+	                  type="button"
+	                  className="btn-primary"
+	                  onClick={createQuizzesFromPreview}
+	                  disabled={!bulkFile || !bulkPreview?.isValid || createQuizMutation.isPending}
+	                >
+	                  {createQuizMutation.isPending ? "Creating..." : "Create Quizzes"}
+	                </button>
+	                <button
+	                  type="button"
+	                  className="btn-primary"
+	                  onClick={handleBulkUpload}
+	                  disabled={!bulkFile || !bulkPreview?.isValid || bulkUploadMutation.isPending}
+	                >
+	                  {bulkUploadMutation.isPending ? "Uploading..." : "Upload CSV (Legacy)"}
+	                </button>
+	                <button type="button" className="btn-outline" onClick={resetBulkFlow}>
+	                  Start Over
+	                </button>
+	              </div>
 
               <AnimatePresence>
                 {uploadResult ? (
