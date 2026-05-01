@@ -7,6 +7,7 @@ import {
   finishStudentTest,
   getStudentTestById,
   getStudentTestRanking,
+  fetchProtectedImage,
   reportStudentSecurityViolation,
   startStudentTest,
   submitStudentTestAnswer,
@@ -31,6 +32,7 @@ function StudentTestAttempt() {
   const [selectedAnswer, setSelectedAnswer] = useState("");
   const [questionTimeLeft, setQuestionTimeLeft] = useState(0);
   const [hasReachedLast, setHasReachedLast] = useState(false);
+  const [imageBlobUrls, setImageBlobUrls] = useState({});
   const autoFinishRef = useRef(false);
   const autoAdvanceRef = useRef({ questionId: "", fired: false });
   const warnedTenRef = useRef({ questionId: "", fired: false });
@@ -173,6 +175,37 @@ function StudentTestAttempt() {
     );
     setSelectedAnswer(existing?.selectedAnswer || "");
   }, [attempt?.answers, currentQuestion?.questionId]);
+
+  useEffect(() => {
+    const path = currentQuestion?.imagePath;
+    const qid = currentQuestion?.questionId;
+    if (!qid || !path) return;
+    if (imageBlobUrls[qid]) return;
+
+    let cancelled = false;
+    fetchProtectedImage(path)
+      .then((blob) => {
+        if (cancelled) return;
+        const url = URL.createObjectURL(blob);
+        setImageBlobUrls((prev) => ({ ...prev, [qid]: url }));
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentQuestion?.imagePath, currentQuestion?.questionId, imageBlobUrls]);
+
+  useEffect(() => {
+    return () => {
+      try {
+        Object.values(imageBlobUrls || {}).forEach((url) => URL.revokeObjectURL(url));
+      } catch {
+        // ignore
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const perQuestionLimitSeconds = useMemo(() => {
     const raw = Number(test?.perQuestionTimeLimit || 60);
@@ -419,9 +452,13 @@ function StudentTestAttempt() {
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
             Question {currentIndex + 1} of {totalQuestions || 0}
           </p>
-          {currentQuestion.imageUrl ? (
+          {currentQuestion.imageUrl || currentQuestion.imagePath ? (
             <img
-              src={currentQuestion.imageUrl}
+              src={
+                imageBlobUrls[currentQuestion.questionId] ||
+                currentQuestion.imageUrl ||
+                ""
+              }
               alt="Question figure"
               style={{
                 maxWidth: "100%",

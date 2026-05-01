@@ -70,6 +70,11 @@ export const getStudentTests = () =>
 export const getStudentTestById = (testId) =>
   api.get(`/student/tests/${testId}`).then((r) => r.data.data || {});
 
+export const fetchProtectedImage = (path) =>
+  api
+    .get(`/media/image`, { params: { path }, responseType: "blob" })
+    .then((r) => r.data);
+
 export const startStudentTest = (testId) =>
   api.post(`/student/tests/${testId}/start`).then((r) => r.data.data || {});
 

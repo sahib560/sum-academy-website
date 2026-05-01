@@ -1629,3 +1629,16 @@ User fields (Firestore: `users/{uid}`):
 - Mobile: `assignedMobileDevice`, `assignedMobileIp`, `assignedMobileUniqueDeviceId`, `lastKnownMobileIp`
 
 Admin reset clears both web and mobile fields and sets `deviceResetPending=true` so the next login on that platform can bind a fresh device.
+
+### Protected Media (Question Images)
+
+Some Firebase Storage configurations can block direct image URLs (403). Use this endpoint to fetch quiz/test question images through the backend with authentication.
+
+#### GET `/api/media/image?path=quiz/questions/<file>`
+- Auth: `Bearer`
+- Role: any authenticated user
+- Purpose: Stream a quiz/test question image stored in Firebase Storage.
+
+Notes:
+- Allowed prefixes: `quiz/questions/` and `test/questions/`
+- Returns raw image bytes (not JSON).

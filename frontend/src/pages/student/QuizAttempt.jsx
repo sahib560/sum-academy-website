@@ -9,6 +9,7 @@ import {
   getQuizById,
   getScheduledQuizById,
   reportStudentSecurityViolation,
+  fetchProtectedImage,
   submitQuizAttempt,
   submitScheduledQuizAttempt,
 } from "../../services/student.service.js";
@@ -46,6 +47,8 @@ const normalizeQuizPayload = (payload = {}) => {
     questionId: question.questionId || question.id || `q-${index + 1}`,
     type: normalizeQuestionType(question.questionType || question.type),
     questionText: question.questionText || "Question",
+    imageUrl: question.imageUrl || null,
+    imagePath: question.imagePath || null,
     options: Array.isArray(question.options)
       ? question.options
           .map((option) =>
@@ -126,6 +129,7 @@ function StudentQuizAttempt() {
   const quiz = useMemo(() => normalizeQuizPayload(data || {}), [data]);
   const questions = quiz.questions;
   const currentQuestion = questions[currentIndex] || null;
+  const [imageBlobUrls, setImageBlobUrls] = useState({});
   const canAttempt = isScheduled ? Boolean(data?.canAttempt) : true;
   const quizWindowStatus = isScheduled ? String(data?.status || "").toLowerCase() : "";
   const startAtLabel = isScheduled && data?.startAt ? new Date(data.startAt).toLocaleString() : "";
@@ -171,6 +175,39 @@ function StudentQuizAttempt() {
   useEffect(() => {
     questionsRef.current = questions;
   }, [questions]);
+
+  useEffect(() => {
+    return () => {
+      try {
+        Object.values(imageBlobUrls || {}).forEach((url) => URL.revokeObjectURL(url));
+      } catch {
+        // ignore
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const path = currentQuestion?.imagePath;
+    const qid = currentQuestion?.questionId;
+    if (!qid || !path) return;
+    if (imageBlobUrls[qid]) return;
+
+    let cancelled = false;
+    fetchProtectedImage(path)
+      .then((blob) => {
+        if (cancelled) return;
+        const url = URL.createObjectURL(blob);
+        setImageBlobUrls((prev) => ({ ...prev, [qid]: url }));
+      })
+      .catch(() => {
+        // If protected fetch fails, fallback to direct URL (may still work if Storage tokens allowed)
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentQuestion?.imagePath, currentQuestion?.questionId, imageBlobUrls]);
 
   const submitMutation = useMutation({
     mutationFn: (payloadAnswers) =>
@@ -619,10 +656,14 @@ function StudentQuizAttempt() {
                     <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
                       Question {currentIndex + 1}
                     </span>
-                    {currentQuestion?.imageUrl ? (
+                    {currentQuestion?.imageUrl || currentQuestion?.imagePath ? (
                       <div className="mt-4">
                         <img
-                          src={currentQuestion.imageUrl}
+                          src={
+                            imageBlobUrls[currentQuestion.questionId] ||
+                            currentQuestion.imageUrl ||
+                            ""
+                          }
                           alt="Question figure"
                           style={{
                             maxWidth: "100%",

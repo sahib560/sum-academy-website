@@ -1504,6 +1504,8 @@ const sanitizeQuestionForStudent = (question = {}) => {
     options: type === "short_answer" ? [] : options,
     marks: Math.max(1, toNumber(question.marks, 1)),
     order: toNumber(question.order, 0),
+    imageUrl: trimText(question.imageUrl) || null,
+    imagePath: trimText(question.imagePath) || null,
   };
 };
 
