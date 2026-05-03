@@ -814,6 +814,7 @@ export const buildCourseContentForStudent = async (
       const completedLectureLocked = false;
       const missingVideoLocked = !hasVideoSource;
       const livePremiereLocked = isPremiereLive;
+      const scheduledLocked = scheduleNotStarted;
       const permanentlyLocked = permanentlyCompleted;
       const globalLock =
         Boolean(
@@ -838,11 +839,15 @@ export const buildCourseContentForStudent = async (
       } else if (isPaymentLockedByState) {
         isLocked = true;
         lockReason = "Payment verification is pending";
-      } else if (livePremiereLocked) {
+      } else if (scheduledLocked) {
         isLocked = true;
-        lockReason = scheduleNotStarted
+        lockReason = isPremiereLive
           ? "This is a scheduled live session. Join it from the Live page when it starts."
-          : scheduleIsLive
+          : `This content is scheduled to be released on ${formatPkDateTimeLabel(lecture.liveStartAt)}`;
+      } else if (livePremiereLocked) {
+        // This handles the case where it IS live but maybe some other rule applies
+        isLocked = true;
+        lockReason = scheduleIsLive
             ? "This live session is currently running. Join it from the Live page."
             : "This is a scheduled live session. Join it from the Live page during class time.";
       } else if (missingVideoLocked) {

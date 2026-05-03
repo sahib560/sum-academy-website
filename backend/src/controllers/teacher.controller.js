@@ -2580,30 +2580,24 @@ export const saveLectureContent = async (req, res) => {
       updates.premiereEndedAt = resolvedVideo.isLiveSession ? null : currentData.premiereEndedAt || null;
       firstLiveSession = Boolean(resolvedVideo.isFirstLiveSession);
 
-      // Live session scheduling (only for live videos):
+      // Scheduling (for both live and recorded videos):
       // UI provides a start datetime, end is auto-calculated from lecture duration.
-      // If not provided, student live schedule falls back to class shift occurrence.
-      if (resolvedVideo.isLiveSession) {
+      if (liveStartAt !== undefined && liveStartAt !== null && trimText(liveStartAt)) {
         const parsedStart = parseDate(liveStartAt);
         if (parsedStart) {
           const durationSec = Math.max(0, toPositiveNumber(updates.durationSec, 0));
           // Store as Pakistan-local datetime string (no Z) so Firestore shows the expected time.
           updates.liveStartAt = formatPkDateTimeLocal(parsedStart);
           // Only auto-calculate end time when we know the true duration.
-          // If duration is missing, student live schedule will fall back to class shift.
           if (durationSec > 0) {
             const resolvedEnd = new Date(parsedStart.getTime() + durationSec * 1000);
             updates.liveEndAt = formatPkDateTimeLocal(resolvedEnd);
           } else {
             updates.liveEndAt = null;
           }
-        } else if (liveStartAt !== undefined && liveStartAt !== null && trimText(liveStartAt)) {
+        } else {
           return errorResponse(res, "liveStartAt must be a valid ISO date", 400);
         }
-      } else {
-        // Recorded video should not keep live schedule fields.
-        updates.liveStartAt = null;
-        updates.liveEndAt = null;
       }
     }
 

@@ -938,6 +938,9 @@ function Students() {
             type="text"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") e.preventDefault();
+            }}
             placeholder="Search by full name or email"
             className="w-full rounded-full border border-slate-200 bg-white py-3 pl-11 pr-4 text-sm text-slate-700 shadow-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/10"
           />

@@ -85,8 +85,17 @@ export const getStudents = (params) => {
   const pageSize = params.pageSize ?? 50;
   const cursor = params.cursor ?? "";
   const search = typeof params.search === "string" ? params.search.trim() : "";
+  const isActive = params.isActive;
+
+  const queryParams = {
+    pageSize,
+    cursor,
+    ...(search ? { search } : {}),
+    ...(isActive !== undefined ? { isActive: String(isActive) } : {}),
+  };
+
   return api
-    .get("/admin/students", { params: { pageSize, cursor, ...(search ? { search } : {}) } })
+    .get("/admin/students", { params: queryParams })
     .then((r) => r.data.data);
 };
 

@@ -723,7 +723,6 @@ function Courses() {
     }
 
     const liveStartAtLocal = (() => {
-      if (!isLive) return "";
       const date = String(videoState.liveStartDate || "").trim();
       const time = String(videoState.liveStartTime || "").trim();
       if (!date || !time) return "";
@@ -899,6 +898,9 @@ function Courses() {
           type="text"
           value={search}
           onChange={(event) => setSearch(event.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") e.preventDefault();
+          }}
           placeholder="Search by title..."
           className="min-w-[240px] flex-1 rounded-full border border-slate-200 px-4 py-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
         />
@@ -1705,7 +1707,7 @@ function Courses() {
             const selectedLibraryVideo = courseVideoLibrary.find(
               (row) => String(row.id) === String(videoState.libraryVideoId || "")
             );
-            if (!selectedLibraryVideo?.isLiveSession) return null;
+            if (!selectedLibraryVideo) return null;
 
             const durationSec = Number(selectedLibraryVideo.durationSec || 0);
             const startPreview = videoState.liveStartDate && videoState.liveStartTime
@@ -1719,7 +1721,7 @@ function Courses() {
             return (
               <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
                 <p className="text-xs font-semibold text-blue-900">
-                  Live Session Schedule (required)
+                  Release Schedule (Optional)
                 </p>
                 <div className="mt-3 grid gap-3 md:grid-cols-2">
                   <div>

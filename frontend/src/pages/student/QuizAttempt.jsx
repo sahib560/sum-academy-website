@@ -523,7 +523,7 @@ function StudentQuizAttempt() {
       "Student";
     return (
       <div
-        className="protected-zone quiz-content relative min-h-screen flex flex-col items-center justify-center bg-slate-950 px-4 py-8 protected-content overflow-y-auto"
+        className="protected-zone quiz-content relative min-h-screen flex flex-col items-center bg-slate-950 px-4 py-12 protected-content overflow-y-auto"
         style={{ position: "relative" }}
       >
         <Toaster position="top-right" />
@@ -538,7 +538,7 @@ function StudentQuizAttempt() {
         />
         <div className="mx-auto max-w-4xl">
           <Motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}>
-            <QuizResultCard result={submittedResult} quiz={quiz} studentName={studentName} />
+            <QuizResultCard result={submittedResult} quiz={quiz} studentName={rawNm} />
             <div className="mt-6 flex justify-center">
               <Link
                 className="inline-flex rounded-full bg-[#4a63f5] px-6 py-2 text-sm font-semibold text-white"

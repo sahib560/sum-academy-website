@@ -1549,11 +1549,12 @@ export const getStudents = async (req, res) => {
     const cursor = String(req.query?.cursor ?? "").trim();
     const legacy = String(req.query?.legacy ?? "").trim() === "1";
     const search = String(req.query?.search ?? "").trim();
+    const isActive = req.query?.isActive === "true" ? true : req.query?.isActive === "false" ? false : undefined;
 
     const data = await adminService.getAllStudentsPaginated({
       pageSize,
       cursor,
-      filters: { search },
+      filters: { search, isActive },
     });
     return successResponse(res, legacy ? data.items : data, "Students fetched");
   } catch (e) {

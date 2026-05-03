@@ -1,4 +1,4 @@
-# Sum Academy API Documentation (v1.0)
+# Sum Academy API Documentation (v1.1)
 
 This document provides details for all essential API endpoints used in the Sum Academy platform. It is intended for both the frontend team and the Android mobile team to ensure synchronization and correct implementation of features.
 
@@ -20,7 +20,8 @@ Most endpoints require a `Bearer` token in the `Authorization` header. This toke
         "email": "student@example.com",
         "fullName": "John Doe",
         "role": "student",
-        "status": "active"
+        "status": "active",
+        "isActive": true
       }
     }
   }
@@ -28,47 +29,66 @@ Most endpoints require a `Bearer` token in the `Authorization` header. This toke
 
 ---
 
+## Course Content & Lectures (Crucial for Android)
+
+### Get Chapter/Subject Content
+- **Endpoint**: `GET /student/courses/:courseId/chapters`
+- **Response Item (Lecture)**:
+  ```json
+  {
+    "id": "lecture_123",
+    "title": "Introduction to Physics",
+    "type": "video",
+    "videoUrl": "...",
+    "videoMode": "recorded",
+    "isLiveSession": false,
+    "liveStartAt": "2026-05-04T09:00:00",
+    "liveEndAt": "2026-05-04T10:30:00",
+    "isLocked": true,
+    "lockReason": "Scheduled for 04 May, 09:00 AM",
+    "durationSec": 5400
+  }
+  ```
+
+### **Scheduling Logic (Android Developer Note)**:
+1.  **Release Locking**: A lecture (Recorded or Live) is **LOCKED** if `liveStartAt` is set and the current server time is *before* that timestamp.
+2.  **Live Window**: If `isLiveSession` is `true`, the video should be treated as a live stream between `liveStartAt` and `liveEndAt`.
+3.  **Recorded Scheduling**: Recorded videos can now have a `liveStartAt`. If the current time is before this, the video must not be playable. Use the `lockReason` string provided by the API to show the student when it will be available.
+4.  **Local Time**: All timestamps (`liveStartAt`, `liveEndAt`) are returned in **Asia/Karachi** (PKT) time.
+
+---
+
+## Student Management
+
+### List Students (Admin/Teacher)
+- **Endpoint**: `GET /admin/students`
+- **Query Params**:
+  - `pageSize`: Number (default 100)
+  - `cursor`: String (for pagination)
+  - `search`: String (filter by name/email)
+  - `isActive`: Boolean (`true` or `false`) - **NEW**
+- **Description**: Use `isActive=true` to fetch only active students for enrollment into classes.
+
+---
+
 ## Student Assessments (Quizzes)
 
-### List Classic Quizzes
-- **Endpoint**: `GET /student/quizzes`
-- **Success Response**: Array of quiz objects.
-
-### List Scheduled Quizzes
-- **Endpoint**: `GET /student/scheduled-quizzes`
-- **Success Response**: Array of scheduled quiz objects.
-
-### Get Quiz Details (Classic)
-- **Endpoint**: `GET /student/quizzes/:quizId`
-- **Description**: Fetches the questions for a specific quiz.
-
-### Get Quiz Details (Scheduled)
-- **Endpoint**: `GET /student/scheduled-quizzes/:quizId`
-
 ### Submit Quiz Attempt
-- **Endpoint**: `POST /student/quizzes/:quizId/submit` (Classic)
-- **Endpoint**: `POST /student/scheduled-quizzes/:quizId/submit` (Scheduled)
+- **Endpoint**: `POST /student/quizzes/:quizId/submit`
 - **Payload**:
   ```json
   {
     "answers": [
-      { "questionId": "q1", "answer": "Option A" },
-      { "questionId": "q2", "answer": "The user's text" }
+      { "questionId": "q1", "answer": "Option A" }
     ]
   }
   ```
-- **Response**: Contains the evaluation result (score, percentage, isPassed).
+- **Evaluation Logic**:
+  - **Flagged Questions**: The mobile app should show a confirmation dialog if the student has "flagged" questions before sending the final POST request.
 
-### Report Security Violation
-- **Endpoint**: `POST /student/security/violations`
-- **Payload**:
-  ```json
-  {
-    "reason": "tab_switch",
-    "count": 1,
-    "quizId": "quiz_123"
-  }
-  ```
+### Quiz Result Avatar
+- **Logic**: Use the first letter of the `fullName`. If `fullName` contains an `@` and no spaces (meaning it's an email fallback), take the first letter of the email prefix.
+- **Example**: `John Doe` -> `J`, `john.doe@gmail.com` -> `J`.
 
 ---
 
@@ -76,89 +96,7 @@ Most endpoints require a `Bearer` token in the `Authorization` header. This toke
 
 ### List Available Tests
 - **Endpoint**: `GET /student/tests`
-
-### Start Test
-- **Endpoint**: `POST /student/tests/:testId/start`
-- **Description**: Initializes a test attempt and starts the timer on the server.
-
-### Submit Test Answer (Incremental)
-- **Endpoint**: `POST /student/tests/:testId/answer`
-- **Payload**:
-  ```json
-  {
-    "questionId": "q1",
-    "answer": "Option B"
-  }
-  ```
-
-### Finish Test
-- **Endpoint**: `POST /student/tests/:testId/finish`
-- **Description**: Ends the test and triggers final evaluation.
-
-### Get Test Ranking/Results
-- **Endpoint**: `GET /student/tests/:testId/ranking`
-
----
-
-## Teacher & Admin Quiz Management
-
-### List Quizzes
-- **Endpoint**: `GET /teacher/quizzes`
-
-### Create Quiz
-- **Endpoint**: `POST /teacher/quizzes`
-- **Payload**:
-  ```json
-  {
-    "title": "Quiz Title",
-    "courseId": "course_123",
-    "subjectId": "subj_456",
-    "scope": "subject",
-    "passScore": 70,
-    "questions": [
-      {
-        "questionText": "What is...?",
-        "options": { "A": "...", "B": "..." },
-        "correctAnswer": "A",
-        "marks": 1,
-        "imagePath": "path/to/image.jpg"
-      }
-    ]
-  }
-  ```
-
-### Upload Question Image
-- **Endpoint**: `POST /teacher/quizzes/questions/image`
-- **Method**: `multipart/form-data`
-- **Body**: `image` (file)
-- **Response**:
-  ```json
-  {
-    "success": true,
-    "data": {
-      "imagePath": "uploads/quiz/xyz.jpg",
-      "imageUrl": "https://..."
-    }
-  }
-  ```
-
-### Delete Question Image
-- **Endpoint**: `POST /teacher/quizzes/questions/image/delete`
-- **Payload**: `{ "imagePath": "..." }`
-
----
-
-## Media & Storage
-
-### Fetch Protected Image (Teacher Side)
-- **Endpoint**: `GET /storage/protected-image`
-- **Params**: `?path=uploads/quiz/abc.jpg`
-- **Response**: Image Blob (requires Authorization header).
-
-### Fetch Protected Image (Student Side)
-- **Endpoint**: `GET /media/image`
-- **Params**: `?path=uploads/quiz/abc.jpg`
-- **Response**: Image Blob (requires Authorization header).
+- **Scheduling**: Tests are enabled ONLY during their specific time window. If `currentTime < testStartTime`, the "Start" button must be disabled.
 
 ---
 
@@ -185,7 +123,11 @@ Most endpoints require a `Bearer` token in the `Authorization` header. This toke
 
 ### Common Error Codes
 - `UNAUTHORIZED`: Token missing or expired.
-- `FORBIDDEN`: User does not have required role.
-- `ACCOUNT_DEACTIVATED`: Account blocked due to security violations.
-- `RESOURCE_NOT_FOUND`: Quiz or test ID is invalid.
-- `VALIDATION_ERROR`: Payload fields are missing or invalid.
+- `ACCOUNT_DEACTIVATED`: Account blocked due to security violations (too many tab switches/window blurs).
+- `RESOURCE_NOT_FOUND`: Quiz, test, or lecture ID is invalid.
+- `VALIDATION_ERROR`: Missing fields (e.g., `liveStartAt` missing when required).
+- `ALREADY_ENROLLED`: Student already in this class.
+
+---
+**Version History**
+- **v1.1**: Added Video Scheduling (Decoupled from Live status), `isActive` student filtering, and refined Avatar/Result logic.

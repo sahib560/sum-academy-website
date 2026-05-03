@@ -807,12 +807,13 @@ function Classes() {
   });
 
   const studentsQuery = useInfiniteQuery({
-    queryKey: ["admin", "students", enrollStudentSearch.trim()],
+    queryKey: ["admin", "students", enrollStudentSearch.trim(), "active-only"],
     queryFn: ({ pageParam }) =>
       getStudents({
-        pageSize: 50,
+        pageSize: 100,
         cursor: String(pageParam || ""),
         search: enrollStudentSearch.trim(),
+        isActive: true,
       }),
     initialPageParam: "",
     getNextPageParam: (lastPage) =>
@@ -1981,6 +1982,9 @@ function Classes() {
             type="text"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") e.preventDefault();
+            }}
             placeholder="Search by class name..."
             className="min-w-[230px] flex-1 rounded-full border border-slate-200 px-4 py-2.5 text-sm text-slate-700 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/10"
           />
@@ -2612,6 +2616,9 @@ function Classes() {
                       type="text"
                       value={studentSearch}
                       onChange={(event) => setStudentSearch(event.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") e.preventDefault();
+                      }}
                       placeholder="Search students..."
                       className="min-w-[240px] rounded-full border border-slate-200 px-4 py-2 text-sm"
                     />
@@ -2803,6 +2810,9 @@ function Classes() {
                       <input
                         value={enrollStudentSearch}
                         onChange={(event) => setEnrollStudentSearch(event.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") e.preventDefault();
+                        }}
                         className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm"
                         placeholder="Search student by name/email"
                         disabled={isClassFull || isClassExpired}
