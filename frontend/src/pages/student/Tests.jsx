@@ -78,16 +78,53 @@ function StudentTests() {
                     <span className={`rounded-full px-3 py-1 text-xs font-semibold ${badge}`}>
                       {status}
                     </span>
-                    <Link
-                      className="rounded-xl bg-primary px-4 py-2 text-xs font-semibold text-white"
-                      to={`/student/tests/${test.id}/attempt`}
-                    >
-                      {test.hasSubmittedAttempt
-                        ? "View Result"
-                        : test.inProgress
-                          ? "Resume Test"
-                          : "Start Test"}
-                    </Link>
+                    {test.hasSubmittedAttempt ? (
+                      <Link
+                        className="rounded-xl bg-slate-800 px-4 py-2 text-xs font-semibold text-white transition-colors hover:text-white hover:bg-slate-700"
+                        to={`/student/tests/${test.id}/attempt`}
+                      >
+                        View Result
+                      </Link>
+                    ) : (
+                      (() => {
+                        const now = new Date();
+                        const startAt = test.startAt ? new Date(test.startAt) : null;
+                        const endAt = test.endAt ? new Date(test.endAt) : null;
+                        const isAvailable = (!startAt || now >= startAt) && (!endAt || now <= endAt);
+                        const isUpcoming = startAt && now < startAt;
+                        
+                        if (isUpcoming) {
+                           return (
+                             <button
+                               className="rounded-xl bg-slate-100 px-4 py-2 text-xs font-semibold text-slate-400 cursor-not-allowed"
+                               disabled
+                             >
+                               Upcoming
+                             </button>
+                           );
+                        }
+                        
+                        if (!isAvailable) {
+                          return (
+                             <button
+                               className="rounded-xl bg-slate-100 px-4 py-2 text-xs font-semibold text-slate-400 cursor-not-allowed"
+                               disabled
+                             >
+                               Ended
+                             </button>
+                          );
+                        }
+
+                        return (
+                          <Link
+                            className="rounded-xl bg-primary px-4 py-2 text-xs font-semibold !text-white transition-all hover:bg-primary/90 hover:shadow-lg hover:shadow-primary/30"
+                            to={`/student/tests/${test.id}/attempt`}
+                          >
+                            {test.inProgress ? "Resume Test" : "Start Test"}
+                          </Link>
+                        );
+                      })()
+                    )}
                   </div>
                 </div>
               </article>

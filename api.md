@@ -1,206 +1,191 @@
-# SUM Academy - API Documentation
+# Sum Academy API Documentation (v1.0)
 
-This document provides a comprehensive guide to the SUM Academy E-Portal APIs. It is designed to assist both web and mobile (Android/iOS) developers in integrating with the platform.
+This document provides details for all essential API endpoints used in the Sum Academy platform. It is intended for both the frontend team and the Android mobile team to ensure synchronization and correct implementation of features.
 
 ## Base URL
-- **Production**: `https://api.sumacademy.com` (Example)
-- **Staging/Local**: `http://localhost:5000/api`
+The base URL for all API requests is: `https://your-api-domain.com/api` (Replace with actual server URL).
 
----
+## Authentication
+Most endpoints require a `Bearer` token in the `Authorization` header. This token is obtained from Firebase Authentication.
 
-## 1. Authentication (`/auth`)
-
-### Send Registration OTP
-- **Endpoint**: `POST /auth/register/send-otp`
-- **Body**:
-  ```json
-  { "email": "student@example.com" }
-  ```
-- **Success (200)**: `{ "message": "OTP sent to your email" }`
-- **Error (400)**: `{ "message": "Invalid email format" }`
-
-### Verify Registration OTP
-- **Endpoint**: `POST /auth/register/verify-otp`
-- **Body**:
-  ```json
-  { "email": "student@example.com", "otp": "123456" }
-  ```
-- **Success (200)**: `{ "message": "OTP verified successfully" }`
-
-### Login
-- **Endpoint**: `POST /auth/login`
-- **Headers**: `Authorization: Bearer <Firebase_ID_Token>`
-- **Success (200)**:
+### Get Current Profile
+- **Endpoint**: `GET /auth/me`
+- **Response**:
   ```json
   {
     "success": true,
-    "user": {
-      "uid": "...",
-      "email": "...",
-      "role": "student",
-      "fullName": "..."
-    }
-  }
-  ```
-
-### Get My Profile
-- **Endpoint**: `GET /auth/me`
-- **Headers**: `Authorization: Bearer <Token>`
-- **Success (200)**: Returns user profile and current session data.
-
----
-
-## 2. Student Dashboard (`/student`)
-
-### Dashboard Stats
-- **Endpoint**: `GET /student/dashboard`
-- **Success (200)**:
-  ```json
-  {
-    "stats": {
-      "enrolledCourses": 5,
-      "completedLectures": 25,
-      "quizzesPassed": 3,
-      "attendanceStreak": 4
+    "data": {
+      "user": {
+        "uid": "user_id",
+        "email": "student@example.com",
+        "fullName": "John Doe",
+        "role": "student",
+        "status": "active"
+      }
     }
   }
   ```
 
 ---
 
-## 3. Courses & Learning (`/student/courses`)
+## Student Assessments (Quizzes)
 
-### List My Courses
-- **Endpoint**: `GET /student/courses`
-- **Success (200)**: Returns array of enrolled courses with progress, teacher info, and upcoming sessions.
-
-### Course Progress Detail
-- **Endpoint**: `GET /student/courses/:courseId/progress`
-- **Success (200)**: Returns detailed syllabus, lecture completion status, and video links.
-
-### Mark Lecture Complete
-- **Endpoint**: `POST /student/courses/:courseId/lectures/:lectureId/complete`
-- **Success (200)**: `{ "message": "Lecture marked as complete" }`
-
----
-
-## 4. Quizzes (`/student/quizzes`)
-
-### List Quizzes
+### List Classic Quizzes
 - **Endpoint**: `GET /student/quizzes`
-- **Success (200)**: Returns list of available/completed quizzes.
+- **Success Response**: Array of quiz objects.
 
-### Get Quiz Details
+### List Scheduled Quizzes
+- **Endpoint**: `GET /student/scheduled-quizzes`
+- **Success Response**: Array of scheduled quiz objects.
+
+### Get Quiz Details (Classic)
 - **Endpoint**: `GET /student/quizzes/:quizId`
-- **Success (200)**: Returns quiz metadata and questions (if active).
+- **Description**: Fetches the questions for a specific quiz.
+
+### Get Quiz Details (Scheduled)
+- **Endpoint**: `GET /student/scheduled-quizzes/:quizId`
 
 ### Submit Quiz Attempt
-- **Endpoint**: `POST /student/quizzes/:quizId/submit`
-- **Body**:
+- **Endpoint**: `POST /student/quizzes/:quizId/submit` (Classic)
+- **Endpoint**: `POST /student/scheduled-quizzes/:quizId/submit` (Scheduled)
+- **Payload**:
   ```json
-  [
-    { "questionId": "q1", "answer": "Option A" },
-    { "questionId": "q2", "answer": "Option B" }
-  ]
+  {
+    "answers": [
+      { "questionId": "q1", "answer": "Option A" },
+      { "questionId": "q2", "answer": "The user's text" }
+    ]
+  }
   ```
-- **Success (200)**: Returns score, percentage, and detailed result.
+- **Response**: Contains the evaluation result (score, percentage, isPassed).
+
+### Report Security Violation
+- **Endpoint**: `POST /student/security/violations`
+- **Payload**:
+  ```json
+  {
+    "reason": "tab_switch",
+    "count": 1,
+    "quizId": "quiz_123"
+  }
+  ```
 
 ---
 
-## 5. Standardized Tests (`/student/tests`)
+## Student Assessments (Tests)
 
-### List Tests
+### List Available Tests
 - **Endpoint**: `GET /student/tests`
-- **Success (200)**: Returns array of scheduled, active, or ended tests.
 
 ### Start Test
 - **Endpoint**: `POST /student/tests/:testId/start`
-- **Success (200)**: Returns the current question and initializes the attempt timer.
+- **Description**: Initializes a test attempt and starts the timer on the server.
 
-### Save/Submit Answer
+### Submit Test Answer (Incremental)
 - **Endpoint**: `POST /student/tests/:testId/answer`
-- **Body**:
+- **Payload**:
   ```json
   {
-    "questionId": "q123",
-    "selectedAnswer": "B",
-    "direction": "next"
+    "questionId": "q1",
+    "answer": "Option B"
   }
   ```
-- **Success (200)**: Returns the next question or completion status.
 
 ### Finish Test
 - **Endpoint**: `POST /student/tests/:testId/finish`
-- **Body**: `{ "reason": "manual" | "timeout" | "violation" }`
-- **Success (200)**: `{ "message": "Test submitted", "attempt": { ... } }`
+- **Description**: Ends the test and triggers final evaluation.
 
-### Get Ranking
+### Get Test Ranking/Results
 - **Endpoint**: `GET /student/tests/:testId/ranking`
-- **Success (200)**: Returns leaderboard and student's own rank.
 
 ---
 
-## 6. Live Sessions (`/student/sessions`)
+## Teacher & Admin Quiz Management
 
-### Join Session
-- **Endpoint**: `POST /student/sessions/:sessionId/join`
-- **Success (200)**: Returns session access metadata (Vimeo/Zoom links, etc.).
+### List Quizzes
+- **Endpoint**: `GET /teacher/quizzes`
 
-### Log Session Violation
-- **Endpoint**: `POST /student/sessions/:sessionId/violation`
-- **Body**: `{ "reason": "tab_switch", "details": "..." }`
-- **Success (200)**: `{ "message": "Violation logged" }`
+### Create Quiz
+- **Endpoint**: `POST /teacher/quizzes`
+- **Payload**:
+  ```json
+  {
+    "title": "Quiz Title",
+    "courseId": "course_123",
+    "subjectId": "subj_456",
+    "scope": "subject",
+    "passScore": 70,
+    "questions": [
+      {
+        "questionText": "What is...?",
+        "options": { "A": "...", "B": "..." },
+        "correctAnswer": "A",
+        "marks": 1,
+        "imagePath": "path/to/image.jpg"
+      }
+    ]
+  }
+  ```
+
+### Upload Question Image
+- **Endpoint**: `POST /teacher/quizzes/questions/image`
+- **Method**: `multipart/form-data`
+- **Body**: `image` (file)
+- **Response**:
+  ```json
+  {
+    "success": true,
+    "data": {
+      "imagePath": "uploads/quiz/xyz.jpg",
+      "imageUrl": "https://..."
+    }
+  }
+  ```
+
+### Delete Question Image
+- **Endpoint**: `POST /teacher/quizzes/questions/image/delete`
+- **Payload**: `{ "imagePath": "..." }`
 
 ---
 
-## 7. Announcements (`/student/announcements`)
+## Media & Storage
 
-### List Announcements
-- **Endpoint**: `GET /student/announcements`
-- **Success (200)**: Returns system and class-level announcements.
+### Fetch Protected Image (Teacher Side)
+- **Endpoint**: `GET /storage/protected-image`
+- **Params**: `?path=uploads/quiz/abc.jpg`
+- **Response**: Image Blob (requires Authorization header).
 
-### Mark as Read
-- **Endpoint**: `PATCH /student/announcements/:id/read`
-- **Success (200)**: `{ "message": "Announcement marked as read" }`
-
----
-
-## 8. Settings (`/student/settings`)
-
-### Update Profile
-- **Endpoint**: `PUT /student/settings`
-- **Body**: `{ "fullName": "...", "phone": "..." }`
-- **Success (200)**: `{ "message": "Settings updated" }`
+### Fetch Protected Image (Student Side)
+- **Endpoint**: `GET /media/image`
+- **Params**: `?path=uploads/quiz/abc.jpg`
+- **Response**: Image Blob (requires Authorization header).
 
 ---
 
-## 9. Global Error Responses
+## Success & Error Messaging
 
-All endpoints follow a standard error structure:
-
+### Success Template
 ```json
 {
-  "success": false,
-  "message": "Human readable error message",
-  "code": "ERROR_CODE_IDENTIFIER",
-  "errors": { ... } 
+  "success": true,
+  "data": { ... },
+  "message": "Action completed successfully"
 }
 ```
 
-### Common Error Codes:
-- `UNAUTHORIZED`: Invalid or missing token.
-- `FORBIDDEN`: User does not have student role.
-- `NOT_FOUND`: Resource (quiz/test/course) does not exist.
-- `ACCOUNT_DEACTIVATED`: Multiple security violations detected.
-- `TEST_EXPIRED`: Attempted to submit after deadline.
+### Error Template
+```json
+{
+  "success": false,
+  "error": "Error title",
+  "message": "Detailed error message for the user",
+  "code": "SPECIFIC_ERROR_CODE"
+}
+```
 
----
-
-## Implementation Notes for Android Developers
-
-1. **Authentication**: Use Firebase Auth SDK to obtain an ID Token, then pass it in the `Authorization: Bearer <Token>` header for all requests.
-2. **Security Monitoring**: Implementing `setupMaxProtection` on mobile requires monitoring:
-   - App background/foreground transitions (equivalent to tab switch).
-   - Screenshots/Screen recording attempts.
-3. **Image Loading**: Use the `fetchProtectedImage` pattern or similar to load images from `imagePath` if direct `imageUrl` is restricted.
-4. **Time Sync**: Use the `serverNow` field returned in several responses to calculate accurate countdown timers, avoiding local device time drift.
+### Common Error Codes
+- `UNAUTHORIZED`: Token missing or expired.
+- `FORBIDDEN`: User does not have required role.
+- `ACCOUNT_DEACTIVATED`: Account blocked due to security violations.
+- `RESOURCE_NOT_FOUND`: Quiz or test ID is invalid.
+- `VALIDATION_ERROR`: Payload fields are missing or invalid.

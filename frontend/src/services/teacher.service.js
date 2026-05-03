@@ -265,3 +265,11 @@ export const gradeTeacherShortAnswers = (quizId, resultId, data) =>
   api
     .patch(`/teacher/quizzes/${quizId}/submissions/${resultId}/grade-short`, data)
     .then((r) => r.data);
+
+export const fetchProtectedImage = async (imagePath) => {
+  const response = await api.get("/storage/protected-image", {
+    params: { path: imagePath },
+    responseType: "blob",
+  });
+  return response.data;
+};

@@ -8,6 +8,7 @@ import {
   getTeacherQuizById,
   getTeacherQuizAnalytics,
   getTeacherQuizSubmissions,
+  fetchProtectedImage,
 } from "../../services/teacher.service.js";
 
 const fadeUp = {
@@ -127,6 +128,23 @@ function TeacherMyQuizzes() {
       : [];
   const questions = Array.isArray(selectedQuiz?.questions) ? selectedQuiz.questions : [];
   const submissions = Array.isArray(submissionsQuery.data) ? submissionsQuery.data : [];
+  const [imageBlobUrls, setImageBlobUrls] = useState({});
+
+  useEffect(() => {
+    if (!questions.length) return;
+    questions.forEach((q) => {
+      const path = q.imagePath || q.imageUrl;
+      const qid = q.questionId || q.id;
+      if (!path || !qid || imageBlobUrls[qid]) return;
+      
+      fetchProtectedImage(path)
+        .then((blob) => {
+          const url = URL.createObjectURL(blob);
+          setImageBlobUrls((prev) => ({ ...prev, [qid]: url }));
+        })
+        .catch(() => {});
+    });
+  }, [questions, imageBlobUrls]);
 
   const handleOpenDetails = (quizId) => {
     setSelectedQuizId(quizId);
@@ -332,6 +350,15 @@ function TeacherMyQuizzes() {
                                   {question.marks || 1} marks
                                 </span>
                               </div>
+                              {(question.imagePath || question.imageUrl) && (
+                                <div className="mt-3 mb-3 max-w-md overflow-hidden rounded-xl border border-slate-200">
+                                  <img 
+                                    src={imageBlobUrls[question.questionId || question.id] || question.imageUrl} 
+                                    alt="Question" 
+                                    className="max-h-60 w-full object-contain bg-white"
+                                  />
+                                </div>
+                              )}
                               {options.length > 0 ? (
                                 <div className="mt-2 grid gap-1">
                                   {options.map((option, optionIndex) => (

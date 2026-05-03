@@ -618,14 +618,14 @@ function StudentQuizzes() {
                     {isAvailable ? (
                       quiz.kind === "scheduled" ? (
                         <Link
-                          className="inline-flex rounded-full bg-primary px-4 py-2 text-xs font-semibold text-white"
+                          className="inline-flex rounded-full bg-primary px-4 py-2 text-xs font-semibold !text-white transition-all hover:bg-primary/90 hover:shadow-lg hover:shadow-primary/30"
                           to={`/student/scheduled-quizzes/${quiz.id}/attempt`}
                         >
                           Start Quiz
                         </Link>
                       ) : (
                         <Link
-                          className="inline-flex rounded-full bg-primary px-4 py-2 text-xs font-semibold text-white"
+                          className="inline-flex rounded-full bg-primary px-4 py-2 text-xs font-semibold !text-white transition-all hover:bg-primary/90 hover:shadow-lg hover:shadow-primary/30"
                           to={`/student/quizzes/${quiz.id}/attempt`}
                         >
                           Start Quiz

@@ -92,7 +92,13 @@ export default function QuizResultCard({ result, quiz, studentName }) {
               fontFamily: "Georgia",
             }}
           >
-            S
+            {(() => {
+              const name = String(studentName || "S");
+              const letter = (name.includes("@") && !name.includes(" "))
+                ? name.split("@")[0][0]
+                : name[0];
+              return String(letter || "S").toUpperCase();
+            })()}
           </span>
         </div>
 

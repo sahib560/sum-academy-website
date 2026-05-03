@@ -27,6 +27,7 @@ import {
   getTeacherStudents,
   getTeacherClasses,
   gradeTeacherShortAnswers,
+  fetchProtectedImage,
 } from "../../services/teacher.service.js";
 
 const fadeUp = {
@@ -146,6 +147,24 @@ function TeacherQuizDetailAssignmentGrading() {
       toast.error(error?.response?.data?.error || "Failed to save grades");
     },
   });
+
+  const [imageBlobUrls, setImageBlobUrls] = useState({});
+  useEffect(() => {
+    const questions = selectedQuiz?.questions || [];
+    if (!questions.length) return;
+    questions.forEach((q) => {
+      const path = q.imagePath || q.imageUrl;
+      const qid = q.questionId || q.id;
+      if (!path || !qid || imageBlobUrls[qid]) return;
+
+      fetchProtectedImage(path)
+        .then((blob) => {
+          const url = URL.createObjectURL(blob);
+          setImageBlobUrls((prev) => ({ ...prev, [qid]: url }));
+        })
+        .catch(() => {});
+    });
+  }, [selectedQuiz?.questions, imageBlobUrls]);
 
   const quizzes = Array.isArray(quizzesQuery.data) ? quizzesQuery.data : [];
   const selectedQuiz =
@@ -863,6 +882,59 @@ function TeacherQuizDetailAssignmentGrading() {
                 ))}
               </div>
             )}
+          </Motion.section>
+
+          <Motion.section
+            {...fadeUp}
+            className="xl:col-span-2 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"
+          >
+            <h4 className="text-sm font-semibold text-slate-800">
+              Quiz Questions & Answers
+            </h4>
+            <div className="mt-4 space-y-6">
+              {(selectedQuiz?.questions || []).map((q, idx) => (
+                <div key={q.questionId || q.id || idx} className="rounded-2xl border border-slate-100 p-4">
+                  <div className="flex items-start gap-3">
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-[10px] font-bold text-slate-500">
+                      Q{idx + 1}
+                    </span>
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-slate-900" dangerouslySetInnerHTML={{ __html: q.questionText }} />
+                      
+                      {(q.imagePath || q.imageUrl) && (
+                        <div className="mt-3 overflow-hidden rounded-xl border border-slate-100 bg-slate-50">
+                          <img 
+                            src={imageBlobUrls[q.questionId || q.id] || q.imageUrl} 
+                            alt="" 
+                            className="max-h-[300px] w-full object-contain"
+                          />
+                        </div>
+                      )}
+
+                      <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                        {Object.entries(q.options || {}).map(([key, val]) => (
+                          <div 
+                            key={key}
+                            className={`flex items-center gap-2 rounded-xl border p-2 text-xs ${
+                              q.correctAnswer === key 
+                                ? "border-emerald-200 bg-emerald-50 text-emerald-700" 
+                                : "border-slate-100 bg-white text-slate-600"
+                            }`}
+                          >
+                            <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded font-bold ${
+                              q.correctAnswer === key ? "bg-emerald-500 text-white" : "bg-slate-100 text-slate-400"
+                            }`}>
+                              {key}
+                            </span>
+                            <span dangerouslySetInnerHTML={{ __html: val }} />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
           </Motion.section>
         </div>
       )}

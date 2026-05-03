@@ -123,7 +123,7 @@ function StudentTestAttempt() {
   const submitMutation = useMutation({
     mutationFn: (payload) => submitStudentTestAnswer(testId, payload),
     onSuccess: (data) => {
-      setSelectedAnswer("");
+      // Removed setSelectedAnswer("") to preserve answer persistence during navigation
       if (data.completed) {
         setAttempt(data.attempt || null);
         setCurrentQuestion(null);
@@ -177,6 +177,7 @@ function StudentTestAttempt() {
     const existing = answers.find(
       (row) => String(row?.questionId || "").trim() === currentQuestion.questionId
     );
+    // If we have a saved answer, use it; otherwise, default to empty
     setSelectedAnswer(existing?.selectedAnswer || "");
   }, [attempt?.answers, currentQuestion?.questionId]);
 
@@ -360,6 +361,14 @@ function StudentTestAttempt() {
     }
   };
 
+  const now = Date.now() + serverOffsetMsRef.current;
+  const startAt = test?.startAt ? new Date(test.startAt).getTime() : 0;
+  const endAt = test?.endAt ? new Date(test.endAt).getTime() : 0;
+  
+  const isScheduled = startAt > now;
+  const isEnded = endAt > 0 && now > endAt;
+  const isAvailable = !isScheduled && !isEnded;
+
   if (detailQuery.isLoading && !test) {
     return (
       <div className="flex min-h-[400px] flex-col items-center justify-center space-y-4">
@@ -370,7 +379,7 @@ function StudentTestAttempt() {
   }
 
   return (
-    <div className="protected-zone min-h-screen bg-[#0f172a] text-slate-200">
+    <div className="protected-zone flex h-screen flex-col bg-[#0f172a] text-slate-200 overflow-hidden">
       <Toaster position="top-right" />
       
       {/* Security Overlay */}
@@ -407,9 +416,9 @@ function StudentTestAttempt() {
         )}
       </AnimatePresence>
 
-      <div className="mx-auto max-w-5xl px-6 py-10">
+      <div className="flex-1 flex flex-col mx-auto w-full max-w-7xl px-6 py-4 overflow-hidden">
         {/* Header Section */}
-        <section className="mb-8 overflow-hidden rounded-[2.5rem] border border-slate-800 bg-slate-900/40 p-8 shadow-xl backdrop-blur-sm">
+        <section className="mb-4 shrink-0 overflow-hidden rounded-[1.5rem] border border-slate-800 bg-slate-900/40 p-6 shadow-xl backdrop-blur-sm">
           <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h1 className="text-3xl font-bold tracking-tight text-white">{test?.title || "Standardized Test"}</h1>
@@ -440,7 +449,7 @@ function StudentTestAttempt() {
           <Motion.section 
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="rounded-[2.5rem] border border-slate-800 bg-slate-900/40 p-10 shadow-xl backdrop-blur-sm"
+            className="flex-1 overflow-y-auto rounded-[2rem] border border-slate-800 bg-slate-900/40 p-10 shadow-xl backdrop-blur-sm"
           >
             <div className="max-w-2xl">
                <h2 className="text-2xl font-bold text-white">Instructions & Guidelines</h2>
@@ -467,11 +476,11 @@ function StudentTestAttempt() {
                
                <button
                 type="button"
-                className="group mt-10 flex items-center gap-3 rounded-2xl bg-indigo-600 px-8 py-4 font-bold text-white shadow-xl transition-all hover:bg-indigo-500 hover:shadow-indigo-600/20 active:scale-[0.98] disabled:opacity-50"
+                className="group mt-10 flex items-center gap-3 rounded-2xl bg-indigo-600 px-8 py-4 font-bold text-white shadow-xl transition-all hover:bg-indigo-500 hover:text-white hover:shadow-indigo-600/20 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
                 onClick={() => startMutation.mutate()}
-                disabled={startMutation.isPending}
+                disabled={startMutation.isPending || !isAvailable}
               >
-                {startMutation.isPending ? "Initializing..." : "Start Official Test"}
+                {startMutation.isPending ? "Initializing..." : isScheduled ? `Starts at ${new Date(test.startAt).toLocaleTimeString()}` : isEnded ? "Test Period Ended" : "Start Official Test"}
                 <svg className="h-5 w-5 transition-transform group-hover:translate-x-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
                 </svg>
@@ -484,7 +493,7 @@ function StudentTestAttempt() {
           <Motion.section 
             initial={{ opacity: 0, scale: 0.98 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="quiz-content protected-zone overflow-hidden rounded-[2.5rem] border border-slate-800 bg-slate-900/40 shadow-2xl backdrop-blur-sm"
+            className="flex-1 flex flex-col quiz-content protected-zone overflow-hidden rounded-[2rem] border border-slate-800 bg-slate-900/40 shadow-2xl backdrop-blur-sm"
           >
             <WatermarkOverlay
               user={{
@@ -506,13 +515,13 @@ function StudentTestAttempt() {
                </div>
             </div>
 
-            <div className="p-10">
+            <div className="flex-1 overflow-y-auto p-8 sm:p-10 custom-scrollbar">
               {currentQuestion.imageUrl || currentQuestion.imagePath ? (
-                <div className="mb-8 overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 p-4">
+                <div className="mb-6 overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 p-3">
                   <img
                     src={imageBlobUrls[currentQuestion.questionId] || currentQuestion.imageUrl || ""}
                     alt="Question visual"
-                    className="mx-auto max-h-[350px] object-contain"
+                    className="mx-auto max-h-[250px] object-contain"
                     onContextMenu={(e) => e.preventDefault()}
                     draggable={false}
                   />
@@ -520,11 +529,11 @@ function StudentTestAttempt() {
               ) : null}
 
               <div
-                className="text-2xl font-bold leading-relaxed text-white"
+                className="text-xl font-bold leading-relaxed text-white sm:text-2xl"
                 dangerouslySetInnerHTML={{ __html: currentQuestion.questionText || "" }}
               />
 
-              <div className="mt-10 grid gap-4">
+              <div className="mt-8 grid gap-3">
                 {(currentQuestion.options || []).map((option, idx) => {
                   const letters = ["A", "B", "C", "D", "E", "F"];
                   const selected = selectedAnswer === option;
@@ -532,21 +541,21 @@ function StudentTestAttempt() {
                     <button
                       key={`${currentQuestion.questionId}-${option}`}
                       onClick={() => setSelectedAnswer(option)}
-                      className={`group flex items-center gap-5 rounded-2xl border-2 p-5 text-left transition-all duration-200 ${
+                      className={`group flex items-center gap-4 rounded-xl border-2 p-4 text-left transition-all duration-200 ${
                         selected
-                          ? "border-indigo-500 bg-indigo-500/10 shadow-[0_0_20px_rgba(99,102,241,0.15)]"
+                          ? "border-indigo-500 bg-indigo-500/10 shadow-[0_0_15px_rgba(99,102,241,0.15)]"
                           : "border-slate-800 bg-slate-800/20 hover:border-slate-700 hover:bg-slate-800/40"
                       }`}
                     >
-                      <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl font-bold ${
-                        selected ? "bg-indigo-500 text-white" : "bg-slate-800 text-slate-500"
+                      <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg font-bold ${
+                        selected ? "bg-indigo-50 text-indigo-600" : "bg-slate-800 text-slate-500"
                       }`}>
                         {letters[idx] || idx + 1}
                       </div>
-                      <span className={`text-lg font-medium ${selected ? "text-white" : "text-slate-300"}`} dangerouslySetInnerHTML={{ __html: option || "" }} />
+                      <span className={`text-base font-medium ${selected ? "text-white" : "text-slate-300"}`} dangerouslySetInnerHTML={{ __html: option || "" }} />
                       {selected && (
-                        <div className="ml-auto h-6 w-6 rounded-full bg-indigo-500 flex items-center justify-center text-white">
-                           <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
+                        <div className="ml-auto h-5 w-5 rounded-full bg-indigo-500 flex items-center justify-center text-white">
+                           <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
                         </div>
                       )}
                     </button>
@@ -626,16 +635,9 @@ function StudentTestAttempt() {
                 >
                   Refresh Ranking
                 </button>
-                <button
-                  type="button"
-                  onClick={downloadRanking}
-                  className="rounded-2xl bg-indigo-600 px-8 py-4 font-bold text-white shadow-lg transition-all hover:bg-indigo-500"
-                >
-                  Download Performance PDF
-                </button>
                 <Link
                   to="/student/tests"
-                  className="rounded-2xl border border-slate-700 px-8 py-4 font-bold text-slate-400 transition-colors hover:bg-slate-800"
+                  className="rounded-2xl bg-indigo-600 px-8 py-4 font-bold text-white shadow-lg transition-all hover:bg-indigo-500 hover:text-white"
                 >
                   Explore Other Tests
                 </Link>

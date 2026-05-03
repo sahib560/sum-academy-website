@@ -559,10 +559,16 @@ const parseDate = (value) => {
   const raw = trimText(value);
   // If stored/sent without timezone (no Z / no offset), treat as Pakistan time to avoid
   // "random" UTC shifts when converting to ISO.
-  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(raw) && !/Z$|[+-]\d{2}:\d{2}$/.test(raw)) {
-    const normalized = raw.length === 16 ? `${raw}:00` : raw; // add seconds if missing
-    const parsedPk = new Date(`${normalized}+05:00`);
+  if (/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/.test(raw) && !/Z$|[+-]\d{2}:\d{2}$/.test(raw)) {
+    const normalized = raw.replace(" ", "T");
+    const fullIso = normalized.length === 16 ? `${normalized}:00` : normalized; // add seconds if missing
+    const parsedPk = new Date(`${fullIso}+05:00`);
     return Number.isNaN(parsedPk.getTime()) ? null : parsedPk;
+  }
+  // Date only (YYYY-MM-DD) -> Pakistan midnight
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    const d = new Date(`${raw}T00:00:00+05:00`);
+    return Number.isNaN(d.getTime()) ? null : d;
   }
   const parsed = new Date(raw);
   return Number.isNaN(parsed.getTime()) ? null : parsed;

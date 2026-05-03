@@ -108,6 +108,7 @@ function StudentQuizAttempt() {
   const [submittedResult, setSubmittedResult] = useState(null);
   const [showReview, setShowReview] = useState(false);
   const [animatedPercent, setAnimatedPercent] = useState(0);
+  const flaggedCount = useMemo(() => Object.values(flagged).filter(Boolean).length, [flagged]);
   const [securityDeactivatedInfo, setSecurityDeactivatedInfo] = useState(null);
   const lastReportedViolationRef = useRef({
     reason: "",
@@ -241,6 +242,15 @@ function StudentQuizAttempt() {
 
   const finalizeSubmit = useCallback((reason = "manual") => {
     if (submitLockRef.current || submitMutation.isPending || submittedResult) return;
+    
+    if (reason === "manual") {
+      const currentFlaggedCount = Object.values(flagged).filter(Boolean).length;
+      if (currentFlaggedCount > 0 && !showSubmitModal) {
+        setShowSubmitModal(true);
+        return;
+      }
+    }
+
     submitLockRef.current = true;
 
     const latestQuestions = Array.isArray(questionsRef.current) ? questionsRef.current : [];
@@ -258,7 +268,7 @@ function StudentQuizAttempt() {
     }
 
     submitMutation.mutate(payloadAnswers);
-  }, [submitMutation, submittedResult]);
+  }, [submitMutation, submittedResult, flagged, showSubmitModal]);
 
   const getViolationMessage = (reason) => {
     const messages = {
@@ -506,14 +516,14 @@ function StudentQuizAttempt() {
   }, [submittedResult]);
 
   if (submittedResult && resultSummary) {
-    const studentName =
+    const rawNm =
       userProfile?.fullName ||
       userProfile?.name ||
       userProfile?.displayName ||
       "Student";
     return (
       <div
-        className="protected-zone quiz-content relative min-h-screen bg-slate-950 px-4 py-8 protected-content"
+        className="protected-zone quiz-content relative min-h-screen flex flex-col items-center justify-center bg-slate-950 px-4 py-8 protected-content overflow-y-auto"
         style={{ position: "relative" }}
       >
         <Toaster position="top-right" />
@@ -545,7 +555,7 @@ function StudentQuizAttempt() {
 
   return (
     <div
-      className="protected-zone relative min-h-screen bg-[#0f172a] font-sans text-slate-200 selection:bg-indigo-500/30 protected-content"
+      className="protected-zone relative h-screen overflow-hidden bg-[#0f172a] font-sans text-slate-200 selection:bg-indigo-500/30 protected-content"
       style={{ position: "relative" }}
     >
       <Toaster position="top-right" />
@@ -692,7 +702,7 @@ function StudentQuizAttempt() {
                   )}
 
                   <button
-                    className={`group relative w-full overflow-hidden rounded-2xl bg-indigo-600 px-8 py-5 font-bold text-white shadow-xl transition-all hover:bg-indigo-500 hover:shadow-indigo-500/20 active:scale-[0.98] ${isScheduled && !canAttempt ? "cursor-not-allowed opacity-50" : ""}`}
+                    className={`group relative w-full overflow-hidden rounded-2xl bg-indigo-600 px-8 py-5 font-bold text-white shadow-xl transition-all hover:bg-indigo-500 hover:text-white hover:shadow-indigo-500/20 active:scale-[0.98] ${isScheduled && !canAttempt ? "cursor-not-allowed opacity-50" : ""}`}
                     onClick={startQuiz}
                     disabled={isScheduled && !canAttempt}
                   >
@@ -707,7 +717,7 @@ function StudentQuizAttempt() {
               </Motion.div>
             </div>
           ) : (
-            <div className="flex min-h-screen flex-col">
+            <div className="flex h-screen flex-col overflow-hidden">
               {/* Top Navigation Bar */}
               <header className="sticky top-0 z-50 border-b border-slate-800 bg-[#0f172a]/80 py-4 backdrop-blur-md">
                 <div className="mx-auto flex max-w-[1400px] items-center justify-between px-6">
@@ -759,7 +769,7 @@ function StudentQuizAttempt() {
                 </div>
               </header>
 
-              <main className="flex-1 px-6 py-8">
+              <main className="flex-1 overflow-y-auto px-6 py-8">
                 <div className="mx-auto grid max-w-[1400px] gap-8 lg:grid-cols-[1fr_350px]">
                   {/* Left Column: Question Area */}
                   <div className="space-y-6">
@@ -804,7 +814,8 @@ function StudentQuizAttempt() {
                         <div className="mt-10 grid gap-4">
                           {currentQuestion?.type === "mcq" &&
                             currentQuestion.options.map((option, index) => {
-                              const selected = answers[currentQuestion.questionId] === option;
+                              const currentAns = answers[currentQuestion.questionId];
+                              const selected = String(currentAns || "").trim() === String(option || "").trim() && currentAns !== undefined;
                               const letters = ["A", "B", "C", "D", "E", "F"];
                               return (
                                 <button
@@ -1108,7 +1119,12 @@ function StudentQuizAttempt() {
                  </svg>
               </div>
               <h3 className="text-2xl font-bold text-white">Submit Quiz?</h3>
-              <p className="mt-3 text-slate-400">
+              <p className="mt-3 text-slate-400 text-sm">
+                {flaggedCount > 0 && (
+                  <span className="block mb-3 text-amber-400 font-bold bg-amber-400/10 p-3 rounded-xl border border-amber-400/20">
+                    ⚠️ You have {flaggedCount} flagged question(s).
+                  </span>
+                )}
                 {unansweredCount > 0 
                   ? `You have ${unansweredCount} unanswered questions. Are you sure you want to finish the quiz now?`
                   : "Excellent! You have answered all questions. Ready to see your results?"}

@@ -778,6 +778,8 @@ function TeacherQuizzes() {
         correctAnswer: String(row.correctAnswer || "").toUpperCase(),
         expectedAnswer: "",
         marks: Number(row.marks) || 1,
+        imageUrl: row.imageUrl || null,
+        imagePath: row.imagePath || null,
       };
     });
 
@@ -1304,6 +1306,39 @@ function TeacherQuizzes() {
                     value={question.marks}
                     onChange={(event) => onUpdateQuestion(index, "marks", event.target.value)}
                   />
+                  <div className="flex flex-col gap-2">
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Image (Optional)</p>
+                    <div className="flex items-center gap-3">
+                      {question.imageUrl || question.imagePath ? (
+                        <div className="relative h-16 w-16 overflow-hidden rounded-lg border border-slate-200">
+                           <img src={question.imageUrl} className="h-full w-full object-cover" alt="Q preview" />
+                           <button 
+                             onClick={() => onUpdateQuestion(index, "imagePath", "")}
+                             className="absolute inset-0 flex items-center justify-center bg-rose-500/80 opacity-0 hover:opacity-100 transition-opacity text-white font-bold text-[10px]"
+                           >
+                             Remove
+                           </button>
+                        </div>
+                      ) : (
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="text-xs"
+                          onChange={async (e) => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            try {
+                              const data = await uploadQuizQuestionImage(file);
+                              onUpdateQuestion(index, "imageUrl", data.imageUrl);
+                              onUpdateQuestion(index, "imagePath", data.imagePath);
+                            } catch (err) {
+                              toast.error("Failed to upload image");
+                            }
+                          }}
+                        />
+                      )}
+                    </div>
+                  </div>
                   <input
                     className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
                     placeholder="Option A"

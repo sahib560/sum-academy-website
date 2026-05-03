@@ -22,13 +22,21 @@ const toDate = (value) => {
   if (typeof value?.toDate === "function") return value.toDate();
   if (typeof value?.seconds === "number") return new Date(value.seconds * 1000);
   if (typeof value?._seconds === "number") return new Date(value._seconds * 1000);
+  if (value instanceof Date) return value;
+
   const raw = String(value || "").trim();
   // If stored as local datetime without timezone (no Z / no offset),
   // interpret it as Pakistan time (Asia/Karachi) to avoid server-timezone drift.
-  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(raw) && !/Z$|[+-]\d{2}:\d{2}$/.test(raw)) {
-    const normalized = raw.length === 16 ? `${raw}:00` : raw;
-    const parsedPk = new Date(`${normalized}+05:00`);
+  if (/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/.test(raw) && !/Z$|[+-]\d{2}:\d{2}$/.test(raw)) {
+    const normalized = raw.replace(" ", "T");
+    const fullIso = normalized.length === 16 ? `${normalized}:00` : normalized;
+    const parsedPk = new Date(`${fullIso}+05:00`);
     return Number.isNaN(parsedPk.getTime()) ? null : parsedPk;
+  }
+  // Date only (YYYY-MM-DD) -> Pakistan midnight
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    const d = new Date(`${raw}T00:00:00+05:00`);
+    return Number.isNaN(d.getTime()) ? null : d;
   }
   const parsed = new Date(raw);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
@@ -298,15 +306,18 @@ const ensureStudentEnrolled = async (studentId, courseId) => {
       (status === "upcoming" || row.classStatus === "upcoming") &&
       windowState.code === "CLASS_NOT_STARTED"
     ) {
+      // Allow student to access the course content even if the class hasn't started yet.
+      // Recorded content should be playable, while live sessions will stay locked.
       return {
         row,
-        allowed: false,
+        allowed: true,
+        isUpcoming: true,
         code: "CLASS_NOT_STARTED",
-        message: "Class has not started yet. Access opens on the class start date.",
+        message: "Class has not started yet. Recorded content is available.",
         meta: {
           classStartDate: toIso(row.classStartDate),
           classEndDate: toIso(row.classEndDate),
-          todayDatePk: toPkDateKey(new Date()),
+          todayDatePk: todayKey,
         },
       };
     }
@@ -329,8 +340,16 @@ const ensureStudentEnrolled = async (studentId, courseId) => {
   });
 
   const learningRows = checks.filter((item) => item.allowed).map((item) => item.row);
+  const upcomingRows = checks.filter((item) => item.isUpcoming).map((item) => item.row);
+
   if (learningRows.length > 0) {
-    return { enrolled: true, rows: learningRows };
+    const preferredCode = checks.find((item) => item.isUpcoming)?.code || "";
+    return {
+      enrolled: true,
+      rows: learningRows,
+      isUpcoming: upcomingRows.length > 0,
+      code: preferredCode,
+    };
   }
 
   const preferredError =
@@ -701,11 +720,11 @@ export const buildCourseContentForStudent = async (
     ? PERMANENT_COMPLETION_MESSAGE
     : "Course completed. Contact teacher to rewatch.";
   const accessDeniedCode = trimText(enrollmentState.code);
+  const isClassUpcoming = enrollmentState.isUpcoming === true || accessDeniedCode === "CLASS_NOT_STARTED";
   const isPaymentLockedByState = accessDeniedCode === "PAYMENT_PENDING";
-  const isClassNotStarted = accessDeniedCode === "CLASS_NOT_STARTED";
   const isClassEnded = accessDeniedCode === "CLASS_EXPIRED";
-  const isClassLockedByState = isClassNotStarted || isClassEnded;
-  const classLockReason = isClassNotStarted
+  const isClassLockedByState = isClassUpcoming || isClassEnded;
+  const classLockReason = isClassUpcoming
     ? "Class has not started yet"
     : isClassEnded
       ? "Class has ended"
