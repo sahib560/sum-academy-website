@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import toast from "react-hot-toast";
+import toast, { Toaster } from "react-hot-toast";
+import { AnimatePresence, motion as Motion } from "framer-motion";
 import {
   downloadStudentTestRankingPdf,
   finishStudentTest,
@@ -23,9 +24,12 @@ const formatSeconds = (seconds = 0) => {
   return `${String(mins).padStart(2, "0")}:${String(rem).padStart(2, "0")}`;
 };
 
+const Skeleton = ({ className }) => <div className={`animate-pulse bg-slate-800 ${className}`} />;
+
 function StudentTestAttempt() {
   const { testId } = useParams();
   const { userProfile } = useAuth();
+  
   const [attempt, setAttempt] = useState(null);
   const [test, setTest] = useState(null);
   const [currentQuestion, setCurrentQuestion] = useState(null);
@@ -335,9 +339,9 @@ function StudentTestAttempt() {
 
   const headerMeta = useMemo(() => {
     if (!test) return "";
-    return `${test.className || "Entire Center"} | ${test.questionsCount || 0} questions | ${
+    return `${test.className || "Entire Center"} | ${test.questionsCount || 0} Questions | ${
       test.totalMarks || 0
-    } marks`;
+    } Marks`;
   }, [test]);
 
   const downloadRanking = async () => {
@@ -358,251 +362,342 @@ function StudentTestAttempt() {
 
   if (detailQuery.isLoading && !test) {
     return (
-      <div className="rounded-2xl border border-slate-200 bg-white p-5 text-sm text-slate-500">
-        Loading test...
-      </div>
-    );
-  }
-
-  if (detailQuery.isError && !test) {
-    return (
-      <div className="rounded-2xl border border-rose-200 bg-rose-50 p-5 text-sm text-rose-700">
-        {detailQuery.error?.response?.data?.message || "Failed to load test"}
+      <div className="flex min-h-[400px] flex-col items-center justify-center space-y-4">
+        <div className="h-12 w-12 animate-spin rounded-full border-4 border-indigo-500 border-t-transparent" />
+        <p className="text-slate-400 font-medium">Preparing test environment...</p>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
-      {securityDeactivatedInfo?.deactivated ? (
-        <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
-          Access blocked after {securityDeactivatedInfo.count}/{securityDeactivatedInfo.limit} violations.
-          Reason: {securityDeactivatedInfo.reason || "Security policy violation"}.
-        </div>
-      ) : null}
-      <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-        <h1 className="font-heading text-2xl text-slate-900">{test?.title || "Test"}</h1>
-        <p className="mt-1 text-sm text-slate-500">{headerMeta}</p>
-        {inProgress ? (
-          <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-            <p className="text-sm font-semibold text-slate-700">
-              Per-question timer:{" "}
-              <span className="text-primary">{formatSeconds(questionTimeLeft)}</span>
-            </p>
-            <div className="flex items-center gap-2">
-              <div
-                className={`h-2.5 w-44 overflow-hidden rounded-full border ${
-                  questionTimeLeft <= 10
-                    ? "border-rose-300 bg-rose-50"
-                    : questionTimeLeft <= 20
-                      ? "border-amber-300 bg-amber-50"
-                      : "border-emerald-300 bg-emerald-50"
-                }`}
+    <div className="protected-zone min-h-screen bg-[#0f172a] text-slate-200">
+      <Toaster position="top-right" />
+      
+      {/* Security Overlay */}
+      <AnimatePresence>
+        {securityDeactivatedInfo?.deactivated && (
+          <Motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="fixed inset-0 z-[150] flex items-center justify-center bg-slate-950/95 px-4 backdrop-blur-xl"
+          >
+            <Motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              className="w-full max-w-lg rounded-[2.5rem] border border-rose-500/30 bg-slate-900 p-10 text-center shadow-2xl"
+            >
+              <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-[2rem] bg-rose-500/10 text-rose-500">
+                <svg className="h-10 w-10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m0 0v2m0-2h2m-2 0H10m11 3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <h2 className="text-3xl font-bold text-white">Access Denied</h2>
+              <p className="mt-4 leading-relaxed text-slate-400">
+                Your account has been deactivated due to multiple security violations ({securityDeactivatedInfo.count}/{securityDeactivatedInfo.limit}).
+                <br />Reason: <span className="text-rose-300">{securityDeactivatedInfo.reason}</span>
+              </p>
+              <button
+                className="mt-8 w-full rounded-2xl bg-white py-4 font-bold text-slate-900 transition-transform hover:scale-[1.02]"
+                onClick={() => window.location.href = "/login"}
               >
-                <div
-                  className={`h-full transition-all ${
-                    questionTimeLeft <= 10
-                      ? "bg-rose-500"
-                      : questionTimeLeft <= 20
-                        ? "bg-amber-500"
-                        : "bg-emerald-500"
-                  } ${questionTimeLeft <= 5 ? "animate-pulse" : ""}`}
-                  style={{
-                    width: `${Math.max(
-                      0,
-                      Math.min(
-                        100,
-                        Math.round((questionTimeLeft / perQuestionLimitSeconds) * 100)
-                      )
-                    )}%`,
-                  }}
-                />
+                Back to Login
+              </button>
+            </Motion.div>
+          </Motion.div>
+        )}
+      </AnimatePresence>
+
+      <div className="mx-auto max-w-5xl px-6 py-10">
+        {/* Header Section */}
+        <section className="mb-8 overflow-hidden rounded-[2.5rem] border border-slate-800 bg-slate-900/40 p-8 shadow-xl backdrop-blur-sm">
+          <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h1 className="text-3xl font-bold tracking-tight text-white">{test?.title || "Standardized Test"}</h1>
+              <p className="mt-1 text-slate-400 font-medium">{headerMeta}</p>
+            </div>
+            
+            {inProgress && (
+              <div className="flex flex-col items-end gap-2">
+                <span className="text-xs font-bold uppercase tracking-widest text-slate-500">Question Timer</span>
+                <div className="flex items-center gap-4">
+                   <span className={`font-mono text-3xl font-bold ${questionTimeLeft <= 10 ? "animate-pulse text-rose-500" : "text-indigo-400"}`}>
+                    {formatSeconds(questionTimeLeft)}
+                   </span>
+                   <div className="h-12 w-1.5 rounded-full bg-slate-800 overflow-hidden">
+                      <Motion.div 
+                        initial={{ height: "100%" }}
+                        animate={{ height: `${(questionTimeLeft / perQuestionLimitSeconds) * 100}%` }}
+                        className={`w-full rounded-full transition-colors ${questionTimeLeft <= 10 ? "bg-rose-500" : "bg-indigo-500"}`}
+                      />
+                   </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </section>
+
+        {!attempt && !submitted ? (
+          <Motion.section 
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="rounded-[2.5rem] border border-slate-800 bg-slate-900/40 p-10 shadow-xl backdrop-blur-sm"
+          >
+            <div className="max-w-2xl">
+               <h2 className="text-2xl font-bold text-white">Instructions & Guidelines</h2>
+               <ul className="mt-6 space-y-4 text-slate-400">
+                  <li className="flex items-start gap-3">
+                    <div className="mt-1 h-5 w-5 shrink-0 rounded-full bg-indigo-500/20 flex items-center justify-center text-indigo-400">
+                      <svg className="h-3 w-3" fill="currentColor" viewBox="0 0 20 20"><path d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 01-1.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" /></svg>
+                    </div>
+                    <span>Each question has a strict time limit of <span className="font-bold text-white">{perQuestionLimitSeconds} seconds</span>.</span>
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <div className="mt-1 h-5 w-5 shrink-0 rounded-full bg-indigo-500/20 flex items-center justify-center text-indigo-400">
+                      <svg className="h-3 w-3" fill="currentColor" viewBox="0 0 20 20"><path d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 01-1.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" /></svg>
+                    </div>
+                    <span>You can navigate between questions, but the timer resets on every transition.</span>
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <div className="mt-1 h-5 w-5 shrink-0 rounded-full bg-rose-500/20 flex items-center justify-center text-rose-400">
+                      <svg className="h-3 w-3" fill="currentColor" viewBox="0 0 20 20"><path d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" /></svg>
+                    </div>
+                    <span className="font-medium text-rose-300">Active monitoring: Switching tabs or taking screenshots will lead to instant disqualification.</span>
+                  </li>
+               </ul>
+               
+               <button
+                type="button"
+                className="group mt-10 flex items-center gap-3 rounded-2xl bg-indigo-600 px-8 py-4 font-bold text-white shadow-xl transition-all hover:bg-indigo-500 hover:shadow-indigo-600/20 active:scale-[0.98] disabled:opacity-50"
+                onClick={() => startMutation.mutate()}
+                disabled={startMutation.isPending}
+              >
+                {startMutation.isPending ? "Initializing..." : "Start Official Test"}
+                <svg className="h-5 w-5 transition-transform group-hover:translate-x-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                </svg>
+              </button>
+            </div>
+          </Motion.section>
+        ) : null}
+
+        {inProgress && currentQuestion ? (
+          <Motion.section 
+            initial={{ opacity: 0, scale: 0.98 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="quiz-content protected-zone overflow-hidden rounded-[2.5rem] border border-slate-800 bg-slate-900/40 shadow-2xl backdrop-blur-sm"
+          >
+            <WatermarkOverlay
+              user={{
+                uid: userProfile?.uid,
+                email: userProfile?.email,
+                fullName: userProfile?.fullName || userProfile?.name,
+              }}
+            />
+            
+            <div className="flex items-center justify-between border-b border-slate-800 bg-slate-800/30 px-10 py-5">
+               <span className="text-xs font-bold uppercase tracking-widest text-slate-500">
+                Question {currentIndex + 1} of {totalQuestions}
+               </span>
+               <div className="flex h-2 w-48 overflow-hidden rounded-full bg-slate-800">
+                  <div 
+                    className="h-full bg-indigo-500 transition-all duration-500" 
+                    style={{ width: `${((currentIndex + 1) / totalQuestions) * 100}%` }}
+                  />
+               </div>
+            </div>
+
+            <div className="p-10">
+              {currentQuestion.imageUrl || currentQuestion.imagePath ? (
+                <div className="mb-8 overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 p-4">
+                  <img
+                    src={imageBlobUrls[currentQuestion.questionId] || currentQuestion.imageUrl || ""}
+                    alt="Question visual"
+                    className="mx-auto max-h-[350px] object-contain"
+                    onContextMenu={(e) => e.preventDefault()}
+                    draggable={false}
+                  />
+                </div>
+              ) : null}
+
+              <div
+                className="text-2xl font-bold leading-relaxed text-white"
+                dangerouslySetInnerHTML={{ __html: currentQuestion.questionText || "" }}
+              />
+
+              <div className="mt-10 grid gap-4">
+                {(currentQuestion.options || []).map((option, idx) => {
+                  const letters = ["A", "B", "C", "D", "E", "F"];
+                  const selected = selectedAnswer === option;
+                  return (
+                    <button
+                      key={`${currentQuestion.questionId}-${option}`}
+                      onClick={() => setSelectedAnswer(option)}
+                      className={`group flex items-center gap-5 rounded-2xl border-2 p-5 text-left transition-all duration-200 ${
+                        selected
+                          ? "border-indigo-500 bg-indigo-500/10 shadow-[0_0_20px_rgba(99,102,241,0.15)]"
+                          : "border-slate-800 bg-slate-800/20 hover:border-slate-700 hover:bg-slate-800/40"
+                      }`}
+                    >
+                      <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl font-bold ${
+                        selected ? "bg-indigo-500 text-white" : "bg-slate-800 text-slate-500"
+                      }`}>
+                        {letters[idx] || idx + 1}
+                      </div>
+                      <span className={`text-lg font-medium ${selected ? "text-white" : "text-slate-300"}`} dangerouslySetInnerHTML={{ __html: option || "" }} />
+                      {selected && (
+                        <div className="ml-auto h-6 w-6 rounded-full bg-indigo-500 flex items-center justify-center text-white">
+                           <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
+                        </div>
+                      )}
+                    </button>
+                  );
+                })}
               </div>
             </div>
-          </div>
-        ) : null}
-      </section>
 
-      {!attempt && !submitted ? (
-        <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-          <p className="text-sm text-slate-600">
-            Start this test during the scheduled window. Each question has its own timer.
-            You can move back and forth, and the timer resets when you change the question.
-          </p>
-          <button
-            type="button"
-            className="mt-4 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white"
-            onClick={() => startMutation.mutate()}
-            disabled={startMutation.isPending}
-          >
-            {startMutation.isPending ? "Starting..." : "Start Test"}
-          </button>
-        </section>
-      ) : null}
+            {/* Navigation Controls */}
+            <div className="flex flex-wrap items-center justify-between border-t border-slate-800 bg-slate-800/20 px-10 py-8">
+              <div className="flex gap-4">
+                <button
+                  type="button"
+                  onClick={() => saveAndNavigate("prev")}
+                  disabled={submitMutation.isPending || currentIndex <= 0}
+                  className="rounded-xl border border-slate-700 px-6 py-3 font-bold text-slate-400 transition-colors hover:bg-slate-800 disabled:opacity-30"
+                >
+                  Previous
+                </button>
+                <button
+                  type="button"
+                  onClick={() => saveAndNavigate("next")}
+                  disabled={submitMutation.isPending}
+                  className="flex items-center gap-2 rounded-xl bg-indigo-600 px-8 py-3 font-bold text-white shadow-lg transition-all hover:bg-indigo-500 disabled:opacity-30"
+                >
+                  {submitMutation.isPending ? "Saving..." : isLastQuestion ? "Finish" : "Save & Next"}
+                  {!isLastQuestion && (
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" /></svg>
+                  )}
+                </button>
+              </div>
 
-      {inProgress && currentQuestion ? (
-        <section className="quiz-content protected-zone rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-          <WatermarkOverlay
-            user={{
-              uid: userProfile?.uid,
-              email: userProfile?.email,
-              fullName: userProfile?.fullName || userProfile?.name,
-            }}
-          />
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-            Question {currentIndex + 1} of {totalQuestions || 0}
-          </p>
-          {currentQuestion.imageUrl || currentQuestion.imagePath ? (
-            <img
-              src={
-                imageBlobUrls[currentQuestion.questionId] ||
-                currentQuestion.imageUrl ||
-                ""
-              }
-              alt="Question figure"
-              style={{
-                maxWidth: "100%",
-                maxHeight: "300px",
-                borderRadius: "12px",
-                marginTop: "12px",
-                marginBottom: "16px",
-                border: "1px solid #252a45",
-                display: "block",
-              }}
-              onContextMenu={(e) => e.preventDefault()}
-              draggable={false}
-            />
-          ) : null}
-          <div
-            className="mt-2 text-lg font-semibold text-slate-900"
-            dangerouslySetInnerHTML={{ __html: currentQuestion.questionText || "" }}
-          />
-          <div className="mt-4 space-y-2">
-            {(currentQuestion.options || []).map((option) => (
-              <label
-                key={`${currentQuestion.questionId}-${option}`}
-                className={`flex cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 text-sm ${
-                  selectedAnswer === option
-                    ? "border-primary bg-primary/5 text-primary"
-                    : "border-slate-200 text-slate-700"
+              <button
+                type="button"
+                onClick={() => finishMutation.mutate("manual")}
+                disabled={finishMutation.isPending || !hasReachedLast}
+                className={`rounded-xl border px-8 py-3 font-bold transition-all ${
+                  hasReachedLast
+                    ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20"
+                    : "border-slate-800 text-slate-600 cursor-not-allowed"
                 }`}
               >
-                <input
-                  type="radio"
-                  name={currentQuestion.questionId}
-                  value={option}
-                  checked={selectedAnswer === option}
-                  onChange={() => setSelectedAnswer(option)}
-                />
-                <span dangerouslySetInnerHTML={{ __html: option || "" }} />
-              </label>
-            ))}
-          </div>
-          <div className="mt-5 flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => saveAndNavigate("prev")}
-              disabled={submitMutation.isPending || Number(attempt?.currentIndex || 0) <= 0}
-              className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              Back
-            </button>
-            <button
-              type="button"
-              onClick={() => saveAndNavigate("next")}
-              disabled={submitMutation.isPending}
-              className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {submitMutation.isPending ? "Saving..." : "Next"}
-            </button>
-            <button
-              type="button"
-              onClick={() => finishMutation.mutate("manual")}
-              disabled={finishMutation.isPending || !hasReachedLast}
-              title={
-                hasReachedLast
-                  ? "Submit test"
-                  : "Go to the last question first to enable submit"
-              }
-              className={`rounded-xl border px-4 py-2 text-sm font-semibold ${
-                hasReachedLast
-                  ? "border-slate-300 text-slate-700 hover:border-primary/40 hover:bg-primary/5 hover:text-primary"
-                  : "border-slate-200 text-slate-400 cursor-not-allowed opacity-70"
-              }`}
-            >
-              {hasReachedLast ? "Submit Test" : "Submit (Reach Last Question)"}
-            </button>
-          </div>
-        </section>
-      ) : null}
+                {hasReachedLast ? "Finalize Test" : "Finish Review First"}
+              </button>
+            </div>
+          </Motion.section>
+        ) : null}
 
-      {submitted ? (
-        <section className="rounded-3xl border border-emerald-200 bg-emerald-50 p-5 shadow-sm">
-          <h2 className="font-heading text-xl text-emerald-800">Test Submitted</h2>
-          <p className="mt-1 text-sm text-emerald-700">
-            Obtained: {attempt?.score || 0}/{attempt?.totalMarks || 0} (
-            {attempt?.percentage || 0}%)
-          </p>
-          {myResult ? (
-            <p className="mt-1 text-sm font-semibold text-emerald-800">
-              Rank: {myResult.ordinalPosition} out of {ranking.totalParticipants || 0}
-            </p>
-          ) : null}
-          <div className="mt-4 flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => rankingQuery.refetch()}
-              className="rounded-xl border border-emerald-300 px-4 py-2 text-sm font-semibold text-emerald-800"
-            >
-              Refresh Ranking
-            </button>
-            <button
-              type="button"
-              onClick={downloadRanking}
-              className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white"
-            >
-              Download Ranking PDF
-            </button>
-            <Link
-              to="/student/tests"
-              className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700"
-            >
-              Back to Tests
-            </Link>
-          </div>
-          <div className="mt-4 overflow-x-auto rounded-xl border border-emerald-100 bg-white">
-            <table className="min-w-full text-left text-xs">
-              <thead className="bg-emerald-50 text-emerald-700">
-                <tr>
-                  <th className="px-3 py-2">Pos</th>
-                  <th className="px-3 py-2">Student</th>
-                  <th className="px-3 py-2">Class</th>
-                  <th className="px-3 py-2">Marks</th>
-                  <th className="px-3 py-2">%</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(ranking.ranking || []).slice(0, 30).map((row) => (
-                  <tr
-                    key={`${row.studentId}-${row.attemptId}`}
-                    className={`border-t border-emerald-100 ${
-                      row.studentId === userProfile?.uid ? "bg-primary/5" : ""
-                    }`}
-                  >
-                    <td className="px-3 py-2">{row.position}</td>
-                    <td className="px-3 py-2">{row.studentName}</td>
-                    <td className="px-3 py-2">{row.className}</td>
-                    <td className="px-3 py-2">
-                      {row.obtainedMarks}/{row.totalMarks}
-                    </td>
-                    <td className="px-3 py-2">{row.percentage}%</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      ) : null}
+        {submitted ? (
+          <Motion.section 
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="space-y-8"
+          >
+            <div className="overflow-hidden rounded-[2.5rem] border border-emerald-500/20 bg-emerald-500/5 p-10 shadow-xl backdrop-blur-sm">
+              <div className="flex flex-col items-center text-center">
+                 <div className="mb-6 flex h-20 w-20 items-center justify-center rounded-[2rem] bg-emerald-500 text-white shadow-lg shadow-emerald-500/20">
+                    <svg className="h-10 w-10" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                 </div>
+                 <h2 className="text-4xl font-bold text-white">Test Completed</h2>
+                 <p className="mt-2 text-xl font-medium text-emerald-400">
+                   Score: {attempt?.score || 0} / {attempt?.totalMarks || 0} ({attempt?.percentage || 0}%)
+                 </p>
+                 {myResult && (
+                    <div className="mt-6 rounded-2xl bg-white/5 px-6 py-3 border border-white/10">
+                       <span className="text-sm font-bold uppercase tracking-widest text-slate-400">Current Standing</span>
+                       <p className="text-2xl font-bold text-white">#{myResult.position} <span className="text-slate-500">/ {ranking.totalParticipants}</span></p>
+                    </div>
+                 )}
+              </div>
+
+              <div className="mt-10 flex flex-wrap justify-center gap-4">
+                <button
+                  type="button"
+                  onClick={() => rankingQuery.refetch()}
+                  className="rounded-2xl border border-slate-700 bg-slate-800/50 px-8 py-4 font-bold text-white transition-colors hover:bg-slate-700"
+                >
+                  Refresh Ranking
+                </button>
+                <button
+                  type="button"
+                  onClick={downloadRanking}
+                  className="rounded-2xl bg-indigo-600 px-8 py-4 font-bold text-white shadow-lg transition-all hover:bg-indigo-500"
+                >
+                  Download Performance PDF
+                </button>
+                <Link
+                  to="/student/tests"
+                  className="rounded-2xl border border-slate-700 px-8 py-4 font-bold text-slate-400 transition-colors hover:bg-slate-800"
+                >
+                  Explore Other Tests
+                </Link>
+              </div>
+            </div>
+
+            {/* Ranking Table */}
+            <div className="overflow-hidden rounded-[2.5rem] border border-slate-800 bg-slate-900/40 shadow-xl backdrop-blur-sm">
+              <div className="border-b border-slate-800 bg-slate-800/30 px-10 py-6">
+                 <h3 className="text-xl font-bold text-white">Student Leaderboard</h3>
+              </div>
+              <div className="overflow-x-auto p-2">
+                <table className="w-full text-left">
+                  <thead>
+                    <tr className="text-xs font-bold uppercase tracking-widest text-slate-500">
+                      <th className="px-8 py-4">Rank</th>
+                      <th className="px-8 py-4">Student</th>
+                      <th className="px-8 py-4">Class</th>
+                      <th className="px-8 py-4 text-right">Score</th>
+                      <th className="px-8 py-4 text-right">Percentage</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/50">
+                    {(ranking.ranking || []).slice(0, 30).map((row) => (
+                      <tr
+                        key={`${row.studentId}-${row.attemptId}`}
+                        className={`group transition-colors ${row.studentId === userProfile?.uid ? "bg-indigo-500/10" : "hover:bg-white/5"}`}
+                      >
+                        <td className="px-8 py-5">
+                          <div className={`flex h-8 w-8 items-center justify-center rounded-lg font-bold ${
+                            row.position === 1 ? "bg-amber-500 text-white shadow-lg shadow-amber-500/20" :
+                            row.position === 2 ? "bg-slate-300 text-slate-900" :
+                            row.position === 3 ? "bg-amber-700 text-white" :
+                            "bg-slate-800 text-slate-400"
+                          }`}>
+                            {row.position}
+                          </div>
+                        </td>
+                        <td className="px-8 py-5">
+                          <div className="font-bold text-white group-hover:text-indigo-400 transition-colors">{row.studentName}</div>
+                          <div className="text-xs text-slate-500">{row.studentId === userProfile?.uid ? "You" : "Verified Student"}</div>
+                        </td>
+                        <td className="px-8 py-5 text-sm font-medium text-slate-400">{row.className}</td>
+                        <td className="px-8 py-5 text-right font-mono font-bold text-white">{row.obtainedMarks}/{row.totalMarks}</td>
+                        <td className="px-8 py-5 text-right">
+                          <span className={`rounded-lg px-3 py-1 text-sm font-bold ${
+                            row.percentage >= 75 ? "bg-emerald-500/10 text-emerald-400" :
+                            row.percentage >= 40 ? "bg-indigo-500/10 text-indigo-400" :
+                            "bg-rose-500/10 text-rose-400"
+                          }`}>
+                            {row.percentage}%
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </Motion.section>
+        ) : null}
+      </div>
     </div>
   );
 }

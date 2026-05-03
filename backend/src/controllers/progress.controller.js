@@ -154,7 +154,7 @@ const evaluateEnrollmentWindow = (row = {}) => {
 
   if (startDateKey && todayKey && todayKey < startDateKey) {
     return {
-      allowed: false,
+      allowed: true, // Changed from false to prevent auto-lock
       code: "CLASS_NOT_STARTED",
       message: "Class has not started yet. Access opens on the class start date.",
       meta: {
@@ -167,7 +167,7 @@ const evaluateEnrollmentWindow = (row = {}) => {
 
   if (endDateKey && todayKey && todayKey > endDateKey) {
     return {
-      allowed: false,
+      allowed: true, // Changed from false to prevent auto-lock
       code: "CLASS_EXPIRED",
       message: "Class has ended. Learning access is closed.",
       meta: {
@@ -283,7 +283,7 @@ const ensureStudentEnrolled = async (studentId, courseId) => {
     ) {
       return {
         row,
-        allowed: false,
+        allowed: true, // Changed from false to allow rewatching
         code: "CLASS_COMPLETED",
         message: row.classCompletionMessage || PERMANENT_COMPLETION_MESSAGE,
         meta: {
@@ -806,18 +806,19 @@ export const buildCourseContentForStudent = async (
 
       let isLocked = false;
       let lockReason = "";
-      if (isPaymentLockedByState) {
-        isLocked = true;
-        lockReason = "Payment verification is pending";
-      } else if (permanentlyLocked) {
-        isLocked = true;
-        lockReason = completionLockMessage;
-      } else if (isClassLockedByState) {
-        isLocked = true;
-        lockReason = classLockReason;
-      } else if (manualLock || globalLock) {
+
+      if (manualLock) {
         isLocked = true;
         lockReason = "Locked by teacher/admin";
+      } else if (manualAccess) {
+        isLocked = false;
+        lockReason = "";
+      } else if (globalLock) {
+        isLocked = true;
+        lockReason = "Locked by teacher/admin";
+      } else if (isPaymentLockedByState) {
+        isLocked = true;
+        lockReason = "Payment verification is pending";
       } else if (livePremiereLocked) {
         isLocked = true;
         lockReason = scheduleNotStarted

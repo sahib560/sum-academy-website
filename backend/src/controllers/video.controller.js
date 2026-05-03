@@ -53,23 +53,8 @@ const getLectureAndAccess = async (lectureId, studentId) => {
     return { error: "Not enrolled in this course", status: 403 };
   }
 
-  const isCourseCompleted = !completedEnroll.empty;
-  if (isCourseCompleted) {
-    const accessSnap = await db
-      .collection("videoAccess")
-      .where("studentId", "==", studentId)
-      .where("lectureId", "==", lectureId)
-      .where("hasAccess", "==", true)
-      .get();
-    if (accessSnap.empty) {
-      return {
-        error: "Video locked after course completion. Contact teacher.",
-        status: 403,
-        code: "COMPLETION_LOCKED",
-      };
-    }
-  }
-
+  // Removed auto-lock after course completion to allow rewatching.
+  // Manual videoAccess entries will still be respected if they exist.
   return { lecture };
 };
 
@@ -252,7 +237,7 @@ export const getLiveSessionVideo = async (req, res) => {
       );
     }
 
-    if (session.isLocked || session.sessionLocked) {
+    if (session.isLocked) {
       return errorResponse(
         res,
         "Session recording is locked. Contact teacher to unlock.",
