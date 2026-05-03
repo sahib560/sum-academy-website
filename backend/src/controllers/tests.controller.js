@@ -2094,7 +2094,7 @@ export const submitStudentTestAnswer = async (req, res) => {
   try {
     const uid = trimText(req.user?.uid);
     const testId = trimText(req.params?.testId);
-    const { questionId = "", selectedAnswer = "", direction = "" } = req.body || {};
+    const { questionId = "", selectedAnswer = "", direction = "", targetIndex = null, flagged = false } = req.body || {};
 
     const access = await ensureStudentCanAccessTest({ testId, uid });
     if (access.error) return errorResponse(res, access.error, access.status || 403);
@@ -2121,8 +2121,6 @@ export const submitStudentTestAnswer = async (req, res) => {
     if (!cleanQuestionId) return errorResponse(res, "questionId is required", 400);
 
     const currentIndex = Math.max(0, toNumber(inProgress.currentIndex, 0));
-    const expected = questions[currentIndex] || null;
-    const expectedQuestionId = trimText(expected?.questionId);
     const questionIndex = questions.findIndex(
       (row) => trimText(row?.questionId) === cleanQuestionId
     );
@@ -2134,33 +2132,7 @@ export const submitStudentTestAnswer = async (req, res) => {
 
     const cleanDirection = lowerText(direction);
     const flexible =
-      cleanDirection === "next" || cleanDirection === "prev" || cleanDirection === "stay";
-
-    // Backwards compatibility: if the client does not specify navigation intent,
-    // enforce the legacy strict flow (answer current question once).
-    if (!flexible) {
-      if (!expected) {
-        return errorResponse(
-          res,
-          "Test already completed. Submit finalization instead.",
-          409
-        );
-      }
-      if (cleanQuestionId !== expectedQuestionId) {
-        return errorResponse(
-          res,
-          "Invalid question order. You can only answer the current question.",
-          409,
-          { code: "STRICT_PROGRESS_ENFORCED", expectedQuestionId }
-        );
-      }
-      const cleanSelected = trimText(selectedAnswer);
-      if (!cleanSelected) return errorResponse(res, "selectedAnswer is required", 400);
-      const existingAnswers = Array.isArray(inProgress.answers) ? inProgress.answers : [];
-      if (existingAnswers.some((row) => trimText(row.questionId) === expectedQuestionId)) {
-        return errorResponse(res, "Question already answered", 409);
-      }
-    }
+      cleanDirection === "next" || cleanDirection === "prev" || cleanDirection === "stay" || cleanDirection === "jump";
 
     const cleanSelected = trimText(selectedAnswer);
     const existingAnswers = Array.isArray(inProgress.answers) ? inProgress.answers : [];
@@ -2180,11 +2152,23 @@ export const submitStudentTestAnswer = async (req, res) => {
         ? existingAnswers.map((row, idx) => (idx === answerIndex ? newAnswer : row))
         : [...existingAnswers, newAnswer];
 
+    // Flagging Logic
+    let updatedFlagged = Array.isArray(inProgress.flagged) ? inProgress.flagged : [];
+    if (flagged) {
+      if (!updatedFlagged.includes(cleanQuestionId)) {
+        updatedFlagged.push(cleanQuestionId);
+      }
+    } else {
+      updatedFlagged = updatedFlagged.filter(id => id !== cleanQuestionId);
+    }
+
     let nextIndex = currentIndex;
     if (cleanDirection === "prev") {
       nextIndex = Math.max(0, currentIndex - 1);
     } else if (cleanDirection === "next") {
       nextIndex = currentIndex + 1;
+    } else if (cleanDirection === "jump" && targetIndex !== null) {
+      nextIndex = Math.max(0, Math.min(questions.length, toNumber(targetIndex, 0)));
     } else if (!flexible) {
       nextIndex = currentIndex + 1;
     }
@@ -2194,6 +2178,7 @@ export const submitStudentTestAnswer = async (req, res) => {
       const evaluated = computeScore(questions, updatedAnswers);
       await inProgress.ref.update({
         answers: updatedAnswers,
+        flagged: updatedFlagged,
         currentIndex: nextIndex,
         status: "submitted",
         score: evaluated.score,
@@ -2244,6 +2229,7 @@ export const submitStudentTestAnswer = async (req, res) => {
 
     await inProgress.ref.update({
       answers: updatedAnswers,
+      flagged: updatedFlagged,
       currentIndex: nextIndex,
       updatedAt: serverTimestamp(),
     });

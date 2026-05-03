@@ -34,6 +34,7 @@ function StudentTestAttempt() {
   const [test, setTest] = useState(null);
   const [currentQuestion, setCurrentQuestion] = useState(null);
   const [selectedAnswer, setSelectedAnswer] = useState("");
+  const [isFlagged, setIsFlagged] = useState(false);
   const [questionTimeLeft, setQuestionTimeLeft] = useState(0);
   const [hasReachedLast, setHasReachedLast] = useState(false);
   const [imageBlobUrls, setImageBlobUrls] = useState({});
@@ -146,13 +147,19 @@ function StudentTestAttempt() {
     },
   });
 
-  const saveAndNavigate = (direction) => {
+  const saveAndNavigate = (direction, targetIdx = null) => {
     if (!currentQuestion || submitMutation.isPending) return;
     submitMutation.mutate({
       questionId: currentQuestion.questionId,
       selectedAnswer: selectedAnswer || "",
       direction,
+      targetIndex: targetIdx,
+      flagged: isFlagged,
     });
+  };
+
+  const toggleFlag = () => {
+    setIsFlagged(prev => !prev);
   };
 
   const inProgress =
@@ -177,9 +184,11 @@ function StudentTestAttempt() {
     const existing = answers.find(
       (row) => String(row?.questionId || "").trim() === currentQuestion.questionId
     );
-    // If we have a saved answer, use it; otherwise, default to empty
+    const flagged = Array.isArray(attempt?.flagged) ? attempt.flagged : [];
+    
     setSelectedAnswer(existing?.selectedAnswer || "");
-  }, [attempt?.answers, currentQuestion?.questionId]);
+    setIsFlagged(flagged.includes(currentQuestion.questionId));
+  }, [attempt?.answers, attempt?.flagged, currentQuestion?.questionId]);
 
   useEffect(() => {
     const path = currentQuestion?.imagePath;
@@ -445,6 +454,33 @@ function StudentTestAttempt() {
           </div>
         </section>
 
+        {inProgress && (
+          <div className="mb-4 grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-10 xl:grid-cols-12 gap-2 overflow-y-auto max-h-[120px] rounded-2xl border border-slate-800 bg-slate-900/40 p-3 custom-scrollbar">
+            {Array.from({ length: totalQuestions }).map((_, idx) => {
+              const qid = test?.questions?.[idx]?.questionId;
+              const hasAnswer = (attempt?.answers || []).some(a => a.questionOrder === idx + 1 && a.selectedAnswer);
+              const flagged = (attempt?.flagged || []).includes(qid);
+              const isActive = currentIndex === idx;
+
+              let bgColor = "bg-slate-800/40 border-slate-800 text-slate-500";
+              if (isActive) bgColor = "bg-indigo-600 border-indigo-500 text-white shadow-lg shadow-indigo-500/20";
+              else if (flagged) bgColor = "bg-amber-500/20 border-amber-500/50 text-amber-500";
+              else if (hasAnswer) bgColor = "bg-emerald-500/20 border-emerald-500/50 text-emerald-400";
+
+              return (
+                <button
+                  key={`nav-${idx}`}
+                  onClick={() => saveAndNavigate("jump", idx)}
+                  disabled={submitMutation.isPending}
+                  className={`flex h-10 items-center justify-center rounded-xl border text-sm font-bold transition-all hover:scale-105 active:scale-95 disabled:opacity-50 ${bgColor}`}
+                >
+                  {idx + 1}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
         {!attempt && !submitted ? (
           <Motion.section 
             initial={{ opacity: 0, y: 20 }}
@@ -574,6 +610,20 @@ function StudentTestAttempt() {
                   className="rounded-xl border border-slate-700 px-6 py-3 font-bold text-slate-400 transition-colors hover:bg-slate-800 disabled:opacity-30"
                 >
                   Previous
+                </button>
+                <button
+                  type="button"
+                  onClick={toggleFlag}
+                  className={`flex items-center gap-2 rounded-xl border px-6 py-3 font-bold transition-all ${
+                    isFlagged 
+                      ? "border-amber-500 bg-amber-500/10 text-amber-500" 
+                      : "border-slate-700 text-slate-400 hover:bg-slate-800"
+                  }`}
+                >
+                  <svg className={`h-4 w-4 ${isFlagged ? "fill-amber-500" : "fill-none"}`} viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+                  </svg>
+                  {isFlagged ? "Flagged" : "Flag"}
                 </button>
                 <button
                   type="button"

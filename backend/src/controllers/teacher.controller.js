@@ -2583,7 +2583,15 @@ export const saveLectureContent = async (req, res) => {
       // Scheduling (for both live and recorded videos):
       // UI provides a start datetime, end is auto-calculated from lecture duration.
       if (liveStartAt !== undefined && liveStartAt !== null && trimText(liveStartAt)) {
-        const parsedStart = parseDate(liveStartAt);
+        let dateString = trimText(liveStartAt);
+        // If it's a "local" string without timezone, assume it's Pakistan time (+05:00)
+        if (dateString.length === 16 || dateString.length === 19) {
+          if (!dateString.includes('Z') && !dateString.includes('+') && !dateString.includes('-')) {
+             dateString = `${dateString}+05:00`;
+          }
+        }
+        
+        const parsedStart = parseDate(dateString);
         if (parsedStart) {
           const durationSec = Math.max(0, toPositiveNumber(updates.durationSec, 0));
           // Store as Pakistan-local datetime string (no Z) so Firestore shows the expected time.

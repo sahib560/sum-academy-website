@@ -778,6 +778,15 @@ function Classes() {
 
   const [studentSearch, setStudentSearch] = useState("");
   const [enrollStudentSearch, setEnrollStudentSearch] = useState("");
+  const [debouncedEnrollStudentSearch, setDebouncedEnrollStudentSearch] = useState("");
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedEnrollStudentSearch(enrollStudentSearch);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [enrollStudentSearch]);
+
   const [enrollStudentIds, setEnrollStudentIds] = useState([]);
   const [enrollShiftId, setEnrollShiftId] = useState("");
   const [enrollEnrollmentType, setEnrollEnrollmentType] = useState("full_class");
@@ -807,12 +816,12 @@ function Classes() {
   });
 
   const studentsQuery = useInfiniteQuery({
-    queryKey: ["admin", "students", enrollStudentSearch.trim(), "active-only"],
+    queryKey: ["admin", "students", debouncedEnrollStudentSearch.trim(), "active-only"],
     queryFn: ({ pageParam }) =>
       getStudents({
         pageSize: 100,
         cursor: String(pageParam || ""),
-        search: enrollStudentSearch.trim(),
+        search: debouncedEnrollStudentSearch.trim(),
         isActive: true,
       }),
     initialPageParam: "",

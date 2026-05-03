@@ -98,6 +98,62 @@ Most endpoints require a `Bearer` token in the `Authorization` header. This toke
 - **Endpoint**: `GET /student/tests`
 - **Scheduling**: Tests are enabled ONLY during their specific time window. If `currentTime < testStartTime`, the "Start" button must be disabled.
 
+### Submit Single Test Answer (Navigation & Persistence)
+- **Endpoint**: `POST /student/tests/:testId/submit`
+- **Payload**:
+  ```json
+  {
+    "answer": "Option B",
+    "targetIndex": 5, 
+    "direction": "jump", 
+    "flagged": true
+  }
+  ```
+- **Navigation Logic (Android Developer Note)**:
+  - `targetIndex` (Number): The index of the question the user wants to jump to. Use this for the non-linear question navigation grid.
+  - `direction` (String): Can be `"next"`, `"prev"`, or `"jump"`.
+  - `flagged` (Boolean): If the student marks the current question for review, send `true`. The backend persists this in the `flagged` array, so it is remembered if the student navigates away and returns.
+  - **State Sync**: The response includes the `attempt` document, which has the `flagged` array. Use this to update the UI (e.g., color-coding the question grid: Green = Answered, Yellow = Flagged, Gray = Unanswered).
+
+### Finish/Finalize Test
+- **Endpoint**: `POST /student/tests/:testId/finish`
+- **Payload**:
+  ```json
+  {
+    "reason": "manual" 
+  }
+  ```
+- **Note**: `reason` can be `"manual"`, `"timeout"`, `"auto"`, or `"violation"`.
+- **Response**: Returns the final evaluated `attempt`, the `result` summary, and the `ranking` object (including `position`, `ordinalPosition`, and `totalParticipants`).
+
+### Fetch Test Ranking Leaderboard
+- **Endpoint**: `GET /student/tests/:testId/ranking`
+- **Response**:
+  ```json
+  {
+    "success": true,
+    "data": {
+      "totalParticipants": 150,
+      "myResult": {
+        "position": 5,
+        "ordinalPosition": "5th",
+        "obtainedMarks": 45,
+        "totalMarks": 50,
+        "percentage": 90
+      },
+      "ranking": [
+        {
+          "position": 1,
+          "studentName": "Ali",
+          "obtainedMarks": 50,
+          "totalMarks": 50,
+          "percentage": 100
+        }
+      ]
+    }
+  }
+  ```
+
 ---
 
 ## Success & Error Messaging
