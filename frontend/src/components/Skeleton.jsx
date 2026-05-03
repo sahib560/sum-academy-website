@@ -10,7 +10,7 @@ function SkeletonText({ lines = 3, className = "" }) {
   const safeLines = Math.max(1, Number(lines) || 1);
   return (
     <div className={cn("flex flex-col gap-2", className)} aria-hidden="true">
-      {Array.from({ length: safeLines }).map((_, index) => (
+      {Array.from({ length: safeLines }).map((ignore, index) => (
         <Skeleton
           key={`skeleton-line-${index}`}
           className={`h-3 ${index === safeLines - 1 ? "w-3/4" : "w-full"}`}

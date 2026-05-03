@@ -606,7 +606,7 @@ function TeacherQuizzes() {
   };
 
   const onRemoveQuestion = (index) => {
-    setQuestions((prev) => (prev.length <= 1 ? prev : prev.filter((_, i) => i !== index)));
+    setQuestions((prev) => (prev.length <= 1 ? prev : prev.filter((ignore, i) => i !== index)));
   };
 
   const onUpdateQuestion = (index, key, value) => {
@@ -1827,7 +1827,7 @@ function TeacherQuizzes() {
           <h3 className="font-heading text-xl text-slate-900">My Quizzes</h3>
           {quizzesQuery.isLoading ? (
             <div className="mt-4 space-y-2">
-              {Array.from({ length: 4 }).map((_, index) => (
+              {Array.from({ length: 4 }).map((ignore, index) => (
                 <Skeleton key={index} className="h-14 w-full" />
               ))}
             </div>
@@ -2259,7 +2259,7 @@ function TeacherQuizzes() {
                 </h4>
                 {submissionsQuery.isLoading ? (
                   <div className="mt-4 space-y-2">
-                    {Array.from({ length: 3 }).map((_, index) => (
+                    {Array.from({ length: 3 }).map((ignore, index) => (
                       <Skeleton key={index} className="h-20 w-full" />
                     ))}
                   </div>

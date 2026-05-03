@@ -192,7 +192,7 @@ function TeacherMyQuizzes() {
       >
         {quizzesQuery.isLoading ? (
           <div className="space-y-3">
-            {Array.from({ length: 6 }).map((_, index) => (
+            {Array.from({ length: 6 }).map((ignore, index) => (
               <Skeleton key={index} className="h-24 w-full rounded-2xl" />
             ))}
           </div>

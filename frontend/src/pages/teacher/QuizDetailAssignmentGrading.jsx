@@ -799,7 +799,7 @@ function TeacherQuizDetailAssignmentGrading() {
             </h4>
             {submissionsQuery.isLoading ? (
               <div className="mt-4 space-y-2">
-                {Array.from({ length: 3 }).map((_, index) => (
+                {Array.from({ length: 3 }).map((ignore, index) => (
                   <Skeleton key={index} className="h-20 w-full" />
                 ))}
               </div>
