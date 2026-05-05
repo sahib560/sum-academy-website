@@ -169,6 +169,11 @@ function TeacherQuizDetailAssignmentGrading() {
   };
 
   const [imageBlobUrls, setImageBlobUrls] = useState({});
+
+  const quizzes = Array.isArray(quizzesQuery.data) ? quizzesQuery.data : [];
+  const selectedQuiz =
+    quizDetailQuery.data || quizzes.find((quiz) => quiz.id === quizId) || null;
+
   useEffect(() => {
     const questions = selectedQuiz?.questions || [];
     if (!questions.length) return;
@@ -185,10 +190,6 @@ function TeacherQuizDetailAssignmentGrading() {
         .catch(() => {});
     });
   }, [selectedQuiz?.questions, imageBlobUrls]);
-
-  const quizzes = Array.isArray(quizzesQuery.data) ? quizzesQuery.data : [];
-  const selectedQuiz =
-    quizDetailQuery.data || quizzes.find((quiz) => quiz.id === quizId) || null;
 
   const analyticsData = analyticsQuery.data || null;
   const assignmentSummary = analyticsData?.assignment || selectedQuiz?.assignment || null;
