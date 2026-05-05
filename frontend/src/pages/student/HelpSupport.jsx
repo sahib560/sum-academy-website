@@ -207,7 +207,7 @@ function StudentHelpSupport() {
 
       <motion.section {...fadeUp} className="grid gap-4 md:grid-cols-4">
         {loading
-          ? Array.from({ length: 4 }).map((_, index) => (
+          ? Array.from({ length: 4 }).map((ignore, index) => (
               <div key={`help-card-skel-${index}`} className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
                 <Skeleton className="h-4 w-24" />
                 <Skeleton className="mt-3 h-4 w-full" />
@@ -258,7 +258,7 @@ function StudentHelpSupport() {
 
         {loading ? (
           <div className="space-y-3">
-            {Array.from({ length: 5 }).map((_, index) => (
+            {Array.from({ length: 5 }).map((ignore, index) => (
               <div key={`faq-skel-${index}`} className="rounded-3xl border border-slate-200 bg-white p-4">
                 <Skeleton className="h-4 w-1/2" />
                 <Skeleton className="mt-3 h-3 w-full" />

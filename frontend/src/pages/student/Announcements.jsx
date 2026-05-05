@@ -245,7 +245,7 @@ function StudentAnnouncements() {
         ) : null}
 
         {announcementsQuery.isLoading ? (
-          Array.from({ length: 3 }).map((_, index) => (
+          Array.from({ length: 3 }).map((ignore, index) => (
             <div
               key={`ann-skeleton-${index}`}
               className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"

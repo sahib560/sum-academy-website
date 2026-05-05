@@ -18,7 +18,7 @@ const formatPKR = (value) =>
 function StarRating({ rating }) {
   return (
     <div className="flex items-center gap-1">
-      {Array.from({ length: 5 }).map((_, index) => (
+      {Array.from({ length: 5 }).map((ignore, index) => (
         <FaStar
           key={`rating-${index}`}
           className={`h-4 w-4 ${
@@ -425,7 +425,7 @@ function Courses() {
           <div>
             {isLoading ? (
               <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-                {Array.from({ length: 6 }).map((_, index) => (
+                {Array.from({ length: 6 }).map((ignore, index) => (
                   <SkeletonCard key={`course-skeleton-${index}`} />
                 ))}
               </div>

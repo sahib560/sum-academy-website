@@ -806,7 +806,7 @@ function Analytics() {
         </div>
         <div className="grid gap-4 sm:grid-cols-3">
           {classPerformanceLoading || enrollmentsLoading ? (
-            Array.from({ length: 3 }).map((_, index) => (
+            Array.from({ length: 3 }).map((ignore, index) => (
               <div key={`kpi-skeleton-${index}`} className="glass-card space-y-2">
                 <div className="skeleton h-4 w-1/3" />
                 <div className="skeleton h-6 w-1/2" />
@@ -902,7 +902,7 @@ function Analytics() {
         </div>
         <div className="grid gap-4 sm:grid-cols-3">
           {studentsLoading ? (
-            Array.from({ length: 3 }).map((_, index) => (
+            Array.from({ length: 3 }).map((ignore, index) => (
               <div key={`student-kpi-${index}`} className="glass-card space-y-2">
                 <div className="skeleton h-4 w-1/3" />
                 <div className="skeleton h-6 w-1/2" />
@@ -941,7 +941,7 @@ function Analytics() {
           <div className="mt-4">
             {classPerformanceLoading ? (
               <div className="space-y-3">
-                {Array.from({ length: 3 }).map((_, index) => (
+                {Array.from({ length: 3 }).map((ignore, index) => (
                   <div
                     key={`class-card-skeleton-${index}`}
                     className="skeleton h-20 w-full rounded-2xl"
@@ -1072,7 +1072,7 @@ function Analytics() {
           <div className="mt-4">
             {teachersLoading || coursesLoading ? (
               <div className="space-y-3">
-                {Array.from({ length: 3 }).map((_, index) => (
+                {Array.from({ length: 3 }).map((ignore, index) => (
                   <div
                     key={`teacher-card-skeleton-${index}`}
                     className="skeleton h-20 w-full rounded-2xl"

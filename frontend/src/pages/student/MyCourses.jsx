@@ -164,7 +164,7 @@ function StudentMyCourses() {
           <h2 className="mb-3 font-heading text-xl text-slate-900">Enrolled Classes</h2>
           {isLoading ? (
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {Array.from({ length: 3 }).map((_, index) => (
+              {Array.from({ length: 3 }).map((ignore, index) => (
                 <SkeletonCard key={`class-skel-${index}`} />
               ))}
             </div>

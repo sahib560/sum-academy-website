@@ -456,7 +456,7 @@ function StudentTestAttempt() {
 
         {inProgress && (
           <div className="mb-4 grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-10 xl:grid-cols-12 gap-2 overflow-y-auto max-h-[120px] rounded-2xl border border-slate-800 bg-slate-900/40 p-3 custom-scrollbar">
-            {Array.from({ length: totalQuestions }).map((_, idx) => {
+            {Array.from({ length: totalQuestions }).map((ignore, idx) => {
               const qid = test?.questions?.[idx]?.questionId;
               const hasAnswer = (attempt?.answers || []).some(a => a.questionOrder === idx + 1 && a.selectedAnswer);
               const flagged = (attempt?.flagged || []).includes(qid);
@@ -512,7 +512,7 @@ function StudentTestAttempt() {
                
                <button
                 type="button"
-                className="group mt-10 flex items-center gap-3 rounded-2xl bg-indigo-600 px-8 py-4 font-bold text-white shadow-xl transition-all hover:bg-indigo-500 hover:text-white hover:shadow-indigo-600/20 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+                className="group mt-10 flex items-center gap-3 rounded-2xl bg-indigo-600 px-8 py-4 font-bold text-white shadow-xl transition-all hover:bg-indigo-500 hover:text-white hover:shadow-indigo-600/20 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-indigo-600 disabled:hover:shadow-none"
                 onClick={() => startMutation.mutate()}
                 disabled={startMutation.isPending || !isAvailable}
               >
@@ -629,7 +629,7 @@ function StudentTestAttempt() {
                   type="button"
                   onClick={() => saveAndNavigate("next")}
                   disabled={submitMutation.isPending}
-                  className="flex items-center gap-2 rounded-xl bg-indigo-600 px-8 py-3 font-bold text-white shadow-lg transition-all hover:bg-indigo-500 disabled:opacity-30"
+                  className="flex items-center gap-2 rounded-xl bg-indigo-600 px-8 py-3 font-bold text-white shadow-lg transition-all hover:bg-indigo-500 disabled:opacity-30 disabled:hover:bg-indigo-600"
                 >
                   {submitMutation.isPending ? "Saving..." : isLastQuestion ? "Finish" : "Save & Next"}
                   {!isLastQuestion && (
@@ -645,7 +645,7 @@ function StudentTestAttempt() {
                 className={`rounded-xl border px-8 py-3 font-bold transition-all ${
                   hasReachedLast
                     ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20"
-                    : "border-slate-800 text-slate-600 cursor-not-allowed"
+                    : "border-slate-800 text-slate-600 cursor-not-allowed hover:bg-transparent hover:border-slate-800 disabled:hover:bg-transparent"
                 }`}
               >
                 {hasReachedLast ? "Finalize Test" : "Finish Review First"}

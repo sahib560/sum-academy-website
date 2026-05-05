@@ -932,7 +932,7 @@ function Courses() {
 
       {coursesQuery.isLoading ? (
         <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
-          {Array.from({ length: 6 }).map((_, i) => (
+          {Array.from({ length: 6 }).map((ignore, i) => (
             <div key={i} className="glass-card space-y-3">
               <div className="skeleton h-40 w-full rounded-2xl" />
               <div className="skeleton h-5 w-3/4" />

@@ -220,7 +220,7 @@ function Notifications() {
 
       <div className="grid gap-3">
         {notificationsQuery.isLoading ? (
-          Array.from({ length: 5 }).map((_, index) => (
+          Array.from({ length: 5 }).map((ignore, index) => (
             <div
               key={`notifications-skeleton-${index}`}
               className="rounded-2xl border border-slate-200 bg-white p-4"

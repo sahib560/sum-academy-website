@@ -214,6 +214,9 @@ export const bulkUploadTeacherQuiz = (file, onUploadProgress) => {
     .then((r) => r.data);
 };
 
+export const deleteTeacherQuiz = (quizId) =>
+  api.delete(`/teacher/quizzes/${quizId}`).then((r) => r.data);
+
 export const uploadQuizQuestionImage = (file, onUploadProgress) => {
   const formData = new FormData();
   formData.append("image", file);

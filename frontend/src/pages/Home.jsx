@@ -149,7 +149,7 @@ function StepCard({ title, description, icon }) {
 function StarRow() {
   return (
     <div className="flex items-center gap-1">
-      {Array.from({ length: 5 }).map((_, index) => (
+      {Array.from({ length: 5 }).map((ignore, index) => (
         <FaStar key={`star-${index}`} className="h-4 w-4 text-accent" aria-hidden="true" />
       ))}
     </div>
@@ -441,7 +441,7 @@ function Home() {
 
           <div className="mt-8 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
             {coursesQuery.isLoading
-              ? Array.from({ length: 3 }).map((_, index) => (
+              ? Array.from({ length: 3 }).map((ignore, index) => (
                   <SkeletonCard key={`course-skeleton-${index}`} />
                 ))
               : featuredCourses.length
@@ -563,7 +563,7 @@ function Home() {
               className="no-scrollbar flex gap-6 overflow-x-auto pb-4 pt-1 scroll-smooth snap-x snap-mandatory"
             >
               {settingsLoading || teachersLoading
-                ? Array.from({ length: 4 }).map((_, index) => (
+                ? Array.from({ length: 4 }).map((ignore, index) => (
                     <SkeletonTeacherCard
                       key={`teacher-skeleton-${index}`}
                       className="min-w-[240px] h-[220px] snap-center rounded-3xl border border-slate-200/70 bg-white/80 p-5 shadow-lg shadow-slate-200/40 dark:border-white/10 dark:bg-white/5 dark:shadow-black/40"

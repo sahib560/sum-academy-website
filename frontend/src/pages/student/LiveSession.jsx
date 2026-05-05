@@ -811,7 +811,7 @@ export default function LiveSession() {
             <div className="rounded-3xl border border-white/10 bg-[#111525] p-5">
               <p className="text-sm font-semibold">{studentsOnline} students joined this session</p>
               <div className="mt-3 grid grid-cols-2 gap-2">
-                {Array.from({ length: Math.min(10, studentsOnline) }).map((_, idx) => (
+                {Array.from({ length: Math.min(10, studentsOnline) }).map((ignore, idx) => (
                   <div
                     key={`joined-${idx}`}
                     className="rounded-xl border border-white/10 bg-[#171b2f] px-3 py-2 text-xs"

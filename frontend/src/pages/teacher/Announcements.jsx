@@ -261,7 +261,7 @@ function TeacherAnnouncements() {
 
       <section className="space-y-4">
         {outgoingQuery.isLoading ? (
-          Array.from({ length: 4 }).map((_, index) => (
+          Array.from({ length: 4 }).map((ignore, index) => (
             <div
               key={`teacher-outgoing-skeleton-${index}`}
               className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"

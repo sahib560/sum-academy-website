@@ -2646,3 +2646,63 @@ export const gradeShortAnswerSubmission = async (req, res) => {
     return errorResponse(res, "Failed to grade short answers", 500);
   }
 };
+
+export const deleteTeacherQuiz = async (req, res) => {
+  try {
+    const uid = trimText(req.user?.uid);
+    const role = getActorRole(req);
+    const quizId = trimText(req.params?.quizId);
+
+    if (!uid) return errorResponse(res, "Missing user uid", 400);
+    if (!quizId) return errorResponse(res, "quizId is required", 400);
+
+    const owned = await getOwnedQuiz(quizId, uid, role);
+    if (owned.error) return errorResponse(res, owned.error, owned.status);
+
+    const quizData = owned.quizData;
+
+    // Delete associated images
+    if (Array.isArray(quizData.questions)) {
+      const deletionPromises = quizData.questions.map(async (q) => {
+        const imagePath = q.imagePath || q.imageUrl;
+        if (imagePath && imagePath.includes("firebasestorage")) {
+          try {
+            // Extract file path from URL if needed, but bucket.file() expects the full path
+            // e.g. quiz_images/xxxx.jpg
+            // If the frontend stored raw paths like "quizzes/xxxx.jpg", we just delete them.
+            // But if it's an HTTP URL, we should extract the path.
+            // Usually we store the storage path in imagePath.
+            let pathToDelete = imagePath;
+            if (pathToDelete.startsWith("http")) {
+              const urlObj = new URL(pathToDelete);
+              pathToDelete = decodeURIComponent(urlObj.pathname.split("/o/")[1].split("?")[0]);
+            }
+            if (pathToDelete) {
+              await bucket.file(pathToDelete).delete();
+            }
+          } catch (imgError) {
+            console.error("Failed to delete quiz image:", imgError);
+          }
+        } else if (imagePath) {
+          try {
+             await bucket.file(imagePath).delete();
+          } catch (imgError) {
+             console.error("Failed to delete quiz image:", imgError);
+          }
+        }
+      });
+      await Promise.all(deletionPromises);
+    }
+
+    // Delete the quiz itself
+    await db.collection(COLLECTIONS.QUIZZES).doc(quizId).delete();
+
+    // Optionally: delete results and assignments? The UI will just not fetch them anymore if quiz is gone.
+    // In many cases, soft delete or cascading delete is handled in background, but we'll leave it as is.
+    
+    return successResponse(res, { quizId }, "Quiz deleted successfully");
+  } catch (error) {
+    console.error("deleteTeacherQuiz error:", error);
+    return errorResponse(res, "Failed to delete quiz", 500);
+  }
+};

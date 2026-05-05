@@ -310,7 +310,7 @@ function SiteSettings() {
 
   const removeArrayItem = (section, listKey, index) => {
     updateSection(section, {
-      [listKey]: (draft[section][listKey] || []).filter((_, idx) => idx !== index),
+      [listKey]: (draft[section][listKey] || []).filter((ignore, idx) => idx !== index),
     });
   };
 
@@ -354,7 +354,7 @@ function SiteSettings() {
     updateSection(section, {
       [nestedKey]: {
         ...nested,
-        [listKey]: list.filter((_, idx) => idx !== index),
+        [listKey]: list.filter((ignore, idx) => idx !== index),
       },
     });
   };
@@ -1248,7 +1248,7 @@ function SiteSettings() {
                   className="rounded-xl border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-600"
                   onClick={() => {
                     const nextSubjects = (draft.contact.subjects || []).filter(
-                      (_, idx) => idx !== index
+                      (ignore, idx) => idx !== index
                     );
                     updateSection("contact", { subjects: nextSubjects });
                   }}

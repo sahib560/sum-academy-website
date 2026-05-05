@@ -614,7 +614,7 @@ function Teachers() {
 
       {teachersQuery.isLoading ? (
         <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
-          {Array.from({ length: 6 }).map((_, index) => (
+          {Array.from({ length: 6 }).map((ignore, index) => (
             <div key={`teacher-skeleton-${index}`} className="glass-card space-y-4">
               <div className="flex items-center gap-3">
                 <div className="skeleton h-14 w-14 rounded-full" />

@@ -159,7 +159,7 @@ function StudentCertificates() {
 
       <Motion.section {...fadeUp} className="grid gap-4 md:grid-cols-2">
         {isLoading
-          ? Array.from({ length: 2 }).map((_, index) => (
+          ? Array.from({ length: 2 }).map((ignore, index) => (
               <div key={`stat-${index}`} className="glass-card border border-slate-200">
                 <Skeleton className="h-4 w-1/2" />
                 <Skeleton className="mt-4 h-8 w-1/3" />
@@ -178,7 +178,7 @@ function StudentCertificates() {
 
       {isLoading ? (
         <Motion.section {...fadeUp} className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {Array.from({ length: 6 }).map((_, index) => (
+          {Array.from({ length: 6 }).map((ignore, index) => (
             <div
               key={`cert-skeleton-${index}`}
               className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"

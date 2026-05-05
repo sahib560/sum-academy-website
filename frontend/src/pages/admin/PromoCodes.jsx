@@ -375,7 +375,7 @@ export default function PromoCodes() {
             </tr>
           </thead>
           <tbody>
-            {promoQ.isLoading ? Array.from({ length: 6 }).map((_, r) => (
+            {promoQ.isLoading ? Array.from({ length: 6 }).map((ignore, r) => (
               <tr key={r} className="border-b border-slate-100">{Array.from({ length: 7 }).map((__, c) => (<td key={c} className="px-6 py-4"><div className="skeleton h-5 w-24" /></td>))}</tr>
             )) : filtered.length === 0 ? (
               <tr><td colSpan={7} className="px-6 py-16 text-center"><div className="mx-auto max-w-md"><div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-slate-100 text-xl text-slate-500">%</div><p className="mt-3 font-semibold text-slate-700">No promo codes yet</p><button className="btn-primary mt-4" onClick={onOpenCreate}>Add Promo Code</button></div></td></tr>

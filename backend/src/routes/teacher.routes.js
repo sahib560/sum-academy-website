@@ -30,6 +30,7 @@ import {
   submitQuizAttempt,
   getQuizSubmissions,
   gradeShortAnswerSubmission,
+  deleteTeacherQuiz,
 } from "../controllers/teacher.quiz.controller.js";
 import {
   createQuestionBankQuestion,
@@ -153,7 +154,8 @@ router.get("/scheduled-quizzes/:quizId", getTeacherScheduledQuizById);
 router.post("/scheduled-quizzes", createScheduledQuiz);
 router.get("/quizzes/template", downloadQuizBulkTemplate);
 router.get("/quizzes", getTeacherQuizzes);
-router.get("/quizzes/:quizId", getTeacherQuizById);
+router.get("/quizzes/:quizId", requireRole("teacher"), getTeacherQuizById);
+router.delete("/quizzes/:quizId", requireRole("teacher"), deleteTeacherQuiz);
 router.get("/quizzes/:quizId/analytics", getQuizAnalytics);
 router.post("/quizzes", createTeacherQuiz);
 router.post("/quizzes/bulk-upload", upload.single("file"), bulkUploadTeacherQuiz);

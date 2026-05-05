@@ -122,7 +122,7 @@ function Installments() {
 
   const markPaidMutation = useMutation({
     mutationFn: ({ planId, number }) => markInstallmentPaid(planId, number),
-    onSuccess: (_, vars) => {
+    onSuccess: (ignore, vars) => {
       toast.success(`Installment ${vars.number} marked as paid!`);
       queryClient.invalidateQueries({ queryKey: ["admin-installments"] });
       queryClient.invalidateQueries({ queryKey: ["admin-installment-plan"] });
@@ -134,7 +134,7 @@ function Installments() {
 
   const verifyPaymentMutation = useMutation({
     mutationFn: ({ paymentId, action }) => verifyPayment(paymentId, action),
-    onSuccess: (_, vars) => {
+    onSuccess: (ignore, vars) => {
       toast.success(
         vars.action === "approve" ? "Payment approved" : "Payment rejected"
       );
@@ -161,7 +161,7 @@ function Installments() {
 
   const reminderOneMutation = useMutation({
     mutationFn: (studentId) => sendInstallmentReminderToStudent(studentId),
-    onSuccess: (_, studentId) => {
+    onSuccess: (ignore, studentId) => {
       const student = students.find((item) => (item.id || item.uid) === studentId);
       toast.success(`Reminder sent to ${student?.fullName || "student"}`);
     },
@@ -297,7 +297,7 @@ function Installments() {
     if (!ALLOWED_COUNTS.includes(count) || total <= 0) return [];
     const per = Math.floor((total / count) * 100) / 100;
     let remaining = total;
-    return Array.from({ length: count }).map((_, index) => {
+    return Array.from({ length: count }).map((ignore, index) => {
       const dueDate = new Date(start);
       dueDate.setMonth(dueDate.getMonth() + index);
       const amount = index === count - 1 ? Number(remaining.toFixed(2)) : Number(per.toFixed(2));
@@ -468,7 +468,7 @@ function Installments() {
               </tr>
             </thead>
             <tbody>
-              {isLoading ? Array.from({ length: 6 }).map((_, idx) => (
+              {isLoading ? Array.from({ length: 6 }).map((ignore, idx) => (
                 <tr key={`loading-${idx}`} className="border-b border-slate-100">
                   {Array.from({ length: 10 }).map((__, cell) => <td key={`c-${cell}`} className="px-4 py-4"><div className="skeleton h-5 w-20" /></td>)}
                 </tr>
@@ -530,7 +530,7 @@ function Installments() {
             <button type="button" className="absolute inset-0 bg-slate-900/45" onClick={() => setSelectedPlanId("")} />
             <MotionDiv initial={{ opacity: 0, y: 12, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 12, scale: 0.97 }} className="relative z-10 max-h-[90vh] w-full max-w-[760px] overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl">
               <button type="button" className="absolute right-4 top-4 rounded-full border border-slate-200 px-3 py-1 text-xs" onClick={() => setSelectedPlanId("")}>X</button>
-              {planLoading || !selectedPlan ? <div className="space-y-3">{Array.from({ length: 6 }).map((_, idx) => <div key={idx} className="skeleton h-12 w-full" />)}</div> : (
+              {planLoading || !selectedPlan ? <div className="space-y-3">{Array.from({ length: 6 }).map((ignore, idx) => <div key={idx} className="skeleton h-12 w-full" />)}</div> : (
                 <>
                   <h3 className="font-heading text-2xl text-slate-900">{selectedPlan.studentName || "-"}</h3>
                   <p className="text-sm text-slate-600">{selectedPlan.courseName || "-"} - {selectedPlan.className || "-"}</p>

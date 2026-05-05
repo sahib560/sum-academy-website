@@ -308,7 +308,7 @@ function Dashboard() {
         animate="visible"
       >
         {statsLoading ? (
-          Array.from({ length: 4 }).map((_, index) => (
+          Array.from({ length: 4 }).map((ignore, index) => (
             <div key={`kpi-skeleton-${index}`} className="glass-card">
               <div className="skeleton h-5 w-24" />
               <div className="mt-4 skeleton h-10 w-32" />
@@ -468,7 +468,7 @@ function Dashboard() {
           <div className="mt-6">
             {enrollmentsLoading ? (
               <div className="space-y-3">
-                {Array.from({ length: 5 }).map((_, index) => (
+                {Array.from({ length: 5 }).map((ignore, index) => (
                   <div key={`enroll-skeleton-${index}`} className="skeleton h-10 w-full" />
                 ))}
               </div>
@@ -570,7 +570,7 @@ function Dashboard() {
           <h3 className="font-heading text-xl text-slate-900">Top Classes</h3>
           <div className="mt-6 space-y-4">
             {topClassesLoading ? (
-              Array.from({ length: 5 }).map((_, index) => (
+              Array.from({ length: 5 }).map((ignore, index) => (
                 <div key={`top-skeleton-${index}`} className="space-y-2">
                   <div className="skeleton h-4 w-3/4" />
                   <div className="skeleton h-2 w-full" />
@@ -616,7 +616,7 @@ function Dashboard() {
         <h3 className="font-heading text-xl text-slate-900">Recent Activity</h3>
         <div className="mt-6 space-y-4">
           {activityLoading ? (
-            Array.from({ length: 6 }).map((_, index) => (
+            Array.from({ length: 6 }).map((ignore, index) => (
               <div key={`activity-skeleton-${index}`} className="skeleton h-6 w-full" />
             ))
           ) : activityError ? (

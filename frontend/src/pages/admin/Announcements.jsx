@@ -310,7 +310,7 @@ function Announcements() {
 
   const pinMutation = useMutation({
     mutationFn: ({ id, isPinned }) => toggleAnnouncementPin(id, isPinned),
-    onSuccess: (_, vars) => {
+    onSuccess: (ignore, vars) => {
       queryClient.invalidateQueries({ queryKey: ["admin-announcements"] });
       queryClient.invalidateQueries({ queryKey: ["my-announcements"] });
       toast.success(vars.isPinned ? "Announcement pinned" : "Announcement unpinned");
@@ -455,7 +455,7 @@ function Announcements() {
 
       <div className="grid gap-4">
         {isLoading ? (
-          Array.from({ length: 4 }).map((_, index) => (
+          Array.from({ length: 4 }).map((ignore, index) => (
             <div key={`announcement-skeleton-${index}`} className="rounded-2xl border border-slate-200 bg-white p-5">
               <div className="skeleton h-5 w-1/3" />
               <div className="skeleton mt-3 h-4 w-2/3" />

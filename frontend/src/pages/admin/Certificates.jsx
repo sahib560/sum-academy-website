@@ -449,7 +449,7 @@ export default function Certificates() {
           </thead>
           <tbody>
             {certQ.isLoading
-              ? Array.from({ length: 6 }).map((_, r) => (
+              ? Array.from({ length: 6 }).map((ignore, r) => (
                   <tr key={r} className="border-b border-slate-100">
                     {Array.from({ length: 7 }).map((__, c) => (
                       <td key={c} className="px-6 py-4"><div className="skeleton h-5 w-24" /></td>

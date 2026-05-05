@@ -233,7 +233,7 @@ function TeacherDashboard() {
 
       <motion.section {...fadeUp} className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {showLoading
-          ? Array.from({ length: 4 }).map((_, index) => <SkeletonCard key={`stat-${index}`} />)
+          ? Array.from({ length: 4 }).map((ignore, index) => <SkeletonCard key={`stat-${index}`} />)
           : statsConfig.map((stat, index) => (
               <div key={stat.key} className={`glass-card border-l-4 ${stat.color}`}>
                 <div className="flex items-center justify-between">
@@ -255,7 +255,7 @@ function TeacherDashboard() {
           </div>
           <div className="mt-4 space-y-3">
             {showLoading
-              ? Array.from({ length: 5 }).map((_, index) => (
+              ? Array.from({ length: 5 }).map((ignore, index) => (
                   <div key={`course-skeleton-${index}`} className="flex items-center gap-3">
                     <Skeleton className="h-12 w-16 rounded-xl" />
                     <div className="flex-1 space-y-2">
@@ -322,7 +322,7 @@ function TeacherDashboard() {
           </div>
           <div className="mt-4 space-y-3">
             {showLoading
-              ? Array.from({ length: 8 }).map((_, index) => (
+              ? Array.from({ length: 8 }).map((ignore, index) => (
                   <div key={`activity-skeleton-${index}`} className="flex items-center gap-3">
                     <Skeleton className="h-10 w-10 rounded-full" />
                     <div className="flex-1 space-y-2">
@@ -381,7 +381,7 @@ function TeacherDashboard() {
         </div>
         <div className="mt-4 space-y-3">
           {showLoading
-            ? Array.from({ length: 3 }).map((_, index) => (
+            ? Array.from({ length: 3 }).map((ignore, index) => (
                 <Skeleton key={`session-skeleton-${index}`} className="h-16 w-full" />
               ))
             : sessions.length === 0

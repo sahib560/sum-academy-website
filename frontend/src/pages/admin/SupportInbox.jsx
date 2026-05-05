@@ -30,7 +30,7 @@ function SupportInbox() {
 
   const markReadMutation = useMutation({
     mutationFn: ({ id, isRead }) => markSupportMessageRead(id, isRead),
-    onSuccess: (_, vars) => {
+    onSuccess: (ignore, vars) => {
       toast.success(vars.isRead ? "Marked as read" : "Marked as unread");
       refresh();
       if (selected?.id === vars.id) {

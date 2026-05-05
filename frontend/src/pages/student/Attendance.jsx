@@ -237,7 +237,7 @@ function StudentAttendance() {
 
       <Motion.section {...fadeUp} className="flex flex-wrap items-center gap-3">
         {isLoading
-          ? Array.from({ length: 3 }).map((_, index) => (
+          ? Array.from({ length: 3 }).map((ignore, index) => (
               <Skeleton key={`class-tab-skel-${index}`} className="h-10 w-40 rounded-full" />
             ))
           : classes.map((row) => (
@@ -428,7 +428,7 @@ function StudentAttendance() {
 
         {isLoading ? (
           <div className="mt-4 space-y-2">
-            {Array.from({ length: 6 }).map((_, index) => (
+            {Array.from({ length: 6 }).map((ignore, index) => (
               <Skeleton key={`attendance-row-skel-${index}`} className="h-12 w-full rounded-xl" />
             ))}
           </div>

@@ -1532,7 +1532,7 @@ function StudentCoursePlayer() {
               exit={{ scale: 0.92, opacity: 0 }}
             >
               <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-3xl">
-                {Array.from({ length: 24 }).map((_, index) => (
+                {Array.from({ length: 24 }).map((ignore, index) => (
                   <span
                     key={`confetti-${index}`}
                     className="absolute h-2 w-2 animate-bounce rounded-full"

@@ -976,7 +976,7 @@ export default function TestsManager({
                       }
                       setForm((p) => ({
                         ...p,
-                        questions: p.questions.filter((_, i) => i !== idx),
+                        questions: p.questions.filter((ignore, i) => i !== idx),
                       }));
                     }}
                   >
@@ -1585,7 +1585,7 @@ export default function TestsManager({
                           }
                           setAdminDraft((p) => ({
                             ...p,
-                            questions: (p.questions || []).filter((_, i) => i !== idx),
+                            questions: (p.questions || []).filter((ignore, i) => i !== idx),
                           }));
                         }}
                       >

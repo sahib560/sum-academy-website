@@ -709,7 +709,7 @@ function Students() {
           </thead>
           <tbody>
             {studentsQuery.isLoading
-              ? Array.from({ length: 8 }).map((_, index) => (
+              ? Array.from({ length: 8 }).map((ignore, index) => (
                   <tr key={`skeleton-row-${index}`} className="border-t border-slate-100">
                     <td className="px-4 py-3" colSpan={8}><Skeleton className="h-10 w-full" /></td>
                   </tr>

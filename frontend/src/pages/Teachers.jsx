@@ -33,7 +33,7 @@ function StarRating({ rating }) {
   const safeRating = Number.isFinite(Number(rating)) ? Number(rating) : 0;
   return (
     <div className="flex items-center gap-1">
-      {Array.from({ length: 5 }).map((_, index) => (
+      {Array.from({ length: 5 }).map((ignore, index) => (
         <FaStar
           key={`teacher-rating-${index}`}
           className={`h-4 w-4 ${
@@ -182,7 +182,7 @@ function Teachers() {
         <div className="mx-auto max-w-7xl">
           {isLoading ? (
             <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-              {Array.from({ length: 6 }).map((_, index) => (
+              {Array.from({ length: 6 }).map((ignore, index) => (
                 <SkeletonTeacherCard
                   key={`teacher-skeleton-${index}`}
                   className="h-full rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-lg shadow-slate-200/40 dark:border-white/10 dark:bg-slate-900/70 dark:shadow-black/40"

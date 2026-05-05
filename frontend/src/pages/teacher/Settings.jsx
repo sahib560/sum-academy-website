@@ -674,7 +674,7 @@ function TeacherSettings() {
 
               {securityQuery.isLoading ? (
                 <div className="mt-4 space-y-3">
-                  {Array.from({ length: 3 }).map((_, index) => (
+                  {Array.from({ length: 3 }).map((ignore, index) => (
                     <Skeleton key={index} className="h-16 w-full" />
                   ))}
                 </div>
@@ -733,7 +733,7 @@ function TeacherSettings() {
               <div className="mt-4 overflow-x-auto">
                 {securityQuery.isLoading ? (
                   <div className="space-y-2">
-                    {Array.from({ length: 5 }).map((_, index) => (
+                    {Array.from({ length: 5 }).map((ignore, index) => (
                       <Skeleton key={index} className="h-10 w-full" />
                     ))}
                   </div>

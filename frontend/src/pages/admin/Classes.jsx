@@ -1108,7 +1108,7 @@ function Classes() {
 
   const addClassCourseMutation = useMutation({
     mutationFn: ({ classId, courseId }) => addClassCourse(classId, courseId),
-    onSuccess: async (_, variables) => {
+    onSuccess: async (ignore, variables) => {
       await refreshClasses();
       setDrawerCourseId("");
       toast.success("Course assigned. Add shift days/time for this course.");
@@ -1477,7 +1477,7 @@ function Classes() {
       if (prev.shifts.length <= 1) return prev;
       return {
         ...prev,
-        shifts: prev.shifts.filter((_, rowIndex) => rowIndex !== index),
+        shifts: prev.shifts.filter((ignore, rowIndex) => rowIndex !== index),
       };
     });
   };
@@ -1960,7 +1960,7 @@ function Classes() {
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {loading ? (
-          Array.from({ length: 4 }).map((_, index) => (
+          Array.from({ length: 4 }).map((ignore, index) => (
             <div key={`stats-skeleton-${index}`} className="skeleton h-24 rounded-2xl" />
           ))
         ) : (
@@ -2014,7 +2014,7 @@ function Classes() {
 
       {loading ? (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {Array.from({ length: 6 }).map((_, index) => (
+          {Array.from({ length: 6 }).map((ignore, index) => (
             <div key={`class-skeleton-${index}`} className="skeleton h-64 rounded-2xl" />
           ))}
         </div>
@@ -2662,7 +2662,7 @@ function Classes() {
                       </thead>
                       <tbody>
                         {classStudentsQuery.isLoading ? (
-                          Array.from({ length: 5 }).map((_, index) => (
+                          Array.from({ length: 5 }).map((ignore, index) => (
                             <tr key={`class-student-skeleton-${index}`}>
                               <td colSpan={6} className="px-4 py-3">
                                 <div className="skeleton h-10 rounded-xl" />

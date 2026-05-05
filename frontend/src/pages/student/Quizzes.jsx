@@ -549,7 +549,7 @@ function StudentQuizzes() {
 
       <Motion.section {...fadeUp} className="space-y-4">
         {isLoading ? (
-          Array.from({ length: 5 }).map((_, index) => (
+          Array.from({ length: 5 }).map((ignore, index) => (
             <div
               key={`quiz-skel-${index}`}
               className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"

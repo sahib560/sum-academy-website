@@ -85,7 +85,7 @@ function Payments() {
 
   const verifyMutation = useMutation({
     mutationFn: ({ paymentId, action }) => verifyPayment(paymentId, action),
-    onSuccess: (_, variables) => {
+    onSuccess: (ignore, variables) => {
       toast.success(
         variables.action === "approve" ? "Payment approved" : "Payment rejected"
       );
@@ -293,7 +293,7 @@ function Payments() {
             </thead>
             <tbody>
               {paymentsLoading ? (
-                Array.from({ length: 6 }).map((_, index) => (
+                Array.from({ length: 6 }).map((ignore, index) => (
                   <tr key={index} className="border-b border-slate-100">
                     <td className="px-6 py-4"><div className="skeleton h-5 w-24" /></td>
                     <td className="px-6 py-4"><div className="skeleton h-5 w-24" /></td>

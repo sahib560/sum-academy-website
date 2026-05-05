@@ -145,7 +145,7 @@ function StudentPayments() {
       {activeTab === "Transaction History" ? (
         <section className="space-y-3">
           {paymentsLoading ? (
-            Array.from({ length: 4 }).map((_, idx) => (
+            Array.from({ length: 4 }).map((ignore, idx) => (
               <div key={idx} className="skeleton h-24 rounded-2xl" />
             ))
           ) : payments.length < 1 ? (
@@ -204,7 +204,7 @@ function StudentPayments() {
       {activeTab === "Installment Plans" ? (
         <section className="space-y-3">
           {installmentsLoading ? (
-            Array.from({ length: 3 }).map((_, idx) => (
+            Array.from({ length: 3 }).map((ignore, idx) => (
               <div key={idx} className="skeleton h-28 rounded-2xl" />
             ))
           ) : installmentPlans.length < 1 ? (
@@ -312,7 +312,7 @@ function StudentPayments() {
       {activeTab === "Invoices" ? (
         <section className="space-y-3">
           {paymentsLoading ? (
-            Array.from({ length: 4 }).map((_, idx) => (
+            Array.from({ length: 4 }).map((ignore, idx) => (
               <div key={idx} className="skeleton h-20 rounded-2xl" />
             ))
           ) : paidInvoices.length < 1 ? (

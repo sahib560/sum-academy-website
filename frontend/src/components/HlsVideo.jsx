@@ -80,7 +80,7 @@ export function HlsVideo({
           if (typeof onReady === "function") onReady();
         });
 
-        hls.on(Hls.Events.ERROR, (_, data) => {
+        hls.on(Hls.Events.ERROR, (ignore, data) => {
           if (!data?.fatal) return;
           if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
             hls.startLoad();

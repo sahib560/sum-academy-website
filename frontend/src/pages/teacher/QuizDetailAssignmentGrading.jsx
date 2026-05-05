@@ -28,6 +28,7 @@ import {
   getTeacherClasses,
   gradeTeacherShortAnswers,
   fetchProtectedImage,
+  deleteTeacherQuiz,
 } from "../../services/teacher.service.js";
 
 const fadeUp = {
@@ -147,6 +148,25 @@ function TeacherQuizDetailAssignmentGrading() {
       toast.error(error?.response?.data?.error || "Failed to save grades");
     },
   });
+
+  const deleteQuizMutation = useMutation({
+    mutationFn: deleteTeacherQuiz,
+    onSuccess: () => {
+      toast.success("Quiz deleted successfully");
+      queryClient.invalidateQueries({ queryKey: ["teacher-quizzes"] });
+      navigate(routeBase);
+    },
+    onError: (error) => {
+      toast.error(error?.response?.data?.error || "Failed to delete quiz");
+    },
+  });
+
+  const handleDeleteQuiz = () => {
+    if (!quizId) return;
+    if (window.confirm("Are you sure you want to completely delete this quiz and its images? This cannot be undone.")) {
+      deleteQuizMutation.mutate(quizId);
+    }
+  };
 
   const [imageBlobUrls, setImageBlobUrls] = useState({});
   useEffect(() => {
@@ -425,13 +445,25 @@ function TeacherQuizDetailAssignmentGrading() {
               </option>
             ))}
           </select>
-          <button
-            type="button"
-            className="btn-outline"
-            onClick={() => quizzesQuery.refetch()}
-          >
-            Refresh
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              className="btn-outline"
+              onClick={() => quizzesQuery.refetch()}
+            >
+              Refresh
+            </button>
+            {quizId && (
+              <button
+                type="button"
+                className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-600 transition hover:bg-red-100 disabled:opacity-50"
+                onClick={handleDeleteQuiz}
+                disabled={deleteQuizMutation.isPending}
+              >
+                {deleteQuizMutation.isPending ? "Deleting..." : "Delete Quiz"}
+              </button>
+            )}
+          </div>
         </div>
       </Motion.section>
 

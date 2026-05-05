@@ -897,7 +897,7 @@ function Users() {
             </thead>
             <tbody>
               {isLoading ? (
-                Array.from({ length: 8 }).map((_, index) => (
+                Array.from({ length: 8 }).map((ignore, index) => (
                   <tr key={`skeleton-${index}`} className="border-b border-slate-100">
                     <td className="px-6 py-4">
                       <div className="skeleton h-12 w-12 rounded-full" />
@@ -1030,7 +1030,7 @@ function Users() {
 
         <div className="space-y-3 p-4 lg:hidden">
           {isLoading ? (
-            Array.from({ length: 6 }).map((_, index) => (
+            Array.from({ length: 6 }).map((ignore, index) => (
               <div key={`mobile-skeleton-${index}`} className="skeleton h-28 w-full rounded-2xl" />
             ))
           ) : paginatedUsers.length === 0 ? (

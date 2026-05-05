@@ -1006,7 +1006,7 @@ function Students() {
             </thead>
             <tbody>
               {studentsQuery.isLoading ? (
-                Array.from({ length: 8 }).map((_, index) => (
+                Array.from({ length: 8 }).map((ignore, index) => (
                   <tr key={`student-skeleton-${index}`} className="border-b border-slate-100">
                     <td className="px-6 py-4"><div className="skeleton h-11 w-11 rounded-full" /></td>
                     <td className="px-6 py-4"><div className="skeleton h-5 w-40" /></td>
@@ -1155,7 +1155,7 @@ function Students() {
 
         <div className="space-y-3 p-4 lg:hidden">
           {studentsQuery.isLoading ? (
-            Array.from({ length: 6 }).map((_, index) => (
+            Array.from({ length: 6 }).map((ignore, index) => (
               <div key={`mobile-skeleton-${index}`} className="skeleton h-32 w-full rounded-2xl" />
             ))
           ) : paginated.length === 0 ? (

@@ -202,7 +202,7 @@ function StudentExploreCourses() {
 
       <Motion.section {...fadeUp} className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {isLoading
-          ? Array.from({ length: 6 }).map((_, index) => (
+          ? Array.from({ length: 6 }).map((ignore, index) => (
               <SkeletonCard key={`class-skel-${index}`} />
             ))
           : filteredClasses.map((classItem) => {

@@ -73,7 +73,7 @@ function ClassDetail() {
         <div className="glass-card">
           {loading ? (
             <div className="space-y-3">
-              {Array.from({ length: 3 }).map((_, index) => (
+              {Array.from({ length: 3 }).map((ignore, index) => (
                 <div key={`student-skeleton-${index}`} className="skeleton h-8 w-full" />
               ))}
             </div>

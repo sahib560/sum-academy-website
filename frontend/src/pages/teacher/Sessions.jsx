@@ -718,7 +718,7 @@ function TeacherSessions() {
       {sessionsQuery.isLoading ? (
         view === "list" ? (
           <div className="space-y-4">
-            {Array.from({ length: 5 }).map((_, i) => (
+            {Array.from({ length: 5 }).map((ignore, i) => (
               <div key={i} className="rounded-3xl border border-slate-200 bg-white p-5">
                 <Skeleton className="h-4 w-1/3" />
                 <Skeleton className="mt-3 h-6 w-2/3" />
@@ -731,7 +731,7 @@ function TeacherSessions() {
           <div className="rounded-3xl border border-slate-200 bg-white p-5">
             <Skeleton className="h-8 w-48" />
             <div className="mt-4 grid grid-cols-7 gap-3">
-              {Array.from({ length: 35 }).map((_, i) => (
+              {Array.from({ length: 35 }).map((ignore, i) => (
                 <Skeleton key={i} className="h-24 w-full" />
               ))}
             </div>
@@ -1049,7 +1049,7 @@ function TeacherSessions() {
       <ModalShell open={Boolean(attendanceModalSession)} onClose={() => !saveAttendanceMutation.isPending && setAttendanceModalSession(null)} title={`Attendance - ${attendanceModalSession?.topic || "Session"}`}>
         {attendanceQuery.isLoading ? (
           <div className="space-y-2">
-            {Array.from({ length: 8 }).map((_, i) => (
+            {Array.from({ length: 8 }).map((ignore, i) => (
               <Skeleton key={i} className="h-12 w-full" />
             ))}
           </div>

@@ -203,7 +203,7 @@ function Checkout() {
     if (count < 2) return [];
     const per = Number((totalAmount / count).toFixed(2));
     const start = new Date();
-    return Array.from({ length: count }).map((_, index) => {
+    return Array.from({ length: count }).map((ignore, index) => {
       const due = new Date(start);
       due.setMonth(due.getMonth() + index);
       const amount =

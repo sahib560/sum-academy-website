@@ -336,7 +336,7 @@ function StudentSettings() {
       >
         {settingsQuery.isLoading ? (
           <div className="space-y-2">
-            {Array.from({ length: 4 }).map((_, index) => (
+            {Array.from({ length: 4 }).map((ignore, index) => (
               <Skeleton key={`tab-skel-${index}`} className="h-10 w-full rounded-2xl" />
             ))}
           </div>

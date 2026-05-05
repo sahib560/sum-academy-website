@@ -222,7 +222,7 @@ function StudentDashboard() {
 
       <Motion.section {...fadeUp} className="grid gap-4 md:grid-cols-3">
         {isLoading
-          ? Array.from({ length: 3 }).map((_, index) => (
+          ? Array.from({ length: 3 }).map((ignore, index) => (
               <div key={`summary-${index}`} className="glass-card border border-slate-200">
                 <Skeleton className="h-4 w-1/2" />
                 <Skeleton className="mt-4 h-8 w-1/3" />
@@ -329,7 +329,7 @@ function StudentDashboard() {
 
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {isLoading
-            ? Array.from({ length: 6 }).map((_, index) => (
+            ? Array.from({ length: 6 }).map((ignore, index) => (
                 <SkeletonCard key={`class-skel-${index}`} />
               ))
             : classCards.map((classItem, index) => {
@@ -412,7 +412,7 @@ function StudentDashboard() {
         <h3 className="font-heading text-xl text-slate-900">Upcoming Sessions</h3>
         <div className="mt-4 space-y-3">
           {isLoading ? (
-            Array.from({ length: 3 }).map((_, index) => (
+            Array.from({ length: 3 }).map((ignore, index) => (
               <Skeleton key={`session-skel-${index}`} className="h-16 w-full rounded-2xl" />
             ))
           ) : topSessions.length > 0 ? (
@@ -444,7 +444,7 @@ function StudentDashboard() {
         <h3 className="font-heading text-xl text-slate-900">Recent Announcements</h3>
         <div className="mt-4 space-y-3">
           {isLoading ? (
-            Array.from({ length: 3 }).map((_, index) => (
+            Array.from({ length: 3 }).map((ignore, index) => (
               <Skeleton key={`ann-skel-${index}`} className="h-14 w-full rounded-xl" />
             ))
           ) : topAnnouncements.length > 0 ? (
