@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import api from "../../api/axios.js";
@@ -1903,17 +1903,32 @@ export default function TestsManager({
                 disabled={reassignAdminTestMutation.isPending}
                 className="rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
                 onClick={() => {
+                  if (adminReassignDraft.assignTo === "all_class" && !adminReassignDraft.classId) {
+                    toast.error("Please select a class");
+                    return;
+                  }
+                  if (!adminReassignDraft.startAt || !adminReassignDraft.endAt) {
+                    toast.error("Please select start and end date/time");
+                    return;
+                  }
+                  const start = new Date(adminReassignDraft.startAt);
+                  const end = new Date(adminReassignDraft.endAt);
+                  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+                    toast.error("Invalid date/time format");
+                    return;
+                  }
+                  if (end.getTime() <= start.getTime()) {
+                    toast.error("End time must be after start time");
+                    return;
+                  }
+
                   const payload = {
                     assignTo: adminReassignDraft.assignTo,
                     ...(adminReassignDraft.assignTo === "all_class"
                       ? { classId: adminReassignDraft.classId }
                       : {}),
-                    ...(adminReassignDraft.startAt
-                      ? { startAt: new Date(adminReassignDraft.startAt).toISOString() }
-                      : {}),
-                    ...(adminReassignDraft.endAt
-                      ? { endAt: new Date(adminReassignDraft.endAt).toISOString() }
-                      : {}),
+                    startAt: start.toISOString(),
+                    endAt: end.toISOString(),
                   };
                   reassignAdminTestMutation.mutate({ testId: selectedTestId, payload });
                 }}

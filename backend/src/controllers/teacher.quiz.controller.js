@@ -1406,8 +1406,12 @@ export const assignQuizToStudents = async (req, res) => {
     let announcementTargetId = quizCourseId;
     let announcementTargetName = trimText(quizData.courseName) || "Course";
 
-    if (assignTo === "all_subject" || assignTo === "all_enrolled") {
-      // All students enrolled/linked to this course/subject (not only "active").
+    if (assignTo === "all_subject") {
+      targetStudentIds = await getStudentIdsForCourse(quizSubjectId);
+      announcementTargetType = "course"; // Subject announcements often use course target in this system
+      announcementTargetId = quizCourseId;
+      announcementTargetName = trimText(quizData.subjectName) || trimText(quizData.courseName) || "Subject";
+    } else if (assignTo === "all_enrolled") {
       targetStudentIds = await getStudentIdsForCourse(quizCourseId);
       announcementTargetType = "course";
       announcementTargetId = quizCourseId;
@@ -2694,11 +2698,32 @@ export const deleteTeacherQuiz = async (req, res) => {
       await Promise.all(deletionPromises);
     }
 
+    // Cascade Delete: Quiz Results
+    try {
+      const resultsSnap = await db.collection(COLLECTIONS.QUIZ_RESULTS).where("quizId", "==", quizId).get();
+      if (!resultsSnap.empty) {
+        const batch = db.batch();
+        resultsSnap.docs.forEach((doc) => batch.delete(doc.ref));
+        await batch.commit();
+      }
+    } catch (resError) {
+      console.error("Cascade delete quizResults error:", resError);
+    }
+
+    // Cascade Delete: Quiz Assignments
+    try {
+      const assignmentsSnap = await db.collection("quizAssignments").where("quizId", "==", quizId).get();
+      if (!assignmentsSnap.empty) {
+        const batch = db.batch();
+        assignmentsSnap.docs.forEach((doc) => batch.delete(doc.ref));
+        await batch.commit();
+      }
+    } catch (asgError) {
+      console.error("Cascade delete quizAssignments error:", asgError);
+    }
+
     // Delete the quiz itself
     await db.collection(COLLECTIONS.QUIZZES).doc(quizId).delete();
-
-    // Optionally: delete results and assignments? The UI will just not fetch them anymore if quiz is gone.
-    // In many cases, soft delete or cascading delete is handled in background, but we'll leave it as is.
     
     return successResponse(res, { quizId }, "Quiz deleted successfully");
   } catch (error) {
