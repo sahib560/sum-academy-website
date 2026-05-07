@@ -156,6 +156,70 @@ Most endpoints require a `Bearer` token in the `Authorization` header. This toke
 
 ---
 
+## Teacher & Admin Operations
+
+### Assign Quiz
+- **Endpoint**: `PATCH /teacher/quizzes/:quizId/assign` or `PATCH /admin/quizzes/:quizId/assign`
+- **Payload**:
+  ```json
+  {
+    "assignTo": "all_class" | "all_subject" | "specific" | "all_enrolled",
+    "classId": "string", 
+    "studentIds": ["student_id_1", "student_id_2"],
+    "dueDate": "2026-05-10T23:59:59.000Z",
+    "timeLimit": 30
+  }
+  ```
+- **Logic Details**:
+  1.  **`all_enrolled`**: Assigns the quiz to EVERY student enrolled in the course.
+  2.  **`all_subject`**: Assigns the quiz to students enrolled in that specific subject.
+  3.  **`all_class`**: Requires `classId`. Assigns to all students in that class.
+  4.  **`specific`**: Requires `studentIds`. Assigns only to the listed students.
+- **Sample Success Response**:
+  ```json
+  {
+    "success": true,
+    "data": {
+      "quizId": "quiz_123",
+      "assignedTo": "all_class",
+      "studentsCount": 25,
+      "dueDate": "2026-05-10T23:59:59.000Z"
+    },
+    "message": "Quiz assigned successfully"
+  }
+  ```
+
+### Delete Quiz
+- **Endpoint**: `DELETE /teacher/quizzes/:quizId`
+- **Description**: Deletes the quiz document.
+- **Cascading Deletion (Backend)**: 
+  - Automatically deletes all student submissions in `quizResults`.
+  - Automatically deletes all active assignment tracking in `quizAssignments`.
+  - Automatically cleans up question images from Firebase Storage.
+- **Sample Success Response**:
+  ```json
+  {
+    "success": true,
+    "data": { "quizId": "quiz_123" },
+    "message": "Quiz deleted successfully"
+  }
+  ```
+
+### Reassign Managed Test (Admin Only)
+- **Endpoint**: `PATCH /admin/tests/:testId/reassign`
+- **Payload**:
+  ```json
+  {
+    "assignTo": "all_class" | "center",
+    "classId": "string (required if all_class)",
+    "startAt": "ISO String",
+    "endAt": "ISO String"
+  }
+  ```
+- **Description**: Changes the assignment and time window for a test.
+
+---
+
 ## Success & Error Messaging
 
 ### Success Template
@@ -186,4 +250,5 @@ Most endpoints require a `Bearer` token in the `Authorization` header. This toke
 
 ---
 **Version History**
+- **v1.2**: Added `all_enrolled` (Whole Course) quiz assignment, fixed `all_subject` targeting, and implemented cascading deletion for Quizzes (Results, Assignments, and Storage cleanup).
 - **v1.1**: Added Video Scheduling (Decoupled from Live status), `isActive` student filtering, and refined Avatar/Result logic.

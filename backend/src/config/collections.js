@@ -18,6 +18,7 @@ export const COLLECTIONS = {
   ANNOUNCEMENTS: "announcements",
   QUIZZES: "quizzes",
   QUIZ_RESULTS: "quizResults",
+  QUIZ_ASSIGNMENTS: "quizAssignments",
   SCHEDULED_QUIZZES: "scheduledQuizzes",
   SCHEDULED_QUIZ_ATTEMPTS: "scheduledQuizAttempts",
   TESTS: "tests",

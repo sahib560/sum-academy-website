@@ -2735,7 +2735,7 @@ export const resetUserDevice = async (req, res) => {
       );
     }
 
-    // Clear ALL device fields — no replacement values
+    // Clear ALL device and security fields — ensures full reset for new device login
     await db.collection("users").doc(uid).update({
       assignedWebDevice:      "",
       assignedWebIp:          "",
@@ -2745,13 +2745,28 @@ export const resetUserDevice = async (req, res) => {
       assignedMobileIp:          "",
       assignedMobileUniqueDeviceId: "",
       lastKnownMobileIp:         "",
+      
+      // Legacy/Additional security fields requested for reset
+      assignedDeviceId: "",
+      lastDeviceId:     "",
+      assignedIp:       "",
+      lastIp:           "",
+      webDeviceId:      "",
+      webIp:            "",
+      fingerprint:      "",
+      deviceId:         "",
+      
       deviceResetPending:     true,
       deviceResetConsumedAt:  null,
       deviceResetConsumedByDeviceId: "",
       deviceResetConsumedByDevice: "",
       deviceResetBy:          req.user.uid,
-      deviceResetAt:          admin.firestore.FieldValue
-                                .serverTimestamp(),
+      deviceResetAt:          admin.firestore.FieldValue.serverTimestamp(),
+      
+      // Also reset any violation tracking if present
+      securityViolationCount: 0,
+      lastSecurityViolationReason: "",
+      lastSecurityViolationAt: null,
     });
 
     // Log this action in auditLogs

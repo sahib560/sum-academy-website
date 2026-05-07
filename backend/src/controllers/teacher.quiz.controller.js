@@ -1504,7 +1504,7 @@ export const assignQuizToStudents = async (req, res) => {
     // Create quiz assignment notifications/tracking docs
     try {
       const batch = db.batch();
-      const notifCol = db.collection("quizAssignments");
+      const notifCol = db.collection(COLLECTIONS.QUIZ_ASSIGNMENTS);
       uniqueStudentIds.forEach((sid) => {
         const ref = notifCol.doc(`${quizId}_${sid}`);
         batch.set(
@@ -2712,7 +2712,7 @@ export const deleteTeacherQuiz = async (req, res) => {
 
     // Cascade Delete: Quiz Assignments
     try {
-      const assignmentsSnap = await db.collection("quizAssignments").where("quizId", "==", quizId).get();
+      const assignmentsSnap = await db.collection(COLLECTIONS.QUIZ_ASSIGNMENTS).where("quizId", "==", quizId).get();
       if (!assignmentsSnap.empty) {
         const batch = db.batch();
         assignmentsSnap.docs.forEach((doc) => batch.delete(doc.ref));
