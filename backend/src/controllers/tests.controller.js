@@ -2605,6 +2605,59 @@ export const downloadDetailedTestReportPdf = async (req, res) => {
       y += 18;
     });
 
+    // Detailed Responses Section
+    doc.addPage();
+    doc.fontSize(16).fillColor("#1e293b").text("Detailed Question-by-Question Responses", { underline: true });
+    doc.moveDown(1);
+
+    const attemptedOnly = ranking.filter(r => r.attemptId);
+    for (const student of attemptedOnly) {
+      // Fetch full attempt for evaluatedAnswers
+      const attemptDoc = await db.collection(COLLECTIONS.TEST_ATTEMPTS).doc(student.attemptId).get();
+      const attemptData = attemptDoc.data() || {};
+      const answers = Array.isArray(attemptData.evaluatedAnswers) ? attemptData.evaluatedAnswers : [];
+
+      if (doc.y > 700) doc.addPage();
+      
+      doc.fontSize(12).fillColor("#1e293b").text(`Student: ${student.studentName}`, { bold: true });
+      doc.fontSize(9).fillColor("#64748b").text(`Score: ${student.obtainedMarks}/${student.totalMarks} (${student.percentage}%) | Position: ${ordinal(student.position)}`);
+      doc.moveDown(0.5);
+
+      // Table Header for Questions
+      let tableY = doc.y;
+      doc.rect(40, tableY, 515, 15).fill("#f8fafc");
+      doc.fillColor("#475569").fontSize(8);
+      doc.text("Q#", 45, tableY + 4);
+      doc.text("Question Preview", 70, tableY + 4);
+      doc.text("Answer", 300, tableY + 4);
+      doc.text("Correct", 380, tableY + 4);
+      doc.text("Result", 460, tableY + 4);
+      doc.text("Marks", 510, tableY + 4);
+      doc.moveDown(0.8);
+
+      answers.forEach((ans, idx) => {
+        if (doc.y > 750) {
+          doc.addPage();
+          doc.moveDown(2);
+        }
+        
+        const qData = (testData.questions || []).find(q => trimText(q.questionId) === ans.questionId) || {};
+        const qText = stripFormulaHtml(qData.questionText || "").substring(0, 50) + "...";
+        
+        doc.fillColor("#334155").fontSize(8);
+        doc.text(idx + 1, 45, doc.y);
+        doc.text(qText, 70, doc.y - 8, { width: 220 });
+        doc.text(ans.selectedLetter || "-", 300, doc.y - 8);
+        doc.text(ans.correctLetter || "-", 380, doc.y - 8);
+        doc.text(ans.isCorrect ? "CORRECT" : "WRONG", 460, doc.y - 8, { color: ans.isCorrect ? "#16a34a" : "#dc2626" });
+        doc.text(`${ans.marksObtained}/${ans.marks}`, 510, doc.y - 8);
+        doc.moveDown(0.5);
+      });
+      doc.moveDown(1.5);
+      doc.moveTo(40, doc.y).lineTo(555, doc.y).stroke("#e2e8f0");
+      doc.moveDown(1);
+    }
+
     doc.end();
   } catch (error) {
     console.error("downloadDetailedTestReportPdf error:", error);

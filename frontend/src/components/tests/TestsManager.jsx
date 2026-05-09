@@ -122,6 +122,14 @@ const parseCsvToRows = (csvText = "") => {
   return { headers, rows };
 };
 
+const ordinal = (n) => {
+  const s = ["th", "st", "nd", "rd"];
+  const v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+};
+
+const trimText = (v) => String(v || "").trim();
+
 export default function TestsManager({
   actor = "teacher",
   fetchTests,
@@ -151,6 +159,8 @@ export default function TestsManager({
     startAt: "",
     endAt: "",
   });
+  const [studentDetailOpen, setStudentDetailOpen] = useState(false);
+  const [studentDetailData, setStudentDetailData] = useState(null);
   const [form, setForm] = useState({
     title: "",
     description: "",
@@ -1444,19 +1454,20 @@ export default function TestsManager({
                       </button>
                     )}
                   </div>
-                  <div className="overflow-x-auto rounded-xl border border-slate-200">
+                  <div className="max-h-[500px] overflow-y-auto overflow-x-auto rounded-xl border border-slate-200">
                     <table className="min-w-full text-left text-xs">
-                      <thead className="bg-slate-50 text-slate-600">
+                      <thead className="sticky top-0 z-10 bg-slate-50 text-slate-600 shadow-sm">
                         <tr>
                           <th className="px-3 py-2">Pos</th>
                           <th className="px-3 py-2">Student</th>
                           <th className="px-3 py-2">Class</th>
                           <th className="px-3 py-2">Marks</th>
                           <th className="px-3 py-2">%</th>
+                          <th className="px-3 py-2">Action</th>
                         </tr>
                       </thead>
-                      <tbody>
-                        {(selected.ranking || []).slice(0, 30).map((row) => (
+                      <tbody className="bg-white">
+                        {(selected.ranking || []).map((row) => (
                           <tr key={`${row.studentId}-${row.attemptId}`} className="border-t border-slate-100">
                             <td className="px-3 py-2">{row.position}</td>
                             <td className="px-3 py-2">{row.studentName}</td>
@@ -1465,6 +1476,23 @@ export default function TestsManager({
                               {row.obtainedMarks}/{row.totalMarks}
                             </td>
                             <td className="px-3 py-2">{row.percentage}%</td>
+                            <td className="px-3 py-2">
+                              <button
+                                type="button"
+                                className="text-primary hover:underline"
+                                onClick={async () => {
+                                  try {
+                                    const response = await api.get(`${bulkApiBase}/tests/attempts/${row.attemptId}`);
+                                    setStudentDetailData({ ...row, ...response.data?.data });
+                                    setStudentDetailOpen(true);
+                                  } catch (err) {
+                                    toast.error("Failed to load student details");
+                                  }
+                                }}
+                              >
+                                View Details
+                              </button>
+                            </td>
                           </tr>
                         ))}
                         {(selected.ranking || []).length < 1 ? (
@@ -1960,6 +1988,93 @@ export default function TestsManager({
                 }}
               >
                 {reassignAdminTestMutation.isPending ? "Saving..." : "Reassign"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {studentDetailOpen && studentDetailData ? (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/60 p-4">
+          <div className="max-h-[90vh] w-full max-w-3xl overflow-auto rounded-3xl bg-white p-5 shadow-2xl">
+            <div className="mb-4 flex items-center justify-between border-b border-slate-100 pb-3">
+              <div>
+                <h3 className="font-heading text-xl text-slate-900">
+                  {studentDetailData.studentName}'s Result
+                </h3>
+                <p className="text-sm text-slate-500">
+                  Score: {studentDetailData.obtainedMarks}/{studentDetailData.totalMarks} ({studentDetailData.percentage}%) | Rank: {ordinal(studentDetailData.position)}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="rounded-lg border border-slate-200 p-2 text-slate-500 hover:bg-slate-50"
+                onClick={() => setStudentDetailOpen(false)}
+              >
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div className="grid grid-cols-3 gap-4">
+                <div className="rounded-2xl bg-emerald-50 p-3 text-center border border-emerald-100">
+                  <p className="text-xs font-semibold text-emerald-600">Correct</p>
+                  <p className="text-xl font-bold text-emerald-700">{studentDetailData.correctCount}</p>
+                </div>
+                <div className="rounded-2xl bg-rose-50 p-3 text-center border border-rose-100">
+                  <p className="text-xs font-semibold text-rose-600">Wrong</p>
+                  <p className="text-xl font-bold text-rose-700">{studentDetailData.wrongCount}</p>
+                </div>
+                <div className="rounded-2xl bg-slate-50 p-3 text-center border border-slate-100">
+                  <p className="text-xs font-semibold text-slate-600">Missed</p>
+                  <p className="text-xl font-bold text-slate-700">{studentDetailData.missedCount}</p>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <p className="font-semibold text-slate-800">Question-by-Question Analysis</p>
+                {(studentDetailData.evaluatedAnswers || []).map((ans, idx) => (
+                  <div key={ans.questionId} className={`rounded-2xl border p-4 transition-all ${ans.isCorrect ? 'border-emerald-100 bg-emerald-50/30' : 'border-rose-100 bg-rose-50/30'}`}>
+                    <div className="flex justify-between gap-4">
+                      <div className="flex-1">
+                        <p className="text-xs font-semibold text-slate-500 mb-1">Question {idx + 1}</p>
+                        <div 
+                          className="text-sm font-medium text-slate-800"
+                          dangerouslySetInnerHTML={{ __html: sanitizeQuestionHtml((testData.questions || []).find(q => trimText(q.questionId) === ans.questionId)?.questionText || "") }}
+                        />
+                        <div className="mt-3 flex flex-wrap gap-4 text-xs">
+                          <div>
+                            <span className="text-slate-500">Student's Answer:</span>
+                            <span className={`ml-1 font-bold ${ans.isCorrect ? 'text-emerald-600' : 'text-rose-600'}`}>
+                              {ans.selectedLetter || "Not Answered"}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-slate-500">Correct Answer:</span>
+                            <span className="ml-1 font-bold text-emerald-600">{ans.correctLetter}</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className={`text-xs font-bold ${ans.isCorrect ? 'text-emerald-600' : 'text-rose-600'}`}>
+                          {ans.isCorrect ? '✓ CORRECT' : '✗ WRONG'}
+                        </p>
+                        <p className="text-[10px] text-slate-400 mt-1">Marks: {ans.marksObtained}/{ans.marks}</p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="mt-6 flex justify-end">
+              <button
+                type="button"
+                className="rounded-xl bg-slate-900 px-6 py-2.5 text-sm font-semibold text-white shadow-lg hover:bg-slate-800"
+                onClick={() => setStudentDetailOpen(false)}
+              >
+                Close Details
               </button>
             </div>
           </div>
