@@ -99,6 +99,18 @@ export const downloadStudentTestRankingPdf = async (testId) => {
   };
 };
 
+export const downloadStudentTestResultPdf = async (testId) => {
+  const response = await api.get(`/student/tests/${testId}/report-card`, {
+    responseType: "blob",
+  });
+  const disposition = String(response.headers?.["content-disposition"] || "");
+  const match = disposition.match(/filename="?([^"]+)"?/i);
+  return {
+    blob: response.data,
+    filename: match?.[1] || `test-report-${testId}.pdf`,
+  };
+};
+
 export const getQuizById = (quizId) =>
   api.get(`/student/quizzes/${quizId}`).then((r) => r.data.data);
 

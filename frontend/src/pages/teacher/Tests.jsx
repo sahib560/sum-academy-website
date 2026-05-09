@@ -3,6 +3,7 @@ import {
   bulkUploadTeacherTest,
   createTeacherTest,
   downloadTeacherTestTemplate,
+  downloadDetailedTestReportPdf,
   getTeacherClasses,
   getTeacherTestById,
   getTeacherTests,
@@ -18,6 +19,7 @@ function TeacherTests() {
       fetchTestById={getTeacherTestById}
       bulkUploadTest={bulkUploadTeacherTest}
       downloadTestTemplate={downloadTeacherTestTemplate}
+      downloadDetailedReport={downloadDetailedTestReportPdf}
     />
   );
 }

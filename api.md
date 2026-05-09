@@ -113,7 +113,8 @@ Most endpoints require a `Bearer` token in the `Authorization` header. This toke
   - `targetIndex` (Number): The index of the question the user wants to jump to. Use this for the non-linear question navigation grid.
   - `direction` (String): Can be `"next"`, `"prev"`, or `"jump"`.
   - `flagged` (Boolean): If the student marks the current question for review, send `true`. The backend persists this in the `flagged` array, so it is remembered if the student navigates away and returns.
-  - **State Sync**: The response includes the `attempt` document, which has the `flagged` array. Use this to update the UI (e.g., color-coding the question grid: Green = Answered, Yellow = Flagged, Gray = Unanswered).
+  - **State Sync**: The response includes the `attempt` document, which contains the `flagged` array and performance metrics (`correctCount`, `wrongCount`, `missedCount`) if the test was finalized during this request.
+  - **Performance Metrics (New)**: `correctCount`, `wrongCount`, and `missedCount` are now returned in the `attempt` object upon submission/finalization.
 
 ### Finish/Finalize Test
 - **Endpoint**: `POST /student/tests/:testId/finish`
@@ -124,7 +125,9 @@ Most endpoints require a `Bearer` token in the `Authorization` header. This toke
   }
   ```
 - **Note**: `reason` can be `"manual"`, `"timeout"`, `"auto"`, or `"violation"`.
-- **Response**: Returns the final evaluated `attempt`, the `result` summary, and the `ranking` object (including `position`, `ordinalPosition`, and `totalParticipants`).
+- **Response**: Returns the final evaluated `attempt`, the `result` summary, and the `ranking` object.
+  - **Attempt Data**: Now includes `correctCount`, `wrongCount`, `missedCount`, and `totalQuestions`.
+  - **Ranking Data**: Includes `position`, `ordinalPosition`, and `totalParticipants`.
 
 ### Fetch Test Ranking Leaderboard
 - **Endpoint**: `GET /student/tests/:testId/ranking`
@@ -220,6 +223,23 @@ Most endpoints require a `Bearer` token in the `Authorization` header. This toke
 
 ---
 
+## Reporting & PDF Analysis (NEW)
+
+### Download Student Report Card (Student)
+- **Endpoint**: `GET /student/tests/:testId/report-card`
+- **Response**: Binary (PDF Blob)
+- **Filename Pattern**: `Report_Card_[StudentName]_[TestTitle].pdf`
+- **Description**: Generates a professional report card with rank, score visualization, and a breakdown of Correct/Wrong/Missed questions.
+
+### Download Detailed Test Analysis (Admin/Teacher)
+- **Endpoint**: `GET /admin/tests/:testId/report-detailed`
+- **Endpoint (Teacher)**: `GET /teacher/tests/:testId/report-detailed`
+- **Response**: Binary (PDF Blob)
+- **Filename Pattern**: `Detailed_Report_[TestTitle].pdf`
+- **Description**: Generates a comprehensive PDF for admins/teachers containing stats for ALL students (Attempted & Not Attempted). Includes a "Summary Statistics" section and a detailed table with C/W/M counts for every student.
+
+---
+
 ## Success & Error Messaging
 
 ### Success Template
@@ -250,5 +270,6 @@ Most endpoints require a `Bearer` token in the `Authorization` header. This toke
 
 ---
 **Version History**
+- **v1.3**: Added PDF Reporting endpoints for Students (Report Card) and Admins/Teachers (Detailed Analysis). Enhanced test submission responses with `correctCount`, `wrongCount`, and `missedCount`.
 - **v1.2**: Added `all_enrolled` (Whole Course) quiz assignment, fixed `all_subject` targeting, and implemented cascading deletion for Quizzes (Results, Assignments, and Storage cleanup).
 - **v1.1**: Added Video Scheduling (Decoupled from Live status), `isActive` student filtering, and refined Avatar/Result logic.

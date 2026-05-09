@@ -43,6 +43,7 @@ import {
   updateManagedTest,
   deleteManagedTest,
   reassignManagedTest,
+  downloadDetailedTestReportPdf,
 } from "../controllers/tests.controller.js";
 
 const router = Router();
@@ -165,6 +166,7 @@ router.get("/tests/:testId/ranking", adminOnly, getManagedTestRanking);
 router.put("/tests/:testId", adminOnly, updateManagedTest);
 router.delete("/tests/:testId", adminOnly, deleteManagedTest);
 router.patch("/tests/:testId/reassign", adminOnly, reassignManagedTest);
+router.get("/tests/:testId/report-detailed", adminOnly, downloadDetailedTestReportPdf);
 router.post(
   "/tests/questions/image",
   adminOnly,

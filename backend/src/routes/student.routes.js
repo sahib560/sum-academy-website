@@ -40,6 +40,7 @@ import {
   finishStudentTest,
   getStudentTestRanking,
   downloadStudentTestRankingPdf,
+  downloadStudentTestResultPdf,
 } from "../controllers/tests.controller.js";
 
 const router = Router();
@@ -55,6 +56,7 @@ router.post("/tests/:testId/answer", submitStudentTestAnswer);
 router.post("/tests/:testId/finish", finishStudentTest);
 router.get("/tests/:testId/ranking", getStudentTestRanking);
 router.get("/tests/:testId/ranking/pdf", downloadStudentTestRankingPdf);
+router.get("/tests/:testId/report-card", downloadStudentTestResultPdf);
 router.get("/live-sessions", getStudentLiveSessions);
 router.post("/live-sessions/:sessionId/join", joinStudentLiveSession);
 router.get("/sessions/:sessionId", getStudentSessionById);

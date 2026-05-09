@@ -598,6 +598,10 @@ const computeScore = (questions = [], answers = []) => {
     return acc;
   }, {});
   let score = 0;
+  let correctCount = 0;
+  let wrongCount = 0;
+  let missedCount = 0;
+
   const normalized = (Array.isArray(answers) ? answers : []).map((answer) => {
     const questionId = trimText(answer.questionId);
     const question = byQuestion[questionId];
@@ -608,8 +612,18 @@ const computeScore = (questions = [], answers = []) => {
     const isCorrect = question && selectedLetter && correctLetter
       ? selectedLetter === correctLetter
       : question && lowerText(selectedAnswer) === lowerText(question.correctAnswer);
+
     const marksObtained = isCorrect ? marks : 0;
     score += marksObtained;
+
+    if (isCorrect) {
+      correctCount += 1;
+    } else if (selectedAnswer) {
+      wrongCount += 1;
+    } else {
+      missedCount += 1;
+    }
+
     return {
       questionId,
       selectedAnswer,
@@ -622,12 +636,30 @@ const computeScore = (questions = [], answers = []) => {
       answeredAt: answer.answeredAt || null,
     };
   });
+
+  const answeredIds = new Set(normalized.map(a => a.questionId));
+  questions.forEach(q => {
+    if (!answeredIds.has(trimText(q.questionId))) {
+      missedCount += 1;
+    }
+  });
+
   const totalMarks = questions.reduce(
     (sum, question) => sum + Math.max(1, toNumber(question.marks, 1)),
     0
   );
   const percentage = totalMarks > 0 ? Number(((score / totalMarks) * 100).toFixed(2)) : 0;
-  return { score, totalMarks, percentage, answers: normalized };
+
+  return {
+    score,
+    totalMarks,
+    percentage,
+    correctCount,
+    wrongCount,
+    missedCount,
+    totalQuestions: questions.length,
+    answers: normalized
+  };
 };
 
 const isTeacherAssignedToClass = (uid = "", classData = {}) => {
@@ -914,6 +946,10 @@ const buildRankingRows = async (testId = "") => {
         className: trimText(row.className) || "Center",
         obtainedMarks,
         totalMarks,
+        correctCount: toNumber(row.correctCount, 0),
+        wrongCount: toNumber(row.wrongCount, 0),
+        missedCount: toNumber(row.missedCount, 0),
+        totalQuestions: toNumber(row.totalQuestions, 0),
         percentage: getAttemptPercentageValue(row, obtainedMarks, totalMarks),
         submittedAt: toIso(row.submittedAt || row.updatedAt || row.createdAt),
       };
@@ -2182,8 +2218,13 @@ export const submitStudentTestAnswer = async (req, res) => {
         currentIndex: nextIndex,
         status: "submitted",
         score: evaluated.score,
+        obtainedMarks: evaluated.score,
         totalMarks: evaluated.totalMarks,
         percentage: evaluated.percentage,
+        correctCount: evaluated.correctCount,
+        wrongCount: evaluated.wrongCount,
+        missedCount: evaluated.missedCount,
+        totalQuestions: evaluated.totalQuestions,
         evaluatedAnswers: evaluated.answers,
         submittedAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
@@ -2303,11 +2344,15 @@ export const finishStudentTest = async (req, res) => {
 
     await inProgress.ref.update({
       status: finalStatus,
-      currentIndex: existingAnswers.length,
+      currentIndex: questions.length,
       score: evaluated.score,
       obtainedMarks: evaluated.score,
       totalMarks: evaluated.totalMarks,
       percentage: evaluated.percentage,
+      correctCount: evaluated.correctCount,
+      wrongCount: evaluated.wrongCount,
+      missedCount: evaluated.missedCount,
+      totalQuestions: evaluated.totalQuestions,
       evaluatedAnswers: evaluated.answers,
       submittedAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
@@ -2423,40 +2468,288 @@ export const downloadStudentTestRankingPdf = async (req, res) => {
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
 
+    doc.end();
+  } catch (error) {
+    console.error("downloadStudentTestRankingPdf error:", error);
+    return errorResponse(res, "Failed to download ranking PDF", 500);
+  }
+};
+
+/**
+ * Admin/Teacher: Download Detailed Analysis Report (All Students)
+ */
+export const downloadDetailedTestReportPdf = async (req, res) => {
+  try {
+    const uid = trimText(req.user?.uid);
+    const role = lowerText(req.user?.role || "");
+    const testId = trimText(req.params?.testId);
+
+    if (!(role === "admin" || role === "teacher")) {
+      return errorResponse(res, "Access denied", 403);
+    }
+
+    const testSnap = await db.collection(COLLECTIONS.TESTS).doc(testId).get();
+    if (!testSnap.exists) return errorResponse(res, "Test not found", 404);
+    const testData = testSnap.data() || {};
+
+    const ranking = await buildRankingRows(testId);
+    const attemptedIds = new Set(ranking.map((r) => r.studentId));
+
+    // Get all expected students
+    let allStudentIds = [];
+    if (lowerText(testData.scope) === "class" && testData.classId) {
+      const classSnap = await db.collection(COLLECTIONS.CLASSES).doc(testData.classId).get();
+      allStudentIds = getClassStudentIds(classSnap.data() || {});
+    } else {
+      allStudentIds = await getCenterStudentIdsFromAllClasses();
+    }
+
+    const notAttemptedIds = allStudentIds.filter((id) => !attemptedIds.has(id));
+    let notAttemptedRows = [];
+    if (notAttemptedIds.length > 0) {
+      const chunks = chunkArray(notAttemptedIds, 30);
+      const snaps = await Promise.all(
+        chunks.map((group) =>
+          Promise.all(group.map((id) => db.collection(COLLECTIONS.USERS).doc(id).get()))
+        )
+      );
+      notAttemptedRows = snaps.flat().map((snap) => {
+        const data = snap.data() || {};
+        return {
+          studentId: snap.id,
+          studentName: trimText(data.fullName || data.name || data.displayName) || "Student",
+          status: "Not Attempted",
+          obtainedMarks: 0,
+          totalMarks: toNumber(testData.totalMarks, 0),
+          percentage: 0,
+          correctCount: 0,
+          missedCount: toNumber(testData.questionsCount || testData.questions?.length, 0),
+          wrongCount: 0,
+          position: "-",
+        };
+      });
+    }
+
+    const allRows = [
+      ...ranking.map((r) => ({ ...r, status: "Attempted", position: ordinal(r.position) })),
+      ...notAttemptedRows,
+    ];
+
+    const title = trimText(testData.title) || "Test";
+    const filename = `Detailed_Report_${safeFilePart(title)}.pdf`;
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+
     const doc = new PDFDocument({ size: "A4", margin: 40 });
     doc.pipe(res);
 
-    doc.fontSize(18).text("SUM Academy - Test Ranking", { align: "center" });
-    doc.moveDown(0.5);
-    doc.fontSize(12).text(`Test: ${title}`);
-    doc.fontSize(11).fillColor("#475569").text(`Class: ${className}`);
-    doc.text(`Generated: ${new Date().toLocaleString()}`);
-    doc.moveDown(0.8);
+    // Header
+    doc.fontSize(20).fillColor("#1e293b").text("Detailed Test Analysis Report", { align: "center" });
+    doc.moveDown(0.2);
+    doc.fontSize(10).fillColor("#64748b").text("SUM Academy Management Portal", { align: "center" });
+    doc.moveDown(1);
 
+    doc.fontSize(12).fillColor("#0f172a").text(`Test Title: ${title}`);
+    doc.text(`Class/Scope: ${testData.className || testData.scope || "Center"}`);
+    doc.text(`Date: ${new Date().toLocaleDateString()}`);
+    doc.text(`Total Questions: ${testData.questionsCount || testData.questions?.length || 0}`);
+    doc.text(`Total Marks: ${testData.totalMarks || 0}`);
+    doc.moveDown(1);
+
+    // Summary
+    doc.fontSize(12).text("Summary Statistics", { underline: true });
+    doc.fontSize(10);
+    doc.text(`Total Students: ${allStudentIds.length}`);
+    doc.text(`Attempted: ${ranking.length}`);
+    doc.text(`Not Attempted: ${notAttemptedIds.length}`);
+    doc.moveDown(1);
+
+    // Table Header
     let y = doc.y;
-    doc.fontSize(10).fillColor("#0f172a");
-    doc.text("Pos", 40, y);
-    doc.text("Student", 80, y);
-    doc.text("Marks", 290, y);
-    doc.text("Percentage", 360, y);
-    doc.moveTo(40, y + 14).lineTo(555, y + 14).stroke("#cbd5e1");
-    y += 20;
+    doc.rect(40, y, 515, 20).fill("#f1f5f9");
+    doc.fillColor("#475569").fontSize(9);
+    doc.text("Rank", 45, y + 6);
+    doc.text("Student Name", 85, y + 6);
+    doc.text("Status", 220, y + 6);
+    doc.text("Marks", 290, y + 6);
+    doc.text("C/W/M", 350, y + 6);
+    doc.text("%", 410, y + 6);
+    y += 25;
 
-    ranking.slice(0, 100).forEach((row) => {
-      if (y > 760) {
+    allRows.forEach((row) => {
+      if (y > 750) {
         doc.addPage();
         y = 50;
+        // Re-draw header on new page
+        doc.rect(40, y, 515, 20).fill("#f1f5f9");
+        doc.fillColor("#475569").fontSize(9);
+        doc.text("Rank", 45, y + 6);
+        doc.text("Student Name", 85, y + 6);
+        doc.text("Status", 220, y + 6);
+        doc.text("Marks", 290, y + 6);
+        doc.text("C/W/M", 350, y + 6);
+        doc.text("%", 410, y + 6);
+        y += 25;
       }
-      doc.fillColor("#0f172a").fontSize(10).text(ordinal(row.position), 40, y);
-      doc.text(row.studentName || "Student", 80, y, { width: 190 });
+
+      doc.fillColor("#1e293b").fontSize(9);
+      doc.text(row.position, 45, y);
+      doc.text(row.studentName, 85, y, { width: 130 });
+      doc.text(row.status, 220, y);
       doc.text(`${row.obtainedMarks}/${row.totalMarks}`, 290, y);
-      doc.text(`${row.percentage}%`, 360, y);
+      doc.text(`${row.correctCount}/${row.wrongCount}/${row.missedCount}`, 350, y);
+      doc.text(`${row.percentage}%`, 410, y);
+      
+      doc.moveTo(40, y + 12).lineTo(555, y + 12).stroke("#f1f5f9");
       y += 18;
     });
 
     doc.end();
   } catch (error) {
-    console.error("downloadStudentTestRankingPdf error:", error);
-    return errorResponse(res, "Failed to download ranking PDF", 500);
+    console.error("downloadDetailedTestReportPdf error:", error);
+    return errorResponse(res, "Failed to generate report", 500);
+  }
+};
+
+/**
+ * Student: Download Individual Report Card
+ */
+export const downloadStudentTestResultPdf = async (req, res) => {
+  try {
+    const uid = trimText(req.user?.uid);
+    const testId = trimText(req.params?.testId);
+
+    const access = await ensureStudentCanAccessTest({ testId, uid });
+    if (access.error) return errorResponse(res, access.error, access.status || 403);
+    const testData = access.testData;
+
+    const attempts = await getTestAttemptRowsForStudent(uid, testId);
+    const submitted = getSubmittedAttempt(attempts);
+    if (!submitted) {
+      return errorResponse(res, "Test results not found", 404);
+    }
+
+    const ranking = await buildRankingRows(testId);
+    const myRank = ranking.find((r) => trimText(r.studentId) === uid);
+
+    const studentProfile = await ensureStudentProfile(uid);
+    const title = trimText(testData.title) || "Test";
+    const filename = `Report_Card_${safeFilePart(studentProfile.fullName)}_${safeFilePart(title)}.pdf`;
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+
+    const doc = new PDFDocument({ size: "A4", margin: 50 });
+    doc.pipe(res);
+
+    // Logo/Header area
+    doc.rect(0, 0, 595, 120).fill("#1e293b");
+    doc.fillColor("#ffffff").fontSize(24).text("SUM ACADEMY", 50, 40);
+    doc.fontSize(12).text("STUDENT REPORT CARD", 50, 70);
+    
+    doc.fillColor("#0f172a").fontSize(10);
+    let y = 150;
+
+    // Student Info Box
+    doc.rect(50, y, 495, 80).stroke("#e2e8f0");
+    doc.text("Student Name:", 65, y + 15);
+    doc.fontSize(12).font("Helvetica-Bold").text(studentProfile.fullName, 160, y + 15);
+    doc.font("Helvetica").fontSize(10);
+    
+    doc.text("Test Name:", 65, y + 35);
+    doc.text(title, 160, y + 35);
+    
+    doc.text("Date Taken:", 65, y + 55);
+    doc.text(new Date(toIso(submitted.submittedAt || submitted.updatedAt)).toLocaleString(), 160, y + 55);
+    
+    y += 110;
+
+    // Result Summary
+    doc.fontSize(14).text("Result Summary", 50, y);
+    doc.moveDown(0.5);
+    y = doc.y;
+
+    const boxWidth = 110;
+    const gap = 18;
+
+    // Draw result boxes
+    const drawBox = (label, value, xPos) => {
+      doc.rect(xPos, y, boxWidth, 60).fill("#f8fafc").stroke("#e2e8f0");
+      doc.fillColor("#64748b").fontSize(9).text(label, xPos + 5, y + 10, { width: boxWidth - 10, align: "center" });
+      doc.fillColor("#0f172a").fontSize(14).font("Helvetica-Bold").text(value, xPos + 5, y + 30, { width: boxWidth - 10, align: "center" });
+      doc.font("Helvetica");
+    };
+
+    drawBox("Score", `${getAttemptScoreValue(submitted)} / ${getAttemptTotalMarksValue(submitted)}`, 50);
+    drawBox("Percentage", `${getAttemptPercentageValue(submitted)}%`, 50 + boxWidth + gap);
+    drawBox("Rank", myRank ? ordinal(myRank.position) : "N/A", 50 + (boxWidth + gap) * 2);
+    drawBox("Total Students", ranking.length.toString(), 50 + (boxWidth + gap) * 3);
+
+    y += 90;
+
+    // Detailed Breakdown
+    doc.fontSize(14).fillColor("#0f172a").text("Performance Breakdown", 50, y);
+    doc.moveDown(0.5);
+    y = doc.y;
+
+    doc.rect(50, y, 495, 100).stroke("#e2e8f0");
+    const innerY = y + 20;
+    
+    const correct = toNumber(submitted.correctCount, 0);
+    const wrong = toNumber(submitted.wrongCount, 0);
+    const missed = toNumber(submitted.missedCount, 0);
+    const total = toNumber(submitted.totalQuestions, 0);
+
+    doc.fontSize(11);
+    doc.text("Total Questions:", 70, innerY);
+    doc.text(total.toString(), 250, innerY);
+    
+    doc.text("Correct Answers:", 70, innerY + 20);
+    doc.fillColor("#059669").text(correct.toString(), 250, innerY + 20);
+    
+    doc.fillColor("#0f172a").text("Incorrect Answers:", 70, innerY + 40);
+    doc.fillColor("#dc2626").text(wrong.toString(), 250, innerY + 40);
+    
+    doc.fillColor("#0f172a").text("Missed / Unanswered:", 70, innerY + 60);
+    doc.fillColor("#94a3b8").text(missed.toString(), 250, innerY + 60);
+
+    // Progress Bar (Visual)
+    y += 130;
+    doc.fillColor("#0f172a").fontSize(12).text("Visual Analysis", 50, y);
+    y += 20;
+    
+    const barWidth = 495;
+    const barHeight = 25;
+    doc.rect(50, y, barWidth, barHeight).fill("#e2e8f0");
+    
+    if (total > 0) {
+      const correctWidth = (correct / total) * barWidth;
+      const wrongWidth = (wrong / total) * barWidth;
+      
+      doc.rect(50, y, correctWidth, barHeight).fill("#10b981");
+      if (wrongWidth > 0) {
+        doc.rect(50 + correctWidth, y, wrongWidth, barHeight).fill("#ef4444");
+      }
+    }
+
+    y += 40;
+    doc.fillColor("#64748b").fontSize(9);
+    doc.rect(50, y, 10, 10).fill("#10b981");
+    doc.text("Correct", 65, y + 1);
+    
+    doc.rect(120, y, 10, 10).fill("#ef4444");
+    doc.text("Incorrect", 135, y + 1);
+    
+    doc.rect(190, y, 10, 10).fill("#e2e8f0");
+    doc.text("Unanswered", 205, y + 1);
+
+    // Footer
+    doc.fontSize(8).fillColor("#94a3b8").text("This is a computer generated report from SUM Academy.", 50, 750, { align: "center" });
+
+    doc.end();
+  } catch (error) {
+    console.error("downloadStudentTestResultPdf error:", error);
+    return errorResponse(res, "Failed to generate report card", 500);
   }
 };

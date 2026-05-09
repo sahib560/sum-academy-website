@@ -5,6 +5,7 @@ import toast, { Toaster } from "react-hot-toast";
 import { AnimatePresence, motion as Motion } from "framer-motion";
 import {
   downloadStudentTestRankingPdf,
+  downloadStudentTestResultPdf,
   finishStudentTest,
   getStudentTestById,
   getStudentTestRanking,
@@ -370,6 +371,22 @@ function StudentTestAttempt() {
     }
   };
 
+  const downloadReportCard = async () => {
+    try {
+      const { blob, filename } = await downloadStudentTestResultPdf(testId);
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename || "test-report-card.pdf";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      toast.error(error?.response?.data?.message || "Failed to download report card PDF");
+    }
+  };
+
   const now = Date.now() + serverOffsetMsRef.current;
   const startAt = test?.startAt ? new Date(test.startAt).getTime() : 0;
   const endAt = test?.endAt ? new Date(test.endAt).getTime() : 0;
@@ -684,6 +701,13 @@ function StudentTestAttempt() {
                   className="rounded-2xl border border-slate-700 bg-slate-800/50 px-8 py-4 font-bold text-white transition-colors hover:bg-slate-700"
                 >
                   Refresh Ranking
+                </button>
+                <button
+                  type="button"
+                  onClick={downloadReportCard}
+                  className="rounded-2xl border border-indigo-500/30 bg-indigo-500/10 px-8 py-4 font-bold text-indigo-400 transition-all hover:bg-indigo-500/20"
+                >
+                  Download Report Card (PDF)
                 </button>
                 <Link
                   to="/student/tests"

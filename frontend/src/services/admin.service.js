@@ -434,6 +434,18 @@ export const getAdminTestById = (testId) =>
 export const getAdminTestRanking = (testId) =>
   api.get(`/admin/tests/${testId}/ranking`).then((r) => r.data.data || {});
 
+export const downloadDetailedTestReportPdf = async (testId) => {
+  const response = await api.get(`/admin/tests/${testId}/report-detailed`, {
+    responseType: "blob",
+  });
+  const disposition = String(response.headers?.["content-disposition"] || "");
+  const match = disposition.match(/filename="?([^"]+)"?/i);
+  return {
+    blob: response.data,
+    filename: match?.[1] || `detailed-report-${testId}.pdf`,
+  };
+};
+
 export const updateAdminTest = (testId, data) =>
   api.put(`/admin/tests/${testId}`, data).then((r) => r.data);
 

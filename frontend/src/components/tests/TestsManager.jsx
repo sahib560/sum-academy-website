@@ -130,6 +130,7 @@ export default function TestsManager({
   fetchTestById,
   bulkUploadTest,
   downloadTestTemplate,
+  downloadDetailedReport,
 }) {
   const queryClient = useQueryClient();
   const [selectedTestId, setSelectedTestId] = useState("");
@@ -1417,7 +1418,32 @@ export default function TestsManager({
                   </div>
                 </div>
                 <div>
-                  <p className="mb-2 text-sm font-semibold text-slate-800">Ranking</p>
+                  <div className="mb-2 flex items-center justify-between">
+                    <p className="text-sm font-semibold text-slate-800">Ranking</p>
+                    {downloadDetailedReport && (
+                      <button
+                        type="button"
+                        className="rounded-lg border border-slate-200 px-3 py-1.5 text-[11px] font-semibold text-slate-700 hover:border-primary/40 hover:bg-primary/5 hover:text-primary transition-all"
+                        onClick={async () => {
+                          try {
+                            const { blob, filename } = await downloadDetailedReport(selectedTestId);
+                            const url = window.URL.createObjectURL(blob);
+                            const link = document.createElement("a");
+                            link.href = url;
+                            link.download = filename || `test-report-${selectedTestId}.pdf`;
+                            document.body.appendChild(link);
+                            link.click();
+                            link.remove();
+                            window.URL.revokeObjectURL(url);
+                          } catch (err) {
+                            toast.error(err?.response?.data?.message || "Failed to download detailed report");
+                          }
+                        }}
+                      >
+                        Download Detailed Report (PDF)
+                      </button>
+                    )}
+                  </div>
                   <div className="overflow-x-auto rounded-xl border border-slate-200">
                     <table className="min-w-full text-left text-xs">
                       <thead className="bg-slate-50 text-slate-600">

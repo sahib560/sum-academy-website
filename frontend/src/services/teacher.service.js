@@ -161,6 +161,18 @@ export const getTeacherTestById = (testId) =>
 export const getTeacherTestRanking = (testId) =>
   api.get(`/teacher/tests/${testId}/ranking`).then((r) => r.data.data || {});
 
+export const downloadDetailedTestReportPdf = async (testId) => {
+  const response = await api.get(`/teacher/tests/${testId}/report-detailed`, {
+    responseType: "blob",
+  });
+  const disposition = String(response.headers?.["content-disposition"] || "");
+  const match = disposition.match(/filename="?([^"]+)"?/i);
+  return {
+    blob: response.data,
+    filename: match?.[1] || `detailed-report-${testId}.pdf`,
+  };
+};
+
 export const bulkUploadTeacherTest = (file, onUploadProgress) => {
   const formData = new FormData();
   formData.append("file", file);

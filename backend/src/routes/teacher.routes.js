@@ -14,6 +14,7 @@ import {
   getManagedTestById,
   getManagedTestRanking,
   bulkUploadManagedTest,
+  downloadDetailedTestReportPdf,
 } from "../controllers/tests.controller.js";
 import {
   getTeacherQuizzes,
@@ -182,6 +183,7 @@ router.post("/tests/questions/image", questionImageUpload.single("image"), uploa
 router.post("/tests/questions/image/delete", deleteTestQuestionImage);
 router.get("/tests/:testId", getManagedTestById);
 router.get("/tests/:testId/ranking", getManagedTestRanking);
+router.get("/tests/:testId/report-detailed", downloadDetailedTestReportPdf);
 router.get("/settings/profile", getTeacherSettingsProfile);
 router.put("/settings/profile", updateTeacherSettingsProfile);
 router.get("/settings/security", getTeacherSettingsSecurity);

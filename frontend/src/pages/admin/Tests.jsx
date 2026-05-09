@@ -3,6 +3,7 @@ import {
   bulkUploadAdminTest,
   createAdminTest,
   downloadAdminTestTemplate,
+  downloadDetailedTestReportPdf,
   getAdminTestById,
   getAdminTests,
   getClasses,
@@ -18,6 +19,7 @@ function AdminTests() {
       fetchTestById={getAdminTestById}
       bulkUploadTest={bulkUploadAdminTest}
       downloadTestTemplate={downloadAdminTestTemplate}
+      downloadDetailedReport={downloadDetailedTestReportPdf}
     />
   );
 }
