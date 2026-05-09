@@ -32,7 +32,7 @@ const drawIndividualOmrReport = (doc, studentProfile, testData, attemptData, ran
   doc.fontSize(9).font("Helvetica").fillColor("#334155");
   doc.text(`Exam ID: ${testData.testId || "N/A"}`, startX, currentY);
   doc.text(`Exam Title: ${testData.title || "N/A"}`, startX, currentY + 12);
-  doc.text(`Total Questions: ${testData.questionsCount || 0} | Options: 4 | Exam Date: ${testData.startAt ? new Date(testData.startAt).toLocaleDateString() : "N/A"}`, startX, currentY + 24);
+  doc.text(`Total Questions: ${testData.questionsCount || testData.questions?.length || 0} | Options: 4 | Exam Date: ${testData.startAt ? parseDate(testData.startAt)?.toLocaleDateString() || "N/A" : "N/A"}`, startX, currentY + 24);
   doc.text(`Roll Number: ${studentProfile.rollNumber || studentProfile.uid?.substring(0, 8) || "N/A"}`, startX, currentY + 36);
   doc.text(`Name: ${studentProfile.fullName || "N/A"} | Father's Name: ${studentProfile.fatherName || studentProfile.parentName || "N/A"}`, startX, currentY + 48);
 
@@ -41,8 +41,9 @@ const drawIndividualOmrReport = (doc, studentProfile, testData, attemptData, ran
   currentY += 10;
 
   // Grid Section
-  const answers = Array.isArray(attemptData.evaluatedAnswers) ? attemptData.evaluatedAnswers : [];
-  const totalQ = testData.questionsCount || 0;
+  const answers = Array.isArray(attemptData.evaluatedAnswers) ? attemptData.evaluatedAnswers : (Array.isArray(attemptData.answers) ? attemptData.answers : []);
+  const testQuestions = Array.isArray(testData.questions) ? testData.questions : [];
+  const totalQ = testData.questionsCount || testQuestions.length || 0;
   const columns = 3;
   const rowsPerColumn = 60; 
   const colWidth = pageWidth / columns;
@@ -73,15 +74,25 @@ const drawIndividualOmrReport = (doc, studentProfile, testData, attemptData, ran
 
     const x = startX + colIdx * colWidth;
     const y = gridStartY + rowIdx * 10;
-    const ans = answers.find(a => a.questionOrder === idx + 1) || {};
+    
+    // Support both old attempts (by questionId) and new attempts (by questionOrder)
+    const qObj = testQuestions[idx];
+    let ans = {};
+    if (qObj && qObj.questionId) {
+      ans = answers.find(a => trimText(a.questionId) === trimText(qObj.questionId)) || {};
+    } else {
+      ans = answers.find(a => a.questionOrder === idx + 1) || {};
+    }
 
     if (rowIdx % 2 === 0) {
        doc.rect(x, y, colWidth - 10, 10).fill("#f8fafc");
     }
 
+    const finalCorrectLetter = ans.correctLetter || (qObj && qObj.correctAnswer ? (["A", "B", "C", "D"].find(l => qObj.correctAnswer.toUpperCase().includes(l)) || qObj.correctAnswer.toUpperCase()) : "-");
+
     doc.fillColor("#1e293b");
     doc.text(idx + 1, x + 5, y + 1);
-    doc.text(ans.correctLetter || "-", x + 35, y + 1);
+    doc.text(finalCorrectLetter, x + 35, y + 1);
     doc.text(ans.selectedLetter || "N.A", x + 70, y + 1);
 
     if (ans.selectedLetter) {
@@ -701,30 +712,33 @@ export const deleteTestQuestionImage = async (req, res) => {
 };
 
 const computeScore = (questions = [], answers = []) => {
-  const byQuestion = questions.reduce((acc, question) => {
-    acc[trimText(question.questionId)] = question;
-    return acc;
-  }, {});
   let score = 0;
   let correctCount = 0;
   let wrongCount = 0;
   let missedCount = 0;
 
-  const normalized = (Array.isArray(answers) ? answers : []).map((answer) => {
-    const questionId = trimText(answer.questionId);
-    const question = byQuestion[questionId];
-    const selectedAnswer = trimText(answer.selectedAnswer);
-    const selectedLetter = toAnswerLetter(selectedAnswer, question?.options || []);
-    const correctLetter = toAnswerLetter(question?.correctAnswer, question?.options || []);
-    const marks = Math.max(1, toNumber(question?.marks, 1));
-    const isCorrect = question && selectedLetter && correctLetter
+  const answersByQ = (Array.isArray(answers) ? answers : []).reduce((acc, ans) => {
+    acc[trimText(ans.questionId)] = ans;
+    return acc;
+  }, {});
+
+  const normalized = questions.map((question, index) => {
+    const questionId = trimText(question.questionId);
+    const answer = answersByQ[questionId];
+    
+    const selectedAnswer = answer ? trimText(answer.selectedAnswer) : "";
+    const selectedLetter = toAnswerLetter(selectedAnswer, question.options || []);
+    const correctLetter = toAnswerLetter(question.correctAnswer, question.options || []);
+    const marks = Math.max(1, toNumber(question.marks, 1));
+    
+    const isCorrect = selectedLetter && correctLetter
       ? selectedLetter === correctLetter
-      : question && lowerText(selectedAnswer) === lowerText(question.correctAnswer);
+      : Boolean(selectedAnswer && lowerText(selectedAnswer) === lowerText(question.correctAnswer));
 
     const marksObtained = isCorrect ? marks : 0;
-    score += marksObtained;
-
+    
     if (isCorrect) {
+      score += marksObtained;
       correctCount += 1;
     } else if (selectedAnswer) {
       wrongCount += 1;
@@ -734,22 +748,16 @@ const computeScore = (questions = [], answers = []) => {
 
     return {
       questionId,
+      questionOrder: index + 1,
       selectedAnswer,
       selectedLetter,
-      correctAnswer: trimText(question?.correctAnswer),
+      correctAnswer: trimText(question.correctAnswer),
       correctLetter,
       marks,
       marksObtained,
       isCorrect,
-      answeredAt: answer.answeredAt || null,
+      answeredAt: answer?.answeredAt || null,
     };
-  });
-
-  const answeredIds = new Set(normalized.map(a => a.questionId));
-  questions.forEach(q => {
-    if (!answeredIds.has(trimText(q.questionId))) {
-      missedCount += 1;
-    }
   });
 
   const totalMarks = questions.reduce(
@@ -2736,7 +2744,7 @@ export const downloadStudentTestResultPdf = async (req, res) => {
     const doc = new PDFDocument({ size: "A4", margin: 40 });
     doc.pipe(res);
 
-    drawIndividualOmrReport(doc, { ...studentProfile, uid }, testData, {
+    drawIndividualOmrReport(doc, { ...studentProfile, uid }, { ...testData, testId }, {
       ...submitted,
       evaluatedAnswers: submitted.evaluatedAnswers || submitted.answers,
       obtainedMarks: getAttemptScoreValue(submitted),
