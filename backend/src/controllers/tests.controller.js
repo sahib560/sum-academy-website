@@ -12,6 +12,7 @@ const toNumber = (value, fallback = 0) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
 };
+const stripFormulaHtml = (html = "") => String(html || "").replace(/<[^>]*>/g, "");
 const pickFirst = (...values) => values.find((value) => value !== undefined && value !== null);
 const parseDate = (value) => {
   if (!value) return null;
