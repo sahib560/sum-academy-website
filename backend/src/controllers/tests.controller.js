@@ -14,6 +14,113 @@ const toNumber = (value, fallback = 0) => {
 };
 const stripFormulaHtml = (html = "") => String(html || "").replace(/<[^>]*>/g, "");
 const pickFirst = (...values) => values.find((value) => value !== undefined && value !== null);
+
+/**
+ * Helper to draw OMR-style individual report page
+ */
+const drawIndividualOmrReport = (doc, studentProfile, testData, attemptData, rankInfo) => {
+  const startX = 40;
+  const pageWidth = 515;
+  let currentY = 40;
+
+  // Header Title
+  doc.fontSize(18).font("Helvetica-Bold").fillColor("#1e293b").text("Individual OMR Result Report", { align: "center" });
+  doc.moveDown(0.5);
+  currentY = doc.y;
+
+  // Top Info Section
+  doc.fontSize(9).font("Helvetica").fillColor("#334155");
+  doc.text(`Exam ID: ${testData.testId || "N/A"}`, startX, currentY);
+  doc.text(`Exam Title: ${testData.title || "N/A"}`, startX, currentY + 12);
+  doc.text(`Total Questions: ${testData.questionsCount || 0} | Options: 4 | Exam Date: ${testData.startAt ? new Date(testData.startAt).toLocaleDateString() : "N/A"}`, startX, currentY + 24);
+  doc.text(`Roll Number: ${studentProfile.rollNumber || studentProfile.uid?.substring(0, 8) || "N/A"}`, startX, currentY + 36);
+  doc.text(`Name: ${studentProfile.fullName || "N/A"} | Father's Name: ${studentProfile.fatherName || studentProfile.parentName || "N/A"}`, startX, currentY + 48);
+
+  currentY += 65;
+  doc.moveTo(startX, currentY).lineTo(startX + pageWidth, currentY).stroke("#e2e8f0");
+  currentY += 10;
+
+  // Grid Section
+  const answers = Array.isArray(attemptData.evaluatedAnswers) ? attemptData.evaluatedAnswers : [];
+  const totalQ = testData.questionsCount || 0;
+  const columns = 3;
+  const rowsPerColumn = 60; 
+  const colWidth = pageWidth / columns;
+  
+  // Table Header for Grid
+  const drawTableHeader = (x, y) => {
+    doc.rect(x, y, colWidth - 10, 15).fill("#f1f5f9");
+    doc.fontSize(8).font("Helvetica-Bold").fillColor("#475569");
+    doc.text("Q.No.", x + 5, y + 4);
+    doc.text("Correct", x + 35, y + 4);
+    doc.text("Marked", x + 70, y + 4);
+  };
+
+  for (let c = 0; c < columns; c++) {
+    drawTableHeader(startX + c * colWidth, currentY);
+  }
+  
+  currentY += 15;
+  let gridStartY = currentY;
+
+  doc.font("Helvetica").fontSize(8).fillColor("#1e293b");
+  
+  for (let idx = 0; idx < totalQ; idx++) {
+    const colIdx = Math.floor(idx / rowsPerColumn);
+    const rowIdx = idx % rowsPerColumn;
+    
+    if (colIdx >= columns) continue; 
+
+    const x = startX + colIdx * colWidth;
+    const y = gridStartY + rowIdx * 10;
+    const ans = answers.find(a => a.questionOrder === idx + 1) || {};
+
+    if (rowIdx % 2 === 0) {
+       doc.rect(x, y, colWidth - 10, 10).fill("#f8fafc");
+    }
+
+    doc.fillColor("#1e293b");
+    doc.text(idx + 1, x + 5, y + 1);
+    doc.text(ans.correctLetter || "-", x + 35, y + 1);
+    doc.text(ans.selectedLetter || "N.A", x + 70, y + 1);
+
+    if (ans.selectedLetter) {
+      if (ans.isCorrect) {
+        doc.fillColor("#16a34a").text("✓", x + 105, y + 1);
+      } else {
+        doc.fillColor("#dc2626").text("✗", x + 105, y + 1);
+      }
+    } else {
+      doc.fillColor("#94a3b8").text("—", x + 105, y + 1);
+    }
+  }
+
+  // Summary Box at bottom right
+  const summaryX = startX + 2 * colWidth;
+  const summaryY = gridStartY + rowsPerColumn * 10 + 10;
+  
+  const stats = [
+    ["Correct Answers", attemptData.correctCount || 0],
+    ["Wrong Answers", attemptData.wrongCount || 0],
+    ["Not Attempted", attemptData.missedCount || 0],
+    ["Marks Obtained", attemptData.obtainedMarks || 0],
+    ["Percentage", `${attemptData.percentage || 0}%`],
+    ["Maximum Marks", attemptData.totalMarks || 0],
+    ["Rank", rankInfo ? `${rankInfo.position} / ${rankInfo.total}` : "N/A"]
+  ];
+
+  doc.rect(summaryX, summaryY, colWidth - 10, stats.length * 15).stroke("#e2e8f0");
+  stats.forEach((stat, i) => {
+    const y = summaryY + i * 15;
+    doc.fontSize(8).font("Helvetica").fillColor("#475569").text(stat[0], summaryX + 5, y + 4);
+    doc.font("Helvetica-Bold").fillColor("#1e293b").text(String(stat[1]), summaryX + colWidth - 55, y + 4, { align: "right", width: 40 });
+    if (i < stats.length - 1) {
+       doc.moveTo(summaryX, y + 15).lineTo(summaryX + colWidth - 10, y + 15).stroke("#f1f5f9");
+    }
+  });
+
+  doc.fontSize(8).fillColor("#94a3b8").text("SUM Academy Assessment Systems", startX, 760, { align: "center" });
+};
 const parseDate = (value) => {
   if (!value) return null;
   if (typeof value?.toDate === "function") return value.toDate();
@@ -2481,7 +2588,6 @@ export const downloadStudentTestRankingPdf = async (req, res) => {
  */
 export const downloadDetailedTestReportPdf = async (req, res) => {
   try {
-    const uid = trimText(req.user?.uid);
     const role = lowerText(req.user?.role || "");
     const testId = trimText(req.params?.testId);
 
@@ -2545,7 +2651,7 @@ export const downloadDetailedTestReportPdf = async (req, res) => {
     const doc = new PDFDocument({ size: "A4", margin: 40 });
     doc.pipe(res);
 
-    // Header
+    // Summary Table Page
     doc.fontSize(20).fillColor("#1e293b").text("Detailed Test Analysis Report", { align: "center" });
     doc.moveDown(0.2);
     doc.fontSize(10).fillColor("#64748b").text("SUM Academy Management Portal", { align: "center" });
@@ -2554,19 +2660,9 @@ export const downloadDetailedTestReportPdf = async (req, res) => {
     doc.fontSize(12).fillColor("#0f172a").text(`Test Title: ${title}`);
     doc.text(`Class/Scope: ${testData.className || testData.scope || "Center"}`);
     doc.text(`Date: ${new Date().toLocaleDateString()}`);
-    doc.text(`Total Questions: ${testData.questionsCount || testData.questions?.length || 0}`);
-    doc.text(`Total Marks: ${testData.totalMarks || 0}`);
+    doc.text(`Total Students: ${allStudentIds.length} | Attempted: ${ranking.length} | Not Attempted: ${notAttemptedIds.length}`);
     doc.moveDown(1);
 
-    // Summary
-    doc.fontSize(12).text("Summary Statistics", { underline: true });
-    doc.fontSize(10);
-    doc.text(`Total Students: ${allStudentIds.length}`);
-    doc.text(`Attempted: ${ranking.length}`);
-    doc.text(`Not Attempted: ${notAttemptedIds.length}`);
-    doc.moveDown(1);
-
-    // Table Header
     let y = doc.y;
     doc.rect(40, y, 515, 20).fill("#f1f5f9");
     doc.fillColor("#475569").fontSize(9);
@@ -2582,7 +2678,6 @@ export const downloadDetailedTestReportPdf = async (req, res) => {
       if (y > 750) {
         doc.addPage();
         y = 50;
-        // Re-draw header on new page
         doc.rect(40, y, 515, 20).fill("#f1f5f9");
         doc.fillColor("#475569").fontSize(9);
         doc.text("Rank", 45, y + 6);
@@ -2593,7 +2688,6 @@ export const downloadDetailedTestReportPdf = async (req, res) => {
         doc.text("%", 410, y + 6);
         y += 25;
       }
-
       doc.fillColor("#1e293b").fontSize(9);
       doc.text(row.position, 45, y);
       doc.text(row.studentName, 85, y, { width: 130 });
@@ -2601,62 +2695,17 @@ export const downloadDetailedTestReportPdf = async (req, res) => {
       doc.text(`${row.obtainedMarks}/${row.totalMarks}`, 290, y);
       doc.text(`${row.correctCount}/${row.wrongCount}/${row.missedCount}`, 350, y);
       doc.text(`${row.percentage}%`, 410, y);
-      
       doc.moveTo(40, y + 12).lineTo(555, y + 12).stroke("#f1f5f9");
       y += 18;
     });
 
-    // Detailed Responses Section
-    doc.addPage();
-    doc.fontSize(16).fillColor("#1e293b").text("Detailed Question-by-Question Responses", { underline: true });
-    doc.moveDown(1);
-
-    const attemptedOnly = ranking.filter(r => r.attemptId);
-    for (const student of attemptedOnly) {
-      // Fetch full attempt for evaluatedAnswers
-      const attemptDoc = await db.collection(COLLECTIONS.TEST_ATTEMPTS).doc(student.attemptId).get();
+    // Individual OMR Sheets for Attempted Students
+    for (const r of ranking) {
+      doc.addPage();
+      const studentProfile = await ensureStudentProfile(r.studentId);
+      const attemptDoc = await db.collection(COLLECTIONS.TEST_ATTEMPTS).doc(r.attemptId).get();
       const attemptData = attemptDoc.data() || {};
-      const answers = Array.isArray(attemptData.evaluatedAnswers) ? attemptData.evaluatedAnswers : [];
-
-      if (doc.y > 700) doc.addPage();
-      
-      doc.fontSize(12).fillColor("#1e293b").text(`Student: ${student.studentName}`, { bold: true });
-      doc.fontSize(9).fillColor("#64748b").text(`Score: ${student.obtainedMarks}/${student.totalMarks} (${student.percentage}%) | Position: ${ordinal(student.position)}`);
-      doc.moveDown(0.5);
-
-      // Table Header for Questions
-      let tableY = doc.y;
-      doc.rect(40, tableY, 515, 15).fill("#f8fafc");
-      doc.fillColor("#475569").fontSize(8);
-      doc.text("Q#", 45, tableY + 4);
-      doc.text("Question Preview", 70, tableY + 4);
-      doc.text("Answer", 300, tableY + 4);
-      doc.text("Correct", 380, tableY + 4);
-      doc.text("Result", 460, tableY + 4);
-      doc.text("Marks", 510, tableY + 4);
-      doc.moveDown(0.8);
-
-      answers.forEach((ans, idx) => {
-        if (doc.y > 750) {
-          doc.addPage();
-          doc.moveDown(2);
-        }
-        
-        const qData = (testData.questions || []).find(q => trimText(q.questionId) === ans.questionId) || {};
-        const qText = stripFormulaHtml(qData.questionText || "").substring(0, 50) + "...";
-        
-        doc.fillColor("#334155").fontSize(8);
-        doc.text(idx + 1, 45, doc.y);
-        doc.text(qText, 70, doc.y - 8, { width: 220 });
-        doc.text(ans.selectedLetter || "-", 300, doc.y - 8);
-        doc.text(ans.correctLetter || "-", 380, doc.y - 8);
-        doc.text(ans.isCorrect ? "CORRECT" : "WRONG", 460, doc.y - 8, { color: ans.isCorrect ? "#16a34a" : "#dc2626" });
-        doc.text(`${ans.marksObtained}/${ans.marks}`, 510, doc.y - 8);
-        doc.moveDown(0.5);
-      });
-      doc.moveDown(1.5);
-      doc.moveTo(40, doc.y).lineTo(555, doc.y).stroke("#e2e8f0");
-      doc.moveDown(1);
+      drawIndividualOmrReport(doc, { ...studentProfile, uid: r.studentId }, testData, { ...r, evaluatedAnswers: attemptData.evaluatedAnswers }, { position: r.position, total: ranking.length });
     }
 
     doc.end();
@@ -2667,7 +2716,7 @@ export const downloadDetailedTestReportPdf = async (req, res) => {
 };
 
 /**
- * Student: Download Individual Report Card
+ * Student: Download Individual Report Card (OMR Style)
  */
 export const downloadStudentTestResultPdf = async (req, res) => {
   try {
@@ -2680,126 +2729,27 @@ export const downloadStudentTestResultPdf = async (req, res) => {
 
     const attempts = await getTestAttemptRowsForStudent(uid, testId);
     const submitted = getSubmittedAttempt(attempts);
-    if (!submitted) {
-      return errorResponse(res, "Test results not found", 404);
-    }
+    if (!submitted) return errorResponse(res, "Test results not found", 404);
 
     const ranking = await buildRankingRows(testId);
     const myRank = ranking.find((r) => trimText(r.studentId) === uid);
-
     const studentProfile = await ensureStudentProfile(uid);
+    
     const title = trimText(testData.title) || "Test";
     const filename = `Report_Card_${safeFilePart(studentProfile.fullName)}_${safeFilePart(title)}.pdf`;
 
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
 
-    const doc = new PDFDocument({ size: "A4", margin: 50 });
+    const doc = new PDFDocument({ size: "A4", margin: 40 });
     doc.pipe(res);
 
-    // Logo/Header area
-    doc.rect(0, 0, 595, 120).fill("#1e293b");
-    doc.fillColor("#ffffff").fontSize(24).text("SUM ACADEMY", 50, 40);
-    doc.fontSize(12).text("STUDENT REPORT CARD", 50, 70);
-    
-    doc.fillColor("#0f172a").fontSize(10);
-    let y = 150;
-
-    // Student Info Box
-    doc.rect(50, y, 495, 80).stroke("#e2e8f0");
-    doc.text("Student Name:", 65, y + 15);
-    doc.fontSize(12).font("Helvetica-Bold").text(studentProfile.fullName, 160, y + 15);
-    doc.font("Helvetica").fontSize(10);
-    
-    doc.text("Test Name:", 65, y + 35);
-    doc.text(title, 160, y + 35);
-    
-    doc.text("Date Taken:", 65, y + 55);
-    doc.text(new Date(toIso(submitted.submittedAt || submitted.updatedAt)).toLocaleString(), 160, y + 55);
-    
-    y += 110;
-
-    // Result Summary
-    doc.fontSize(14).text("Result Summary", 50, y);
-    doc.moveDown(0.5);
-    y = doc.y;
-
-    const boxWidth = 110;
-    const gap = 18;
-
-    // Draw result boxes
-    const drawBox = (label, value, xPos) => {
-      doc.rect(xPos, y, boxWidth, 60).fill("#f8fafc").stroke("#e2e8f0");
-      doc.fillColor("#64748b").fontSize(9).text(label, xPos + 5, y + 10, { width: boxWidth - 10, align: "center" });
-      doc.fillColor("#0f172a").fontSize(14).font("Helvetica-Bold").text(value, xPos + 5, y + 30, { width: boxWidth - 10, align: "center" });
-      doc.font("Helvetica");
-    };
-
-    drawBox("Score", `${getAttemptScoreValue(submitted)} / ${getAttemptTotalMarksValue(submitted)}`, 50);
-    drawBox("Percentage", `${getAttemptPercentageValue(submitted)}%`, 50 + boxWidth + gap);
-    drawBox("Rank", myRank ? ordinal(myRank.position) : "N/A", 50 + (boxWidth + gap) * 2);
-    drawBox("Total Students", ranking.length.toString(), 50 + (boxWidth + gap) * 3);
-
-    y += 90;
-
-    // Detailed Breakdown
-    doc.fontSize(14).fillColor("#0f172a").text("Performance Breakdown", 50, y);
-    doc.moveDown(0.5);
-    y = doc.y;
-
-    doc.rect(50, y, 495, 100).stroke("#e2e8f0");
-    const innerY = y + 20;
-    
-    const correct = toNumber(submitted.correctCount, 0);
-    const wrong = toNumber(submitted.wrongCount, 0);
-    const missed = toNumber(submitted.missedCount, 0);
-    const total = toNumber(submitted.totalQuestions, 0);
-
-    doc.fontSize(11);
-    doc.text("Total Questions:", 70, innerY);
-    doc.text(total.toString(), 250, innerY);
-    
-    doc.text("Correct Answers:", 70, innerY + 20);
-    doc.fillColor("#059669").text(correct.toString(), 250, innerY + 20);
-    
-    doc.fillColor("#0f172a").text("Incorrect Answers:", 70, innerY + 40);
-    doc.fillColor("#dc2626").text(wrong.toString(), 250, innerY + 40);
-    
-    doc.fillColor("#0f172a").text("Missed / Unanswered:", 70, innerY + 60);
-    doc.fillColor("#94a3b8").text(missed.toString(), 250, innerY + 60);
-
-    // Progress Bar (Visual)
-    y += 130;
-    doc.fillColor("#0f172a").fontSize(12).text("Visual Analysis", 50, y);
-    y += 20;
-    
-    const barWidth = 495;
-    const barHeight = 25;
-    doc.rect(50, y, barWidth, barHeight).fill("#e2e8f0");
-    
-    if (total > 0) {
-      const correctWidth = (correct / total) * barWidth;
-      const wrongWidth = (wrong / total) * barWidth;
-      
-      doc.rect(50, y, correctWidth, barHeight).fill("#10b981");
-      if (wrongWidth > 0) {
-        doc.rect(50 + correctWidth, y, wrongWidth, barHeight).fill("#ef4444");
-      }
-    }
-
-    y += 40;
-    doc.fillColor("#64748b").fontSize(9);
-    doc.rect(50, y, 10, 10).fill("#10b981");
-    doc.text("Correct", 65, y + 1);
-    
-    doc.rect(120, y, 10, 10).fill("#ef4444");
-    doc.text("Incorrect", 135, y + 1);
-    
-    doc.rect(190, y, 10, 10).fill("#e2e8f0");
-    doc.text("Unanswered", 205, y + 1);
-
-    // Footer
-    doc.fontSize(8).fillColor("#94a3b8").text("This is a computer generated report from SUM Academy.", 50, 750, { align: "center" });
+    drawIndividualOmrReport(doc, { ...studentProfile, uid }, testData, {
+      ...submitted,
+      obtainedMarks: getAttemptScoreValue(submitted),
+      totalMarks: getAttemptTotalMarksValue(submitted),
+      percentage: getAttemptPercentageValue(submitted),
+    }, myRank ? { position: myRank.position, total: ranking.length } : null);
 
     doc.end();
   } catch (error) {
@@ -2807,3 +2757,4 @@ export const downloadStudentTestResultPdf = async (req, res) => {
     return errorResponse(res, "Failed to generate report card", 500);
   }
 };
+

@@ -1,4 +1,4 @@
-# Sum Academy API Documentation (v1.1)
+# Sum Academy API Documentation (v1.4)
 
 This document provides details for all essential API endpoints used in the Sum Academy platform. It is intended for both the frontend team and the Android mobile team to ensure synchronization and correct implementation of features.
 
@@ -129,34 +129,6 @@ Most endpoints require a `Bearer` token in the `Authorization` header. This toke
   - **Attempt Data**: Now includes `correctCount`, `wrongCount`, `missedCount`, and `totalQuestions`.
   - **Ranking Data**: Includes `position`, `ordinalPosition`, and `totalParticipants`.
 
-### Fetch Test Ranking Leaderboard
-- **Endpoint**: `GET /student/tests/:testId/ranking`
-- **Response**:
-  ```json
-  {
-    "success": true,
-    "data": {
-      "totalParticipants": 150,
-      "myResult": {
-        "position": 5,
-        "ordinalPosition": "5th",
-        "obtainedMarks": 45,
-        "totalMarks": 50,
-        "percentage": 90
-      },
-      "ranking": [
-        {
-          "position": 1,
-          "studentName": "Ali",
-          "obtainedMarks": 50,
-          "totalMarks": 50,
-          "percentage": 100
-        }
-      ]
-    }
-  }
-  ```
-
 ---
 
 ## Teacher & Admin Operations
@@ -178,65 +150,23 @@ Most endpoints require a `Bearer` token in the `Authorization` header. This toke
   2.  **`all_subject`**: Assigns the quiz to students enrolled in that specific subject.
   3.  **`all_class`**: Requires `classId`. Assigns to all students in that class.
   4.  **`specific`**: Requires `studentIds`. Assigns only to the listed students.
-- **Sample Success Response**:
-  ```json
-  {
-    "success": true,
-    "data": {
-      "quizId": "quiz_123",
-      "assignedTo": "all_class",
-      "studentsCount": 25,
-      "dueDate": "2026-05-10T23:59:59.000Z"
-    },
-    "message": "Quiz assigned successfully"
-  }
-  ```
-
-### Delete Quiz
-- **Endpoint**: `DELETE /teacher/quizzes/:quizId`
-- **Description**: Deletes the quiz document.
-- **Cascading Deletion (Backend)**: 
-  - Automatically deletes all student submissions in `quizResults`.
-  - Automatically deletes all active assignment tracking in `quizAssignments`.
-  - Automatically cleans up question images from Firebase Storage.
-- **Sample Success Response**:
-  ```json
-  {
-    "success": true,
-    "data": { "quizId": "quiz_123" },
-    "message": "Quiz deleted successfully"
-  }
-  ```
-
-### Reassign Managed Test (Admin Only)
-- **Endpoint**: `PATCH /admin/tests/:testId/reassign`
-- **Payload**:
-  ```json
-  {
-    "assignTo": "all_class" | "center",
-    "classId": "string (required if all_class)",
-    "startAt": "ISO String",
-    "endAt": "ISO String"
-  }
-  ```
-- **Description**: Changes the assignment and time window for a test.
 
 ---
 
-## Reporting & PDF Analysis (NEW)
+## Reporting & PDF Analysis (OMR Style)
 
 ### Download Student Report Card (Student)
 - **Endpoint**: `GET /student/tests/:testId/report-card`
 - **Response**: Binary (PDF Blob)
-- **Filename Pattern**: `Report_Card_[StudentName]_[TestTitle].pdf`
-- **Description**: Generates a professional report card with rank, score visualization, and a breakdown of Correct/Wrong/Missed questions.
+- **Format**: **Individual OMR Sheet**. Includes Exam info, Student details, a compact question-by-question grid with correctness indicators, and a performance summary box.
 
 ### Download Detailed Test Analysis (Admin/Teacher)
 - **Endpoint**: `GET /admin/tests/:testId/report-detailed`
 - **Endpoint (Teacher)**: `GET /teacher/tests/:testId/report-detailed`
 - **Response**: Binary (PDF Blob)
-- **Filename Pattern**: `Detailed_Report_[TestTitle].pdf`
-- **Description**: Generates a comprehensive PDF for admins/teachers containing stats for ALL students (Attempted & Not Attempted). Includes a "Summary Statistics" section and a detailed table with C/W/M counts for every student.
+- **Format**: **Comprehensive Multi-Page PDF**. 
+  - **Page 1+**: Ranking table of all students (Attempted & Not Attempted).
+  - **Following Pages**: Individual OMR sheets for every student who attempted the test, providing granular answer visibility.
 
 ---
 
@@ -261,15 +191,9 @@ Most endpoints require a `Bearer` token in the `Authorization` header. This toke
 }
 ```
 
-### Common Error Codes
-- `UNAUTHORIZED`: Token missing or expired.
-- `ACCOUNT_DEACTIVATED`: Account blocked due to security violations (too many tab switches/window blurs).
-- `RESOURCE_NOT_FOUND`: Quiz, test, or lecture ID is invalid.
-- `VALIDATION_ERROR`: Missing fields (e.g., `liveStartAt` missing when required).
-- `ALREADY_ENROLLED`: Student already in this class.
-
 ---
 **Version History**
-- **v1.3**: Added PDF Reporting endpoints for Students (Report Card) and Admins/Teachers (Detailed Analysis). Enhanced test submission responses with `correctCount`, `wrongCount`, and `missedCount`.
-- **v1.2**: Added `all_enrolled` (Whole Course) quiz assignment, fixed `all_subject` targeting, and implemented cascading deletion for Quizzes (Results, Assignments, and Storage cleanup).
-- **v1.1**: Added Video Scheduling (Decoupled from Live status), `isActive` student filtering, and refined Avatar/Result logic.
+- **v1.4**: Implemented OMR-style PDF layout for Student Report Cards and Admin Detailed Analysis. Admin reports now include individual breakdown sheets for every student.
+- **v1.3**: Added PDF Reporting endpoints for Students and Admins.
+- **v1.2**: Added `all_enrolled` quiz assignment and cascading deletion.
+- **v1.1**: Added Video Scheduling and `isActive` student filtering.

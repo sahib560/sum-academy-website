@@ -405,7 +405,7 @@ function StudentTestAttempt() {
   }
 
   return (
-    <div className="protected-zone flex h-screen flex-col bg-[#0f172a] text-slate-200 overflow-hidden">
+    <div className="protected-zone flex min-h-screen flex-col bg-[#0f172a] text-slate-200">
       <Toaster position="top-right" />
       
       {/* Security Overlay */}
@@ -442,23 +442,23 @@ function StudentTestAttempt() {
         )}
       </AnimatePresence>
 
-      <div className="flex-1 flex flex-col mx-auto w-full max-w-7xl px-6 py-4 overflow-hidden">
+      <div className="flex-1 flex flex-col mx-auto w-full max-w-7xl px-4 py-2 sm:px-6 sm:py-4">
         {/* Header Section */}
-        <section className="mb-4 shrink-0 overflow-hidden rounded-[1.5rem] border border-slate-800 bg-slate-900/40 p-6 shadow-xl backdrop-blur-sm">
-          <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
+        <section className="mb-4 shrink-0 overflow-hidden rounded-[1.5rem] border border-slate-800 bg-slate-900/40 p-4 sm:p-6 shadow-xl backdrop-blur-sm">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h1 className="text-3xl font-bold tracking-tight text-white">{test?.title || "Standardized Test"}</h1>
+              <h1 className="text-xl sm:text-3xl font-bold tracking-tight text-white">{test?.title || "Standardized Test"}</h1>
               <p className="mt-1 text-slate-400 font-medium">{headerMeta}</p>
             </div>
             
             {inProgress && (
               <div className="flex flex-col items-end gap-2">
                 <span className="text-xs font-bold uppercase tracking-widest text-slate-500">Question Timer</span>
-                <div className="flex items-center gap-4">
-                   <span className={`font-mono text-3xl font-bold ${questionTimeLeft <= 10 ? "animate-pulse text-rose-500" : "text-indigo-400"}`}>
+                <div className="flex items-center gap-3">
+                   <span className={`font-mono text-2xl sm:text-3xl font-bold ${questionTimeLeft <= 10 ? "animate-pulse text-rose-500" : "text-indigo-400"}`}>
                     {formatSeconds(questionTimeLeft)}
                    </span>
-                   <div className="h-12 w-1.5 rounded-full bg-slate-800 overflow-hidden">
+                   <div className="h-10 sm:h-12 w-1.5 rounded-full bg-slate-800 overflow-hidden">
                       <Motion.div 
                         initial={{ height: "100%" }}
                         animate={{ height: `${(questionTimeLeft / perQuestionLimitSeconds) * 100}%` }}
@@ -472,7 +472,7 @@ function StudentTestAttempt() {
         </section>
 
         {inProgress && (
-          <div className="mb-4 grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-10 xl:grid-cols-12 gap-2 overflow-y-auto max-h-[120px] rounded-2xl border border-slate-800 bg-slate-900/40 p-3 custom-scrollbar">
+          <div className="mb-4 grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 lg:grid-cols-10 xl:grid-cols-12 gap-2 overflow-y-auto max-h-[120px] rounded-2xl border border-slate-800 bg-slate-900/40 p-3 custom-scrollbar">
             {Array.from({ length: totalQuestions }).map((ignore, idx) => {
               const qid = test?.questions?.[idx]?.questionId;
               const hasAnswer = (attempt?.answers || []).some(a => a.questionOrder === idx + 1 && a.selectedAnswer);
@@ -546,7 +546,7 @@ function StudentTestAttempt() {
           <Motion.section 
             initial={{ opacity: 0, scale: 0.98 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="flex-1 flex flex-col quiz-content protected-zone overflow-hidden rounded-[2rem] border border-slate-800 bg-slate-900/40 shadow-2xl backdrop-blur-sm"
+            className="flex-1 flex flex-col quiz-content protected-zone overflow-hidden rounded-[1.5rem] sm:rounded-[2rem] border border-slate-800 bg-slate-900/40 shadow-2xl backdrop-blur-sm"
           >
             <WatermarkOverlay
               user={{
@@ -556,11 +556,11 @@ function StudentTestAttempt() {
               }}
             />
             
-            <div className="flex items-center justify-between border-b border-slate-800 bg-slate-800/30 px-10 py-5">
-               <span className="text-xs font-bold uppercase tracking-widest text-slate-500">
+            <div className="flex items-center justify-between border-b border-slate-800 bg-slate-800/30 px-4 py-3 sm:px-10 sm:py-5">
+               <span className="text-[10px] sm:text-xs font-bold uppercase tracking-widest text-slate-500">
                 Question {currentIndex + 1} of {totalQuestions}
                </span>
-               <div className="flex h-2 w-48 overflow-hidden rounded-full bg-slate-800">
+               <div className="flex h-1.5 sm:h-2 w-32 sm:w-48 overflow-hidden rounded-full bg-slate-800">
                   <div 
                     className="h-full bg-indigo-500 transition-all duration-500" 
                     style={{ width: `${((currentIndex + 1) / totalQuestions) * 100}%` }}
@@ -568,7 +568,7 @@ function StudentTestAttempt() {
                </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-8 sm:p-10 custom-scrollbar">
+            <div className="flex-1 overflow-y-auto p-4 sm:p-10 custom-scrollbar">
               {currentQuestion.imageUrl || currentQuestion.imagePath ? (
                 <div className="mb-6 overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 p-3">
                   <img
@@ -618,20 +618,20 @@ function StudentTestAttempt() {
             </div>
 
             {/* Navigation Controls */}
-            <div className="flex flex-wrap items-center justify-between border-t border-slate-800 bg-slate-800/20 px-10 py-8">
-              <div className="flex gap-4">
+            <div className="flex flex-col gap-4 border-t border-slate-800 bg-slate-800/20 p-4 sm:p-8 lg:flex-row lg:items-center lg:justify-between">
+              <div className="grid grid-cols-2 gap-2 sm:flex sm:gap-4">
                 <button
                   type="button"
                   onClick={() => saveAndNavigate("prev")}
                   disabled={submitMutation.isPending || currentIndex <= 0}
-                  className="rounded-xl border border-slate-700 px-6 py-3 font-bold text-slate-400 transition-colors hover:bg-slate-800 disabled:opacity-30"
+                  className="flex items-center justify-center rounded-xl border border-slate-700 px-4 py-2.5 text-sm font-bold text-slate-400 transition-colors hover:bg-slate-800 disabled:opacity-30 sm:px-6 sm:py-3 sm:text-base"
                 >
                   Previous
                 </button>
                 <button
                   type="button"
                   onClick={toggleFlag}
-                  className={`flex items-center gap-2 rounded-xl border px-6 py-3 font-bold transition-all ${
+                  className={`flex items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-bold transition-all sm:px-6 sm:py-3 sm:text-base ${
                     isFlagged 
                       ? "border-amber-500 bg-amber-500/10 text-amber-500" 
                       : "border-slate-700 text-slate-400 hover:bg-slate-800"
@@ -646,7 +646,7 @@ function StudentTestAttempt() {
                   type="button"
                   onClick={() => saveAndNavigate("next")}
                   disabled={submitMutation.isPending}
-                  className="flex items-center gap-2 rounded-xl bg-indigo-600 px-8 py-3 font-bold text-white shadow-lg transition-all hover:bg-indigo-500 disabled:opacity-30 disabled:hover:bg-indigo-600"
+                  className="col-span-2 flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-bold text-white shadow-lg transition-all hover:bg-indigo-500 disabled:opacity-30 disabled:hover:bg-indigo-600 sm:col-auto sm:px-8 sm:py-3 sm:text-base"
                 >
                   {submitMutation.isPending ? "Saving..." : isLastQuestion ? "Finish" : "Save & Next"}
                   {!isLastQuestion && (
@@ -659,7 +659,7 @@ function StudentTestAttempt() {
                 type="button"
                 onClick={() => finishMutation.mutate("manual")}
                 disabled={finishMutation.isPending || !hasReachedLast}
-                className={`rounded-xl border px-8 py-3 font-bold transition-all ${
+                className={`w-full lg:w-auto rounded-xl border px-6 py-2.5 text-sm font-bold transition-all sm:px-8 sm:py-3 sm:text-base ${
                   hasReachedLast
                     ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20"
                     : "border-slate-800 text-slate-600 cursor-not-allowed hover:bg-transparent hover:border-slate-800 disabled:hover:bg-transparent"
