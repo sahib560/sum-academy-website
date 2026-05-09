@@ -723,9 +723,9 @@ function StudentTestAttempt() {
               <div className="border-b border-slate-800 bg-slate-800/30 px-10 py-6">
                  <h3 className="text-xl font-bold text-white">Student Leaderboard</h3>
               </div>
-              <div className="overflow-x-auto p-2">
+              <div className="overflow-x-auto overflow-y-auto max-h-[400px] p-2 custom-scrollbar">
                 <table className="w-full text-left">
-                  <thead>
+                  <thead className="sticky top-0 bg-slate-900 z-10">
                     <tr className="text-xs font-bold uppercase tracking-widest text-slate-500">
                       <th className="px-8 py-4">Rank</th>
                       <th className="px-8 py-4">Student</th>

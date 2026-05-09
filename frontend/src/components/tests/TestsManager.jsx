@@ -2034,37 +2034,69 @@ export default function TestsManager({
 
               <div className="space-y-3">
                 <p className="font-semibold text-slate-800">Question-by-Question Analysis</p>
-                {(studentDetailData.evaluatedAnswers || []).map((ans, idx) => (
+                {(studentDetailData.evaluatedAnswers || []).map((ans, idx) => {
+                  const originalQuestion = (selected?.questions || []).find(q => trimText(q.questionId) === ans.questionId);
+                  const studentOptionText = originalQuestion && ans.selectedLetter ? originalQuestion[`option${ans.selectedLetter}`] : "Not Answered";
+                  const correctOptionText = originalQuestion && ans.correctLetter ? originalQuestion[`option${ans.correctLetter}`] : "";
+                  
+                  return (
                   <div key={ans.questionId} className={`rounded-2xl border p-4 transition-all ${ans.isCorrect ? 'border-emerald-100 bg-emerald-50/30' : 'border-rose-100 bg-rose-50/30'}`}>
-                    <div className="flex justify-between gap-4">
+                    <div className="flex flex-col sm:flex-row justify-between gap-4">
                       <div className="flex-1">
-                        <p className="text-xs font-semibold text-slate-500 mb-1">Question {idx + 1}</p>
-                        <div 
-                          className="text-sm font-medium text-slate-800"
-                          dangerouslySetInnerHTML={{ __html: sanitizeQuestionHtml((testData.questions || []).find(q => trimText(q.questionId) === ans.questionId)?.questionText || "") }}
-                        />
-                        <div className="mt-3 flex flex-wrap gap-4 text-xs">
-                          <div>
-                            <span className="text-slate-500">Student's Answer:</span>
-                            <span className={`ml-1 font-bold ${ans.isCorrect ? 'text-emerald-600' : 'text-rose-600'}`}>
-                              {ans.selectedLetter || "Not Answered"}
-                            </span>
+                        <p className="text-xs font-semibold text-slate-500 mb-2">Question {ans.questionOrder || idx + 1}</p>
+                        
+                        {originalQuestion?.imageUrl && (
+                          <div className="mb-3">
+                            <img 
+                              src={originalQuestion.imageUrl} 
+                              alt="Question Figure" 
+                              className="max-h-[150px] rounded-lg border border-slate-200 object-contain bg-white p-1"
+                            />
                           </div>
-                          <div>
-                            <span className="text-slate-500">Correct Answer:</span>
-                            <span className="ml-1 font-bold text-emerald-600">{ans.correctLetter}</span>
+                        )}
+                        
+                        <div 
+                          className="text-sm font-medium text-slate-800 mb-3 bg-white p-3 rounded-xl border border-slate-100"
+                          dangerouslySetInnerHTML={{ __html: sanitizeQuestionHtml(originalQuestion?.questionText || "Question text not available") }}
+                        />
+                        
+                        <div className="mt-3 flex flex-col gap-2 text-xs">
+                          <div className="bg-white p-2 rounded-lg border border-slate-100 flex items-start gap-2">
+                            <span className="text-slate-500 font-semibold min-w-[110px]">Student Answer:</span>
+                            <div className="flex flex-col">
+                              <span className={`font-bold ${ans.isCorrect ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                Option {ans.selectedLetter || "N.A."}
+                              </span>
+                              {studentOptionText && studentOptionText !== "Not Answered" && (
+                                <span className="text-slate-700 mt-1" dangerouslySetInnerHTML={{ __html: sanitizeQuestionHtml(studentOptionText) }} />
+                              )}
+                            </div>
+                          </div>
+                          
+                          <div className="bg-white p-2 rounded-lg border border-slate-100 flex items-start gap-2">
+                            <span className="text-slate-500 font-semibold min-w-[110px]">Correct Answer:</span>
+                            <div className="flex flex-col">
+                              <span className="font-bold text-emerald-600">Option {ans.correctLetter}</span>
+                              {correctOptionText && (
+                                <span className="text-slate-700 mt-1" dangerouslySetInnerHTML={{ __html: sanitizeQuestionHtml(correctOptionText) }} />
+                              )}
+                            </div>
                           </div>
                         </div>
                       </div>
-                      <div className="text-right">
-                        <p className={`text-xs font-bold ${ans.isCorrect ? 'text-emerald-600' : 'text-rose-600'}`}>
-                          {ans.isCorrect ? '✓ CORRECT' : '✗ WRONG'}
+                      <div className="text-left sm:text-right flex flex-row sm:flex-col items-center sm:items-end justify-between sm:justify-start pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-200/50 mt-2 sm:mt-0">
+                        <p className={`text-sm sm:text-xs font-bold ${ans.isCorrect ? 'text-emerald-600' : 'text-rose-600'} flex items-center gap-1`}>
+                          {ans.isCorrect ? (
+                            <><svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg> CORRECT</>
+                          ) : (
+                            <><svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12" /></svg> WRONG</>
+                          )}
                         </p>
-                        <p className="text-[10px] text-slate-400 mt-1">Marks: {ans.marksObtained}/{ans.marks}</p>
+                        <p className="text-xs font-semibold text-slate-500 sm:mt-2 bg-white px-2 py-1 rounded border border-slate-100">Marks: {ans.marksObtained}/{ans.marks}</p>
                       </div>
                     </div>
                   </div>
-                ))}
+                )})}
               </div>
             </div>
 

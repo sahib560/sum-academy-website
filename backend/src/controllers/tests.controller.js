@@ -2699,15 +2699,7 @@ export const downloadDetailedTestReportPdf = async (req, res) => {
       y += 18;
     });
 
-    // Individual OMR Sheets for Attempted Students
-    for (const r of ranking) {
-      doc.addPage();
-      const studentProfile = await ensureStudentProfile(r.studentId);
-      const attemptDoc = await db.collection(COLLECTIONS.TEST_ATTEMPTS).doc(r.attemptId).get();
-      const attemptData = attemptDoc.data() || {};
-      drawIndividualOmrReport(doc, { ...studentProfile, uid: r.studentId }, testData, { ...r, evaluatedAnswers: attemptData.evaluatedAnswers }, { position: r.position, total: ranking.length });
-    }
-
+    // Removed individual OMR sheets generation from the admin detailed report
     doc.end();
   } catch (error) {
     console.error("downloadDetailedTestReportPdf error:", error);
@@ -2746,9 +2738,13 @@ export const downloadStudentTestResultPdf = async (req, res) => {
 
     drawIndividualOmrReport(doc, { ...studentProfile, uid }, testData, {
       ...submitted,
+      evaluatedAnswers: submitted.evaluatedAnswers || submitted.answers,
       obtainedMarks: getAttemptScoreValue(submitted),
       totalMarks: getAttemptTotalMarksValue(submitted),
       percentage: getAttemptPercentageValue(submitted),
+      correctCount: submitted.correctCount,
+      wrongCount: submitted.wrongCount,
+      missedCount: submitted.missedCount,
     }, myRank ? { position: myRank.position, total: ranking.length } : null);
 
     doc.end();
