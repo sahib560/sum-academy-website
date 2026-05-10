@@ -14,6 +14,14 @@ const toNumber = (value, fallback = 0) => {
 };
 const stripFormulaHtml = (html = "") => String(html || "").replace(/<[^>]*>/g, "");
 const pickFirst = (...values) => values.find((value) => value !== undefined && value !== null);
+const parseDate = (value) => {
+  if (!value) return null;
+  if (typeof value?.toDate === "function") return value.toDate();
+  if (typeof value?.seconds === "number") return new Date(value.seconds * 1000);
+  if (typeof value?._seconds === "number") return new Date(value._seconds * 1000);
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
 
 /**
  * Helper to draw OMR-style individual report page
@@ -23,22 +31,39 @@ const drawIndividualOmrReport = (doc, studentProfile, testData, attemptData, ran
   const pageWidth = 515;
   let currentY = 40;
 
-  // Header Title
-  doc.fontSize(18).font("Helvetica-Bold").fillColor("#1e293b").text("Individual OMR Result Report", { align: "center" });
-  doc.moveDown(0.5);
-  currentY = doc.y;
+  // Header Banner
+  doc.rect(startX, currentY, pageWidth, 40).fill("#1e293b");
+  doc.fontSize(16).font("Helvetica-Bold").fillColor("#ffffff").text("Official Performance Report", startX, currentY + 13, { align: "center", width: pageWidth });
+  
+  currentY += 55;
 
-  // Top Info Section
-  doc.fontSize(9).font("Helvetica").fillColor("#334155");
-  doc.text(`Exam ID: ${testData.testId || "N/A"}`, startX, currentY);
-  doc.text(`Exam Title: ${testData.title || "N/A"}`, startX, currentY + 12);
-  doc.text(`Total Questions: ${testData.questionsCount || testData.questions?.length || 0} | Options: 4 | Exam Date: ${testData.startAt ? parseDate(testData.startAt)?.toLocaleDateString() || "N/A" : "N/A"}`, startX, currentY + 24);
-  doc.text(`Roll Number: ${studentProfile.rollNumber || studentProfile.uid?.substring(0, 8) || "N/A"}`, startX, currentY + 36);
-  doc.text(`Name: ${studentProfile.fullName || "N/A"} | Father's Name: ${studentProfile.fatherName || studentProfile.parentName || "N/A"}`, startX, currentY + 48);
+  // Top Info Box
+  doc.rect(startX, currentY, pageWidth, 60).fill("#f8fafc").stroke("#e2e8f0");
+  
+  doc.fontSize(9).font("Helvetica-Bold").fillColor("#334155");
+  doc.text(`Exam ID:`, startX + 10, currentY + 10);
+  doc.font("Helvetica").text(`${testData.testId || "N/A"}`, startX + 60, currentY + 10);
+  
+  doc.font("Helvetica-Bold").text(`Title:`, startX + 260, currentY + 10);
+  doc.font("Helvetica").text(`${testData.title || "N/A"}`, startX + 295, currentY + 10);
 
-  currentY += 65;
-  doc.moveTo(startX, currentY).lineTo(startX + pageWidth, currentY).stroke("#e2e8f0");
-  currentY += 10;
+  doc.font("Helvetica-Bold").text(`Date:`, startX + 10, currentY + 25);
+  doc.font("Helvetica").text(`${testData.startAt ? parseDate(testData.startAt)?.toLocaleDateString() : "N/A"}`, startX + 45, currentY + 25);
+  
+  doc.font("Helvetica-Bold").text(`Total Qs:`, startX + 260, currentY + 25);
+  doc.font("Helvetica").text(`${testData.questionsCount || testData.questions?.length || 0}`, startX + 310, currentY + 25);
+
+  doc.font("Helvetica-Bold").text(`Student:`, startX + 10, currentY + 40);
+  doc.font("Helvetica").text(`${studentProfile.fullName || "N/A"} (${studentProfile.rollNumber || studentProfile.uid?.substring(0, 8) || "N/A"})`, startX + 55, currentY + 40);
+
+  doc.font("Helvetica-Bold").text(`Parent:`, startX + 260, currentY + 40);
+  doc.font("Helvetica").text(`${studentProfile.fatherName || studentProfile.parentName || "N/A"}`, startX + 305, currentY + 40);
+
+  currentY += 75;
+
+  // Section Title
+  doc.fontSize(12).font("Helvetica-Bold").fillColor("#0f172a").text("OMR Response Grid", startX, currentY);
+  currentY += 15;
 
   // Grid Section
   const answers = Array.isArray(attemptData.evaluatedAnswers) ? attemptData.evaluatedAnswers : (Array.isArray(attemptData.answers) ? attemptData.answers : []);
@@ -50,8 +75,8 @@ const drawIndividualOmrReport = (doc, studentProfile, testData, attemptData, ran
   
   // Table Header for Grid
   const drawTableHeader = (x, y) => {
-    doc.rect(x, y, colWidth - 10, 15).fill("#f1f5f9");
-    doc.fontSize(8).font("Helvetica-Bold").fillColor("#475569");
+    doc.rect(x, y, colWidth - 10, 15).fill("#e2e8f0");
+    doc.fontSize(8).font("Helvetica-Bold").fillColor("#334155");
     doc.text("Q.No.", x + 5, y + 4);
     doc.text("Correct", x + 35, y + 4);
     doc.text("Marked", x + 70, y + 4);
@@ -65,16 +90,16 @@ const drawIndividualOmrReport = (doc, studentProfile, testData, attemptData, ran
   let gridStartY = currentY;
 
   doc.font("Helvetica").fontSize(8).fillColor("#1e293b");
-  
+
   for (let idx = 0; idx < totalQ; idx++) {
     const colIdx = Math.floor(idx / rowsPerColumn);
     const rowIdx = idx % rowsPerColumn;
-    
-    if (colIdx >= columns) continue; 
+
+    if (colIdx >= columns) continue;
 
     const x = startX + colIdx * colWidth;
     const y = gridStartY + rowIdx * 10;
-    
+
     // Support both old attempts (by questionId) and new attempts (by questionOrder)
     const qObj = testQuestions[idx];
     let ans = {};
@@ -85,7 +110,7 @@ const drawIndividualOmrReport = (doc, studentProfile, testData, attemptData, ran
     }
 
     if (rowIdx % 2 === 0) {
-       doc.rect(x, y, colWidth - 10, 10).fill("#f8fafc");
+      doc.rect(x, y, colWidth - 10, 10).fill("#f8fafc");
     }
 
     const finalCorrectLetter = ans.correctLetter || (qObj && qObj.correctAnswer ? (["A", "B", "C", "D"].find(l => qObj.correctAnswer.toUpperCase().includes(l)) || qObj.correctAnswer.toUpperCase()) : "-");
@@ -109,7 +134,7 @@ const drawIndividualOmrReport = (doc, studentProfile, testData, attemptData, ran
   // Summary Box at bottom right
   const summaryX = startX + 2 * colWidth;
   const summaryY = gridStartY + rowsPerColumn * 10 + 10;
-  
+
   const stats = [
     ["Correct Answers", attemptData.correctCount || 0],
     ["Wrong Answers", attemptData.wrongCount || 0],
@@ -126,20 +151,72 @@ const drawIndividualOmrReport = (doc, studentProfile, testData, attemptData, ran
     doc.fontSize(8).font("Helvetica").fillColor("#475569").text(stat[0], summaryX + 5, y + 4);
     doc.font("Helvetica-Bold").fillColor("#1e293b").text(String(stat[1]), summaryX + colWidth - 55, y + 4, { align: "right", width: 40 });
     if (i < stats.length - 1) {
-       doc.moveTo(summaryX, y + 15).lineTo(summaryX + colWidth - 10, y + 15).stroke("#f1f5f9");
+      doc.moveTo(summaryX, y + 15).lineTo(summaryX + colWidth - 10, y + 15).stroke("#f1f5f9");
     }
   });
 
-  doc.fontSize(8).fillColor("#94a3b8").text("SUM Academy Assessment Systems", startX, 760, { align: "center" });
+  // Footer for OMR Page
+  doc.fontSize(8).fillColor("#94a3b8").text("Powered by TryUnity Solutions | Assessment Systems", startX, 760, { align: "center" });
+
+  // Detailed Question Analysis Section
+  doc.addPage();
+  doc.fontSize(16).font("Helvetica-Bold").fillColor("#1e293b").text("Detailed Question Analysis", { align: "center" });
+  doc.moveDown(1.5);
+
+  testQuestions.forEach((qObj, idx) => {
+    let ans = {};
+    if (qObj && qObj.questionId) {
+      ans = answers.find(a => trimText(a.questionId) === trimText(qObj.questionId)) || {};
+    } else {
+      ans = answers.find(a => a.questionOrder === idx + 1) || {};
+    }
+
+    const finalCorrectLetter = ans.correctLetter || (qObj && qObj.correctAnswer ? (["A", "B", "C", "D"].find(l => qObj.correctAnswer.toUpperCase().includes(l)) || qObj.correctAnswer.toUpperCase()) : "-");
+    const studentLetter = ans.selectedLetter || "N.A";
+
+    const questionText = stripFormulaHtml(qObj.questionText || "Question text not available");
+    const correctOptionText = stripFormulaHtml(qObj[`option${finalCorrectLetter}`] || "");
+    const studentOptionText = studentLetter !== "N.A" ? stripFormulaHtml(qObj[`option${studentLetter}`] || "") : "Not Answered";
+
+    // Prevent breaking inside a single question block if near bottom
+    if (doc.y > 680) {
+      // Footer for previous page
+      doc.fontSize(8).fillColor("#94a3b8").text("Powered by TryUnity Solutions | Assessment Systems", startX, 760, { align: "center" });
+      doc.addPage();
+    }
+
+    doc.font("Helvetica-Bold").fontSize(10).fillColor("#1e293b").text(`Q${idx + 1}: `, { continued: true });
+    doc.font("Helvetica").text(questionText);
+    doc.moveDown(0.3);
+
+    let statusColor = "#94a3b8";
+    let statusText = "Missed";
+    if (ans.selectedLetter) {
+      if (ans.isCorrect) {
+        statusColor = "#16a34a";
+        statusText = "Correct";
+      } else {
+        statusColor = "#dc2626";
+        statusText = "Wrong";
+      }
+    }
+
+    doc.font("Helvetica-Bold").fontSize(9);
+    doc.fillColor(statusColor).text(`Status: ${statusText}`, { continued: true });
+    doc.fillColor("#475569").text(` | Marks: ${ans.marksObtained || 0}/${ans.marks || qObj.marks || 1}`);
+
+    doc.moveDown(0.2);
+    doc.font("Helvetica").fillColor("#334155");
+    doc.text(`Your Answer: Option ${studentLetter} ${studentOptionText !== "Not Answered" ? `(${studentOptionText})` : ""}`);
+    doc.text(`Correct Answer: Option ${finalCorrectLetter} ${correctOptionText ? `(${correctOptionText})` : ""}`);
+
+    doc.moveDown(1.5);
+  });
+
+  // Footer for last page
+  doc.fontSize(8).fillColor("#94a3b8").text("Powered by TryUnity Solutions | Assessment Systems", startX, 760, { align: "center" });
 };
-const parseDate = (value) => {
-  if (!value) return null;
-  if (typeof value?.toDate === "function") return value.toDate();
-  if (typeof value?.seconds === "number") return new Date(value.seconds * 1000);
-  if (typeof value?._seconds === "number") return new Date(value._seconds * 1000);
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
-};
+
 const toIso = (value) => {
   const parsed = parseDate(value);
   return parsed ? parsed.toISOString() : null;
@@ -725,18 +802,18 @@ const computeScore = (questions = [], answers = []) => {
   const normalized = questions.map((question, index) => {
     const questionId = trimText(question.questionId);
     const answer = answersByQ[questionId];
-    
+
     const selectedAnswer = answer ? trimText(answer.selectedAnswer) : "";
     const selectedLetter = toAnswerLetter(selectedAnswer, question.options || []);
     const correctLetter = toAnswerLetter(question.correctAnswer, question.options || []);
     const marks = Math.max(1, toNumber(question.marks, 1));
-    
+
     const isCorrect = selectedLetter && correctLetter
       ? selectedLetter === correctLetter
       : Boolean(selectedAnswer && lowerText(selectedAnswer) === lowerText(question.correctAnswer));
 
     const marksObtained = isCorrect ? marks : 0;
-    
+
     if (isCorrect) {
       score += marksObtained;
       correctCount += 1;
@@ -2127,13 +2204,13 @@ export const getStudentTestById = async (req, res) => {
       const mine = rows.find((row) => trimText(row.studentId) === uid) || null;
       rankingPreview = mine
         ? {
-            position: mine.position,
-            ordinalPosition: ordinal(mine.position),
-            totalParticipants: rows.length,
-            obtainedMarks: mine.obtainedMarks,
-            totalMarks: mine.totalMarks,
-            percentage: mine.percentage,
-          }
+          position: mine.position,
+          ordinalPosition: ordinal(mine.position),
+          totalParticipants: rows.length,
+          obtainedMarks: mine.obtainedMarks,
+          totalMarks: mine.totalMarks,
+          percentage: mine.percentage,
+        }
         : null;
     }
 
@@ -2370,15 +2447,15 @@ export const submitStudentTestAnswer = async (req, res) => {
           },
           ranking: myRow
             ? {
-                position: myRow.position,
-                ordinalPosition: ordinal(myRow.position),
-                totalParticipants: ranking.length,
-              }
+              position: myRow.position,
+              ordinalPosition: ordinal(myRow.position),
+              totalParticipants: ranking.length,
+            }
             : {
-                position: null,
-                ordinalPosition: null,
-                totalParticipants: ranking.length,
-              },
+              position: null,
+              ordinalPosition: null,
+              totalParticipants: ranking.length,
+            },
         },
         "Test submitted successfully"
       );
@@ -2498,15 +2575,15 @@ export const finishStudentTest = async (req, res) => {
         },
         ranking: myRow
           ? {
-              position: myRow.position,
-              ordinalPosition: ordinal(myRow.position),
-              totalParticipants: ranking.length,
-            }
+            position: myRow.position,
+            ordinalPosition: ordinal(myRow.position),
+            totalParticipants: ranking.length,
+          }
           : {
-              position: null,
-              ordinalPosition: null,
-              totalParticipants: ranking.length,
-            },
+            position: null,
+            ordinalPosition: null,
+            totalParticipants: ranking.length,
+          },
       },
       "Test submitted"
     );
@@ -2544,12 +2621,12 @@ export const getStudentTestRanking = async (req, res) => {
         totalParticipants: ranking.length,
         myResult: mine
           ? {
-              position: mine.position,
-              ordinalPosition: ordinal(mine.position),
-              obtainedMarks: mine.obtainedMarks,
-              totalMarks: mine.totalMarks,
-              percentage: mine.percentage,
-            }
+            position: mine.position,
+            ordinalPosition: ordinal(mine.position),
+            obtainedMarks: mine.obtainedMarks,
+            totalMarks: mine.totalMarks,
+            percentage: mine.percentage,
+          }
           : null,
         ranking,
       },
@@ -2584,91 +2661,17 @@ export const downloadStudentTestRankingPdf = async (req, res) => {
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
 
-    doc.end();
-  } catch (error) {
-    console.error("downloadStudentTestRankingPdf error:", error);
-    return errorResponse(res, "Failed to download ranking PDF", 500);
-  }
-};
-
-/**
- * Admin/Teacher: Download Detailed Analysis Report (All Students)
- */
-export const downloadDetailedTestReportPdf = async (req, res) => {
-  try {
-    const role = lowerText(req.user?.role || "");
-    const testId = trimText(req.params?.testId);
-
-    if (!(role === "admin" || role === "teacher")) {
-      return errorResponse(res, "Access denied", 403);
-    }
-
-    const testSnap = await db.collection(COLLECTIONS.TESTS).doc(testId).get();
-    if (!testSnap.exists) return errorResponse(res, "Test not found", 404);
-    const testData = testSnap.data() || {};
-
-    const ranking = await buildRankingRows(testId);
-    const attemptedIds = new Set(ranking.map((r) => r.studentId));
-
-    // Get all expected students
-    let allStudentIds = [];
-    if (lowerText(testData.scope) === "class" && testData.classId) {
-      const classSnap = await db.collection(COLLECTIONS.CLASSES).doc(testData.classId).get();
-      allStudentIds = getClassStudentIds(classSnap.data() || {});
-    } else {
-      allStudentIds = await getCenterStudentIdsFromAllClasses();
-    }
-
-    const notAttemptedIds = allStudentIds.filter((id) => !attemptedIds.has(id));
-    let notAttemptedRows = [];
-    if (notAttemptedIds.length > 0) {
-      const chunks = chunkArray(notAttemptedIds, 30);
-      const snaps = await Promise.all(
-        chunks.map((group) =>
-          Promise.all(group.map((id) => db.collection(COLLECTIONS.USERS).doc(id).get()))
-        )
-      );
-      notAttemptedRows = snaps.flat().map((snap) => {
-        const data = snap.data() || {};
-        return {
-          studentId: snap.id,
-          studentName: trimText(data.fullName || data.name || data.displayName) || "Student",
-          status: "Not Attempted",
-          obtainedMarks: 0,
-          totalMarks: toNumber(testData.totalMarks, 0),
-          percentage: 0,
-          correctCount: 0,
-          missedCount: toNumber(testData.questionsCount || testData.questions?.length, 0),
-          wrongCount: 0,
-          position: "-",
-        };
-      });
-    }
-
-    const allRows = [
-      ...ranking.map((r) => ({ ...r, status: "Attempted", position: ordinal(r.position) })),
-      ...notAttemptedRows,
-    ];
-
-    const title = trimText(testData.title) || "Test";
-    const filename = `Detailed_Report_${safeFilePart(title)}.pdf`;
-
-    res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
-
     const doc = new PDFDocument({ size: "A4", margin: 40 });
     doc.pipe(res);
 
-    // Summary Table Page
-    doc.fontSize(20).fillColor("#1e293b").text("Detailed Test Analysis Report", { align: "center" });
+    doc.fontSize(20).fillColor("#1e293b").text("Test Ranking Report", { align: "center" });
     doc.moveDown(0.2);
-    doc.fontSize(10).fillColor("#64748b").text("SUM Academy Management Portal", { align: "center" });
+    doc.fontSize(10).fillColor("#64748b").text("Powered by TryUnity Solutions | Assessment Systems", { align: "center" });
     doc.moveDown(1);
 
     doc.fontSize(12).fillColor("#0f172a").text(`Test Title: ${title}`);
-    doc.text(`Class/Scope: ${testData.className || testData.scope || "Center"}`);
-    doc.text(`Date: ${new Date().toLocaleDateString()}`);
-    doc.text(`Total Students: ${allStudentIds.length} | Attempted: ${ranking.length} | Not Attempted: ${notAttemptedIds.length}`);
+    doc.text(`Class/Scope: ${className}`);
+    doc.text(`Total Participants: ${ranking.length}`);
     doc.moveDown(1);
 
     let y = doc.y;
@@ -2676,13 +2679,11 @@ export const downloadDetailedTestReportPdf = async (req, res) => {
     doc.fillColor("#475569").fontSize(9);
     doc.text("Rank", 45, y + 6);
     doc.text("Student Name", 85, y + 6);
-    doc.text("Status", 220, y + 6);
     doc.text("Marks", 290, y + 6);
-    doc.text("C/W/M", 350, y + 6);
     doc.text("%", 410, y + 6);
     y += 25;
 
-    allRows.forEach((row) => {
+    ranking.forEach((row) => {
       if (y > 750) {
         doc.addPage();
         y = 50;
@@ -2690,75 +2691,202 @@ export const downloadDetailedTestReportPdf = async (req, res) => {
         doc.fillColor("#475569").fontSize(9);
         doc.text("Rank", 45, y + 6);
         doc.text("Student Name", 85, y + 6);
-        doc.text("Status", 220, y + 6);
         doc.text("Marks", 290, y + 6);
-        doc.text("C/W/M", 350, y + 6);
         doc.text("%", 410, y + 6);
         y += 25;
       }
       doc.fillColor("#1e293b").fontSize(9);
       doc.text(row.position, 45, y);
-      doc.text(row.studentName, 85, y, { width: 130 });
-      doc.text(row.status, 220, y);
+      doc.text(row.studentName, 85, y, { width: 180 });
       doc.text(`${row.obtainedMarks}/${row.totalMarks}`, 290, y);
-      doc.text(`${row.correctCount}/${row.wrongCount}/${row.missedCount}`, 350, y);
       doc.text(`${row.percentage}%`, 410, y);
       doc.moveTo(40, y + 12).lineTo(555, y + 12).stroke("#f1f5f9");
       y += 18;
     });
 
-    // Removed individual OMR sheets generation from the admin detailed report
     doc.end();
   } catch (error) {
-    console.error("downloadDetailedTestReportPdf error:", error);
-    return errorResponse(res, "Failed to generate report", 500);
+    console.error("downloadStudentTestRankingPdf error:", error);
+    return errorResponse(res, "Failed to download ranking PDF", 500);
   }
 };
 
-/**
- * Student: Download Individual Report Card (OMR Style)
- */
-export const downloadStudentTestResultPdf = async (req, res) => {
-  try {
-    const uid = trimText(req.user?.uid);
-    const testId = trimText(req.params?.testId);
+  /**
+   * Admin/Teacher: Download Detailed Analysis Report (All Students)
+   */
+  export const downloadDetailedTestReportPdf = async (req, res) => {
+    try {
+      const role = lowerText(req.user?.role || "");
+      const testId = trimText(req.params?.testId);
 
-    const access = await ensureStudentCanAccessTest({ testId, uid });
-    if (access.error) return errorResponse(res, access.error, access.status || 403);
-    const testData = access.testData;
+      if (!(role === "admin" || role === "teacher")) {
+        return errorResponse(res, "Access denied", 403);
+      }
 
-    const attempts = await getTestAttemptRowsForStudent(uid, testId);
-    const submitted = getSubmittedAttempt(attempts);
-    if (!submitted) return errorResponse(res, "Test results not found", 404);
+      const testSnap = await db.collection(COLLECTIONS.TESTS).doc(testId).get();
+      if (!testSnap.exists) return errorResponse(res, "Test not found", 404);
+      const testData = testSnap.data() || {};
 
-    const ranking = await buildRankingRows(testId);
-    const myRank = ranking.find((r) => trimText(r.studentId) === uid);
-    const studentProfile = await ensureStudentProfile(uid);
-    
-    const title = trimText(testData.title) || "Test";
-    const filename = `Report_Card_${safeFilePart(studentProfile.fullName)}_${safeFilePart(title)}.pdf`;
+      const ranking = await buildRankingRows(testId);
+      const attemptedIds = new Set(ranking.map((r) => r.studentId));
 
-    res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      // Get all expected students
+      let allStudentIds = [];
+      if (lowerText(testData.scope) === "class" && testData.classId) {
+        const classSnap = await db.collection(COLLECTIONS.CLASSES).doc(testData.classId).get();
+        allStudentIds = getClassStudentIds(classSnap.data() || {});
+      } else {
+        allStudentIds = await getCenterStudentIdsFromAllClasses();
+      }
 
-    const doc = new PDFDocument({ size: "A4", margin: 40 });
-    doc.pipe(res);
+      const notAttemptedIds = allStudentIds.filter((id) => !attemptedIds.has(id));
+      let notAttemptedRows = [];
+      if (notAttemptedIds.length > 0) {
+        const chunks = chunkArray(notAttemptedIds, 30);
+        const snaps = await Promise.all(
+          chunks.map((group) =>
+            Promise.all(group.map((id) => db.collection(COLLECTIONS.USERS).doc(id).get()))
+          )
+        );
+        notAttemptedRows = snaps.flat().map((snap) => {
+          const data = snap.data() || {};
+          return {
+            studentId: snap.id,
+            studentName: trimText(data.fullName || data.name || data.displayName) || "Student",
+            status: "Not Attempted",
+            obtainedMarks: 0,
+            totalMarks: toNumber(testData.totalMarks, 0),
+            percentage: 0,
+            correctCount: 0,
+            missedCount: toNumber(testData.questionsCount || testData.questions?.length, 0),
+            wrongCount: 0,
+            position: "-",
+          };
+        });
+      }
 
-    drawIndividualOmrReport(doc, { ...studentProfile, uid }, { ...testData, testId }, {
-      ...submitted,
-      evaluatedAnswers: submitted.evaluatedAnswers || submitted.answers,
-      obtainedMarks: getAttemptScoreValue(submitted),
-      totalMarks: getAttemptTotalMarksValue(submitted),
-      percentage: getAttemptPercentageValue(submitted),
-      correctCount: submitted.correctCount,
-      wrongCount: submitted.wrongCount,
-      missedCount: submitted.missedCount,
-    }, myRank ? { position: myRank.position, total: ranking.length } : null);
+      const allRows = [
+        ...ranking.map((r) => ({ ...r, status: "Attempted", position: ordinal(r.position) })),
+        ...notAttemptedRows,
+      ];
 
-    doc.end();
-  } catch (error) {
-    console.error("downloadStudentTestResultPdf error:", error);
-    return errorResponse(res, "Failed to generate report card", 500);
-  }
-};
+      const title = trimText(testData.title) || "Test";
+      const filename = `Detailed_Report_${safeFilePart(title)}.pdf`;
+
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+
+      const doc = new PDFDocument({ size: "A4", margin: 40 });
+      doc.pipe(res);
+
+      // Summary Table Page
+      doc.fontSize(20).fillColor("#1e293b").text("Detailed Test Analysis Report", { align: "center" });
+      doc.moveDown(0.2);
+      doc.fontSize(10).fillColor("#64748b").text("SUM Academy Management Portal", { align: "center" });
+      doc.moveDown(1);
+
+      doc.fontSize(12).fillColor("#0f172a").text(`Test Title: ${title}`);
+      doc.text(`Class/Scope: ${testData.className || testData.scope || "Center"}`);
+      doc.text(`Date: ${new Date().toLocaleDateString()}`);
+      doc.text(`Total Students: ${allStudentIds.length} | Attempted: ${ranking.length} | Not Attempted: ${notAttemptedIds.length}`);
+      doc.moveDown(1);
+
+      let y = doc.y;
+      doc.rect(40, y, 515, 20).fill("#f1f5f9");
+      doc.fillColor("#475569").fontSize(9);
+      doc.text("Rank", 45, y + 6);
+      doc.text("Student Name", 85, y + 6);
+      doc.text("Status", 220, y + 6);
+      doc.text("Marks", 290, y + 6);
+      doc.text("C/W/M", 350, y + 6);
+      doc.text("%", 410, y + 6);
+      y += 25;
+
+      allRows.forEach((row) => {
+        if (y > 750) {
+          doc.addPage();
+          y = 50;
+          doc.rect(40, y, 515, 20).fill("#f1f5f9");
+          doc.fillColor("#475569").fontSize(9);
+          doc.text("Rank", 45, y + 6);
+          doc.text("Student Name", 85, y + 6);
+          doc.text("Status", 220, y + 6);
+          doc.text("Marks", 290, y + 6);
+          doc.text("C/W/M", 350, y + 6);
+          doc.text("%", 410, y + 6);
+          y += 25;
+        }
+        doc.fillColor("#1e293b").fontSize(9);
+        doc.text(row.position, 45, y);
+        doc.text(row.studentName, 85, y, { width: 130 });
+        doc.text(row.status, 220, y);
+        doc.text(`${row.obtainedMarks}/${row.totalMarks}`, 290, y);
+        doc.text(`${row.correctCount}/${row.wrongCount}/${row.missedCount}`, 350, y);
+        doc.text(`${row.percentage}%`, 410, y);
+        doc.moveTo(40, y + 12).lineTo(555, y + 12).stroke("#f1f5f9");
+        y += 18;
+      });
+
+      // Individual Detailed Reports for Attempted Students
+      for (const r of ranking) {
+        doc.addPage();
+        const studentProfile = await ensureStudentProfile(r.studentId);
+        const attemptDoc = await db.collection(COLLECTIONS.TEST_ATTEMPTS).doc(r.attemptId).get();
+        const attemptData = attemptDoc.data() || {};
+        drawIndividualOmrReport(doc, { ...studentProfile, uid: r.studentId }, { ...testData, testId }, { ...r, evaluatedAnswers: attemptData.evaluatedAnswers || attemptData.answers }, { position: r.position, total: ranking.length });
+      }
+
+      doc.end();
+    } catch (error) {
+      console.error("downloadDetailedTestReportPdf error:", error);
+      return errorResponse(res, "Failed to generate report", 500);
+    }
+  };
+
+  /**
+   * Student: Download Individual Report Card (OMR Style)
+   */
+  export const downloadStudentTestResultPdf = async (req, res) => {
+    try {
+      const uid = trimText(req.user?.uid);
+      const testId = trimText(req.params?.testId);
+
+      const access = await ensureStudentCanAccessTest({ testId, uid });
+      if (access.error) return errorResponse(res, access.error, access.status || 403);
+      const testData = access.testData;
+
+      const attempts = await getTestAttemptRowsForStudent(uid, testId);
+      const submitted = getSubmittedAttempt(attempts);
+      if (!submitted) return errorResponse(res, "Test results not found", 404);
+
+      const ranking = await buildRankingRows(testId);
+      const myRank = ranking.find((r) => trimText(r.studentId) === uid);
+      const studentProfile = await ensureStudentProfile(uid);
+
+      const title = trimText(testData.title) || "Test";
+      const filename = `Report_Card_${safeFilePart(studentProfile.fullName)}_${safeFilePart(title)}.pdf`;
+
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+
+      const doc = new PDFDocument({ size: "A4", margin: 40 });
+      doc.pipe(res);
+
+      drawIndividualOmrReport(doc, { ...studentProfile, uid }, { ...testData, testId }, {
+        ...submitted,
+        evaluatedAnswers: submitted.evaluatedAnswers || submitted.answers,
+        obtainedMarks: getAttemptScoreValue(submitted),
+        totalMarks: getAttemptTotalMarksValue(submitted),
+        percentage: getAttemptPercentageValue(submitted),
+        correctCount: submitted.correctCount,
+        wrongCount: submitted.wrongCount,
+        missedCount: submitted.missedCount,
+      }, myRank ? { position: myRank.position, total: ranking.length } : null);
+
+      doc.end();
+    } catch (error) {
+      console.error("downloadStudentTestResultPdf error:", error);
+      return errorResponse(res, "Failed to generate report card", 500);
+    }
+  };
 
