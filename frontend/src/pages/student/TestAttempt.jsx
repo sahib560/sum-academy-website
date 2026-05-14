@@ -517,28 +517,28 @@ function StudentTestAttempt() {
           <Motion.section 
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="flex-1 overflow-y-auto rounded-[2rem] border border-slate-800 bg-slate-900/40 p-10 shadow-xl backdrop-blur-sm"
+            className="flex-1 overflow-y-auto rounded-[2rem] border border-slate-200 bg-white p-10 shadow-lg"
           >
             <div className="max-w-2xl">
-               <h2 className="text-2xl font-bold text-white">Instructions & Guidelines</h2>
-               <ul className="mt-6 space-y-4 text-slate-400">
+               <h2 className="text-2xl font-bold text-slate-800">Instructions & Guidelines</h2>
+               <ul className="mt-6 space-y-4 text-slate-600">
                   <li className="flex items-start gap-3">
-                    <div className="mt-1 h-5 w-5 shrink-0 rounded-full bg-indigo-500/20 flex items-center justify-center text-indigo-400">
+                    <div className="mt-1 h-5 w-5 shrink-0 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-600">
                       <svg className="h-3 w-3" fill="currentColor" viewBox="0 0 20 20"><path d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 01-1.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" /></svg>
                     </div>
-                    <span>Each question has a strict time limit of <span className="font-bold text-white">{perQuestionLimitSeconds} seconds</span>.</span>
+                    <span>Each question has a strict time limit of <span className="font-bold text-slate-800">{perQuestionLimitSeconds} seconds</span>.</span>
                   </li>
                   <li className="flex items-start gap-3">
-                    <div className="mt-1 h-5 w-5 shrink-0 rounded-full bg-indigo-500/20 flex items-center justify-center text-indigo-400">
+                    <div className="mt-1 h-5 w-5 shrink-0 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-600">
                       <svg className="h-3 w-3" fill="currentColor" viewBox="0 0 20 20"><path d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 01-1.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" /></svg>
                     </div>
                     <span>You can navigate between questions, but the timer resets on every transition.</span>
                   </li>
                   <li className="flex items-start gap-3">
-                    <div className="mt-1 h-5 w-5 shrink-0 rounded-full bg-rose-500/20 flex items-center justify-center text-rose-400">
+                    <div className="mt-1 h-5 w-5 shrink-0 rounded-full bg-red-50 flex items-center justify-center text-red-600">
                       <svg className="h-3 w-3" fill="currentColor" viewBox="0 0 20 20"><path d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" /></svg>
                     </div>
-                    <span className="font-medium text-rose-300">Active monitoring: Switching tabs or taking screenshots will lead to instant disqualification.</span>
+                    <span className="font-medium text-red-600">Active monitoring: Switching tabs or taking screenshots will lead to instant disqualification.</span>
                   </li>
                </ul>
                

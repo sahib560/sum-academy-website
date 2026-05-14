@@ -122,12 +122,17 @@ const drawIndividualOmrReport = (doc, studentProfile, testData, attemptData, ran
 
     if (ans.selectedLetter) {
       if (ans.isCorrect) {
-        doc.fillColor("#16a34a").text("✓", x + 105, y + 1);
+        doc.save().strokeColor("#16a34a").lineWidth(1.2).lineCap("round").lineJoin("round");
+        doc.moveTo(x + 105, y + 5).lineTo(x + 107, y + 7.5).lineTo(x + 112, y + 2.5).stroke();
+        doc.restore();
       } else {
-        doc.fillColor("#dc2626").text("✗", x + 105, y + 1);
+        doc.save().strokeColor("#dc2626").lineWidth(1.2).lineCap("round");
+        doc.moveTo(x + 105, y + 2.5).lineTo(x + 110, y + 7.5);
+        doc.moveTo(x + 110, y + 2.5).lineTo(x + 105, y + 7.5).stroke();
+        doc.restore();
       }
     } else {
-      doc.fillColor("#94a3b8").text("—", x + 105, y + 1);
+      doc.fillColor("#94a3b8").text("-", x + 106, y + 1);
     }
   }
 
