@@ -25,7 +25,7 @@ const formatSeconds = (seconds = 0) => {
   return `${String(mins).padStart(2, "0")}:${String(rem).padStart(2, "0")}`;
 };
 
-const Skeleton = ({ className }) => <div className={`animate-pulse bg-slate-800 ${className}`} />;
+const Skeleton = ({ className }) => <div className={`animate-pulse bg-slate-200 ${className}`} />;
 
 function StudentTestAttempt() {
   const { testId } = useParams();
@@ -39,6 +39,7 @@ function StudentTestAttempt() {
   const [questionTimeLeft, setQuestionTimeLeft] = useState(0);
   const [hasReachedLast, setHasReachedLast] = useState(false);
   const [imageBlobUrls, setImageBlobUrls] = useState({});
+  const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
   const autoFinishRef = useRef(false);
   const autoAdvanceRef = useRef({ questionId: "", fired: false });
   const warnedTenRef = useRef({ questionId: "", fired: false });
@@ -405,7 +406,7 @@ function StudentTestAttempt() {
   }
 
   return (
-    <div className="protected-zone flex min-h-screen flex-col bg-[#0f172a] text-slate-200">
+    <div className="protected-zone flex min-h-screen flex-col bg-slate-50 text-slate-800">
       <Toaster position="top-right" />
       
       {/* Security Overlay */}
@@ -444,11 +445,11 @@ function StudentTestAttempt() {
 
       <div className="flex-1 flex flex-col mx-auto w-full max-w-7xl px-4 py-2 sm:px-6 sm:py-4">
         {/* Header Section */}
-        <section className="mb-4 shrink-0 overflow-hidden rounded-[1.5rem] border border-slate-800 bg-slate-900/40 p-4 sm:p-6 shadow-xl backdrop-blur-sm">
+        <section className="mb-4 shrink-0 overflow-hidden rounded-[1.5rem] border border-slate-200 bg-white p-4 sm:p-6 shadow-md">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h1 className="text-xl sm:text-3xl font-bold tracking-tight text-white">{test?.title || "Standardized Test"}</h1>
-              <p className="mt-1 text-slate-400 font-medium">{headerMeta}</p>
+              <h1 className="text-xl sm:text-3xl font-bold tracking-tight text-slate-800">{test?.title || "Standardized Test"}</h1>
+              <p className="mt-1 text-slate-500 font-medium">{headerMeta}</p>
             </div>
             
             {inProgress && (
@@ -472,29 +473,43 @@ function StudentTestAttempt() {
         </section>
 
         {inProgress && (
-          <div className="mb-4 grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 lg:grid-cols-10 xl:grid-cols-12 gap-2 overflow-y-auto max-h-[120px] rounded-2xl border border-slate-800 bg-slate-900/40 p-3 custom-scrollbar">
+          <div className="mb-2 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+            {/* Legend */}
+            <div className="mb-2 flex flex-wrap gap-3 text-xs font-semibold text-slate-500">
+              <span className="flex items-center gap-1"><span className="inline-block h-3 w-3 rounded-full bg-emerald-500"/> Answered</span>
+              <span className="flex items-center gap-1"><span className="inline-block h-3 w-3 rounded-full bg-red-400"/> Not Answered</span>
+              <span className="flex items-center gap-1"><span className="inline-block h-3 w-3 rounded-full bg-amber-400"/> Flagged</span>
+              <span className="flex items-center gap-1"><span className="inline-block h-3 w-3 rounded-full bg-indigo-500"/> Current</span>
+            </div>
+            <div className="grid grid-cols-6 sm:grid-cols-8 md:grid-cols-10 lg:grid-cols-12 xl:grid-cols-15 gap-1.5 overflow-y-auto max-h-[130px] custom-scrollbar">
             {Array.from({ length: totalQuestions }).map((ignore, idx) => {
               const qid = test?.questions?.[idx]?.questionId;
-              const hasAnswer = (attempt?.answers || []).some(a => a.questionOrder === idx + 1 && a.selectedAnswer);
-              const flagged = (attempt?.flagged || []).includes(qid);
+              const hasAnswer = (attempt?.answers || []).some(a => {
+                const byOrder = a.questionOrder === idx + 1 && a.selectedAnswer;
+                const byId = qid && String(a.questionId || "").trim() === String(qid).trim() && a.selectedAnswer;
+                return byOrder || byId;
+              });
+              const isFlaggedQ = qid ? (attempt?.flagged || []).includes(qid) : false;
               const isActive = currentIndex === idx;
 
-              let bgColor = "bg-slate-800/40 border-slate-800 text-slate-500";
-              if (isActive) bgColor = "bg-indigo-600 border-indigo-500 text-white shadow-lg shadow-indigo-500/20";
-              else if (flagged) bgColor = "bg-amber-500/20 border-amber-500/50 text-amber-500";
-              else if (hasAnswer) bgColor = "bg-emerald-500/20 border-emerald-500/50 text-emerald-400";
+              let cls = "bg-red-100 border-red-300 text-red-600";
+              if (isActive) cls = "bg-indigo-600 border-indigo-600 text-white shadow shadow-indigo-300";
+              else if (isFlaggedQ) cls = "bg-amber-100 border-amber-400 text-amber-700";
+              else if (hasAnswer) cls = "bg-emerald-100 border-emerald-400 text-emerald-700";
 
               return (
                 <button
                   key={`nav-${idx}`}
                   onClick={() => saveAndNavigate("jump", idx)}
                   disabled={submitMutation.isPending}
-                  className={`flex h-10 items-center justify-center rounded-xl border text-sm font-bold transition-all hover:scale-105 active:scale-95 disabled:opacity-50 ${bgColor}`}
+                  title={isFlaggedQ ? "Flagged" : hasAnswer ? "Answered" : "Not answered"}
+                  className={`flex h-9 items-center justify-center rounded-lg border text-xs font-bold transition-all hover:scale-105 active:scale-95 disabled:opacity-50 ${cls}`}
                 >
                   {idx + 1}
                 </button>
               );
             })}
+            </div>
           </div>
         )}
 
@@ -546,7 +561,7 @@ function StudentTestAttempt() {
           <Motion.section 
             initial={{ opacity: 0, scale: 0.98 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="flex-1 flex flex-col quiz-content protected-zone overflow-hidden rounded-[1.5rem] sm:rounded-[2rem] border border-slate-800 bg-slate-900/40 shadow-2xl backdrop-blur-sm"
+            className="flex-1 flex flex-col quiz-content protected-zone overflow-hidden rounded-[1.5rem] sm:rounded-[2rem] border border-slate-200 bg-white shadow-xl"
           >
             <WatermarkOverlay
               user={{
@@ -556,11 +571,11 @@ function StudentTestAttempt() {
               }}
             />
             
-            <div className="flex items-center justify-between border-b border-slate-800 bg-slate-800/30 px-4 py-3 sm:px-10 sm:py-5">
+            <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-4 py-3 sm:px-10 sm:py-5">
                <span className="text-[10px] sm:text-xs font-bold uppercase tracking-widest text-slate-500">
                 Question {currentIndex + 1} of {totalQuestions}
                </span>
-               <div className="flex h-1.5 sm:h-2 w-32 sm:w-48 overflow-hidden rounded-full bg-slate-800">
+               <div className="flex h-1.5 sm:h-2 w-32 sm:w-48 overflow-hidden rounded-full bg-slate-200">
                   <div 
                     className="h-full bg-indigo-500 transition-all duration-500" 
                     style={{ width: `${((currentIndex + 1) / totalQuestions) * 100}%` }}
@@ -582,7 +597,7 @@ function StudentTestAttempt() {
               ) : null}
 
               <div
-                className="text-xl font-bold leading-relaxed text-white sm:text-2xl"
+                className="text-xl font-bold leading-relaxed text-slate-800 sm:text-2xl"
                 dangerouslySetInnerHTML={{ __html: currentQuestion.questionText || "" }}
               />
 
@@ -596,18 +611,18 @@ function StudentTestAttempt() {
                       onClick={() => setSelectedAnswer(option)}
                       className={`group flex items-center gap-4 rounded-xl border-2 p-4 text-left transition-all duration-200 ${
                         selected
-                          ? "border-indigo-500 bg-indigo-500/10 shadow-[0_0_15px_rgba(99,102,241,0.15)]"
-                          : "border-slate-800 bg-slate-800/20 hover:border-slate-700 hover:bg-slate-800/40"
+                          ? "border-indigo-500 bg-indigo-50 shadow-md"
+                          : "border-slate-200 bg-slate-50 hover:border-indigo-300 hover:bg-indigo-50/50"
                       }`}
                     >
                       <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg font-bold ${
-                        selected ? "bg-indigo-50 text-indigo-600" : "bg-slate-800 text-slate-500"
+                        selected ? "bg-indigo-600 text-white" : "bg-slate-200 text-slate-600"
                       }`}>
                         {letters[idx] || idx + 1}
                       </div>
-                      <span className={`text-base font-medium ${selected ? "text-white" : "text-slate-300"}`} dangerouslySetInnerHTML={{ __html: option || "" }} />
+                      <span className={`text-base font-medium ${selected ? "text-indigo-700" : "text-slate-700"}`} dangerouslySetInnerHTML={{ __html: option || "" }} />
                       {selected && (
-                        <div className="ml-auto h-5 w-5 rounded-full bg-indigo-500 flex items-center justify-center text-white">
+                        <div className="ml-auto h-5 w-5 rounded-full bg-indigo-600 flex items-center justify-center text-white">
                            <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
                         </div>
                       )}
@@ -618,13 +633,13 @@ function StudentTestAttempt() {
             </div>
 
             {/* Navigation Controls */}
-            <div className="flex flex-col gap-4 border-t border-slate-800 bg-slate-800/20 p-4 sm:p-8 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex flex-col gap-4 border-t border-slate-200 bg-slate-50 p-4 sm:p-8 lg:flex-row lg:items-center lg:justify-between">
               <div className="grid grid-cols-2 gap-2 sm:flex sm:gap-4">
                 <button
                   type="button"
                   onClick={() => saveAndNavigate("prev")}
                   disabled={submitMutation.isPending || currentIndex <= 0}
-                  className="flex items-center justify-center rounded-xl border border-slate-700 px-4 py-2.5 text-sm font-bold text-slate-400 transition-colors hover:bg-slate-800 disabled:opacity-30 sm:px-6 sm:py-3 sm:text-base"
+                  className="flex items-center justify-center rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-bold text-slate-600 transition-colors hover:bg-slate-100 disabled:opacity-30 sm:px-6 sm:py-3 sm:text-base"
                 >
                   Previous
                 </button>
@@ -633,11 +648,11 @@ function StudentTestAttempt() {
                   onClick={toggleFlag}
                   className={`flex items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-bold transition-all sm:px-6 sm:py-3 sm:text-base ${
                     isFlagged 
-                      ? "border-amber-500 bg-amber-500/10 text-amber-500" 
-                      : "border-slate-700 text-slate-400 hover:bg-slate-800"
+                      ? "border-amber-400 bg-amber-50 text-amber-600" 
+                      : "border-slate-300 text-slate-600 hover:bg-slate-100"
                   }`}
                 >
-                  <svg className={`h-4 w-4 ${isFlagged ? "fill-amber-500" : "fill-none"}`} viewBox="0 0 24 24" stroke="currentColor">
+                  <svg className={`h-4 w-4 ${isFlagged ? "fill-amber-400" : "fill-none"}`} viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
                   </svg>
                   {isFlagged ? "Flagged" : "Flag"}
@@ -646,7 +661,7 @@ function StudentTestAttempt() {
                   type="button"
                   onClick={() => saveAndNavigate("next")}
                   disabled={submitMutation.isPending}
-                  className="col-span-2 flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-bold text-white shadow-lg transition-all hover:bg-indigo-500 disabled:opacity-30 disabled:hover:bg-indigo-600 sm:col-auto sm:px-8 sm:py-3 sm:text-base"
+                  className="col-span-2 flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-bold text-white shadow transition-all hover:bg-indigo-500 disabled:opacity-30 sm:col-auto sm:px-8 sm:py-3 sm:text-base"
                 >
                   {submitMutation.isPending ? "Saving..." : isLastQuestion ? "Finish" : "Save & Next"}
                   {!isLastQuestion && (
@@ -657,12 +672,12 @@ function StudentTestAttempt() {
 
               <button
                 type="button"
-                onClick={() => finishMutation.mutate("manual")}
+                onClick={() => setShowSubmitConfirm(true)}
                 disabled={finishMutation.isPending || !hasReachedLast}
                 className={`w-full lg:w-auto rounded-xl border px-6 py-2.5 text-sm font-bold transition-all sm:px-8 sm:py-3 sm:text-base ${
                   hasReachedLast
-                    ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20"
-                    : "border-slate-800 text-slate-600 cursor-not-allowed hover:bg-transparent hover:border-slate-800 disabled:hover:bg-transparent"
+                    ? "border-emerald-500 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                    : "border-slate-200 text-slate-400 cursor-not-allowed"
                 }`}
               >
                 {hasReachedLast ? "Finalize Test" : "Finish Review First"}
@@ -677,19 +692,19 @@ function StudentTestAttempt() {
             animate={{ opacity: 1, y: 0 }}
             className="space-y-8"
           >
-            <div className="overflow-hidden rounded-[2.5rem] border border-emerald-500/20 bg-emerald-500/5 p-10 shadow-xl backdrop-blur-sm">
+            <div className="overflow-hidden rounded-[2.5rem] border border-emerald-200 bg-emerald-50 p-10 shadow-lg">
               <div className="flex flex-col items-center text-center">
-                 <div className="mb-6 flex h-20 w-20 items-center justify-center rounded-[2rem] bg-emerald-500 text-white shadow-lg shadow-emerald-500/20">
+                 <div className="mb-6 flex h-20 w-20 items-center justify-center rounded-[2rem] bg-emerald-500 text-white shadow-lg shadow-emerald-200">
                     <svg className="h-10 w-10" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                  </div>
-                 <h2 className="text-4xl font-bold text-white">Test Completed</h2>
-                 <p className="mt-2 text-xl font-medium text-emerald-400">
+                 <h2 className="text-4xl font-bold text-slate-800">Test Completed</h2>
+                 <p className="mt-2 text-xl font-medium text-emerald-600">
                    Score: {attempt?.score || 0} / {attempt?.totalMarks || 0} ({attempt?.percentage || 0}%)
                  </p>
                  {myResult && (
-                    <div className="mt-6 rounded-2xl bg-white/5 px-6 py-3 border border-white/10">
-                       <span className="text-sm font-bold uppercase tracking-widest text-slate-400">Current Standing</span>
-                       <p className="text-2xl font-bold text-white">#{myResult.position} <span className="text-slate-500">/ {ranking.totalParticipants}</span></p>
+                    <div className="mt-6 rounded-2xl bg-white px-6 py-3 border border-emerald-200 shadow-sm">
+                       <span className="text-sm font-bold uppercase tracking-widest text-slate-500">Current Standing</span>
+                       <p className="text-2xl font-bold text-slate-800">#{myResult.position} <span className="text-slate-400">/ {ranking.totalParticipants}</span></p>
                     </div>
                  )}
               </div>
@@ -698,14 +713,14 @@ function StudentTestAttempt() {
                 <button
                   type="button"
                   onClick={() => rankingQuery.refetch()}
-                  className="rounded-2xl border border-slate-700 bg-slate-800/50 px-8 py-4 font-bold text-white transition-colors hover:bg-slate-700"
+                  className="rounded-2xl border border-slate-300 bg-white px-8 py-4 font-bold text-slate-700 transition-colors hover:bg-slate-50"
                 >
                   Refresh Ranking
                 </button>
                 <button
                   type="button"
                   onClick={downloadReportCard}
-                  className="rounded-2xl border border-indigo-500/30 bg-indigo-500/10 px-8 py-4 font-bold text-indigo-400 transition-all hover:bg-indigo-500/20"
+                  className="rounded-2xl border border-indigo-300 bg-indigo-50 px-8 py-4 font-bold text-indigo-600 transition-all hover:bg-indigo-100"
                 >
                   Download Report Card (PDF)
                 </button>
@@ -719,13 +734,13 @@ function StudentTestAttempt() {
             </div>
 
             {/* Ranking Table */}
-            <div className="overflow-hidden rounded-[2.5rem] border border-slate-800 bg-slate-900/40 shadow-xl backdrop-blur-sm">
-              <div className="border-b border-slate-800 bg-slate-800/30 px-10 py-6">
-                 <h3 className="text-xl font-bold text-white">Student Leaderboard</h3>
+            <div className="overflow-hidden rounded-[2.5rem] border border-slate-200 bg-white shadow-lg">
+              <div className="border-b border-slate-200 bg-slate-50 px-10 py-6">
+                 <h3 className="text-xl font-bold text-slate-800">Student Leaderboard</h3>
               </div>
               <div className="overflow-x-auto overflow-y-auto max-h-[400px] p-2 custom-scrollbar">
                 <table className="w-full text-left">
-                  <thead className="sticky top-0 bg-slate-900 z-10">
+                  <thead className="sticky top-0 bg-white z-10">
                     <tr className="text-xs font-bold uppercase tracking-widest text-slate-500">
                       <th className="px-8 py-4">Rank</th>
                       <th className="px-8 py-4">Student</th>
@@ -734,33 +749,33 @@ function StudentTestAttempt() {
                       <th className="px-8 py-4 text-right">Percentage</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-800/50">
+                  <tbody className="divide-y divide-slate-100">
                     {(ranking.ranking || []).slice(0, 30).map((row) => (
                       <tr
                         key={`${row.studentId}-${row.attemptId}`}
-                        className={`group transition-colors ${row.studentId === userProfile?.uid ? "bg-indigo-500/10" : "hover:bg-white/5"}`}
+                        className={`group transition-colors ${row.studentId === userProfile?.uid ? "bg-indigo-50" : "hover:bg-slate-50"}`}
                       >
                         <td className="px-8 py-5">
-                          <div className={`flex h-8 w-8 items-center justify-center rounded-lg font-bold ${
-                            row.position === 1 ? "bg-amber-500 text-white shadow-lg shadow-amber-500/20" :
-                            row.position === 2 ? "bg-slate-300 text-slate-900" :
-                            row.position === 3 ? "bg-amber-700 text-white" :
-                            "bg-slate-800 text-slate-400"
+                          <div className={`flex h-8 w-8 items-center justify-center rounded-lg font-bold text-sm ${
+                            row.position === 1 ? "bg-amber-400 text-white" :
+                            row.position === 2 ? "bg-slate-300 text-slate-700" :
+                            row.position === 3 ? "bg-orange-300 text-white" :
+                            "bg-slate-100 text-slate-500"
                           }`}>
                             {row.position}
                           </div>
                         </td>
                         <td className="px-8 py-5">
-                          <div className="font-bold text-white group-hover:text-indigo-400 transition-colors">{row.studentName}</div>
-                          <div className="text-xs text-slate-500">{row.studentId === userProfile?.uid ? "You" : "Verified Student"}</div>
+                          <div className="font-bold text-slate-800 group-hover:text-indigo-600 transition-colors">{row.studentName}</div>
+                          <div className="text-xs text-slate-400">{row.studentId === userProfile?.uid ? "You" : "Verified Student"}</div>
                         </td>
-                        <td className="px-8 py-5 text-sm font-medium text-slate-400">{row.className}</td>
-                        <td className="px-8 py-5 text-right font-mono font-bold text-white">{row.obtainedMarks}/{row.totalMarks}</td>
+                        <td className="px-8 py-5 text-sm font-medium text-slate-500">{row.className}</td>
+                        <td className="px-8 py-5 text-right font-mono font-bold text-slate-800">{row.obtainedMarks}/{row.totalMarks}</td>
                         <td className="px-8 py-5 text-right">
                           <span className={`rounded-lg px-3 py-1 text-sm font-bold ${
-                            row.percentage >= 75 ? "bg-emerald-500/10 text-emerald-400" :
-                            row.percentage >= 40 ? "bg-indigo-500/10 text-indigo-400" :
-                            "bg-rose-500/10 text-rose-400"
+                            row.percentage >= 75 ? "bg-emerald-100 text-emerald-700" :
+                            row.percentage >= 40 ? "bg-indigo-100 text-indigo-700" :
+                            "bg-red-100 text-red-600"
                           }`}>
                             {row.percentage}%
                           </span>
@@ -774,6 +789,80 @@ function StudentTestAttempt() {
           </Motion.section>
         ) : null}
       </div>
+      {/* Submit Confirmation Dialog */}
+      <AnimatePresence>
+        {showSubmitConfirm && (() => {
+          const allAnswers = attempt?.answers || [];
+          const allFlagged = attempt?.flagged || [];
+          const missed = Array.from({ length: totalQuestions }).filter((_, idx) => {
+            const qid = test?.questions?.[idx]?.questionId;
+            return !allAnswers.some(a => {
+              const byOrder = a.questionOrder === idx + 1 && a.selectedAnswer;
+              const byId = qid && String(a.questionId || "").trim() === String(qid).trim() && a.selectedAnswer;
+              return byOrder || byId;
+            });
+          });
+          const flaggedCount = allFlagged.length;
+          const hasMissed = missed.length > 0;
+          const hasFlagged = flaggedCount > 0;
+          return (
+            <Motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 px-4 backdrop-blur-sm"
+            >
+              <Motion.div
+                initial={{ scale: 0.92, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.92, opacity: 0 }}
+                className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-8 shadow-2xl"
+              >
+                <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-amber-100 text-amber-600">
+                  <svg className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+                  </svg>
+                </div>
+                <h3 className="text-xl font-bold text-slate-800">Submit Test?</h3>
+                {(hasMissed || hasFlagged) ? (
+                  <div className="mt-3 space-y-2">
+                    {hasMissed && (
+                      <div className="flex items-center gap-2 rounded-lg bg-red-50 px-4 py-2 text-sm font-semibold text-red-600">
+                        <span className="h-2.5 w-2.5 rounded-full bg-red-500 shrink-0" />
+                        {missed.length} question{missed.length > 1 ? "s" : ""} not answered — will get 0 marks
+                      </div>
+                    )}
+                    {hasFlagged && (
+                      <div className="flex items-center gap-2 rounded-lg bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-700">
+                        <span className="h-2.5 w-2.5 rounded-full bg-amber-400 shrink-0" />
+                        {flaggedCount} flagged question{flaggedCount > 1 ? "s" : ""} — review before submitting
+                      </div>
+                    )}
+                    <p className="pt-1 text-sm text-slate-500">You can go back to answer these, or submit now and those questions will receive zero marks.</p>
+                  </div>
+                ) : (
+                  <p className="mt-2 text-sm text-slate-500">All questions have been answered. Are you sure you want to submit?</p>
+                )}
+                <div className="mt-6 flex gap-3">
+                  <button
+                    onClick={() => setShowSubmitConfirm(false)}
+                    className="flex-1 rounded-xl border border-slate-300 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-50"
+                  >
+                    Go Back
+                  </button>
+                  <button
+                    onClick={() => { setShowSubmitConfirm(false); finishMutation.mutate("manual"); }}
+                    disabled={finishMutation.isPending}
+                    className="flex-1 rounded-xl bg-emerald-600 py-2.5 text-sm font-bold text-white hover:bg-emerald-500 disabled:opacity-50"
+                  >
+                    {finishMutation.isPending ? "Submitting..." : "Submit Now"}
+                  </button>
+                </div>
+              </Motion.div>
+            </Motion.div>
+          );
+        })()}
+      </AnimatePresence>
     </div>
   );
 }
