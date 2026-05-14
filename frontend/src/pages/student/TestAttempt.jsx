@@ -26,6 +26,22 @@ const formatSeconds = (seconds = 0) => {
 };
 
 const Skeleton = ({ className }) => <div className={`animate-pulse bg-slate-200 ${className}`} />;
+const trimText = (v = "") => String(v || "").trim();
+const toNumber = (v, f = 0) => { const p = Number(v); return Number.isFinite(p) ? p : f; };
+const ordinal = (v = 0) => {
+  const n = Number(v) || 0;
+  const m10 = n % 10;
+  const m100 = n % 100;
+  if (m10 === 1 && m100 !== 11) return `${n}st`;
+  if (m10 === 2 && m100 !== 12) return `${n}nd`;
+  if (m10 === 3 && m100 !== 13) return `${n}rd`;
+  return `${n}th`;
+};
+const sanitizeQuestionHtml = (html = "") => {
+  if (!html) return "";
+  return html.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
+             .replace(/on\w+="[^"]*"/g, "");
+};
 
 function StudentTestAttempt() {
   const { testId } = useParams();
@@ -181,16 +197,51 @@ function StudentTestAttempt() {
   }, [isLastQuestion]);
 
   useEffect(() => {
-    if (!currentQuestion?.questionId) return;
+    if (!currentQuestion) return;
+    const qid = currentQuestion.questionId || currentQuestion._id;
     const answers = Array.isArray(attempt?.answers) ? attempt.answers : [];
-    const existing = answers.find(
-      (row) => String(row?.questionId || "").trim() === currentQuestion.questionId
-    );
+    
+    // Match by questionId or questionOrder for robust restoring
+    const existing = answers.find(a => {
+      const byOrder = a.questionOrder === (Number(attempt?.currentIndex) + 1);
+      const byId = qid && String(a.questionId || "").trim() === String(qid).trim();
+      return byId || byOrder;
+    });
+
     const flagged = Array.isArray(attempt?.flagged) ? attempt.flagged : [];
     
     setSelectedAnswer(existing?.selectedAnswer || "");
-    setIsFlagged(flagged.includes(currentQuestion.questionId));
-  }, [attempt?.answers, attempt?.flagged, currentQuestion?.questionId]);
+    setIsFlagged(qid ? flagged.includes(qid) : false);
+  }, [attempt?.answers, attempt?.flagged, attempt?.currentIndex, currentQuestion]);
+
+  const handleOptionSelect = (option) => {
+    setSelectedAnswer(option);
+    if (attempt && currentQuestion) {
+      setAttempt((prev) => {
+        if (!prev) return prev;
+        const newAnswers = [...(prev.answers || [])];
+        const qid = currentQuestion.questionId || currentQuestion._id;
+        const qOrder = Number(prev.currentIndex || 0) + 1;
+        
+        const existingIdx = newAnswers.findIndex(a => {
+          const byOrder = a.questionOrder === qOrder;
+          const byId = qid && String(a.questionId || "").trim() === String(qid).trim();
+          return byId || byOrder;
+        });
+
+        if (existingIdx >= 0) {
+          newAnswers[existingIdx] = { ...newAnswers[existingIdx], selectedAnswer: option };
+        } else {
+          newAnswers.push({
+            questionId: qid,
+            questionOrder: qOrder,
+            selectedAnswer: option,
+          });
+        }
+        return { ...prev, answers: newAnswers };
+      });
+    }
+  };
 
   useEffect(() => {
     const path = currentQuestion?.imagePath;
@@ -607,8 +658,8 @@ function StudentTestAttempt() {
                   const selected = selectedAnswer === option;
                   return (
                     <button
-                      key={`${currentQuestion.questionId}-${option}`}
-                      onClick={() => setSelectedAnswer(option)}
+                      key={`${currentQuestion.questionId || currentQuestion._id}-${option}`}
+                      onClick={() => handleOptionSelect(option)}
                       className={`group flex items-center gap-4 rounded-xl border-2 p-4 text-left transition-all duration-200 ${
                         selected
                           ? "border-indigo-500 bg-indigo-50 shadow-md"
@@ -784,6 +835,101 @@ function StudentTestAttempt() {
                     ))}
                   </tbody>
                 </table>
+              </div>
+            </div>
+            
+            {/* Detailed Performance Analysis */}
+            <div className="overflow-hidden rounded-[2.5rem] border border-slate-200 bg-white shadow-lg">
+              <div className="border-b border-slate-200 bg-slate-50 px-10 py-6">
+                <h3 className="text-xl font-bold text-slate-800">Detailed Performance Analysis</h3>
+                <p className="text-sm text-slate-500 mt-1">Review your answers and compare with correct solutions.</p>
+              </div>
+              
+              <div className="p-10 space-y-6">
+                {(attempt?.evaluatedAnswers || []).length > 0 ? (
+                  (attempt.evaluatedAnswers).map((ans, idx) => {
+                    const questions = detailQuery.data?.questions || [];
+                    const qObj = questions.find(q => 
+                      (trimText(q.questionId) === trimText(ans.questionId)) || 
+                      (toNumber(q.order) === toNumber(ans.questionOrder))
+                    );
+                    
+                    const getOptionText = (q, letter) => {
+                      if (!q || !letter) return "";
+                      const lIdx = { A: 0, B: 1, C: 2, D: 3, E: 4, F: 5 }[letter.toUpperCase()];
+                      if (Array.isArray(q.options) && lIdx !== undefined && q.options[lIdx]) return q.options[lIdx];
+                      return q[`option${letter.toUpperCase()}`] || "";
+                    };
+
+                    const studentOptText = qObj && ans.selectedLetter ? getOptionText(qObj, ans.selectedLetter) : "Not Answered";
+                    const correctOptText = qObj && ans.correctLetter ? getOptionText(qObj, ans.correctLetter) : "";
+
+                    return (
+                      <div key={ans.questionId || idx} className={`rounded-2xl border p-6 transition-all ${ans.isCorrect ? 'border-emerald-100 bg-emerald-50/30' : 'border-rose-100 bg-rose-50/30'}`}>
+                        <div className="flex flex-col lg:flex-row justify-between gap-6">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-3 mb-4">
+                              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100 text-sm font-bold text-slate-600">
+                                {idx + 1}
+                              </span>
+                              <span className={`rounded-lg px-3 py-1 text-xs font-bold uppercase tracking-wider ${ans.isCorrect ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
+                                {ans.isCorrect ? 'Correct' : ans.selectedLetter ? 'Incorrect' : 'Unanswered'}
+                              </span>
+                            </div>
+
+                            {qObj?.imageUrl && (
+                              <div className="mb-4">
+                                <img 
+                                  src={qObj.imageUrl} 
+                                  alt="Question figure" 
+                                  className="max-h-[200px] rounded-xl border border-slate-200 bg-white p-2 shadow-sm" 
+                                />
+                              </div>
+                            )}
+
+                            <div 
+                              className="text-lg font-medium text-slate-800 mb-6 leading-relaxed"
+                              dangerouslySetInnerHTML={{ __html: sanitizeQuestionHtml(qObj?.questionText || "Question text not available") }}
+                            />
+
+                            <div className="grid sm:grid-cols-2 gap-4 mt-4">
+                              <div className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm">
+                                <p className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-2">Your Answer</p>
+                                <div className="flex items-start gap-2">
+                                  <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md font-bold text-xs ${ans.isCorrect ? 'bg-emerald-500 text-white' : 'bg-rose-500 text-white'}`}>
+                                    {ans.selectedLetter || '-'}
+                                  </span>
+                                  <div className="text-sm font-medium text-slate-700" dangerouslySetInnerHTML={{ __html: sanitizeQuestionHtml(studentOptText) }} />
+                                </div>
+                              </div>
+
+                              <div className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm">
+                                <p className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-2">Correct Answer</p>
+                                <div className="flex items-start gap-2">
+                                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-emerald-500 font-bold text-xs text-white">
+                                    {ans.correctLetter || '?'}
+                                  </span>
+                                  <div className="text-sm font-medium text-slate-700" dangerouslySetInnerHTML={{ __html: sanitizeQuestionHtml(correctOptText) }} />
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                          
+                          <div className="lg:w-32 flex lg:flex-col items-center lg:items-end justify-between lg:justify-start">
+                             <div className="text-right">
+                                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Marks</p>
+                                <p className="text-xl font-mono font-bold text-slate-800">{ans.marksObtained}/{ans.marks}</p>
+                             </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <div className="text-center py-12 bg-slate-50 rounded-3xl border border-dashed border-slate-200">
+                    <p className="text-slate-500 font-medium">Detailed analysis is not available for this attempt.</p>
+                  </div>
+                )}
               </div>
             </div>
           </Motion.section>

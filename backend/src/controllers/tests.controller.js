@@ -103,11 +103,13 @@ const drawIndividualOmrReport = (doc, studentProfile, testData, attemptData, ran
     // Support both old attempts (by questionId) and new attempts (by questionOrder)
     const qObj = testQuestions[idx];
     let ans = {};
-    if (qObj && qObj.questionId) {
-      ans = answers.find(a => trimText(a.questionId) === trimText(qObj.questionId)) || {};
-    } else {
-      ans = answers.find(a => a.questionOrder === idx + 1) || {};
-    }
+    const qId = trimText(qObj?.questionId);
+    const qOrder = toNumber(qObj?.order, idx + 1);
+    
+    ans = answers.find(a => 
+      (qId && trimText(a.questionId) === qId) || 
+      (toNumber(a.questionOrder) === qOrder)
+    ) || {};
 
     if (rowIdx % 2 === 0) {
       doc.rect(x, y, colWidth - 10, 10).fill("#f8fafc");
@@ -170,11 +172,13 @@ const drawIndividualOmrReport = (doc, studentProfile, testData, attemptData, ran
 
   testQuestions.forEach((qObj, idx) => {
     let ans = {};
-    if (qObj && qObj.questionId) {
-      ans = answers.find(a => trimText(a.questionId) === trimText(qObj.questionId)) || {};
-    } else {
-      ans = answers.find(a => a.questionOrder === idx + 1) || {};
-    }
+    const qId = trimText(qObj.questionId);
+    const qOrder = toNumber(qObj.order);
+    
+    ans = answers.find(a => 
+      (qId && trimText(a.questionId) === qId) || 
+      (qOrder && toNumber(a.questionOrder) === qOrder)
+    ) || {};
 
     const finalCorrectLetter = ans.correctLetter || (qObj && qObj.correctAnswer ? (["A", "B", "C", "D"].find(l => qObj.correctAnswer.toUpperCase().includes(l)) || qObj.correctAnswer.toUpperCase()) : "-");
     const studentLetter = ans.selectedLetter || "N.A";
@@ -1264,21 +1268,25 @@ const getCurrentQuestionForAttempt = (testData = {}, attemptData = {}) => {
   return questions[currentIndex] || null;
 };
 
-const normalizeAttemptPayload = (row = {}) => ({
-  id: trimText(row.id),
-  testId: trimText(row.testId),
-  status: lowerText(row.status) || "in_progress",
-  currentIndex: Math.max(0, toNumber(row.currentIndex, 0)),
-  totalQuestions: Math.max(0, toNumber(row.totalQuestions, 0)),
-  answersCount: Array.isArray(row.answers) ? row.answers.length : 0,
-  score: getAttemptScoreValue(row),
-  totalMarks: getAttemptTotalMarksValue(row),
-  percentage: getAttemptPercentageValue(row),
-  startedAt: toIso(row.startedAt),
-  updatedAt: toIso(row.updatedAt),
-  submittedAt: toIso(row.submittedAt),
-  expiresAt: toIso(row.expiresAt),
-});
+const normalizeAttemptPayload = (row = {}) => {
+  const status = lowerText(row.status) || "in_progress";
+  return {
+    id: trimText(row.id),
+    testId: trimText(row.testId),
+    status,
+    currentIndex: Math.max(0, toNumber(row.currentIndex, 0)),
+    totalQuestions: Math.max(0, toNumber(row.totalQuestions, 0)),
+    answersCount: Array.isArray(row.answers) ? row.answers.length : 0,
+    score: getAttemptScoreValue(row),
+    totalMarks: getAttemptTotalMarksValue(row),
+    percentage: getAttemptPercentageValue(row),
+    startedAt: toIso(row.startedAt),
+    updatedAt: toIso(row.updatedAt),
+    submittedAt: toIso(row.submittedAt),
+    expiresAt: toIso(row.expiresAt),
+    evaluatedAnswers: status === "submitted" ? (Array.isArray(row.evaluatedAnswers) ? row.evaluatedAnswers : (Array.isArray(row.answers) ? row.answers : [])) : null,
+  };
+};
 
 const ensureActiveScheduleWindow = (testData = {}) => {
   const status = getTestStatus(testData, new Date());

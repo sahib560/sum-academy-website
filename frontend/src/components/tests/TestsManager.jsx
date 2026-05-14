@@ -1994,120 +1994,160 @@ export default function TestsManager({
         </div>
       ) : null}
       {studentDetailOpen && studentDetailData ? (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/60 p-4">
-          <div className="max-h-[90vh] w-full max-w-3xl overflow-auto rounded-3xl bg-white p-5 shadow-2xl">
-            <div className="mb-4 flex items-center justify-between border-b border-slate-100 pb-3">
-              <div>
-                <h3 className="font-heading text-xl text-slate-900">
-                  {studentDetailData.studentName}'s Result
-                </h3>
-                <p className="text-sm text-slate-500">
-                  Score: {studentDetailData.obtainedMarks}/{studentDetailData.totalMarks} ({studentDetailData.percentage}%) | Rank: {ordinal(studentDetailData.position)}
-                </p>
-              </div>
-              <button
-                type="button"
-                className="rounded-lg border border-slate-200 p-2 text-slate-500 hover:bg-slate-50"
-                onClick={() => setStudentDetailOpen(false)}
-              >
-                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-
-            <div className="space-y-4">
-              <div className="grid grid-cols-3 gap-4">
-                <div className="rounded-2xl bg-emerald-50 p-3 text-center border border-emerald-100">
-                  <p className="text-xs font-semibold text-emerald-600">Correct</p>
-                  <p className="text-xl font-bold text-emerald-700">{studentDetailData.correctCount}</p>
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+          <div 
+            className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            onClick={() => setStudentDetailOpen(false)}
+          />
+          <div className="relative h-[90vh] w-full max-w-4xl overflow-hidden rounded-[2.5rem] bg-white shadow-2xl transition-all">
+            <div className="flex h-full flex-col">
+              {/* Header */}
+              <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/50 px-10 py-8">
+                <div>
+                  <h3 className="font-heading text-2xl text-slate-900 leading-tight">
+                    {studentDetailData.studentName}'s Performance
+                  </h3>
+                  <div className="mt-2 flex items-center gap-4 text-sm text-slate-500 font-medium">
+                    <span className="flex items-center gap-1.5">
+                      <div className="h-2 w-2 rounded-full bg-primary" />
+                      Rank: {ordinal(studentDetailData.position)}
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      <div className="h-2 w-2 rounded-full bg-emerald-500" />
+                      Score: {studentDetailData.obtainedMarks}/{studentDetailData.totalMarks} ({studentDetailData.percentage}%)
+                    </span>
+                  </div>
                 </div>
-                <div className="rounded-2xl bg-rose-50 p-3 text-center border border-rose-100">
-                  <p className="text-xs font-semibold text-rose-600">Wrong</p>
-                  <p className="text-xl font-bold text-rose-700">{studentDetailData.wrongCount}</p>
-                </div>
-                <div className="rounded-2xl bg-slate-50 p-3 text-center border border-slate-100">
-                  <p className="text-xs font-semibold text-slate-600">Missed</p>
-                  <p className="text-xl font-bold text-slate-700">{studentDetailData.missedCount}</p>
-                </div>
+                <button
+                  type="button"
+                  className="flex h-12 w-12 items-center justify-center rounded-full bg-white text-slate-400 shadow-sm transition-all hover:bg-slate-50 hover:text-slate-600 border border-slate-100"
+                  onClick={() => setStudentDetailOpen(false)}
+                >
+                  <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
               </div>
 
-              <div className="space-y-3">
-                <p className="font-semibold text-slate-800">Question-by-Question Analysis</p>
-                {(studentDetailData.evaluatedAnswers || []).map((ans, idx) => {
-                  const originalQuestion = (selected?.questions || []).find(q => trimText(q.questionId) === ans.questionId);
-                  const studentOptionText = originalQuestion && ans.selectedLetter ? originalQuestion[`option${ans.selectedLetter}`] : "Not Answered";
-                  const correctOptionText = originalQuestion && ans.correctLetter ? originalQuestion[`option${ans.correctLetter}`] : "";
+              {/* Content */}
+              <div className="flex-1 overflow-y-auto px-10 py-8">
+                <div className="grid grid-cols-3 gap-6 mb-10">
+                  <div className="rounded-[2rem] bg-emerald-50/40 p-6 border border-emerald-100/50 text-center transition-all hover:scale-[1.02]">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-emerald-600 mb-1">Correct</p>
+                    <p className="text-3xl font-black text-emerald-700">{studentDetailData.correctCount}</p>
+                  </div>
+                  <div className="rounded-[2rem] bg-rose-50/40 p-6 border border-rose-100/50 text-center transition-all hover:scale-[1.02]">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-rose-600 mb-1">Incorrect</p>
+                    <p className="text-3xl font-black text-rose-700">{studentDetailData.wrongCount}</p>
+                  </div>
+                  <div className="rounded-[2rem] bg-slate-50/40 p-6 border border-slate-100/50 text-center transition-all hover:scale-[1.02]">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-600 mb-1">Missed</p>
+                    <p className="text-3xl font-black text-slate-700">{studentDetailData.missedCount}</p>
+                  </div>
+                </div>
+
+                <div className="space-y-8">
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+                    <h4 className="font-heading text-xl text-slate-800">Detailed Analysis</h4>
+                    <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">
+                      {(studentDetailData.evaluatedAnswers || []).length} Total Questions
+                    </span>
+                  </div>
                   
-                  return (
-                  <div key={ans.questionId} className={`rounded-2xl border p-4 transition-all ${ans.isCorrect ? 'border-emerald-100 bg-emerald-50/30' : 'border-rose-100 bg-rose-50/30'}`}>
-                    <div className="flex flex-col sm:flex-row justify-between gap-4">
-                      <div className="flex-1">
-                        <p className="text-xs font-semibold text-slate-500 mb-2">Question {ans.questionOrder || idx + 1}</p>
-                        
-                        {originalQuestion?.imageUrl && (
-                          <div className="mb-3">
-                            <img 
-                              src={originalQuestion.imageUrl} 
-                              alt="Question Figure" 
-                              className="max-h-[150px] rounded-lg border border-slate-200 object-contain bg-white p-1"
-                            />
-                          </div>
-                        )}
-                        
-                        <div 
-                          className="text-sm font-medium text-slate-800 mb-3 bg-white p-3 rounded-xl border border-slate-100"
-                          dangerouslySetInnerHTML={{ __html: sanitizeQuestionHtml(originalQuestion?.questionText || "Question text not available") }}
-                        />
-                        
-                        <div className="mt-3 flex flex-col gap-2 text-xs">
-                          <div className="bg-white p-2 rounded-lg border border-slate-100 flex items-start gap-2">
-                            <span className="text-slate-500 font-semibold min-w-[110px]">Student Answer:</span>
-                            <div className="flex flex-col">
-                              <span className={`font-bold ${ans.isCorrect ? 'text-emerald-600' : 'text-rose-600'}`}>
-                                Option {ans.selectedLetter || "N.A."}
-                              </span>
-                              {studentOptionText && studentOptionText !== "Not Answered" && (
-                                <span className="text-slate-700 mt-1" dangerouslySetInnerHTML={{ __html: sanitizeQuestionHtml(studentOptionText) }} />
+                  <div className="space-y-6">
+                    {(studentDetailData.evaluatedAnswers || []).map((ans, idx) => {
+                      const originalQuestion = (selected?.questions || []).find(q => 
+                        (trimText(q.questionId) === trimText(ans.questionId)) || 
+                        (toNumber(q.order) === toNumber(ans.questionOrder))
+                      );
+                      const getOptionText = (q, letter) => {
+                        if (!q || !letter) return "";
+                        const l = letter.toUpperCase();
+                        const idxMap = { A: 0, B: 1, C: 2, D: 3, E: 4, F: 5 };
+                        const i = idxMap[l];
+                        if (Array.isArray(q.options) && i !== undefined && q.options[i]) return q.options[i];
+                        return q[`option${l}`] || "";
+                      };
+                      const studentOptionText = originalQuestion && ans.selectedLetter ? getOptionText(originalQuestion, ans.selectedLetter) : "Not Answered";
+                      const correctOptionText = originalQuestion && ans.correctLetter ? getOptionText(originalQuestion, ans.correctLetter) : "";
+                      
+                      return (
+                        <div key={ans.questionId || idx} className={`group rounded-[2rem] border p-8 transition-all hover:shadow-lg ${ans.isCorrect ? 'border-emerald-100 bg-emerald-50/10' : 'border-rose-100 bg-rose-50/10'}`}>
+                          <div className="flex flex-col lg:flex-row justify-between gap-8">
+                            <div className="flex-1">
+                              <div className="flex items-center gap-3 mb-6">
+                                <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-white shadow-sm border border-slate-100 text-sm font-bold text-slate-600">
+                                  {ans.questionOrder || idx + 1}
+                                </span>
+                                <span className={`rounded-full px-3.5 py-1.5 text-[10px] font-bold uppercase tracking-wider ${ans.isCorrect ? 'bg-emerald-500 text-white' : 'bg-rose-500 text-white'}`}>
+                                  {ans.isCorrect ? 'Correct' : 'Incorrect'}
+                                </span>
+                              </div>
+                              
+                              {originalQuestion?.imageUrl && (
+                                <div className="mb-6 max-w-lg">
+                                  <img 
+                                    src={originalQuestion.imageUrl} 
+                                    alt="" 
+                                    className="max-h-[220px] rounded-2xl border border-slate-100 object-contain bg-white p-2 shadow-sm"
+                                  />
+                                </div>
                               )}
+                              
+                              <div 
+                                className="text-lg font-medium text-slate-800 mb-8 leading-relaxed"
+                                dangerouslySetInnerHTML={{ __html: sanitizeQuestionHtml(originalQuestion?.questionText || "Question text not available") }}
+                              />
+                              
+                              <div className="grid sm:grid-cols-2 gap-5">
+                                <div className="bg-white/80 backdrop-blur-sm p-5 rounded-2xl border border-slate-100 shadow-sm transition-all group-hover:bg-white">
+                                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-3">Student Answer</p>
+                                  <div className="flex items-start gap-3">
+                                    <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[11px] font-black ${ans.isCorrect ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'}`}>
+                                      {ans.selectedLetter || "?"}
+                                    </span>
+                                    <div className="text-sm font-semibold text-slate-700 leading-snug" dangerouslySetInnerHTML={{ __html: sanitizeQuestionHtml(studentOptionText) }} />
+                                  </div>
+                                </div>
+                                
+                                <div className="bg-white/80 backdrop-blur-sm p-5 rounded-2xl border border-slate-100 shadow-sm transition-all group-hover:bg-white">
+                                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-3">Correct Answer</p>
+                                  <div className="flex items-start gap-3">
+                                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-emerald-100 text-emerald-600 text-[11px] font-black">
+                                      {ans.correctLetter || "?"}
+                                    </span>
+                                    <div className="text-sm font-semibold text-emerald-600 leading-snug" dangerouslySetInnerHTML={{ __html: sanitizeQuestionHtml(correctOptionText) }} />
+                                  </div>
+                                </div>
+                              </div>
                             </div>
-                          </div>
-                          
-                          <div className="bg-white p-2 rounded-lg border border-slate-100 flex items-start gap-2">
-                            <span className="text-slate-500 font-semibold min-w-[110px]">Correct Answer:</span>
-                            <div className="flex flex-col">
-                              <span className="font-bold text-emerald-600">Option {ans.correctLetter}</span>
-                              {correctOptionText && (
-                                <span className="text-slate-700 mt-1" dangerouslySetInnerHTML={{ __html: sanitizeQuestionHtml(correctOptionText) }} />
-                              )}
+                            
+                            <div className="lg:w-32 flex flex-row lg:flex-col items-center lg:items-end justify-between lg:justify-start pt-6 lg:pt-0 border-t lg:border-t-0 border-slate-200/40">
+                              <div className="flex flex-col items-end">
+                                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">Marks</p>
+                                <p className="text-xl font-black text-slate-900">
+                                  {ans.marksObtained}<span className="text-slate-300 font-medium">/{ans.marks}</span>
+                                </p>
+                              </div>
                             </div>
                           </div>
                         </div>
-                      </div>
-                      <div className="text-left sm:text-right flex flex-row sm:flex-col items-center sm:items-end justify-between sm:justify-start pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-200/50 mt-2 sm:mt-0">
-                        <p className={`text-sm sm:text-xs font-bold ${ans.isCorrect ? 'text-emerald-600' : 'text-rose-600'} flex items-center gap-1`}>
-                          {ans.isCorrect ? (
-                            <><svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg> CORRECT</>
-                          ) : (
-                            <><svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12" /></svg> WRONG</>
-                          )}
-                        </p>
-                        <p className="text-xs font-semibold text-slate-500 sm:mt-2 bg-white px-2 py-1 rounded border border-slate-100">Marks: {ans.marksObtained}/{ans.marks}</p>
-                      </div>
-                    </div>
+                      );
+                    })}
                   </div>
-                )})}
+                </div>
               </div>
-            </div>
 
-            <div className="mt-6 flex justify-end">
-              <button
-                type="button"
-                className="rounded-xl bg-slate-900 px-6 py-2.5 text-sm font-semibold text-white shadow-lg hover:bg-slate-800"
-                onClick={() => setStudentDetailOpen(false)}
-              >
-                Close Details
-              </button>
+              {/* Footer */}
+              <div className="border-t border-slate-100 bg-slate-50/50 px-10 py-6 flex justify-end">
+                <button
+                  type="button"
+                  className="rounded-2xl bg-slate-900 px-8 py-3.5 text-sm font-bold text-white shadow-xl shadow-slate-900/10 transition-all hover:bg-slate-800 hover:shadow-slate-900/20 active:scale-[0.98]"
+                  onClick={() => setStudentDetailOpen(false)}
+                >
+                  Close Analysis
+                </button>
+              </div>
             </div>
           </div>
         </div>

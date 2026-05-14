@@ -61,6 +61,19 @@ const toDateTimeLocalValue = (value) => {
   return `${year}-${month}-${day}T${hours}:${minutes}`;
 };
 
+const sanitizeQuestionHtml = (html = "") => {
+  if (!html) return "";
+  return html.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
+             .replace(/on\w+="[^"]*"/g, "");
+};
+
+const ordinal = (n) => {
+  const s = ["th", "st", "nd", "rd"];
+  const v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+};
+
+
 function TeacherQuizDetailAssignmentGrading() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -74,6 +87,8 @@ function TeacherQuizDetailAssignmentGrading() {
   const [assignmentStudentIds, setAssignmentStudentIds] = useState([]);
   const [studentSearch, setStudentSearch] = useState("");
   const [gradeDrafts, setGradeDrafts] = useState({});
+  const [selectedStudentDetail, setSelectedStudentDetail] = useState(null);
+
 
   const quizzesQuery = useQuery({
     queryKey: ["teacher-quizzes"],
@@ -405,6 +420,15 @@ function TeacherQuizDetailAssignmentGrading() {
   return (
     <div className="space-y-6">
       <Toaster position="top-right" />
+      
+      {selectedStudentDetail && (
+        <StudentDetailModal 
+          data={selectedStudentDetail} 
+          quiz={selectedQuiz} 
+          onClose={() => setSelectedStudentDetail(null)} 
+        />
+      )}
+
 
       <Motion.section
         {...fadeUp}
@@ -420,14 +444,17 @@ function TeacherQuizDetailAssignmentGrading() {
             </p>
           </div>
           <div className="flex gap-2">
-            <Link to={`${routeBase}/my`} className="btn-outline">
+            <Link to={`${routeBase}/my`} className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50">
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" /></svg>
               My Quizzes
             </Link>
-            <Link to={routeBase} className="btn-primary">
+            <Link to={routeBase} className="flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-primary/20 transition hover:bg-primary/90">
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
               Quiz Builder
             </Link>
           </div>
         </div>
+
 
         <div className="mt-4 grid gap-3 md:grid-cols-[1fr_auto]">
           <select
@@ -665,32 +692,53 @@ function TeacherQuizDetailAssignmentGrading() {
               </div>
             ) : analyticsData ? (
               <div className="mt-3 space-y-4">
-                <div className="grid gap-2 sm:grid-cols-2">
-                  <div className="rounded-xl bg-slate-50 p-3 text-xs">
-                    <p className="text-slate-500">Attempted</p>
-                    <p className="text-lg font-semibold text-slate-900">
-                      {analyticsData.summary?.attemptedCount || 0}
-                    </p>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm transition-all hover:border-indigo-100 hover:shadow-md">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600">
+                        <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Attempted</p>
+                        <p className="text-xl font-bold text-slate-900">{analyticsData.summary?.attemptedCount || 0}</p>
+                      </div>
+                    </div>
                   </div>
-                  <div className="rounded-xl bg-slate-50 p-3 text-xs">
-                    <p className="text-slate-500">Not Attempted</p>
-                    <p className="text-lg font-semibold text-slate-900">
-                      {analyticsData.summary?.notAttempted || 0}
-                    </p>
+                  <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm transition-all hover:border-amber-100 hover:shadow-md">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-50 text-amber-600">
+                        <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Pending</p>
+                        <p className="text-xl font-bold text-slate-900">{analyticsData.summary?.notAttempted || 0}</p>
+                      </div>
+                    </div>
                   </div>
-                  <div className="rounded-xl bg-slate-50 p-3 text-xs">
-                    <p className="text-slate-500">Average Score</p>
-                    <p className="text-lg font-semibold text-slate-900">
-                      {analyticsData.summary?.averageScore || 0}%
-                    </p>
+                  <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm transition-all hover:border-emerald-100 hover:shadow-md">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
+                        <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Avg. Score</p>
+                        <p className="text-xl font-bold text-slate-900">{analyticsData.summary?.averageScore || 0}%</p>
+                      </div>
+                    </div>
                   </div>
-                  <div className="rounded-xl bg-slate-50 p-3 text-xs">
-                    <p className="text-slate-500">Pass Rate</p>
-                    <p className="text-lg font-semibold text-slate-900">
-                      {analyticsData.summary?.passRate || 0}%
-                    </p>
+                  <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm transition-all hover:border-violet-100 hover:shadow-md">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-50 text-violet-600">
+                        <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Pass Rate</p>
+                        <p className="text-xl font-bold text-slate-900">{analyticsData.summary?.passRate || 0}%</p>
+                      </div>
+                    </div>
                   </div>
                 </div>
+
 
                 <div className="h-56 rounded-xl border border-slate-200 p-2">
                   <ResponsiveContainer width="100%" height="100%">
@@ -788,14 +836,30 @@ function TeacherQuizDetailAssignmentGrading() {
                   </thead>
                   <tbody>
                     {assignedStudentRows.map((row) => (
-                      <tr key={`${row.studentId}-${row.submittedAt || "none"}`} className="border-b border-slate-100">
-                        <td className="px-2 py-2 text-slate-900">{row.fullName}</td>
-                        <td className="px-2 py-2 text-slate-600">{row.email || "-"}</td>
-                        <td className="px-2 py-2">
+                      <tr 
+                        key={`${row.studentId}-${row.submittedAt || "none"}`} 
+                        className="group border-b border-slate-50 hover:bg-slate-50 transition-colors cursor-pointer"
+                        onClick={() => {
+                          if (row.status !== "not_attempted") {
+                            const submission = latestSubmissionByStudent.get(row.studentId);
+                            if (submission) setSelectedStudentDetail({ ...row, submission });
+                          }
+                        }}
+                      >
+                        <td className="px-4 py-4">
+                          <div className="flex items-center gap-3">
+                            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-xs font-bold text-slate-500">
+                              {row.fullName.charAt(0)}
+                            </div>
+                            <span className="font-medium text-slate-900">{row.fullName}</span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-4 text-slate-600">{row.email || "-"}</td>
+                        <td className="px-4 py-4">
                           <span
-                            className={`rounded-full px-2 py-1 text-[11px] font-semibold ${
+                            className={`rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-wider ${
                               row.status === "not_attempted"
-                                ? "bg-slate-100 text-slate-600"
+                                ? "bg-slate-100 text-slate-500"
                                 : row.status === "completed"
                                   ? "bg-emerald-100 text-emerald-700"
                                   : row.status === "pending_review"
@@ -808,15 +872,28 @@ function TeacherQuizDetailAssignmentGrading() {
                               : row.status.replaceAll("_", " ")}
                           </span>
                         </td>
-                        <td className="px-2 py-2 text-slate-700">{row.attemptsCount}</td>
-                        <td className="px-2 py-2 text-slate-700">
-                          {row.status === "not_attempted"
-                            ? "-"
-                            : `${Math.round(row.scorePercent)}% (${row.totalScore}/${row.totalMarks})`}
+                        <td className="px-4 py-4 text-slate-600 font-medium">{row.attemptsCount}</td>
+                        <td className="px-4 py-4">
+                          {row.status === "not_attempted" ? (
+                            <span className="text-slate-300">-</span>
+                          ) : (
+                            <div className="flex items-center gap-2">
+                              <div className="h-1.5 w-16 overflow-hidden rounded-full bg-slate-100">
+                                <div 
+                                  className={`h-full rounded-full ${row.scorePercent >= 40 ? 'bg-emerald-500' : 'bg-rose-500'}`}
+                                  style={{ width: `${Math.min(100, row.scorePercent)}%` }}
+                                />
+                              </div>
+                              <span className="text-sm font-bold text-slate-700">
+                                {Math.round(row.scorePercent)}%
+                              </span>
+                            </div>
+                          )}
                         </td>
-                        <td className="px-2 py-2 text-slate-600">{formatDateTime(row.submittedAt)}</td>
+                        <td className="px-4 py-4 text-slate-500 text-[11px]">{formatDateTime(row.submittedAt)}</td>
                       </tr>
                     ))}
+
                   </tbody>
                 </table>
               </div>
@@ -974,5 +1051,105 @@ function TeacherQuizDetailAssignmentGrading() {
     </div>
   );
 }
+
+function StudentDetailModal({ data, quiz, onClose }) {
+  const submission = data?.submission || {};
+  const answers = Array.isArray(submission.answers) ? submission.answers : [];
+
+  return (
+    <AnimatePresence>
+      <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+        <Motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+          onClick={onClose}
+        />
+        <Motion.div
+          initial={{ opacity: 0, scale: 0.95, y: 20 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          exit={{ opacity: 0, scale: 0.95, y: 20 }}
+          className="relative h-[90vh] w-full max-w-4xl overflow-hidden rounded-[2.5rem] bg-white shadow-2xl"
+        >
+          <div className="flex h-full flex-col">
+            <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/50 px-8 py-6">
+              <div>
+                <h3 className="text-xl font-bold text-slate-900">{data.fullName}</h3>
+                <p className="text-sm text-slate-500">Quiz Performance Review</p>
+              </div>
+              <button
+                onClick={onClose}
+                className="flex h-10 w-10 items-center justify-center rounded-full bg-white text-slate-400 shadow-sm transition-all hover:bg-slate-50 hover:text-slate-600"
+              >
+                <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-8">
+              <div className="grid grid-cols-2 gap-4 mb-8 sm:grid-cols-4">
+                <div className="rounded-2xl border border-slate-100 bg-slate-50/50 p-4">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Score</p>
+                  <p className="mt-1 text-xl font-bold text-slate-900">{Math.round(data.scorePercent)}%</p>
+                </div>
+                <div className="rounded-2xl border border-slate-100 bg-slate-50/50 p-4">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Marks</p>
+                  <p className="mt-1 text-xl font-bold text-slate-900">{data.totalScore}/{data.totalMarks}</p>
+                </div>
+                <div className="rounded-2xl border border-slate-100 bg-slate-50/50 p-4">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Status</p>
+                  <p className={`mt-1 text-sm font-bold uppercase ${data.status === 'completed' ? 'text-emerald-600' : 'text-amber-600'}`}>
+                    {data.status.replace('_', ' ')}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-slate-100 bg-slate-50/50 p-4">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Submitted</p>
+                  <p className="mt-1 text-xs font-semibold text-slate-600">{new Date(data.submittedAt).toLocaleDateString()}</p>
+                </div>
+              </div>
+
+              <div className="space-y-6">
+                {answers.map((ans, idx) => {
+                  const qObj = (quiz?.questions || []).find(q => q.questionId === ans.questionId);
+                  return (
+                    <div key={ans.questionId || idx} className={`rounded-2xl border p-6 transition-all ${ans.isCorrect ? 'border-emerald-100 bg-emerald-50/20' : 'border-rose-100 bg-rose-50/20'}`}>
+                      <div className="flex items-center gap-3 mb-4">
+                        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-white shadow-sm text-xs font-bold text-slate-600">
+                          {idx + 1}
+                        </span>
+                        <span className={`rounded-lg px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider ${ans.isCorrect ? 'bg-emerald-500 text-white' : 'bg-rose-500 text-white'}`}>
+                          {ans.isCorrect ? 'Correct' : 'Incorrect'}
+                        </span>
+                      </div>
+
+                      <div 
+                        className="text-sm font-medium text-slate-800 mb-6"
+                        dangerouslySetInnerHTML={{ __html: sanitizeQuestionHtml(qObj?.questionText || "Question text not available") }}
+                      />
+
+                      <div className="grid sm:grid-cols-2 gap-4">
+                        <div className="bg-white/60 p-3 rounded-xl border border-slate-100">
+                          <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">Student's Answer</p>
+                          <div className="text-sm font-semibold text-slate-700" dangerouslySetInnerHTML={{ __html: sanitizeQuestionHtml(ans.selectedAnswer || "No Answer") }} />
+                        </div>
+                        <div className="bg-white/60 p-3 rounded-xl border border-slate-100">
+                          <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">Correct Answer</p>
+                          <div className="text-sm font-semibold text-emerald-600" dangerouslySetInnerHTML={{ __html: sanitizeQuestionHtml(ans.correctAnswer || "Not provided") }} />
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </Motion.div>
+      </div>
+    </AnimatePresence>
+  );
+}
+
 
 export default TeacherQuizDetailAssignmentGrading;

@@ -21,6 +21,7 @@ import {
   blurContent,
   unblurContent,
 } from "../../utils/maxProtection.js";
+
 const TAB_SWITCH_LIMIT = 3;
 
 const toNumber = (value, fallback = 0) => {
@@ -39,6 +40,12 @@ const normalizeQuestionType = (value = "") => {
   const type = String(value || "").trim().toLowerCase();
   if (type === "truefalse") return "true_false";
   return type || "mcq";
+};
+
+const sanitizeQuestionHtml = (html = "") => {
+  if (!html) return "";
+  return html.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
+             .replace(/on\w+="[^"]*"/g, "");
 };
 
 const normalizeQuizPayload = (payload = {}) => {
@@ -523,7 +530,7 @@ function StudentQuizAttempt() {
       "Student";
     return (
       <div
-        className="protected-zone quiz-content relative min-h-screen flex flex-col items-center bg-slate-950 px-4 py-12 protected-content overflow-y-auto"
+        className="protected-zone quiz-content relative min-h-screen flex flex-col items-center bg-slate-50 px-4 py-12 protected-content overflow-y-auto"
         style={{ position: "relative" }}
       >
         <Toaster position="top-right" />
@@ -537,14 +544,97 @@ function StudentQuizAttempt() {
           email={String(userProfile?.email || "")}
         />
         <div className="mx-auto max-w-4xl">
-          <Motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}>
+          <Motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="w-full">
             <QuizResultCard result={submittedResult} quiz={quiz} studentName={rawNm} />
-            <div className="mt-6 flex justify-center">
+            
+            {/* Detailed Performance Analysis */}
+            <div className="mt-12 overflow-hidden rounded-[2.5rem] border border-slate-200 bg-white shadow-xl">
+               <div className="border-b border-slate-200 bg-slate-50 px-10 py-6">
+                 <h3 className="text-xl font-bold text-slate-800">Detailed Performance Analysis</h3>
+                 <p className="text-sm text-slate-500 mt-1">Review your answers and learn from correct solutions.</p>
+               </div>
+               
+               <div className="p-10 space-y-6">
+                 {(resultSummary.rows || []).map((ans, idx) => {
+                    const qObj = (quiz?.questions || []).find(q => q.questionId === ans.questionId);
+                    
+                    return (
+                      <div key={ans.questionId || idx} className={`rounded-2xl border p-6 transition-all ${ans.isCorrect ? 'border-emerald-100 bg-emerald-50/30' : 'border-rose-100 bg-rose-50/30'}`}>
+                        <div className="flex flex-col lg:flex-row justify-between gap-6">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-3 mb-4">
+                              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100 text-sm font-bold text-slate-600">
+                                {idx + 1}
+                              </span>
+                              <span className={`rounded-lg px-3 py-1 text-xs font-bold uppercase tracking-wider ${ans.isCorrect ? 'bg-emerald-100 text-emerald-700' : ans.status === 'pending_review' ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700'}`}>
+                                {ans.isCorrect ? 'Correct' : ans.status === 'pending_review' ? 'Pending Review' : 'Incorrect'}
+                              </span>
+                            </div>
+
+                            {qObj?.imageUrl && (
+                              <div className="mb-4">
+                                <img 
+                                  src={qObj.imageUrl} 
+                                  alt="Question figure" 
+                                  className="max-h-[200px] rounded-xl border border-slate-200 bg-white p-2 shadow-sm" 
+                                />
+                              </div>
+                            )}
+
+                            <div 
+                              className="text-lg font-medium text-slate-800 mb-6 leading-relaxed"
+                              dangerouslySetInnerHTML={{ __html: sanitizeQuestionHtml(qObj?.questionText || "Question text not available") }}
+                            />
+
+                            <div className="grid sm:grid-cols-2 gap-4 mt-4">
+                              <div className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm">
+                                <p className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-2">Your Answer</p>
+                                <div className="flex items-start gap-2">
+                                  <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md font-bold text-xs ${ans.isCorrect ? 'bg-emerald-500 text-white' : 'bg-rose-500 text-white'}`}>
+                                    {ans.isCorrect ? (
+                                      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
+                                    ) : (
+                                      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12" /></svg>
+                                    )}
+                                  </span>
+                                  <div className="text-sm font-medium text-slate-700" dangerouslySetInnerHTML={{ __html: sanitizeQuestionHtml(ans.selectedAnswer || "No Answer") }} />
+                                </div>
+                              </div>
+
+                              <div className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm">
+                                <p className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-2">Correct Answer</p>
+                                <div className="flex items-start gap-2">
+                                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-emerald-500 font-bold text-xs text-white">
+                                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
+                                  </span>
+                                  <div className="text-sm font-medium text-slate-700" dangerouslySetInnerHTML={{ __html: sanitizeQuestionHtml(ans.correctAnswer || "-") }} />
+                                </div>
+                              </div>
+                            </div>
+                            
+                            {ans.feedback && (
+                              <div className="mt-4 bg-indigo-50 border border-indigo-100 rounded-xl p-4">
+                                 <p className="text-xs font-bold text-indigo-400 uppercase tracking-widest mb-1">Teacher Feedback</p>
+                                 <p className="text-sm text-indigo-700 font-medium">{ans.feedback}</p>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                 })}
+               </div>
+            </div>
+
+            <div className="mt-12 flex justify-center pb-12">
               <Link
-                className="inline-flex rounded-full bg-[#4a63f5] px-6 py-2 text-sm font-semibold text-white"
+                className="group flex items-center gap-3 rounded-2xl bg-indigo-600 px-10 py-5 font-bold text-white shadow-xl shadow-indigo-600/20 transition-all hover:bg-indigo-500 hover:scale-[1.02] active:scale-[0.98]"
                 to="/student/quizzes"
               >
-                Back to Quizzes
+                <svg className="h-5 w-5 rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                </svg>
+                Back to Dashboard
               </Link>
             </div>
           </Motion.div>

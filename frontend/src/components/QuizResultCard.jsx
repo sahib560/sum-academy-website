@@ -19,12 +19,12 @@ export default function QuizResultCard({ result, quiz, studentName }) {
 
   const getRankColor = (rankValue, totalValue) => {
     const pct = rankValue / Math.max(totalValue, 1);
-    if (rankValue === 1) return "#FFD700";
-    if (rankValue === 2) return "#C0C0C0";
-    if (rankValue === 3) return "#CD7F32";
-    if (pct <= 0.1) return "#4a63f5";
-    if (pct <= 0.25) return "#16a34a";
-    return "#64748b";
+    if (rankValue === 1) return "#f59e0b"; // Gold/Amber
+    if (rankValue === 2) return "#94a3b8"; // Silver
+    if (rankValue === 3) return "#b45309"; // Bronze
+    if (pct <= 0.1) return "#4f46e5"; // Indigo
+    if (pct <= 0.25) return "#10b981"; // Emerald
+    return "#64748b"; // Slate
   };
 
   const rankColor = getRankColor(rank, total);
@@ -34,313 +34,132 @@ export default function QuizResultCard({ result, quiz, studentName }) {
 
   return (
     <div
-      style={{
-        background: "#0d0f1a",
-        borderRadius: "24px",
-        padding: "0",
-        maxWidth: "520px",
-        margin: "0 auto",
-        overflow: "hidden",
-        border: `1px solid ${isPassed ? "#16a34a33" : "#dc262633"}`,
-        boxShadow: `0 0 40px ${
-          isPassed ? "rgba(22,163,74,0.08)" : "rgba(220,38,38,0.08)"
-        }`,
-      }}
+      className="overflow-hidden rounded-[2.5rem] border border-slate-200 bg-white shadow-2xl transition-all"
+      style={{ maxWidth: "560px", margin: "0 auto" }}
     >
       <div
-        style={{
-          background: isPassed
-            ? "linear-gradient(135deg, #16a34a22, #16a34a11)"
-            : "linear-gradient(135deg, #dc262622, #dc262611)",
-          padding: "28px 32px 24px",
-          textAlign: "center",
-          borderBottom: `1px solid ${isPassed ? "#16a34a22" : "#dc262622"}`,
-          position: "relative",
-          overflow: "hidden",
-        }}
+        className={`px-10 py-8 text-center border-b relative overflow-hidden ${
+          isPassed ? "bg-emerald-50/50 border-emerald-100" : "bg-rose-50/50 border-rose-100"
+        }`}
       >
-        <div
-          style={{
-            position: "absolute",
-            top: "-40px",
-            right: "-40px",
-            width: "120px",
-            height: "120px",
-            borderRadius: "50%",
-            background: isPassed ? "#16a34a" : "#dc2626",
-            opacity: 0.06,
-          }}
-        />
-
-        <div
-          style={{
-            width: "40px",
-            height: "40px",
-            background: "#4a63f5",
-            borderRadius: "10px",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            margin: "0 auto 16px",
-          }}
-        >
-          <span
-            style={{
-              color: "#fff",
-              fontWeight: "800",
-              fontSize: "18px",
-              fontFamily: "Georgia",
-            }}
-          >
-            {(() => {
-              const name = String(studentName || "S");
-              const letter = (name.includes("@") && !name.includes(" "))
-                ? name.split("@")[0][0]
-                : name[0];
-              return String(letter || "S").toUpperCase();
-            })()}
-          </span>
+        <div className={`absolute -top-10 -right-10 w-32 h-32 rounded-full opacity-10 ${isPassed ? "bg-emerald-500" : "bg-rose-500"}`} />
+        
+        <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-indigo-600 shadow-lg shadow-indigo-600/20 text-white font-bold text-xl">
+          {(() => {
+            const name = String(studentName || "S");
+            const letter = (name.includes("@") && !name.includes(" ")) ? name.split("@")[0][0] : name[0];
+            return String(letter || "S").toUpperCase();
+          })()}
         </div>
 
-        <div
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "6px",
-            background: isPassed ? "rgba(22,163,74,0.15)" : "rgba(220,38,38,0.15)",
-            color: isPassed ? "#4ade80" : "#f87171",
-            padding: "5px 18px",
-            borderRadius: "999px",
-            fontSize: "12px",
-            fontWeight: "700",
-            border: `1px solid ${isPassed ? "#16a34a44" : "#dc262644"}`,
-            marginBottom: "12px",
-            letterSpacing: "1px",
-          }}
-        >
+        <div className={`inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-[10px] font-black uppercase tracking-[0.2em] border mb-4 ${
+          isPassed ? "bg-emerald-100 text-emerald-700 border-emerald-200" : "bg-rose-100 text-rose-700 border-rose-200"
+        }`}>
           {isPassed ? "PASSED" : "FAILED"}
         </div>
 
-        <h2
-          style={{
-            color: "#fff",
-            fontSize: "20px",
-            fontWeight: "700",
-            margin: "0 0 4px",
-          }}
-        >
-          {studentName}
-        </h2>
-        <p style={{ color: "#64748b", fontSize: "13px", margin: 0 }}>
-          {quiz?.title}
-        </p>
+        <h2 className="text-2xl font-black text-slate-900">{studentName}</h2>
+        <p className="mt-1 text-sm font-medium text-slate-500">{quiz?.title}</p>
       </div>
 
-      <div
-        style={{
-          padding: "28px 32px",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: "32px",
-          borderBottom: "1px solid #1e293b",
-        }}
-      >
-        <div style={{ position: "relative", width: "120px", height: "120px" }}>
-          <svg width="120" height="120" style={{ transform: "rotate(-90deg)" }}>
-            <circle cx="60" cy="60" r="52" fill="none" stroke="#1e293b" strokeWidth="8" />
-            <circle
-              cx="60"
-              cy="60"
-              r="52"
-              fill="none"
-              stroke={isPassed ? "#16a34a" : "#dc2626"}
-              strokeWidth="8"
-              strokeDasharray={`${2 * Math.PI * 52}`}
-              strokeDashoffset={`${2 * Math.PI * 52 * (1 - percentage / 100)}`}
-              strokeLinecap="round"
-              style={{ transition: "stroke-dashoffset 1.5s ease" }}
-            />
-          </svg>
-          <div
-            style={{
-              position: "absolute",
-              inset: 0,
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            <span style={{ color: "#fff", fontSize: "26px", fontWeight: "800", lineHeight: 1 }}>
-              {percentage}%
-            </span>
-            <span style={{ color: "#64748b", fontSize: "10px", marginTop: "2px" }}>
-              SCORE
-            </span>
+      <div className="grid grid-cols-2 divide-x divide-slate-100 border-b border-slate-100 bg-slate-50/30">
+        <div className="flex items-center justify-center p-8 gap-6">
+          <div className="relative h-24 w-24">
+            <svg width="96" height="96" className="-rotate-90">
+              <circle cx="48" cy="48" r="42" fill="none" stroke="#e2e8f0" strokeWidth="8" />
+              <circle
+                cx="48"
+                cy="48"
+                r="42"
+                fill="none"
+                stroke={isPassed ? "#10b981" : "#f43f5e"}
+                strokeWidth="8"
+                strokeDasharray={`${2 * Math.PI * 42}`}
+                strokeDashoffset={`${2 * Math.PI * 42 * (1 - percentage / 100)}`}
+                strokeLinecap="round"
+                className="transition-all duration-1000 ease-out"
+              />
+            </svg>
+            <div className="absolute inset-0 flex flex-col items-center justify-center">
+              <span className="text-xl font-black text-slate-900 leading-none">{percentage}%</span>
+              <span className="mt-1 text-[8px] font-black tracking-widest text-slate-400 uppercase">Score</span>
+            </div>
           </div>
         </div>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+        <div className="flex flex-col justify-center p-8 space-y-4">
           {[
-            {
-              label: "Marks",
-              value: `${marksScored} / ${totalMarks}`,
-              color: "#fff",
-            },
-            {
-              label: "Pass Mark",
-              value: `${toNumber(quiz?.passScore, 70)}%`,
-              color: "#64748b",
-            },
-            {
-              label: "Time Limit",
-              value: quiz?.timeLimit ? `${quiz.timeLimit} mins` : "-",
-              color: "#64748b",
-            },
+            { label: "Marks Scored", value: `${marksScored} / ${totalMarks}`, color: "text-slate-900" },
+            { label: "Pass Target", value: `${toNumber(quiz?.passScore, 70)}%`, color: "text-slate-500" },
+            { label: "Duration", value: quiz?.timeLimit ? `${quiz.timeLimit}m` : "-", color: "text-slate-500" },
           ].map(({ label, value, color }) => (
-            <div key={label} style={{ textAlign: "left" }}>
-              <div
-                style={{
-                  color: "#475569",
-                  fontSize: "10px",
-                  textTransform: "uppercase",
-                  letterSpacing: "0.5px",
-                }}
-              >
-                {label}
-              </div>
-              <div style={{ color, fontSize: "16px", fontWeight: "700" }}>{value}</div>
+            <div key={label}>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">{label}</p>
+              <p className={`text-sm font-black ${color}`}>{value}</p>
             </div>
           ))}
         </div>
       </div>
 
-      <div style={{ padding: "24px 32px", borderBottom: "1px solid #1e293b" }}>
-        <p
-          style={{
-            color: "#475569",
-            fontSize: "10px",
-            textTransform: "uppercase",
-            letterSpacing: "1px",
-            marginBottom: "16px",
-            textAlign: "center",
-          }}
-        >
-          Your Ranking
-        </p>
-
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: "24px",
-          }}
-        >
-          <div style={{ textAlign: "center" }}>
-            <div
-              style={{
-                width: "72px",
-                height: "72px",
-                borderRadius: "50%",
-                background: `${rankColor}22`,
-                border: `3px solid ${rankColor}`,
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                justifyContent: "center",
-                margin: "0 auto 8px",
-              }}
-            >
-              <span style={{ color: rankColor, fontSize: "24px", fontWeight: "800", lineHeight: 1 }}>
-                {rank}
-              </span>
-              <span style={{ color: rankColor, fontSize: "11px", fontWeight: "600" }}>
-                {getRankSuffix(rank)}
-              </span>
+      <div className="p-10">
+        <div className="flex items-center justify-between mb-8">
+          <div className="flex flex-col">
+            <span className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Performance Rank</span>
+            <div className="flex items-baseline gap-2">
+              <span className="text-4xl font-black text-slate-900">#{rank}</span>
+              <span className="text-sm font-bold text-slate-500">out of {total}</span>
             </div>
-            <span style={{ color: "#64748b", fontSize: "11px" }}>Your Rank</span>
           </div>
-
-          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-            {[
-              { label: "Total Students", value: total, color: "#94a3b8" },
-              { label: "Top Score", value: `${Math.round(toNumber(result?.topScore, 0))}%`, color: "#4a63f5" },
-              { label: "Class Average", value: `${Math.round(toNumber(result?.avgScore, 0))}%`, color: "#ff6f0f" },
-              { label: "Passed", value: toNumber(result?.passingCount, 0), color: "#16a34a" },
-            ].map(({ label, value, color }) => (
-              <div key={label} style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                <span style={{ color: "#475569", fontSize: "11px", minWidth: "90px" }}>
-                  {label}:
-                </span>
-                <span style={{ color, fontSize: "12px", fontWeight: "700" }}>{value}</span>
-              </div>
-            ))}
+          <div 
+            className="flex h-16 w-16 items-center justify-center rounded-2xl border-4 shadow-inner"
+            style={{ borderColor: `${rankColor}33`, backgroundColor: `${rankColor}11` }}
+          >
+            <span className="text-2xl font-black" style={{ color: rankColor }}>{rank}</span>
           </div>
         </div>
 
-        <div style={{ marginTop: "20px" }}>
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              fontSize: "10px",
-              color: "#475569",
-              marginBottom: "6px",
-            }}
-          >
-            <span>Rank #{rank}</span>
-            <span>of {total} students</span>
+        <div className="space-y-4 bg-slate-50 rounded-2xl p-6 border border-slate-100">
+          {[
+            { label: "Top Percentile", value: `${Math.round(toNumber(result?.topScore, 0))}%`, color: "text-indigo-600", bg: "bg-indigo-100/50" },
+            { label: "Class Average", value: `${Math.round(toNumber(result?.avgScore, 0))}%`, color: "text-amber-600", bg: "bg-amber-100/50" },
+            { label: "Total Passed", value: toNumber(result?.passingCount, 0), color: "text-emerald-600", bg: "bg-emerald-100/50" },
+          ].map(({ label, value, color, bg }) => (
+            <div key={label} className="flex items-center justify-between">
+              <span className="text-xs font-bold text-slate-500">{label}</span>
+              <span className={`rounded-lg px-2 py-1 text-xs font-black ${bg} ${color}`}>{value}</span>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-8">
+          <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">
+            <span>Rank Position</span>
+            <span>{100 - Math.round(((rank - 1) / Math.max(total - 1, 1)) * 100)}th Percentile</span>
           </div>
-          <div style={{ height: "6px", background: "#1e293b", borderRadius: "3px", overflow: "hidden" }}>
+          <div className="h-3 bg-slate-100 rounded-full overflow-hidden border border-slate-200 p-0.5">
             <div
-              style={{
-                height: "100%",
-                borderRadius: "3px",
-                background: rankColor,
-                width: `${100 - ((rank - 1) / Math.max(total - 1, 1)) * 100}%`,
-                transition: "width 1s ease",
+              className="h-full rounded-full transition-all duration-1000 ease-out shadow-sm"
+              style={{ 
+                backgroundColor: rankColor, 
+                width: `${Math.max(5, 100 - ((rank - 1) / Math.max(total - 1, 1)) * 100)}%` 
               }}
             />
           </div>
         </div>
+
+        {toNumber(result?.shortAnswerPending, 0) > 0 && (
+          <div className="mt-8 flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-200 text-amber-700">
+               <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+               </svg>
+            </div>
+            <p className="text-xs font-bold text-amber-800">
+              {result.shortAnswerPending} answer(s) pending review. Score may improve.
+            </p>
+          </div>
+        )}
       </div>
-
-      {toNumber(result?.shortAnswerPending, 0) > 0 ? (
-        <div
-          style={{
-            margin: "16px 20px 0",
-            background: "rgba(255,111,15,0.08)",
-            border: "1px solid #ff6f0f33",
-            borderRadius: "12px",
-            padding: "12px 16px",
-            display: "flex",
-            alignItems: "center",
-            gap: "10px",
-          }}
-        >
-          <div
-            style={{
-              width: "8px",
-              height: "8px",
-              borderRadius: "50%",
-              background: "#ff6f0f",
-              animation: "pulse 1.5s infinite",
-            }}
-          />
-          <p style={{ color: "#ff6f0f", fontSize: "12px", margin: 0 }}>
-            {toNumber(result?.shortAnswerPending, 0)} short answer(s) pending teacher review. Score may increase.
-          </p>
-        </div>
-      ) : null}
-
-      <style>{`
-        @keyframes pulse {
-          0%,100% { opacity: 1; transform: scale(1); }
-          50% { opacity: 0.5; transform: scale(1.2); }
-        }
-      `}</style>
     </div>
   );
 }
