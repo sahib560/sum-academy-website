@@ -60,8 +60,9 @@ const normalizeQuizPayload = (payload = {}) => {
       ? question.options
           .map((option) =>
             typeof option === "string"
-              ? option
+              ? option.trim()
               : String(option?.label || option?.text || option?.value || "").trim()
+
           )
           .filter(Boolean)
       : question.options && typeof question.options === "object"
@@ -462,10 +463,12 @@ function StudentQuizAttempt() {
 
   const onSelectMcq = (option) => {
     if (!currentQuestion) return;
+    const clean = typeof option === "string" ? option.trim() : option;
     setAnswers((previous) => ({
       ...previous,
-      [currentQuestion.questionId]: option,
+      [currentQuestion.questionId]: clean,
     }));
+
   };
 
   const onSelectBoolean = (value) => {

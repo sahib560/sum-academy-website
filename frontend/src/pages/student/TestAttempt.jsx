@@ -177,8 +177,25 @@ function StudentTestAttempt() {
   };
 
   const toggleFlag = () => {
-    setIsFlagged(prev => !prev);
+    setIsFlagged(prev => {
+      const next = !prev;
+      if (attempt && currentQuestion) {
+        setAttempt(p => {
+          if (!p) return p;
+          const qid = currentQuestion.questionId || currentQuestion._id;
+          let newFlagged = Array.isArray(p.flagged) ? [...p.flagged] : [];
+          if (next) {
+            if (!newFlagged.includes(qid)) newFlagged.push(qid);
+          } else {
+            newFlagged = newFlagged.filter(id => id !== qid);
+          }
+          return { ...p, flagged: newFlagged };
+        });
+      }
+      return next;
+    });
   };
+
 
   const inProgress =
     attempt && String(attempt.status || "").toLowerCase() === "in_progress";
@@ -215,7 +232,9 @@ function StudentTestAttempt() {
   }, [attempt?.answers, attempt?.flagged, attempt?.currentIndex, currentQuestion]);
 
   const handleOptionSelect = (option) => {
-    setSelectedAnswer(option);
+    const cleanOption = trimText(option);
+    setSelectedAnswer(cleanOption);
+
     if (attempt && currentQuestion) {
       setAttempt((prev) => {
         if (!prev) return prev;
@@ -230,14 +249,15 @@ function StudentTestAttempt() {
         });
 
         if (existingIdx >= 0) {
-          newAnswers[existingIdx] = { ...newAnswers[existingIdx], selectedAnswer: option };
+          newAnswers[existingIdx] = { ...newAnswers[existingIdx], selectedAnswer: cleanOption };
         } else {
           newAnswers.push({
             questionId: qid,
             questionOrder: qOrder,
-            selectedAnswer: option,
+            selectedAnswer: cleanOption,
           });
         }
+
         return { ...prev, answers: newAnswers };
       });
     }
@@ -655,7 +675,8 @@ function StudentTestAttempt() {
               <div className="mt-8 grid gap-3">
                 {(currentQuestion.options || []).map((option, idx) => {
                   const letters = ["A", "B", "C", "D", "E", "F"];
-                  const selected = selectedAnswer === option;
+                  const selected = trimText(selectedAnswer) === trimText(option);
+
                   return (
                     <button
                       key={`${currentQuestion.questionId || currentQuestion._id}-${option}`}

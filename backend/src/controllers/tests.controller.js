@@ -691,10 +691,12 @@ const sanitizeQuestionsForStudent = (questions = []) =>
     questionId: trimText(question.questionId),
     order: toNumber(question.order, 0),
     questionText: trimText(question.questionText),
-    options: Array.isArray(question.options) ? question.options : [],
+    options: (Array.isArray(question.options) ? question.options : []).map(o => trimText(o)),
     marks: Math.max(1, toNumber(question.marks, 1)),
     imageUrl: trimText(question.imageUrl) || null,
+    imagePath: trimText(question.imagePath) || null,
   }));
+
 
 const TEST_QUESTION_IMAGE_PREFIX = "test/questions";
 const MAX_TEST_QUESTION_IMAGE_SIZE_BYTES = 2 * 1024 * 1024;
@@ -1270,6 +1272,7 @@ const getCurrentQuestionForAttempt = (testData = {}, attemptData = {}) => {
 
 const normalizeAttemptPayload = (row = {}) => {
   const status = lowerText(row.status) || "in_progress";
+  const isInProgress = status === "in_progress";
   return {
     id: trimText(row.id),
     testId: trimText(row.testId),
@@ -1277,6 +1280,8 @@ const normalizeAttemptPayload = (row = {}) => {
     currentIndex: Math.max(0, toNumber(row.currentIndex, 0)),
     totalQuestions: Math.max(0, toNumber(row.totalQuestions, 0)),
     answersCount: Array.isArray(row.answers) ? row.answers.length : 0,
+    answers: isInProgress ? (Array.isArray(row.answers) ? row.answers : []) : undefined,
+    flagged: isInProgress ? (Array.isArray(row.flagged) ? row.flagged : []) : undefined,
     score: getAttemptScoreValue(row),
     totalMarks: getAttemptTotalMarksValue(row),
     percentage: getAttemptPercentageValue(row),
@@ -1287,6 +1292,7 @@ const normalizeAttemptPayload = (row = {}) => {
     evaluatedAnswers: status === "submitted" ? (Array.isArray(row.evaluatedAnswers) ? row.evaluatedAnswers : (Array.isArray(row.answers) ? row.answers : [])) : null,
   };
 };
+
 
 const ensureActiveScheduleWindow = (testData = {}) => {
   const status = getTestStatus(testData, new Date());
@@ -2319,9 +2325,12 @@ export const startStudentTest = async (req, res) => {
           currentIndex: 0,
           totalQuestions: testQuestions.length,
           answersCount: 0,
+          answers: [],
+          flagged: [],
           startedAt: now.toISOString(),
           expiresAt: toIso(endAtDate),
         },
+
         currentQuestion: testQuestions[0] || null,
       },
       "Test started successfully"
@@ -2491,8 +2500,11 @@ export const submitStudentTestAnswer = async (req, res) => {
           currentIndex: nextIndex,
           totalQuestions: questions.length,
           answersCount: updatedAnswers.length,
+          answers: updatedAnswers,
+          flagged: updatedFlagged,
           updatedAt: nowIso,
         },
+
         currentQuestion: sanitizeQuestionsForStudent([questions[nextIndex]])[0] || null,
       },
       "Answer saved"
