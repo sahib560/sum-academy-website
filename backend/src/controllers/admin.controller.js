@@ -1125,7 +1125,8 @@ export const getDashboardStats = async (req, res) => {
 export const getRevenueChart = async (req, res) => {
   try {
     const days = parseInt(req.query.days) || 7;
-    const data = await adminService.getRevenueChart(days);
+    const { startDate, endDate } = req.query;
+    const data = await adminService.getRevenueChart(days, startDate, endDate);
     return successResponse(res, data, "Revenue chart fetched");
   } catch (e) {
     return errorResponse(res, "Failed to fetch revenue", 500);
@@ -1551,12 +1552,32 @@ export const getStudents = async (req, res) => {
     const search = String(req.query?.search ?? "").trim();
     const isActive = req.query?.isActive === "true" ? true : req.query?.isActive === "false" ? false : undefined;
 
-    const data = await adminService.getAllStudentsPaginated({
-      pageSize,
-      cursor,
-      filters: { search, isActive },
-    });
-    return successResponse(res, legacy ? data.items : data, "Students fetched");
+    let data;
+    if (legacy) {
+      const allItems = [];
+      let currentCursor = "";
+      let hasMore = true;
+      while (hasMore) {
+        const page = await adminService.getAllStudentsPaginated({
+          pageSize: 200,
+          cursor: currentCursor,
+          filters: { search, isActive },
+        });
+        allItems.push(...(page.items || []));
+        currentCursor = page.page?.nextCursor || "";
+        hasMore = Boolean(page.page?.hasMore) && currentCursor !== "";
+        // Safety cap to prevent infinite loops (though nextCursor should handle it)
+        if (allItems.length > 5000) break; 
+      }
+      data = allItems;
+    } else {
+      data = await adminService.getAllStudentsPaginated({
+        pageSize,
+        cursor,
+        filters: { search, isActive },
+      });
+    }
+    return successResponse(res, data, "Students fetched");
   } catch (e) {
     return errorResponse(res, "Failed to fetch students", 500);
   }
@@ -2826,11 +2847,30 @@ export const getCourses = async (req, res) => {
       };
     });
 
-    const data = Object.values(rowsById).sort((a, b) => {
-      const aTitle = String(a.title || "").toLowerCase();
-      const bTitle = String(b.title || "").toLowerCase();
-      return aTitle.localeCompare(bTitle);
+    const paymentsSnap = await db
+      .collection(COLLECTIONS.PAYMENTS)
+      .where("status", "==", "paid")
+      .get();
+
+    const revenueByCourseId = {};
+    paymentsSnap.docs.forEach((doc) => {
+      const p = doc.data();
+      const courseId = String(p.subjectId || p.courseId || "").trim();
+      if (!courseId) return;
+      revenueByCourseId[courseId] =
+        (revenueByCourseId[courseId] || 0) + toSafeNumber(p.amount, 0);
     });
+
+    const data = Object.values(rowsById)
+      .map((row) => ({
+        ...row,
+        revenue: Math.round(revenueByCourseId[row.id] || 0),
+      }))
+      .sort((a, b) => {
+        const aTitle = String(a.title || "").toLowerCase();
+        const bTitle = String(b.title || "").toLowerCase();
+        return aTitle.localeCompare(bTitle);
+      });
     return successResponse(res, data, "Subjects fetched");
   } catch (e) {
     return errorResponse(res, "Failed to fetch subjects", 500);

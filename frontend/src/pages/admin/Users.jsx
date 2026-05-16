@@ -25,6 +25,7 @@ import {
 import {
   createUser,
   deleteUser,
+  getAllUsers,
   getUserCounts,
   getUsers,
   resetDevice,
@@ -455,6 +456,7 @@ function Users() {
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [isResetOpen, setIsResetOpen] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
 
   const [addForm, setAddForm] = useState(emptyAddForm);
   const [editForm, setEditForm] = useState(emptyEditForm);
@@ -750,51 +752,74 @@ function Users() {
     }));
   };
 
-  const exportUsersPdf = () => {
-    const doc = new jsPDF();
-    const exportDate = new Date().toLocaleDateString("en-PK", {
-      month: "short",
-      day: "2-digit",
-      year: "numeric",
-    });
+  const exportUsersPdf = async () => {
+    if (isExporting) return;
+    setIsExporting(true);
+    const loadingToast = toast.loading("Preparing full user list for export...");
 
-    doc.setFillColor(74, 99, 245);
-    doc.rect(0, 0, 210, 24, "F");
-    doc.setTextColor(255, 255, 255);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(18);
-    doc.text("SUM Academy", 14, 15);
+    try {
+      const allUsersRaw = await getAllUsers({
+        role: activeTab === "all" ? undefined : activeTab,
+        search: debouncedSearch || undefined,
+      });
 
-    doc.setTextColor(31, 41, 55);
-    doc.setFontSize(11);
-    doc.text("Users Export", 14, 34);
-    doc.text(`Generated: ${exportDate}`, 14, 41);
-    doc.text(`Filtered users: ${filteredUsers.length}`, 14, 48);
+      const allUsers = normalizeUsers(
+        Array.isArray(allUsersRaw?.items) ? allUsersRaw.items : Array.isArray(allUsersRaw) ? allUsersRaw : [],
+        [],
+        []
+      );
 
-    let y = 60;
-    filteredUsers.forEach((user, index) => {
-      if (y > 270) {
-        doc.addPage();
-        y = 20;
-      }
+      const doc = new jsPDF();
+      const exportDate = new Date().toLocaleDateString("en-PK", {
+        month: "short",
+        day: "2-digit",
+        year: "numeric",
+      });
 
-      doc.setDrawColor(226, 232, 240);
-      doc.roundedRect(14, y - 6, 182, 18, 3, 3);
+      doc.setFillColor(74, 99, 245);
+      doc.rect(0, 0, 210, 24, "F");
+      doc.setTextColor(255, 255, 255);
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(11);
-      doc.text(`${index + 1}. ${user.displayName}`, 18, y);
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(10);
-      doc.text(user.email || "N/A", 18, y + 6);
-      doc.text(formatRole(user.role), 106, y);
-      doc.text(user.isActive ? "Active" : "Inactive", 136, y);
-      doc.text(user.joinedDate, 162, y);
-      y += 24;
-    });
+      doc.setFontSize(18);
+      doc.text("SUM Academy", 14, 15);
 
-    doc.save(`sum-academy-users-${Date.now()}.pdf`);
-    toast.success("Users PDF exported.");
+      doc.setTextColor(31, 41, 55);
+      doc.setFontSize(11);
+      doc.text("Users Export (Full)", 14, 34);
+      doc.text(`Generated: ${exportDate}`, 14, 41);
+      doc.text(`Total users: ${allUsers.length}`, 14, 48);
+
+      let y = 60;
+      allUsers.forEach((user, index) => {
+        if (y > 270) {
+          doc.addPage();
+          y = 20;
+        }
+
+        doc.setDrawColor(226, 232, 240);
+        doc.roundedRect(14, y - 6, 182, 18, 3, 3);
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(11);
+        doc.text(`${index + 1}. ${user.displayName}`, 18, y);
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(10);
+        doc.text(user.email || "N/A", 18, y + 6);
+        doc.text(formatRole(user.role), 106, y);
+        doc.text(user.isActive ? "Active" : "Inactive", 136, y);
+        doc.text(user.joinedDate, 162, y);
+        y += 24;
+      });
+
+      doc.save(`sum-academy-users-full-${Date.now()}.pdf`);
+      toast.success(`Exported ${allUsers.length} users successfully.`, { id: loadingToast });
+    } catch (error) {
+      console.error("Export error:", error);
+      toast.error("Failed to fetch full user list for export.", { id: loadingToast });
+    } finally {
+      setIsExporting(false);
+    }
   };
+
 
   return (
     <div className="space-y-6 font-sans">

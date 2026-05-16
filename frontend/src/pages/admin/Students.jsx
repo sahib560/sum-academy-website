@@ -27,13 +27,14 @@ import {
 } from "react-icons/fi";
 import { useSearchParams } from "react-router-dom";
 import {
+  approveStudent,
   bulkUploadStudents,
   createUser,
   deleteUser,
   downloadStudentsBulkTemplate,
+  getAllStudents,
   getStudentCounts,
   getStudents,
-  approveStudent,
   rejectStudent,
   resetStudentPaymentRejections,
   resetUserDevice,
@@ -403,6 +404,7 @@ function Students() {
   const [showResetModal, setShowResetModal] = useState(false);
   const [showPaymentResetModal, setShowPaymentResetModal] = useState(false);
   const [showRejectModal, setShowRejectModal] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
   const [profileStudent, setProfileStudent] = useState(null);
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [rejectReason, setRejectReason] = useState("");
@@ -823,51 +825,77 @@ function Students() {
 
   const sanitizePhone = (value) => sanitizePhoneInput(value);
 
-  const exportStudentsPdf = () => {
-    const doc = new jsPDF();
-    const generatedAt = new Date().toLocaleDateString("en-PK", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-    });
+  const exportStudentsPdf = async () => {
+    if (isExporting) return;
+    setIsExporting(true);
+    const loadingToast = toast.loading("Preparing full student list for export...");
 
-    doc.setFillColor(74, 99, 245);
-    doc.rect(0, 0, 210, 24, "F");
-    doc.setTextColor(255, 255, 255);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(18);
-    doc.text("SUM Academy", 14, 15);
+    try {
+      const allStudentsRaw = await getAllStudents({
+        status: statusFilter === "all" ? undefined : statusFilter,
+        search: debouncedSearch || undefined,
+      });
 
-    doc.setTextColor(31, 41, 55);
-    doc.setFontSize(11);
-    doc.text("Students Export", 14, 34);
-    doc.text(`Generated: ${generatedAt}`, 14, 41);
+      const items = Array.isArray(allStudentsRaw?.items)
+        ? allStudentsRaw.items
+        : Array.isArray(allStudentsRaw)
+        ? allStudentsRaw
+        : [];
+      const allStudents = normalizeStudents(items);
+      const sorted = sortStudents(allStudents, sortBy);
 
-    let y = 54;
-    filteredStudents.forEach((student, index) => {
-      if (y > 270) {
-        doc.addPage();
-        y = 20;
-      }
+      const doc = new jsPDF();
+      const generatedAt = new Date().toLocaleDateString("en-PK", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+      });
 
-      doc.setDrawColor(226, 232, 240);
-      doc.roundedRect(10, y - 6, 190, 22, 3, 3);
+      doc.setFillColor(74, 99, 245);
+      doc.rect(0, 0, 210, 24, "F");
+      doc.setTextColor(255, 255, 255);
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(11);
-      doc.text(`${index + 1}. ${student.fullName}`, 14, y);
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(10);
-      doc.text(student.email || "N/A", 14, y + 6);
-      doc.text(student.phoneNumber || "N/A", 86, y);
-      doc.text(String(student.enrolledCourses.length), 140, y);
-      doc.text(student.isActive ? "Active" : "Inactive", 152, y);
-      doc.text(student.joinedDate, 172, y);
-      y += 28;
-    });
+      doc.setFontSize(18);
+      doc.text("SUM Academy", 14, 15);
 
-    doc.save(`sum-academy-students-${Date.now()}.pdf`);
-    toast.success("Students PDF exported.");
+      doc.setTextColor(31, 41, 55);
+      doc.setFontSize(11);
+      doc.text("Students Export (Full)", 14, 34);
+      doc.text(`Generated: ${generatedAt}`, 14, 41);
+      doc.text(`Total students: ${sorted.length}`, 14, 48);
+
+      let y = 60;
+      sorted.forEach((student, index) => {
+        if (y > 270) {
+          doc.addPage();
+          y = 20;
+        }
+
+        doc.setDrawColor(226, 232, 240);
+        doc.roundedRect(10, y - 6, 190, 22, 3, 3);
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(11);
+        doc.text(`${index + 1}. ${student.fullName}`, 14, y);
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(10);
+        doc.text(student.email || "N/A", 14, y + 6);
+        doc.text(student.phoneNumber || "N/A", 86, y);
+        doc.text(`Courses: ${student.enrolledCourses.length}`, 140, y);
+        doc.text(student.isActive ? "Active" : "Inactive", 168, y);
+        doc.text(student.joinedDate, 182, y);
+        y += 28;
+      });
+
+      doc.save(`sum-academy-students-full-${Date.now()}.pdf`);
+      toast.success(`Exported ${sorted.length} students successfully.`, { id: loadingToast });
+    } catch (error) {
+      console.error("Export error:", error);
+      toast.error("Failed to fetch student list for export.", { id: loadingToast });
+    } finally {
+      setIsExporting(false);
+    }
   };
+
 
   return (
     <div className="space-y-6 font-sans">
@@ -893,10 +921,10 @@ function Students() {
           <button
             type="button"
             onClick={exportStudentsPdf}
-            disabled={!filteredStudents.length}
+            disabled={!filteredStudents.length || isExporting}
             className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
           >
-            Export PDF
+            {isExporting ? "Exporting..." : "Export PDF"}
           </button>
           <button
             type="button"

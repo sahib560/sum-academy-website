@@ -188,9 +188,10 @@ const normalizeProgressPayload = (payload = {}) => {
 
     const normalizedQuizzes = quizzes.map((quiz, quizIndex) => {
       const dueAt = toIsoIfValidDate(quiz.dueAt);
+      const GRACE_PERIOD_MS = 5 * 60 * 1000;
       const isExpired = Boolean(
         quiz.isExpired === true ||
-          (dueAt && new Date(dueAt).getTime() < nowMs && !quiz.result)
+          (dueAt && new Date(dueAt).getTime() + GRACE_PERIOD_MS < nowMs && !quiz.result)
       );
       return {
         quizId: quiz.quizId || quiz.id || `${chapterIndex}-quiz-${quizIndex}`,

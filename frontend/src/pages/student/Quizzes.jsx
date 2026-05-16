@@ -399,7 +399,8 @@ function StudentQuizzes() {
       const dueRaw = quiz?.dueDate || quiz?.dueAt || quiz?.assignment?.dueAt || "";
       const due = dueRaw ? new Date(dueRaw) : null;
       const dueIso = due && !Number.isNaN(due.getTime()) ? due.toISOString() : null;
-      const expired = Boolean(quiz?.isPastDue) || (due && due.getTime() < Date.now());
+      const GRACE_PERIOD_MS = 5 * 60 * 1000;
+      const expired = Boolean(quiz?.isPastDue) || (due && due.getTime() + GRACE_PERIOD_MS < Date.now());
       const status = normalizeStatus(quiz.status);
       const attempted = Boolean(quiz.lastAttempt);
       const lastAttemptStatus = normalizeStatus(quiz.lastAttempt?.status);

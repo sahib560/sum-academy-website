@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { motion as Motion } from "framer-motion";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -56,6 +56,12 @@ function Checkout() {
   const [selectedClassId, setSelectedClassId] = useState(prefillClassId);
   const [selectedShiftId, setSelectedShiftId] = useState(prefillShiftId);
   const [installmentMode, setInstallmentMode] = useState("full");
+
+  useEffect(() => {
+    if (selectedClass && !selectedShiftId && selectedClass.shifts?.length > 0) {
+      setSelectedShiftId(selectedClass.shifts[0].id);
+    }
+  }, [selectedClass, selectedShiftId]);
   const [installments, setInstallments] = useState(2);
   const [paymentMethod, setPaymentMethod] = useState("bank_transfer");
   const [initiatedPayment, setInitiatedPayment] = useState(null);

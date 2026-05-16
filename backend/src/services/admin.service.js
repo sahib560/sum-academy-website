@@ -310,32 +310,48 @@ export const getDashboardStats = async () => {
   };
 };
 
-export const getRevenueChart = async (days = 7) => {
+export const getRevenueChart = async (rangeDays = 7, startDate = null, endDate = null) => {
   try {
-    const snap = await db.collection(COLLECTIONS.PAYMENTS).get();
+    const paymentsSnap = await db
+      .collection(COLLECTIONS.PAYMENTS)
+      .where("status", "==", "paid")
+      .get();
 
-    const startDate = new Date();
-    startDate.setDate(startDate.getDate() - days);
-    startDate.setHours(0, 0, 0, 0);
+    let start;
+    let end;
+
+    if (startDate && endDate) {
+      start = new Date(startDate);
+      start.setHours(0, 0, 0, 0);
+      end = new Date(endDate);
+      end.setHours(23, 59, 59, 999);
+    } else {
+      end = new Date();
+      end.setHours(23, 59, 59, 999);
+      start = new Date();
+      start.setDate(end.getDate() - rangeDays + 1);
+      start.setHours(0, 0, 0, 0);
+    }
 
     const revenueMap = {};
-    snap.docs.forEach((doc) => {
+    paymentsSnap.docs.forEach((doc) => {
       const data = doc.data();
-      if (data.status !== "paid") return;
+      const createdAt = parseDate(data.createdAt);
+      if (!createdAt || createdAt < start || createdAt > end) return;
 
-      const createdAt = data.createdAt?.toDate?.();
-      if (!createdAt || createdAt < startDate) return;
-
-      const date = createdAt.toISOString().split("T")[0];
-      revenueMap[date] = (revenueMap[date] || 0) + (data.amount || 0);
+      const dateStr = createdAt.toISOString().split("T")[0];
+      revenueMap[dateStr] = (revenueMap[dateStr] || 0) + toNumber(data.amount, 0);
     });
 
     const result = [];
-    for (let i = days - 1; i >= 0; i--) {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
-      const dateStr = d.toISOString().split("T")[0];
-      result.push({ date: dateStr, amount: revenueMap[dateStr] || 0 });
+    const current = new Date(start);
+    while (current <= end) {
+      const dateStr = current.toISOString().split("T")[0];
+      result.push({
+        date: dateStr,
+        amount: Math.round(revenueMap[dateStr] || 0),
+      });
+      current.setDate(current.getDate() + 1);
     }
 
     return result;
@@ -344,6 +360,7 @@ export const getRevenueChart = async (days = 7) => {
     return [];
   }
 };
+
 
 export const getRecentEnrollments = async (limit = 8) => {
   try {
@@ -507,27 +524,47 @@ export const getClassPerformance = async () => {
   const classesSnap = await db.collection(COLLECTIONS.CLASSES).get();
   const classRows = classesSnap.docs.map((doc) => ({ id: doc.id, ...(doc.data() || {}) }));
 
+  const paymentsSnap = await db
+    .collection(COLLECTIONS.PAYMENTS)
+    .where("status", "==", "paid")
+    .get();
+
+  const revenueByClassId = {};
+  paymentsSnap.docs.forEach((doc) => {
+    const p = doc.data();
+    const classId = String(p.classId || "").trim();
+    if (!classId) return;
+    revenueByClassId[classId] =
+      (revenueByClassId[classId] || 0) + toNumber(p.amount, 0);
+  });
+
   return classRows.map((row) => {
-    const enrolled = Math.max(
+    const enrolledCount = Math.max(
       toNumber(row.enrollmentCount, 0),
       toNumber(row.activeStudents, 0),
       toNumber(row.enrolledCount, 0),
       Array.isArray(row.students) ? row.students.length : toNumber(row.studentCount, 0)
     );
-    const completed = Math.max(0, toNumber(row.completedCount, 0));
-    const completionRate = enrolled ? Math.round((completed / enrolled) * 100) : 0;
+    const completedCount = Math.max(0, toNumber(row.completedCount, 0));
+    const completionRate = enrolledCount ? Math.round((completedCount / enrolledCount) * 100) : 0;
+    const revenueGenerated = Math.max(
+      toNumber(row.totalRevenue ?? row.revenue, 0),
+      toNumber(revenueByClassId[row.id], 0)
+    );
+
     return {
       id: row.id,
       className: trimText(row.name) || "Class",
       batchCode: trimText(row.batchCode),
       teacherName: resolveClassTeacherName(row),
-      enrolled,
-      completed,
+      enrolledCount,
+      completedCount,
       completionRate,
-      revenue: Math.max(0, toNumber(row.totalRevenue ?? row.revenue, 0)),
+      revenueGenerated: Math.round(revenueGenerated),
     };
   });
 };
+
 
 export const getRecentActivity = async (limit = 10) => {
   const snap = await db
@@ -845,18 +882,68 @@ export const getAllTeachers = async () => {
     teachersMap[doc.id] = doc.data();
   });
 
+  const [classesSnap, coursesSnap, paymentsSnap] = await Promise.all([
+    db.collection(COLLECTIONS.CLASSES).get(),
+    db.collection(COLLECTIONS.COURSES).get(),
+    db.collection(COLLECTIONS.PAYMENTS).where("status", "==", "paid").get(),
+  ]);
+
+  const classRows = classesSnap.docs.map((doc) => ({ id: doc.id, ...(doc.data() || {}) }));
+  const courseRows = coursesSnap.docs.map((doc) => ({ id: doc.id, ...(doc.data() || {}) }));
+  const paymentRows = paymentsSnap.docs.map((doc) => doc.data());
+
+  const teacherStats = {};
+
+  classRows.forEach((cls) => {
+    const shifts = Array.isArray(cls.shifts) ? cls.shifts : [];
+    shifts.forEach((shift) => {
+      const teacherId = trimText(shift.teacherId);
+      if (!teacherId) return;
+      if (!teacherStats[teacherId]) {
+        teacherStats[teacherId] = {
+          coursesCount: new Set(),
+          studentsCount: new Set(),
+          revenueGenerated: 0,
+          totalProgress: 0,
+          progressCount: 0,
+        };
+      }
+      const courseId = trimText(shift.courseId || shift.subjectId);
+      if (courseId) teacherStats[teacherId].coursesCount.add(courseId);
+
+      const students = Array.isArray(cls.students) ? cls.students : [];
+      students.forEach((s) => {
+        const studentId = typeof s === "string" ? trimText(s) : trimText(s?.studentId);
+        if (studentId) teacherStats[teacherId].studentsCount.add(studentId);
+      });
+    });
+  });
+
+  paymentRows.forEach((p) => {
+    const classId = trimText(p.classId);
+    if (!classId) return;
+    const cls = classRows.find((c) => c.id === classId);
+    if (!cls) return;
+
+    const shifts = Array.isArray(cls.shifts) ? cls.shifts : [];
+    shifts.forEach((shift) => {
+      const teacherId = trimText(shift.teacherId);
+      if (!teacherId) return;
+      if (teacherStats[teacherId]) {
+        teacherStats[teacherId].revenueGenerated += toNumber(p.amount) / (shifts.length || 1);
+      }
+    });
+  });
+
   return Promise.all(
     usersSnap.docs.map(async (doc) => {
       const userData = doc.data();
       const teacherData = teachersMap[doc.id] || {};
-
-      let authDisplayName = "";
-      try {
-        const authUser = await admin.auth().getUser(doc.id);
-        authDisplayName = authUser.displayName || "";
-      } catch (_e) {
-        authDisplayName = "";
-      }
+      const stats = teacherStats[doc.id] || {
+        coursesCount: new Set(),
+        studentsCount: new Set(),
+        revenueGenerated: 0,
+      };
 
       const emailPrefix = (userData.email || "").split("@")[0];
       const fallbackName = emailPrefix
@@ -868,7 +955,6 @@ export const getAllTeachers = async () => {
       const fullName =
         teacherData.fullName ||
         teacherData.name ||
-        authDisplayName ||
         fallbackName ||
         "Unknown Teacher";
 
@@ -880,6 +966,10 @@ export const getAllTeachers = async () => {
         email: userData.email || "",
         isActive: userData.isActive ?? true,
         createdAt: teacherData.createdAt || userData.createdAt || null,
+        coursesCount: stats.coursesCount.size,
+        studentsCount: stats.studentsCount.size,
+        revenueGenerated: Math.round(stats.revenueGenerated),
+        avgCompletion: 0, // Placeholder for now
       };
     })
   );

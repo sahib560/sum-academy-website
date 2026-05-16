@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import toast, { Toaster } from "react-hot-toast";
@@ -137,6 +137,20 @@ function PreviewModal({ cert, onClose, logoUrl }) {
 }
 
 function GenerateModal({
+            <button className="btn-outline" onClick={async () => { await navigator.clipboard.writeText(verifyLinkFor(cert)); toast.success("Verification link copied!"); }}>
+              Copy Verification Link
+            </button>
+            <button className="rounded-full border border-slate-200 px-5 py-2 text-sm" onClick={onClose}>
+              Close
+            </button>
+          </div>
+        </MotionDiv>
+      </MotionDiv>
+    </AnimatePresence>
+  );
+}
+
+function GenerateModal({
   open,
   onClose,
   students,
@@ -145,6 +159,7 @@ function GenerateModal({
   setForm,
   onSubmit,
   loading,
+  isSearchingStudents,
 }) {
   if (!open) return null;
   const selectedStudent = students.find((s) => (s.uid || s.id) === form.studentId);
@@ -171,32 +186,28 @@ function GenerateModal({
           <div className="mt-5 space-y-4">
             <div>
               <label className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Student</label>
-              <input
-                placeholder="Search student by name or email"
-                value={form.studentSearch}
-                onChange={(e) => setForm((p) => ({ ...p, studentSearch: e.target.value }))}
-                className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-              />
+              <div className="relative">
+                <input
+                  placeholder="Search student by name or email"
+                  value={form.studentSearch}
+                  onChange={(e) => setForm((p) => ({ ...p, studentSearch: e.target.value }))}
+                  className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm pr-10"
+                />
+                {isSearchingStudents && (
+                  <div className="absolute right-3 top-4 mt-0.5 h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                )}
+              </div>
               <select
                 value={form.studentId}
                 onChange={(e) => setForm((p) => ({ ...p, studentId: e.target.value, courseId: "", forceGenerate: false }))}
                 className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
               >
                 <option value="">Select student</option>
-                {students
-                  .filter((s) => {
-                    const q = form.studentSearch.trim().toLowerCase();
-                    if (!q) return true;
-                    return (
-                      String(s.fullName || "").toLowerCase().includes(q) ||
-                      String(s.email || "").toLowerCase().includes(q)
-                    );
-                  })
-                  .map((s) => (
-                    <option key={s.uid || s.id} value={s.uid || s.id}>
-                      {s.fullName || "Student"} - {s.email || ""}
-                    </option>
-                  ))}
+                {students.map((s) => (
+                  <option key={s.uid || s.id} value={s.uid || s.id}>
+                    {s.fullName || "Student"} - {s.email || ""}
+                  </option>
+                ))}
               </select>
             </div>
 
@@ -279,8 +290,20 @@ export default function Certificates() {
     forceGenerate: false,
   });
 
+  const [debouncedStudentSearch, setDebouncedStudentSearch] = useState("");
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedStudentSearch(genForm.studentSearch);
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [genForm.studentSearch]);
+
   const certQ = useQuery({ queryKey: ["admin-certificates"], queryFn: getCertificates });
-  const studentsQ = useQuery({ queryKey: ["admin-students"], queryFn: getStudents });
+  const studentsQ = useQuery({ 
+    queryKey: ["admin-students", debouncedStudentSearch], 
+    queryFn: () => getStudents({ search: debouncedStudentSearch, pageSize: 100 }) 
+  });
   const coursesQ = useQuery({ queryKey: ["admin-courses"], queryFn: getCourses });
 
   const certs = certQ.data || EMPTY;
@@ -554,12 +577,12 @@ export default function Certificates() {
         setForm={setGenForm}
         onSubmit={handleGenerate}
         loading={generateM.isPending}
+        isSearchingStudents={studentsQ.isFetching}
       />
 
       <AnimatePresence>
         {revokeTarget ? (
           <MotionDiv className="fixed inset-0 z-[92] flex items-center justify-center p-4" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-            <button className="absolute inset-0 bg-slate-900/45" onClick={() => setRevokeTarget(null)} />
             <MotionDiv initial={{ scale: 0.96, y: 8 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.96, y: 8 }} className="relative w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl">
               <h3 className="font-heading text-xl text-slate-900">Revoke Certificate</h3>
               <p className="mt-2 text-sm text-slate-600">

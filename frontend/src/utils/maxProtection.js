@@ -261,10 +261,7 @@ export const setupVisibilityGuard = (onViolate) => {
       lastHiddenAt = Date.now();
       clearTimeout(hiddenTimer);
       hiddenTimer = setTimeout(() => {
-        const stillHidden = document.hidden || document.visibilityState === "hidden";
-        if (!stillHidden) return;
         recordViolation("tab_switch");
-        if (typeof onViolate === "function") onViolate("tab_switch");
       }, 450);
     } else {
       clearTimeout(hiddenTimer);
@@ -279,7 +276,6 @@ export const setupVisibilityGuard = (onViolate) => {
       if (!isHidden) return;
       if (Date.now() - lastHiddenAt < 1400) return;
       recordViolation("window_blur");
-      if (typeof onViolate === "function") onViolate("window_blur");
     }, 600);
   };
 
@@ -501,7 +497,7 @@ export const setupMaxProtection = ({
   let cleanupFullscreen = () => {};
 
   if (quizMode) {
-    cleanupVisibility = setupVisibilityGuard(onViolation);
+    cleanupVisibility = setupVisibilityGuard();
   }
 
   activeCleanup = () => {

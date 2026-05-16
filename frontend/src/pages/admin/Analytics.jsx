@@ -127,8 +127,8 @@ function Analytics() {
     isLoading: revenueLoading,
     error: revenueError,
   } = useQuery({
-    queryKey: ["admin", "analytics-revenue", rangeDays],
-    queryFn: () => getRevenueChart(rangeDays),
+    queryKey: ["admin", "analytics-revenue", rangeDays, startDate, endDate],
+    queryFn: () => getRevenueChart(rangeDays, startDate, endDate),
     staleTime: 30000,
     retry: 2,
   });

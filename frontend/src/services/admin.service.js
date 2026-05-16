@@ -22,7 +22,14 @@ const requestWithFallback = async (primary, fallback) => {
 export const getDashboardStats = () =>
   api.get("/admin/stats").then((r) => r.data.data);
 
-export const getRevenueChart = (days = 7) =>
+export const getRevenueChart = (days = 7, startDate = null, endDate = null) => {
+  const params = { days };
+  if (startDate) params.startDate = startDate;
+  if (endDate) params.endDate = endDate;
+  return api.get("/admin/revenue-chart", { params }).then((r) => r.data.data);
+};
+
+const _unused_getRevenueChart = (days = 7) =>
   api.get(`/admin/revenue-chart?days=${days}`).then((r) => r.data.data);
 
 export const getRecentEnrollments = () =>
@@ -49,6 +56,11 @@ export const getUsers = (params) => {
   }
   return api.get("/admin/users", { params }).then((r) => r.data.data);
 };
+
+export const getAllUsers = (filters = {}) => {
+  return api.get("/admin/users", { params: { ...filters, legacy: 1 } }).then((r) => r.data.data);
+};
+
 
 export const getUserCounts = () =>
   api.get("/admin/users/counts").then((r) => r.data.data);
@@ -98,6 +110,11 @@ export const getStudents = (params) => {
     .get("/admin/students", { params: queryParams })
     .then((r) => r.data.data);
 };
+
+export const getAllStudents = (filters = {}) => {
+  return api.get("/admin/students", { params: { ...filters, legacy: 1 } }).then((r) => r.data.data);
+};
+
 
 export const getStudentCounts = () =>
   api.get("/admin/students/counts").then((r) => r.data.data);
@@ -333,12 +350,15 @@ export const removeStudentFromClass = (classId, studentId) =>
     .then((r) => r.data);
 
 export const getAvailableClasses = (courseIdOrParams) => {
-  const params =
-    courseIdOrParams && typeof courseIdOrParams === "object"
-      ? courseIdOrParams
-      : { courseId: courseIdOrParams };
+  let params = {};
+  if (courseIdOrParams && typeof courseIdOrParams === "object") {
+    params = courseIdOrParams;
+  } else if (courseIdOrParams) {
+    params = { courseId: courseIdOrParams };
+  }
   return api.get("/classes/available", { params }).then((r) => r.data.data);
 };
+
 
 export const getCourseCatalog = () =>
   api.get("/classes/catalog").then((r) => r.data.data || []);

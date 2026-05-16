@@ -104,6 +104,8 @@ function StudentQuizAttempt() {
   const cleanupRef = useRef(null);
   const quizStartedAtRef = useRef(0);
   const quizDeadlineMsRef = useRef(0);
+  const serverOffsetMsRef = useRef(0);
+  const [currentTimeMs, setCurrentTimeMs] = useState(Date.now());
 
   const [started, setStarted] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -134,13 +136,43 @@ function StudentQuizAttempt() {
     staleTime: 30000,
   });
 
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTimeMs(Date.now());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    if (data?.serverNow) {
+      const serverMs = new Date(data.serverNow).getTime();
+      if (!Number.isNaN(serverMs)) {
+        serverOffsetMsRef.current = serverMs - Date.now();
+      }
+    }
+  }, [data?.serverNow]);
+
   const isScheduled = location.pathname.includes("/scheduled-quizzes/");
   const quiz = useMemo(() => normalizeQuizPayload(data || {}), [data]);
   const questions = quiz.questions;
   const currentQuestion = questions[currentIndex] || null;
   const [imageBlobUrls, setImageBlobUrls] = useState({});
-  const canAttempt = isScheduled ? Boolean(data?.canAttempt) : true;
-  const quizWindowStatus = isScheduled ? String(data?.status || "").toLowerCase() : "";
+
+  const now = currentTimeMs + serverOffsetMsRef.current;
+  const startAt = isScheduled && data?.startAt ? new Date(data.startAt).getTime() : 0;
+  const endAt = isScheduled && data?.endAt ? new Date(data.endAt).getTime() : 0;
+
+  const isInFuture = startAt > 0 && now < startAt;
+  const isPastEnd = endAt > 0 && now > endAt;
+  const canAttempt = isScheduled ? (!isInFuture && !isPastEnd) : true;
+  
+  const quizWindowStatus = useMemo(() => {
+    if (!isScheduled) return "";
+    if (isInFuture) return "scheduled";
+    if (isPastEnd) return "expired";
+    return "available";
+  }, [isScheduled, isInFuture, isPastEnd]);
+
   const startAtLabel = isScheduled && data?.startAt ? new Date(data.startAt).toLocaleString() : "";
   const endAtLabel = isScheduled && data?.endAt ? new Date(data.endAt).toLocaleString() : "";
 
@@ -371,7 +403,7 @@ function StudentQuizAttempt() {
         const elapsedSinceStart = Date.now() - Number(quizStartedAtRef.current || 0);
         if (
           elapsedSinceStart > 0 &&
-          elapsedSinceStart < 6000 &&
+          elapsedSinceStart < 2000 &&
           ["tab_switch", "window_blur", "devtools"].includes(reason)
         ) {
           return;
@@ -648,7 +680,7 @@ function StudentQuizAttempt() {
 
   return (
     <div
-      className="protected-zone relative h-screen overflow-hidden bg-[#0f172a] font-sans text-slate-200 selection:bg-indigo-500/30 protected-content"
+      className="protected-zone relative min-h-screen lg:h-screen overflow-hidden bg-[#0f172a] font-sans text-slate-200 selection:bg-indigo-500/30 protected-content"
       style={{ position: "relative" }}
     >
       <Toaster position="top-right" />
@@ -795,7 +827,7 @@ function StudentQuizAttempt() {
                   )}
 
                   <button
-                    className={`group relative w-full overflow-hidden rounded-2xl bg-indigo-600 px-8 py-5 font-bold text-white shadow-xl transition-all hover:bg-indigo-500 hover:text-white hover:shadow-indigo-500/20 active:scale-[0.98] ${isScheduled && !canAttempt ? "cursor-not-allowed opacity-50" : ""}`}
+                    className={`group relative w-full overflow-hidden rounded-2xl bg-indigo-600 px-8 py-5 font-bold text-white shadow-xl transition-all duration-300 hover:bg-indigo-500 hover:scale-[1.02] hover:shadow-indigo-500/20 active:scale-[0.98] ${isScheduled && !canAttempt ? "cursor-not-allowed opacity-50" : ""}`}
                     onClick={startQuiz}
                     disabled={isScheduled && !canAttempt}
                   >
@@ -810,7 +842,7 @@ function StudentQuizAttempt() {
               </Motion.div>
             </div>
           ) : (
-            <div className="flex h-screen flex-col overflow-hidden">
+            <div className="flex h-full min-h-screen lg:h-screen flex-col overflow-hidden">
               {/* Top Navigation Bar */}
               <header className="sticky top-0 z-50 border-b border-slate-800 bg-[#0f172a]/80 py-4 backdrop-blur-md">
                 <div className="mx-auto flex max-w-[1400px] items-center justify-between px-6">
@@ -845,7 +877,7 @@ function StudentQuizAttempt() {
 
                     <button
                       onClick={() => setShowExitModal(true)}
-                      className="rounded-xl border border-slate-700 px-4 py-2 text-sm font-bold text-slate-400 transition-colors hover:border-rose-500 hover:bg-rose-500/10 hover:text-rose-500"
+                      className="rounded-xl border border-slate-700 px-4 py-2 text-sm font-bold text-slate-400 transition-all duration-300 hover:scale-105 hover:border-rose-500 hover:bg-rose-500/10 hover:text-rose-500 active:scale-95"
                     >
                       Exit
                     </button>
@@ -914,10 +946,10 @@ function StudentQuizAttempt() {
                                 <button
                                   key={`${currentQuestion.questionId}-option-${index}`}
                                   onClick={() => onSelectMcq(option)}
-                                  className={`group relative flex items-center gap-5 rounded-2xl border-2 p-5 text-left transition-all duration-200 ${
+                                  className={`group relative flex items-center gap-5 rounded-2xl border-2 p-5 text-left transition-all duration-300 hover:scale-[1.01] ${
                                     selected
                                       ? "border-indigo-500 bg-indigo-500/10 shadow-[0_0_20px_rgba(99,102,241,0.15)]"
-                                      : "border-slate-800 bg-slate-800/30 hover:border-slate-700 hover:bg-slate-800/50"
+                                      : "border-slate-800 bg-slate-800/30 hover:border-indigo-500/50 hover:bg-slate-800/80 hover:shadow-lg hover:shadow-indigo-500/5"
                                   }`}
                                 >
                                   <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl font-bold transition-colors ${
@@ -949,10 +981,10 @@ function StudentQuizAttempt() {
                                   <button
                                     key={val}
                                     onClick={() => onSelectBoolean(val)}
-                                    className={`flex h-32 flex-col items-center justify-center rounded-2xl border-2 transition-all duration-200 ${
+                                    className={`flex h-32 flex-col items-center justify-center rounded-2xl border-2 transition-all duration-300 hover:scale-[1.02] ${
                                       selected
-                                        ? isTrue ? "border-emerald-500 bg-emerald-500/10" : "border-rose-500 bg-rose-500/10"
-                                        : "border-slate-800 bg-slate-800/30 hover:border-slate-700"
+                                        ? isTrue ? "border-emerald-500 bg-emerald-500/10 shadow-[0_0_20px_rgba(16,185,129,0.1)]" : "border-rose-500 bg-rose-500/10 shadow-[0_0_20px_rgba(244,63,94,0.1)]"
+                                        : "border-slate-800 bg-slate-800/30 hover:border-slate-600 hover:bg-slate-800/50 hover:shadow-lg"
                                     }`}
                                   >
                                     <div className={`mb-3 flex h-12 w-12 items-center justify-center rounded-full ${
@@ -998,7 +1030,7 @@ function StudentQuizAttempt() {
                       {/* Control Bar */}
                       <div className="flex items-center justify-between border-t border-slate-800 bg-slate-800/20 px-8 py-6">
                         <button
-                          className="flex items-center gap-2 rounded-xl bg-slate-800 px-6 py-3 font-bold text-white transition-all hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-30"
+                          className="flex items-center gap-2 rounded-xl bg-slate-800 px-6 py-3 font-bold text-white transition-all duration-300 hover:bg-slate-700 hover:scale-105 hover:shadow-lg active:scale-95 disabled:cursor-not-allowed disabled:opacity-30"
                           onClick={() => setCurrentIndex((prev) => Math.max(prev - 1, 0))}
                           disabled={currentIndex === 0}
                         >
@@ -1009,10 +1041,10 @@ function StudentQuizAttempt() {
                         </button>
 
                         <button
-                          className={`flex items-center gap-2 rounded-xl px-6 py-3 font-bold transition-all ${
+                          className={`flex items-center gap-2 rounded-xl px-6 py-3 font-bold transition-all duration-300 hover:scale-105 active:scale-95 ${
                             flagged[currentQuestion?.questionId]
                               ? "bg-amber-500 text-white shadow-lg shadow-amber-500/20"
-                              : "bg-slate-800 text-amber-500 hover:bg-amber-500/10"
+                              : "bg-slate-800 text-amber-500 hover:bg-amber-500/20 hover:shadow-md"
                           }`}
                           onClick={toggleFlag}
                         >
@@ -1023,7 +1055,7 @@ function StudentQuizAttempt() {
                         </button>
 
                         <button
-                          className="flex items-center gap-2 rounded-xl bg-indigo-600 px-6 py-3 font-bold text-white transition-all hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-30"
+                          className="flex items-center gap-2 rounded-xl bg-indigo-600 px-6 py-3 font-bold text-white transition-all duration-300 hover:bg-indigo-500 hover:scale-105 hover:shadow-xl hover:shadow-indigo-600/20 active:scale-95 disabled:cursor-not-allowed disabled:opacity-30"
                           onClick={() =>
                             setCurrentIndex((prev) => Math.min(prev + 1, questions.length - 1))
                           }
@@ -1040,7 +1072,7 @@ function StudentQuizAttempt() {
                     {/* Mobile Only Submit */}
                     <div className="lg:hidden">
                        <button
-                        className="w-full rounded-2xl bg-indigo-600 py-5 text-lg font-bold text-white shadow-xl shadow-indigo-600/20 transition-transform active:scale-[0.98]"
+                        className="w-full rounded-2xl bg-indigo-600 py-5 text-lg font-bold text-white shadow-xl shadow-indigo-600/20 transition-all duration-300 hover:bg-indigo-500 hover:scale-[1.02] active:scale-[0.98]"
                         onClick={() => setShowSubmitModal(true)}
                       >
                         Finish & Submit Quiz
@@ -1055,7 +1087,7 @@ function StudentQuizAttempt() {
 
                   {/* Right Column: Status Panel */}
                   <aside className="hidden lg:block">
-                    <div className="sticky top-[100px] space-y-6">
+                    <div className="sticky top-[100px] max-h-[calc(100vh-140px)] overflow-y-auto no-scrollbar space-y-6 pr-2">
                       {/* Violation Counter */}
                       <div className="overflow-hidden rounded-3xl border border-slate-800 bg-slate-900/40 p-6 backdrop-blur-sm">
                          <div className="flex items-center justify-between">
@@ -1201,39 +1233,66 @@ function StudentQuizAttempt() {
               className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm"
             />
             <Motion.div
-              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
-              exit={{ scale: 0.9, opacity: 0, y: 20 }}
-              className="relative z-10 w-full max-w-md overflow-hidden rounded-[2.5rem] border border-slate-800 bg-slate-900 p-8 text-center shadow-2xl"
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              className="relative z-10 w-full max-w-lg overflow-hidden rounded-[2.5rem] border border-slate-800 bg-slate-900 p-10 text-center shadow-2xl"
             >
-              <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-indigo-500/10 text-indigo-500">
-                 <svg className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-2xl bg-amber-500/10 text-amber-500 shadow-inner">
+                 <svg className="h-10 w-10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
                  </svg>
               </div>
-              <h3 className="text-2xl font-bold text-white">Submit Quiz?</h3>
-              <p className="mt-3 text-slate-400 text-sm">
-                {flaggedCount > 0 && (
-                  <span className="block mb-3 text-amber-400 font-bold bg-amber-400/10 p-3 rounded-xl border border-amber-400/20">
-                    ⚠️ You have {flaggedCount} flagged question(s).
-                  </span>
-                )}
-                {unansweredCount > 0 
-                  ? `You have ${unansweredCount} unanswered questions. Are you sure you want to finish the quiz now?`
-                  : "Excellent! You have answered all questions. Ready to see your results?"}
-              </p>
-              <div className="mt-8 grid grid-cols-2 gap-4">
+              <h3 className="text-3xl font-extrabold text-white tracking-tight">Final Submission</h3>
+              <p className="mt-2 text-lg text-slate-400">Review your quiz status before finishing.</p>
+
+              {(unansweredCount > 0 || flaggedCount > 0) ? (
+                <div className="mt-8 space-y-4 text-left">
+                  {unansweredCount > 0 && (
+                    <div className="flex flex-col gap-1 rounded-2xl bg-rose-500/10 border border-rose-500/20 p-5">
+                      <div className="flex items-center gap-2 text-rose-400 font-bold">
+                        <span className="h-3 w-3 rounded-full bg-rose-500 animate-pulse" />
+                        {unansweredCount} Questions Unanswered
+                      </div>
+                      <p className="text-sm text-slate-400">Incomplete questions will receive <span className="font-bold text-white">0 marks</span>.</p>
+                    </div>
+                  )}
+                  {flaggedCount > 0 && (
+                    <div className="flex flex-col gap-1 rounded-2xl bg-amber-500/10 border border-amber-500/20 p-5">
+                      <div className="flex items-center gap-2 text-amber-400 font-bold">
+                        <span className="h-3 w-3 rounded-full bg-amber-500" />
+                        {flaggedCount} Questions Flagged
+                      </div>
+                      <p className="text-sm text-slate-400">Review these before submitting to ensure your answers are correct.</p>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="mt-8 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 p-6">
+                  <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-emerald-500/20 text-emerald-500">
+                     <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
+                  </div>
+                  <h4 className="font-bold text-emerald-400 text-lg">Ready to Submit!</h4>
+                  <p className="mt-1 text-slate-400">All questions have been answered. Ready for your results?</p>
+                </div>
+              )}
+
+              <div className="mt-10 flex flex-col sm:flex-row gap-4">
                 <button
-                  className="rounded-2xl border border-slate-700 py-4 font-bold text-slate-400 transition-colors hover:bg-slate-800"
+                  className="flex-1 order-2 sm:order-1 rounded-2xl border-2 border-slate-800 bg-transparent py-4 text-base font-bold text-slate-400 transition-all hover:bg-slate-800 hover:text-white"
                   onClick={() => setShowSubmitModal(false)}
                 >
-                  Review
+                  Return to Quiz
                 </button>
                 <button
-                  className="rounded-2xl bg-indigo-600 py-4 font-bold text-white transition-all hover:bg-indigo-500 shadow-lg shadow-indigo-600/20"
-                  onClick={() => finalizeSubmit("manual")}
+                  className={`flex-1 order-1 sm:order-2 rounded-2xl py-4 text-base font-bold text-white shadow-xl transition-all active:scale-[0.98] ${
+                    unansweredCount > 0 || flaggedCount > 0
+                      ? "bg-rose-600 shadow-rose-600/20 hover:bg-rose-500"
+                      : "bg-indigo-600 shadow-indigo-600/20 hover:bg-indigo-500"
+                  }`}
+                  onClick={() => { setShowSubmitModal(false); finalizeSubmit("manual"); }}
                 >
-                  Submit Now
+                  {unansweredCount > 0 || flaggedCount > 0 ? "Force Submit" : "Confirm Submit"}
                 </button>
               </div>
             </Motion.div>

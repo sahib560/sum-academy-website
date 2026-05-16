@@ -33,9 +33,9 @@ const toDate = (value) => {
     const parsedPk = new Date(`${fullIso}+05:00`);
     return Number.isNaN(parsedPk.getTime()) ? null : parsedPk;
   }
-  // Date only (YYYY-MM-DD) -> Pakistan midnight
+  // Date only (YYYY-MM-DD) -> Pakistan End of Day
   if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
-    const d = new Date(`${raw}T00:00:00+05:00`);
+    const d = new Date(`${raw}T23:59:59+05:00`);
     return Number.isNaN(d.getTime()) ? null : d;
   }
   const parsed = new Date(raw);

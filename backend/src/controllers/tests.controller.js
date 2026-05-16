@@ -26,7 +26,7 @@ const parseDate = (value) => {
 /**
  * Helper to draw OMR-style individual report page
  */
-const drawIndividualOmrReport = (doc, studentProfile, testData, attemptData, rankInfo) => {
+const drawIndividualOmrReport = (doc, studentProfile, testData, attemptData, rankInfo, includeDetails = true) => {
   const startX = 40;
   const pageWidth = 515;
   let currentY = 40;
@@ -70,7 +70,8 @@ const drawIndividualOmrReport = (doc, studentProfile, testData, attemptData, ran
   const testQuestions = Array.isArray(testData.questions) ? testData.questions : [];
   const totalQ = testData.questionsCount || testQuestions.length || 0;
   const columns = 3;
-  const rowsPerColumn = 60; 
+  // Dynamically calculate rows per column to save space
+  const rowsPerColumn = Math.max(10, Math.ceil(totalQ / columns)); 
   const colWidth = pageWidth / columns;
   
   // Table Header for Grid
@@ -162,10 +163,12 @@ const drawIndividualOmrReport = (doc, studentProfile, testData, attemptData, ran
     }
   });
 
-  // Footer for OMR Page
-  doc.fontSize(8).fillColor("#94a3b8").text("Powered by TryUnity Solutions | Assessment Systems", startX, 760, { align: "center" });
+  // Footer for OMR Page (Always on summary page)
+  doc.fontSize(8).fillColor("#94a3b8").text("Powered by TryUnity Solutions | Assessment Systems", startX, 765, { align: "center" });
 
-  // Detailed Question Analysis Section
+  // Detailed Question Analysis Section (Optional)
+  if (!includeDetails) return;
+
   doc.addPage();
   doc.fontSize(16).font("Helvetica-Bold").fillColor("#1e293b").text("Detailed Question Analysis", { align: "center" });
   doc.moveDown(1.5);
@@ -2858,7 +2861,7 @@ export const downloadStudentTestRankingPdf = async (req, res) => {
         const studentProfile = await ensureStudentProfile(r.studentId);
         const attemptDoc = await db.collection(COLLECTIONS.TEST_ATTEMPTS).doc(r.attemptId).get();
         const attemptData = attemptDoc.data() || {};
-        drawIndividualOmrReport(doc, { ...studentProfile, uid: r.studentId }, { ...testData, testId }, { ...r, evaluatedAnswers: attemptData.evaluatedAnswers || attemptData.answers }, { position: r.position, total: ranking.length });
+        drawIndividualOmrReport(doc, { ...studentProfile, uid: r.studentId }, { ...testData, testId }, { ...r, evaluatedAnswers: attemptData.evaluatedAnswers || attemptData.answers }, { position: r.position, total: ranking.length }, true);
       }
 
       doc.end();
@@ -2906,7 +2909,7 @@ export const downloadStudentTestRankingPdf = async (req, res) => {
         correctCount: submitted.correctCount,
         wrongCount: submitted.wrongCount,
         missedCount: submitted.missedCount,
-      }, myRank ? { position: myRank.position, total: ranking.length } : null);
+      }, myRank ? { position: myRank.position, total: ranking.length } : null, false);
 
       doc.end();
     } catch (error) {

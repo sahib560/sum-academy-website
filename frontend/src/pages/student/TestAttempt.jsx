@@ -62,14 +62,22 @@ function StudentTestAttempt() {
   const serverOffsetMsRef = useRef(0);
   const [securityDeactivatedInfo, setSecurityDeactivatedInfo] = useState(null);
   const lastViolationRef = useRef({ reason: "", count: 0, at: 0 });
+  const [currentTimeMs, setCurrentTimeMs] = useState(Date.now());
 
   const detailQuery = useQuery({
     queryKey: ["student-test-by-id", testId],
     queryFn: () => getStudentTestById(testId),
     enabled: Boolean(testId),
     staleTime: 10000,
-    refetchInterval: false,
+    refetchInterval: 30000, // Re-sync every 30s
   });
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTimeMs(Date.now());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     const payload = detailQuery.data || {};
@@ -459,7 +467,7 @@ function StudentTestAttempt() {
     }
   };
 
-  const now = Date.now() + serverOffsetMsRef.current;
+  const now = currentTimeMs + serverOffsetMsRef.current;
   const startAt = test?.startAt ? new Date(test.startAt).getTime() : 0;
   const endAt = test?.endAt ? new Date(test.endAt).getTime() : 0;
   
@@ -961,68 +969,106 @@ function StudentTestAttempt() {
         {showSubmitConfirm && (() => {
           const allAnswers = attempt?.answers || [];
           const allFlagged = attempt?.flagged || [];
-          const missed = Array.from({ length: totalQuestions }).filter((_, idx) => {
-            const qid = test?.questions?.[idx]?.questionId;
-            return !allAnswers.some(a => {
-              const byOrder = a.questionOrder === idx + 1 && a.selectedAnswer;
-              const byId = qid && String(a.questionId || "").trim() === String(qid).trim() && a.selectedAnswer;
-              return byOrder || byId;
+          
+          // Calculate missed questions: questions that are in the test but not in the answers array
+          const missed = (test?.questions || []).filter((q, idx) => {
+            const qid = q.questionId;
+            const hasAns = allAnswers.some(a => {
+               const byOrder = a.questionOrder === idx + 1 && a.selectedAnswer;
+               const byId = qid && String(a.questionId || "").trim() === String(qid).trim() && a.selectedAnswer;
+               return byOrder || byId;
             });
+            return !hasAns;
           });
+
           const flaggedCount = allFlagged.length;
           const hasMissed = missed.length > 0;
           const hasFlagged = flaggedCount > 0;
+          
           return (
             <Motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 px-4 backdrop-blur-sm"
+              className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 px-4 backdrop-blur-sm"
             >
               <Motion.div
-                initial={{ scale: 0.92, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                exit={{ scale: 0.92, opacity: 0 }}
-                className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-8 shadow-2xl"
+                initial={{ scale: 0.95, opacity: 0, y: 20 }}
+                animate={{ scale: 1, opacity: 1, y: 0 }}
+                exit={{ scale: 0.95, opacity: 0, y: 20 }}
+                className="w-full max-w-lg rounded-3xl border border-slate-200 bg-white p-10 shadow-2xl"
               >
-                <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-amber-100 text-amber-600">
-                  <svg className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <div className="mb-6 flex h-20 w-20 items-center justify-center rounded-2xl bg-amber-100 text-amber-600 shadow-inner">
+                  <svg className="h-10 w-10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
                   </svg>
                 </div>
-                <h3 className="text-xl font-bold text-slate-800">Submit Test?</h3>
+                
+                <h3 className="text-3xl font-extrabold text-slate-900 tracking-tight">Final Submission</h3>
+                <p className="mt-2 text-lg text-slate-500">Please review your test status before finishing.</p>
+
                 {(hasMissed || hasFlagged) ? (
-                  <div className="mt-3 space-y-2">
+                  <div className="mt-8 space-y-4">
                     {hasMissed && (
-                      <div className="flex items-center gap-2 rounded-lg bg-red-50 px-4 py-2 text-sm font-semibold text-red-600">
-                        <span className="h-2.5 w-2.5 rounded-full bg-red-500 shrink-0" />
-                        {missed.length} question{missed.length > 1 ? "s" : ""} not answered — will get 0 marks
+                      <div className="flex flex-col gap-1 rounded-2xl bg-rose-50 border border-rose-100 p-5">
+                        <div className="flex items-center gap-2 text-rose-700 font-bold">
+                          <span className="h-3 w-3 rounded-full bg-rose-500 animate-pulse" />
+                          {missed.length} Questions Unanswered
+                        </div>
+                        <p className="text-sm text-rose-600/80">Missing questions will be scored as <span className="font-bold">0 marks</span>. We recommend going back to complete them.</p>
                       </div>
                     )}
                     {hasFlagged && (
-                      <div className="flex items-center gap-2 rounded-lg bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-700">
-                        <span className="h-2.5 w-2.5 rounded-full bg-amber-400 shrink-0" />
-                        {flaggedCount} flagged question{flaggedCount > 1 ? "s" : ""} — review before submitting
+                      <div className="flex flex-col gap-1 rounded-2xl bg-amber-50 border border-amber-100 p-5">
+                        <div className="flex items-center gap-2 text-amber-700 font-bold">
+                          <span className="h-3 w-3 rounded-full bg-amber-400" />
+                          {flaggedCount} Questions Flagged
+                        </div>
+                        <p className="text-sm text-amber-600/80">You marked these for review. If you submit now, the currently selected answers will be finalized.</p>
                       </div>
                     )}
-                    <p className="pt-1 text-sm text-slate-500">You can go back to answer these, or submit now and those questions will receive zero marks.</p>
+                    
+                    <div className="mt-6 rounded-2xl bg-slate-50 p-4 border border-slate-200">
+                      <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1 text-center">Important Notice</p>
+                      <p className="text-sm text-slate-600 text-center leading-relaxed">
+                        Unanswered and flagged questions might impact your final score. 
+                        Do you want to <span className="font-bold text-slate-800">Return</span> and complete them, 
+                        or <span className="font-bold text-slate-800">Force Submit</span> your current attempt?
+                      </p>
+                    </div>
                   </div>
                 ) : (
-                  <p className="mt-2 text-sm text-slate-500">All questions have been answered. Are you sure you want to submit?</p>
+                  <div className="mt-8 rounded-2xl bg-emerald-50 border border-emerald-100 p-6 text-center">
+                    <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100 text-emerald-600">
+                       <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
+                    </div>
+                    <h4 className="font-bold text-emerald-900 text-lg">Great Work!</h4>
+                    <p className="mt-1 text-emerald-700">All questions have been answered. You are ready to submit.</p>
+                  </div>
                 )}
-                <div className="mt-6 flex gap-3">
+
+                <div className="mt-10 flex flex-col sm:flex-row gap-4">
                   <button
                     onClick={() => setShowSubmitConfirm(false)}
-                    className="flex-1 rounded-xl border border-slate-300 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-50"
+                    className="flex-1 order-2 sm:order-1 rounded-2xl border-2 border-slate-200 bg-white py-4 text-base font-bold text-slate-600 transition-all hover:bg-slate-50 hover:border-slate-300 active:scale-[0.98]"
                   >
-                    Go Back
+                    Return to Test
                   </button>
                   <button
                     onClick={() => { setShowSubmitConfirm(false); finishMutation.mutate("manual"); }}
                     disabled={finishMutation.isPending}
-                    className="flex-1 rounded-xl bg-emerald-600 py-2.5 text-sm font-bold text-white hover:bg-emerald-500 disabled:opacity-50"
+                    className={`flex-1 order-1 sm:order-2 rounded-2xl py-4 text-base font-bold text-white shadow-xl transition-all active:scale-[0.98] disabled:opacity-50 ${
+                      hasMissed || hasFlagged 
+                        ? "bg-rose-600 shadow-rose-600/20 hover:bg-rose-500" 
+                        : "bg-emerald-600 shadow-emerald-600/20 hover:bg-emerald-500"
+                    }`}
                   >
-                    {finishMutation.isPending ? "Submitting..." : "Submit Now"}
+                    {finishMutation.isPending ? (
+                      <span className="flex items-center justify-center gap-2">
+                        <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" /></svg>
+                        Submitting...
+                      </span>
+                    ) : (hasMissed || hasFlagged ? "Force Submit" : "Confirm Submit")}
                   </button>
                 </div>
               </Motion.div>

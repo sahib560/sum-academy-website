@@ -3,19 +3,19 @@ import autoTable from "jspdf-autotable";
 import fallbackLogo from "../assets/logo.png";
 
 const BRAND = {
-  blue: [74, 99, 245],
-  blueDark: [51, 71, 232],
-  orange: [255, 111, 15],
-  dark: [13, 15, 26],
+  primary: [14, 165, 233], // Sky 500
+  dark: [15, 23, 42], // Slate 900
+  darker: [2, 6, 23], // Slate 950
   white: [255, 255, 255],
-  gray: [100, 116, 139],
-  lightGray: [241, 245, 249],
-  lightBlue: [240, 244, 255],
-  green: [22, 163, 74],
-  lightGreen: [220, 252, 231],
-  red: [220, 38, 38],
-  border: [226, 232, 240],
-  text: [26, 26, 46],
+  gray: [100, 116, 139], // Slate 500
+  lightGray: [248, 250, 252], // Slate 50
+  border: [226, 232, 240], // Slate 200
+  green: [16, 185, 129], // Emerald 500
+  lightGreen: [209, 250, 229], // Emerald 100
+  orange: [245, 158, 11], // Amber 500
+  red: [239, 68, 68], // Red 500
+  text: [15, 23, 42], // Slate 900
+  textLight: [71, 85, 105], // Slate 600
 };
 
 const toDate = (value) => {
@@ -91,91 +91,100 @@ const loadLogo = async (logoUrl) => {
 
 const drawHeader = (doc, logoData, title, subtitle, W) => {
   doc.setFillColor(...BRAND.dark);
-  doc.rect(0, 0, W, 42, "F");
+  doc.rect(0, 0, W, 48, "F");
 
-  doc.setFillColor(...BRAND.blue);
-  doc.rect(0, 0, 6, 42, "F");
+  // Premium accent line at bottom of header
+  doc.setFillColor(...BRAND.primary);
+  doc.rect(0, 48, W, 1.5, "F");
 
-  doc.setFillColor(...BRAND.orange);
-  doc.rect(0, 40, W, 2, "F");
-
+  // Logo handling
   if (logoData) {
     try {
-      doc.addImage(logoData, getImageFormat(logoData), 12, 8, 26, 26);
+      doc.addImage(logoData, getImageFormat(logoData), 14, 10, 28, 28);
     } catch {
-      doc.setFillColor(...BRAND.blue);
-      doc.circle(25, 21, 13, "F");
+      doc.setFillColor(...BRAND.primary);
+      doc.circle(28, 24, 14, "F");
       doc.setTextColor(...BRAND.white);
       doc.setFont("helvetica", "bold");
       doc.setFontSize(16);
-      doc.text("S", 25, 26, { align: "center" });
+      doc.text("S", 28, 29, { align: "center" });
     }
   } else {
-    doc.setFillColor(...BRAND.blue);
-    doc.circle(25, 21, 13, "F");
+    doc.setFillColor(...BRAND.primary);
+    doc.circle(28, 24, 14, "F");
     doc.setTextColor(...BRAND.white);
     doc.setFont("helvetica", "bold");
     doc.setFontSize(16);
-    doc.text("S", 25, 26, { align: "center" });
+    doc.text("S", 28, 29, { align: "center" });
   }
 
+  // Institution Title
   doc.setTextColor(...BRAND.white);
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(18);
-  doc.text("SUM Academy", 46, 18);
+  doc.setFontSize(22);
+  doc.text("SUM Academy", 50, 23);
 
+  // Institution Subtitle
+  doc.setTextColor(148, 163, 184); // Slate 400
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(10);
+  doc.text("Medical Learning Excellence", 50, 31);
+
+  // Document Title (Right aligned)
+  doc.setTextColor(...BRAND.white);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(16);
+  doc.text(title, W - 14, 23, { align: "right" });
+
+  // Document Subtitle / Number
   doc.setTextColor(148, 163, 184);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(9);
-  doc.text("sumacademy.net", 46, 26);
-
-  doc.setTextColor(...BRAND.white);
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(14);
-  doc.text(title, W - 14, 18, { align: "right" });
-
-  doc.setTextColor(148, 163, 184);
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(8);
-  doc.text(subtitle, W - 14, 26, { align: "right" });
+  doc.text(subtitle, W - 14, 31, { align: "right" });
 };
 
 const drawFooter = (doc, W, H, pageNum, totalPages) => {
   doc.setFillColor(...BRAND.lightGray);
-  doc.rect(0, H - 16, W, 16, "F");
+  doc.rect(0, H - 20, W, 20, "F");
 
-  doc.setFillColor(...BRAND.blue);
-  doc.rect(0, H - 16, 4, 16, "F");
+  doc.setDrawColor(...BRAND.border);
+  doc.setLineWidth(0.5);
+  doc.line(0, H - 20, W, H - 20);
 
   doc.setTextColor(...BRAND.gray);
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(7.5);
-  doc.text("SUM Academy  |  sumacademy.net  |  Karachi, Pakistan", 14, H - 7);
-  doc.text(`Page ${pageNum} of ${totalPages}`, W - 14, H - 7, { align: "right" });
+  doc.setFontSize(8);
+  doc.text("SUM Academy  |  support@sumacademy.net  |  Karachi, Pakistan", 14, H - 8.5);
+  
+  if (totalPages > 0) {
+    doc.text(`Page ${pageNum} of ${totalPages}`, W - 14, H - 8.5, { align: "right" });
+  }
 };
 
 const drawInfoRow = (doc, x, y, label, value, WCol) => {
-  doc.setFillColor(...BRAND.lightGray);
-  doc.roundedRect(x, y, WCol, 9, 2, 2, "F");
+  // Line separator instead of box for a cleaner look
+  doc.setDrawColor(...BRAND.border);
+  doc.setLineWidth(0.3);
+  doc.line(x, y + 8, x + WCol, y + 8);
 
-  doc.setTextColor(...BRAND.gray);
+  doc.setTextColor(...BRAND.textLight);
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(7.5);
-  doc.text(label, x + 4, y + 6);
+  doc.setFontSize(8.5);
+  doc.text(label, x, y + 5);
 
   doc.setTextColor(...BRAND.text);
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(8.5);
-  doc.text(String(value || "-"), x + WCol - 4, y + 6, { align: "right" });
+  doc.setFontSize(9);
+  doc.text(String(value || "-"), x + WCol, y + 5, { align: "right" });
 };
 
 const drawStatusBadge = (doc, x, y, text, color) => {
   doc.setFillColor(...color);
-  doc.roundedRect(x, y, 32, 8, 2, 2, "F");
+  doc.roundedRect(x, y, 36, 9, 4.5, 4.5, "F"); // Fully rounded modern badge
   doc.setTextColor(...BRAND.white);
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(7);
-  doc.text(String(text || "pending").toUpperCase(), x + 16, y + 5.5, { align: "center" });
+  doc.setFontSize(8);
+  doc.text(String(text || "pending").toUpperCase(), x + 18, y + 6, { align: "center" });
 };
 
 export const generateInvoicePDF = async ({
@@ -209,7 +218,7 @@ export const generateInvoicePDF = async ({
     W
   );
 
-  let y = 52;
+  let y = 62;
 
   const normalizedStatus = String(status || "pending").toLowerCase();
   const statusColor =
@@ -220,82 +229,67 @@ export const generateInvoicePDF = async ({
         : BRAND.red;
 
   drawStatusBadge(doc, 14, y, normalizedStatus, statusColor);
-  y += 14;
+  y += 18;
 
   const col1X = 14;
   const col2X = 116;
   const colW = 80;
 
-  doc.setFillColor(...BRAND.blue);
-  doc.roundedRect(col1X, y, colW, 7, 2, 2, "F");
-  doc.setTextColor(...BRAND.white);
+  // Student Info Section
+  doc.setTextColor(...BRAND.primary);
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(8);
-  doc.text("STUDENT INFORMATION", col1X + 4, y + 5);
-  y += 10;
+  doc.setFontSize(10);
+  doc.text("BILL TO", col1X, y);
+  y += 6;
 
-  drawInfoRow(doc, col1X, y, "Full Name", studentName, colW);
-  drawInfoRow(doc, col1X, y + 11, "Email", studentEmail, colW);
-  drawInfoRow(doc, col1X, y + 22, "Phone", studentPhone, colW);
+  drawInfoRow(doc, col1X, y, "Student Name", studentName, colW);
+  drawInfoRow(doc, col1X, y + 12, "Email", studentEmail, colW);
+  drawInfoRow(doc, col1X, y + 24, "Phone", studentPhone, colW);
 
-  const y2 = y - 10;
-  doc.setFillColor(...BRAND.dark);
-  doc.roundedRect(col2X, y2, colW, 7, 2, 2, "F");
-  doc.setTextColor(...BRAND.white);
+  // Invoice Details Section
+  const y2 = y - 6;
+  doc.setTextColor(...BRAND.dark);
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(8);
-  doc.text("INVOICE DETAILS", col2X + 4, y2 + 5);
+  doc.setFontSize(10);
+  doc.text("INVOICE DETAILS", col2X, y2);
 
   const invoiceDate = formatDate(paymentDate);
 
-  drawInfoRow(
-    doc,
-    col2X,
-    y2 + 10,
-    "Invoice ID",
-    `#${String(invoiceId || "-").slice(-8).toUpperCase()}`,
-    colW
-  );
-  drawInfoRow(doc, col2X, y2 + 21, "Date", invoiceDate, colW);
-  drawInfoRow(doc, col2X, y2 + 32, "Reference", referenceNumber || "-", colW);
+  drawInfoRow(doc, col2X, y2 + 6, "Invoice ID", `#${String(invoiceId || "-").slice(-8).toUpperCase()}`, colW);
+  drawInfoRow(doc, col2X, y2 + 18, "Date", invoiceDate, colW);
+  drawInfoRow(doc, col2X, y2 + 30, "Reference", referenceNumber || "-", colW);
+
+  y += 42;
+
+  // Enrolled Course Section (Premium Card)
+  doc.setFillColor(...BRAND.lightGray);
+  doc.roundedRect(14, y, W - 28, 28, 4, 4, "F");
+  
+  doc.setFillColor(...BRAND.primary);
+  doc.roundedRect(14, y, 4, 28, 4, 4, "F");
+
+  doc.setTextColor(...BRAND.textLight);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  doc.text("ENROLLED COURSE", 24, y + 10);
+
+  doc.setTextColor(...BRAND.dark);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(14);
+  doc.text(courseName || "-", 24, y + 18);
+
+  doc.setTextColor(...BRAND.gray);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  doc.text([className, shiftName].filter(Boolean).join("  •  ") || "-", 24, y + 25);
 
   y += 36;
 
-  doc.setDrawColor(...BRAND.border);
-  doc.setLineWidth(0.4);
-  doc.line(14, y, W - 14, y);
-  y += 8;
-
-  doc.setFillColor(...BRAND.lightBlue);
-  doc.roundedRect(14, y, W - 28, 32, 3, 3, "F");
-
-  doc.setDrawColor(...BRAND.blue);
-  doc.setLineWidth(0.8);
-  doc.line(14, y, 14, y + 32);
-
-  doc.setTextColor(...BRAND.gray);
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(7.5);
-  doc.text("ENROLLED COURSE", 20, y + 8);
-
-  doc.setTextColor(...BRAND.text);
+  // Payment Breakdown
+  doc.setTextColor(...BRAND.dark);
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(13);
-  doc.text(courseName || "-", 20, y + 17);
-
-  doc.setTextColor(...BRAND.gray);
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(8);
-  doc.text([className, shiftName].filter(Boolean).join("  |  ") || "-", 20, y + 25);
-
-  y += 40;
-
-  doc.setFillColor(...BRAND.dark);
-  doc.roundedRect(14, y, W - 28, 7, 2, 2, "F");
-  doc.setTextColor(...BRAND.white);
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(8);
-  doc.text("PAYMENT BREAKDOWN", 18, y + 5);
+  doc.setFontSize(11);
+  doc.text("PAYMENT BREAKDOWN", 14, y + 5);
   y += 10;
 
   const rows = [["Course Fee", formatPKR(originalAmount)]];
@@ -313,51 +307,58 @@ export const generateInvoicePDF = async ({
     body: rows,
     theme: "plain",
     styles: {
-      fontSize: 9,
-      cellPadding: 4,
+      fontSize: 10,
+      cellPadding: 5,
       textColor: BRAND.text,
     },
     columnStyles: {
-      0: { fontStyle: "normal", textColor: BRAND.gray, cellWidth: 100 },
+      0: { fontStyle: "normal", textColor: BRAND.textLight, cellWidth: 100 },
       1: { fontStyle: "bold", halign: "right", cellWidth: 82 },
     },
     margin: { left: 14, right: 14 },
-    alternateRowStyles: { fillColor: BRAND.lightGray },
+    willDrawCell: (data) => {
+      // Add subtle bottom border to all rows except last
+      if (data.row.index < rows.length - 1) {
+        doc.setDrawColor(...BRAND.border);
+        doc.setLineWidth(0.2);
+        doc.line(data.cell.x, data.cell.y + data.cell.height, data.cell.x + data.cell.width, data.cell.y + data.cell.height);
+      }
+    }
   });
 
-  y = (doc.lastAutoTable?.finalY || y) + 4;
+  y = (doc.lastAutoTable?.finalY || y) + 8;
 
-  doc.setFillColor(...BRAND.blue);
-  doc.roundedRect(14, y, W - 28, 16, 3, 3, "F");
+  // Total Block
+  doc.setFillColor(...BRAND.dark);
+  doc.roundedRect(14, y, W - 28, 20, 4, 4, "F");
 
   doc.setTextColor(...BRAND.white);
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(9);
-  doc.text("TOTAL AMOUNT PAID", 20, y + 10);
+  doc.setFontSize(11);
+  doc.text("TOTAL AMOUNT PAID", 22, y + 12);
 
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(16);
-  doc.text(formatPKR(finalAmount), W - 18, y + 10, { align: "right" });
-  y += 24;
+  doc.setFontSize(18);
+  doc.text(formatPKR(finalAmount), W - 22, y + 13, { align: "right" });
+  y += 30;
 
   if (normalizedStatus === "paid") {
+    // Watermark/Stamp
     doc.setDrawColor(...BRAND.green);
     doc.setLineWidth(1.5);
-    doc.roundedRect(W - 62, y - 20, 44, 14, 4, 4);
+    doc.roundedRect(W - 66, y - 24, 52, 16, 4, 4);
     doc.setTextColor(...BRAND.green);
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(14);
-    doc.text("PAID", W - 40, y - 9, { align: "center" });
-    doc.setFontSize(7);
-    doc.text(invoiceDate, W - 40, y - 3, { align: "center" });
+    doc.setFontSize(16);
+    doc.text("PAID", W - 40, y - 13, { align: "center" });
+    doc.setFontSize(8);
+    doc.text(invoiceDate, W - 40, y - 6.5, { align: "center" });
   }
 
-  y += 8;
-  doc.setFillColor(...BRAND.lightGray);
-  doc.roundedRect(14, y, W - 28, 14, 3, 3, "F");
+  y += 10;
   doc.setTextColor(...BRAND.gray);
   doc.setFont("helvetica", "italic");
-  doc.setFontSize(8.5);
+  doc.setFontSize(9);
   doc.text(
     "Thank you for choosing SUM Academy. This is your official payment invoice.",
     W / 2,
@@ -365,8 +366,8 @@ export const generateInvoicePDF = async ({
     { align: "center" }
   );
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(7.5);
-  doc.text("For queries contact: support@sumacademy.net", W / 2, y + 11, {
+  doc.setFontSize(8);
+  doc.text("For queries contact: support@sumacademy.net", W / 2, y + 12, {
     align: "center",
   });
 
@@ -396,49 +397,44 @@ export const generateReceiptPDF = async ({
 
   drawHeader(doc, logo, "RECEIPT", "Payment Confirmation", W);
 
-  let y = 52;
+  let y = 58;
 
+  // Success Banner
   doc.setFillColor(...BRAND.lightGreen);
-  doc.roundedRect(10, y, W - 20, 14, 3, 3, "F");
-  doc.setDrawColor(...BRAND.green);
-  doc.setLineWidth(0.8);
-  doc.roundedRect(10, y, W - 20, 14, 3, 3);
+  doc.roundedRect(10, y, W - 20, 14, 4, 4, "F");
 
   doc.setFillColor(...BRAND.green);
   doc.circle(20, y + 7, 4, "F");
   doc.setTextColor(...BRAND.white);
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(7);
-  doc.text("OK", 20, y + 9.5, { align: "center" });
+  doc.setFontSize(8);
+  doc.text("✓", 20, y + 9.5, { align: "center" });
 
   doc.setTextColor(...BRAND.green);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(10);
-  doc.text("Payment Verified and Confirmed", 28, y + 6);
+  doc.text("Payment Verified", 28, y + 6);
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(7.5);
+  doc.setFontSize(8);
   doc.text(
     verifiedAt
-      ? `Verified on ${formatDate(verifiedAt)}`
+      ? `Confirmed on ${formatDate(verifiedAt)}`
       : "Payment confirmed by SUM Academy",
     28,
-    y + 11
+    y + 10.5
   );
-  y += 20;
+  y += 22;
 
-  doc.setFillColor(...BRAND.dark);
-  doc.roundedRect(10, y, W - 20, 10, 2, 2, "F");
-  doc.setTextColor(148, 163, 184);
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(7);
-  doc.text("RECEIPT NUMBER", 14, y + 4.5);
-  doc.setTextColor(...BRAND.white);
+  // Receipt Details
+  doc.setTextColor(...BRAND.textLight);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(9);
-  doc.text(`#${String(receiptId || "XXXXXXXXXX").toUpperCase().slice(-10)}`, W - 14, y + 7, {
+  doc.text("RECEIPT DETAILS", 10, y);
+  doc.setTextColor(...BRAND.dark);
+  doc.text(`#${String(receiptId || "XXXXXXXXXX").toUpperCase().slice(-10)}`, W - 10, y, {
     align: "right",
   });
-  y += 16;
+  y += 4;
 
   const colW = W - 20;
   const details = [
@@ -446,46 +442,44 @@ export const generateReceiptPDF = async ({
     ["Email", studentEmail || "-"],
     ["Course", courseName || "-"],
     ["Class", className || "-"],
-    ["Payment Method", normalizeMethodLabel(method)],
+    ["Method", normalizeMethodLabel(method)],
     ["Reference", referenceNumber || "-"],
     ["Date", formatDate(paymentDate)],
-    ["Verified By", verifiedBy || "SUM Academy"],
+    ["Verified By", verifiedBy || "System"],
   ];
 
   details.forEach(([label, value]) => {
     drawInfoRow(doc, 10, y, label, value, colW);
-    y += 11;
+    y += 12;
   });
 
-  y += 4;
+  y += 6;
 
-  doc.setFillColor(...BRAND.blue);
-  doc.roundedRect(10, y, W - 20, 18, 3, 3, "F");
-
-  doc.setTextColor(148, 163, 184);
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(8);
-  doc.text("AMOUNT PAID", 16, y + 8);
+  // Amount Block
+  doc.setFillColor(...BRAND.dark);
+  doc.roundedRect(10, y, W - 20, 22, 4, 4, "F");
 
   doc.setTextColor(...BRAND.white);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  doc.text("TOTAL PAID", 16, y + 12);
+
   doc.setFont("helvetica", "bold");
   doc.setFontSize(18);
-  doc.text(formatPKR(amount), W - 14, y + 12, { align: "right" });
-  y += 26;
+  doc.text(formatPKR(amount), W - 16, y + 13, { align: "right" });
+  y += 32;
 
-  doc.setFillColor(...BRAND.lightGray);
-  doc.roundedRect(10, y, W - 20, 16, 3, 3, "F");
   doc.setTextColor(...BRAND.gray);
   doc.setFont("helvetica", "italic");
-  doc.setFontSize(7.5);
+  doc.setFontSize(8);
   doc.text("This receipt confirms your payment to SUM Academy.", W / 2, y + 6, {
     align: "center",
   });
-  doc.text("Please keep this for your records.", W / 2, y + 11, {
+  doc.text("Please keep this for your records.", W / 2, y + 10, {
     align: "center",
   });
 
-  drawFooter(doc, W, H, 1, 1);
+  drawFooter(doc, W, H, 0, 0); // No pagination needed on simple receipt
 
   doc.save(`SUM_Receipt_${String(receiptId || "receipt").slice(-8)}.pdf`);
 };

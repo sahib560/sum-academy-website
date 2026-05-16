@@ -52,8 +52,6 @@ export default function VideoPlayer({
     let cancelled = false;
     setLoading(true);
     setError("");
-    setStreamUrl("");
-
     const fetchUrl = async () => {
       try {
         const res = await api.get(`/video/${lectureId}/stream-url`);
