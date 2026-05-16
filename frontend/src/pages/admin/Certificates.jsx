@@ -137,20 +137,6 @@ function PreviewModal({ cert, onClose, logoUrl }) {
 }
 
 function GenerateModal({
-            <button className="btn-outline" onClick={async () => { await navigator.clipboard.writeText(verifyLinkFor(cert)); toast.success("Verification link copied!"); }}>
-              Copy Verification Link
-            </button>
-            <button className="rounded-full border border-slate-200 px-5 py-2 text-sm" onClick={onClose}>
-              Close
-            </button>
-          </div>
-        </MotionDiv>
-      </MotionDiv>
-    </AnimatePresence>
-  );
-}
-
-function GenerateModal({
   open,
   onClose,
   students,

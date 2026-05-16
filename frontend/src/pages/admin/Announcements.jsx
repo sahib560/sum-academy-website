@@ -590,6 +590,203 @@ function Announcements() {
                     >
                       <FiTrash2 className="h-4 w-4" />
                     </button>
+                  </div>
+                </div>
+
+                <div className={`mt-3 text-sm text-slate-600 ${expandedKey ? "" : "line-clamp-3"}`}>
+                  <MarkdownRenderer content={item.message} />
+                </div>
+                {canExpand ? (
+                  <button
+                    className="mt-1 text-xs font-semibold text-primary"
+                    onClick={() =>
+                      setExpanded((prev) => ({ ...prev, [item.id]: !prev[item.id] }))
+                    }
+                  >
+                    {expandedKey ? "Read less" : "Read more"}
+                  </button>
+                ) : null}
+
+                <div className="mt-4 flex flex-wrap items-center gap-3 text-xs text-slate-500">
+                  <span>
+                    Posted by <strong>{item.postedByName || "Admin"}</strong>
+                  </span>
+                  <span>{formatDate(item.createdAt)}</span>
+                  <span>{getRelativeTime(item.createdAt)}</span>
+                  <span>{item.studentsReached || 0} reached</span>
+                </div>
+              </motion.div>
+            );
+          })
+        )}
+      </div>
+
+      <AnimatePresence>
+        {(createOpen || editItem) && (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+            <button
+              type="button"
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+              onClick={() => {
+                setCreateOpen(false);
+                setEditItem(null);
+                resetFormState();
+                setTargetSearch("");
+              }}
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-3xl bg-white p-6"
+            >
+              <div className="mb-4 flex items-start justify-between">
+                <div>
+                  <h3 className="font-heading text-2xl text-slate-900">
+                    {editItem ? "Edit Announcement" : "Post Announcement"}
+                  </h3>
+                  {editItem ? (
+                    <p className="text-xs text-slate-500">
+                      Target cannot be changed after posting.
+                    </p>
+                  ) : null}
+                </div>
+                <button
+                  className="rounded-full border border-slate-200 px-3 py-1 text-sm text-slate-500"
+                  onClick={() => {
+                    setCreateOpen(false);
+                    setEditItem(null);
+                    resetFormState();
+                    setTargetSearch("");
+                  }}
+                >
+                  X
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="text-xs font-semibold uppercase text-slate-500">Title</label>
+                  <input
+                    value={form.title}
+                    onChange={(event) =>
+                      setForm((prev) => ({ ...prev, title: event.target.value }))
+                    }
+                    className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                    placeholder="Enter announcement title"
+                  />
+                  <div className="mt-1 flex items-center justify-between">
+                    <p className="text-xs text-rose-500">{errors.title || ""}</p>
+                    <p className="text-xs text-slate-400">{form.title.length}/100</p>
+                  </div>
+                </div>
+
+                {!editItem ? (
+                  <>
+                    <div>
+                      <label className="text-xs font-semibold uppercase text-slate-500">Target Type</label>
+                      <div className="mt-2 grid grid-cols-2 gap-2 md:grid-cols-4">
+                        {[
+                          { key: "system", label: "System-wide" },
+                          { key: "class", label: "Class" },
+                          { key: "course", label: "Course" },
+                          { key: "single_user", label: "Single User" },
+                        ].map((item) => (
+                          <button
+                            key={item.key}
+                            className={`rounded-xl border px-3 py-2 text-sm font-semibold ${
+                              form.targetType === item.key
+                                ? "border-primary bg-primary/10 text-primary"
+                                : "border-slate-200 text-slate-600"
+                            }`}
+                            onClick={() =>
+                              setForm((prev) => ({
+                                ...prev,
+                                targetType: item.key,
+                                targetId: "",
+                                audienceRole:
+                                  item.key === "system" ? prev.audienceRole : "student",
+                              }))
+                            }
+                            type="button"
+                          >
+                            {item.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {form.targetType === "system" ? (
+                      <div>
+                        <label className="text-xs font-semibold uppercase text-slate-500">
+                          Audience
+                        </label>
+                        <select
+                          value={form.audienceRole}
+                          onChange={(event) =>
+                            setForm((prev) => ({
+                              ...prev,
+                              audienceRole: event.target.value,
+                            }))
+                          }
+                          className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                        >
+                          <option value="student">Students</option>
+                          <option value="teacher">Teachers</option>
+                          <option value="admin">Admins</option>
+                          <option value="all">All Users</option>
+                        </select>
+                      </div>
+                    ) : null}
+
+                    {form.targetType !== "system" ? (
+                      <div>
+                        <label className="text-xs font-semibold uppercase text-slate-500">
+                          {form.targetType === "class"
+                            ? "Class"
+                            : form.targetType === "course"
+                            ? "Course"
+                            : "User"}
+                        </label>
+                        <input 
+                          type="text" 
+                          placeholder="Search target..." 
+                          className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm mb-2"
+                          value={targetSearch}
+                          onChange={(e) => setTargetSearch(e.target.value)}
+                        />
+                        <select
+                          value={form.targetId}
+                          onChange={(event) =>
+                            setForm((prev) => ({ ...prev, targetId: event.target.value }))
+                          }
+                          className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                          size={4}
+                        >
+                          {form.targetType === "class"
+                            ? classes.filter(item => item.name.toLowerCase().includes(targetSearch.toLowerCase())).map((item) => (
+                                <option key={item.id} value={item.id} className="p-2 hover:bg-slate-50 cursor-pointer">
+                                  {item.name}
+                                </option>
+                              ))
+                            : form.targetType === "course"
+                            ? courses.filter(item => item.title.toLowerCase().includes(targetSearch.toLowerCase())).map((item) => (
+                                <option key={item.id} value={item.id} className="p-2 hover:bg-slate-50 cursor-pointer">
+                                  {item.title}
+                                </option>
+                              ))
+                            : users.filter(item => getUserDisplayLabel(item).toLowerCase().includes(targetSearch.toLowerCase())).map((item) => (
+                                <option key={item.id} value={item.id} className="p-2 hover:bg-slate-50 cursor-pointer">
+                                  {getUserDisplayLabel(item)}
+                                </option>
+                              ))}
+                        </select>
+                        <p className="mt-1 text-xs text-rose-500">{errors.targetId || ""}</p>
+                      </div>
+                    ) : null}
+                  </>
+                ) : null}
+
 
                 <div>
                   <label className="text-xs font-semibold uppercase text-slate-500">Message</label>
