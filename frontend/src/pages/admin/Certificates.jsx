@@ -148,7 +148,8 @@ function GenerateModal({
   isSearchingStudents,
 }) {
   if (!open) return null;
-  const selectedStudent = students.find((s) => (s.uid || s.id) === form.studentId);
+  const studentList = students || EMPTY;
+  const selectedStudent = studentList.find((s) => (s.uid || s.id) === form.studentId);
   const enrolledRows = normalizeStudentEnrollments(selectedStudent);
   const enrolledIds = new Set(enrolledRows.map((row) => row.courseId));
   const eligibleCourses = form.studentId
@@ -292,9 +293,9 @@ export default function Certificates() {
   });
   const coursesQ = useQuery({ queryKey: ["admin-courses"], queryFn: getCourses });
 
-  const certs = certQ.data || EMPTY;
-  const students = studentsQ.data || EMPTY;
-  const courses = coursesQ.data || EMPTY;
+  const certs = Array.isArray(certQ.data) ? certQ.data : (certQ.data?.data || certQ.data?.rows || EMPTY);
+  const students = Array.isArray(studentsQ.data) ? studentsQ.data : (studentsQ.data?.data || studentsQ.data?.rows || EMPTY);
+  const courses = Array.isArray(coursesQ.data) ? coursesQ.data : (coursesQ.data?.data || coursesQ.data?.rows || EMPTY);
 
   const generateM = useMutation({
     mutationFn: generateCertificate,
@@ -368,7 +369,8 @@ export default function Certificates() {
       toast.error("Select student and course");
       return;
     }
-    const student = students.find((s) => (s.uid || s.id) === genForm.studentId);
+    const studentList = students || EMPTY;
+    const student = studentList.find((s) => (s.uid || s.id) === genForm.studentId);
     const enrolledRows = normalizeStudentEnrollments(student);
     const selectedEnrollment = enrolledRows.find((row) => row.courseId === genForm.courseId);
     if (!selectedEnrollment) {

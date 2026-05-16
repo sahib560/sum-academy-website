@@ -14,6 +14,8 @@ import {
   updateAnnouncement,
 } from "../../services/admin.service.js";
 
+const EMPTY = [];
+
 const filterTabs = [
   { key: "all", label: "All" },
   { key: "system", label: "System" },
@@ -187,10 +189,10 @@ function Announcements() {
     queryFn: () => getUsers(),
   });
 
-  const announcements = announcementsQuery.data || [];
-  const classes = classesQuery.data || [];
-  const courses = coursesQuery.data || [];
-  const users = usersQuery.data || [];
+  const announcements = Array.isArray(announcementsQuery.data) ? announcementsQuery.data : (announcementsQuery.data?.data || []);
+  const classes = Array.isArray(classesQuery.data) ? classesQuery.data : (classesQuery.data?.data || []);
+  const courses = Array.isArray(coursesQuery.data) ? coursesQuery.data : (coursesQuery.data?.data || []);
+  const users = Array.isArray(usersQuery.data) ? usersQuery.data : (usersQuery.data?.data || []);
   const usersById = useMemo(
     () =>
       users.reduce((acc, user) => {
@@ -268,7 +270,7 @@ function Announcements() {
       return userCounts.student;
     }
     if (form.targetType === "class") {
-      const selectedClass = classes.find((item) => item.id === form.targetId);
+      const selectedClass = classes?.find((item) => item.id === form.targetId);
       const classStudents = Array.isArray(selectedClass?.students)
         ? selectedClass.students
         : [];
@@ -279,7 +281,7 @@ function Announcements() {
       ).size;
     }
     if (form.targetType === "course") {
-      const selectedCourse = courses.find((item) => item.id === form.targetId);
+      const selectedCourse = courses?.find((item) => item.id === form.targetId);
       return Number(selectedCourse?.enrollmentCount || 0);
     }
     if (form.targetType === "single_user") {

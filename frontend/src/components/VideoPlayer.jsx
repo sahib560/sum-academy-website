@@ -47,6 +47,16 @@ export default function VideoPlayer({
     [streamUrl]
   );
 
+  const onStreamReadyRef = useRef(onStreamReady);
+  const onErrorChangeRef = useRef(onErrorChange);
+  const onLoadingChangeRef = useRef(onLoadingChange);
+
+  useEffect(() => {
+    onStreamReadyRef.current = onStreamReady;
+    onErrorChangeRef.current = onErrorChange;
+    onLoadingChangeRef.current = onLoadingChange;
+  }, [onStreamReady, onErrorChange, onLoadingChange]);
+
   useEffect(() => {
     if (!lectureId) return;
     let cancelled = false;
@@ -58,17 +68,23 @@ export default function VideoPlayer({
         if (cancelled) return;
         const url = res?.data?.data?.streamUrl || "";
         setStreamUrl(url);
-        if (typeof onStreamReady === "function") onStreamReady(url);
+        if (typeof onStreamReadyRef.current === "function") {
+          onStreamReadyRef.current(url);
+        }
       } catch (e) {
         if (cancelled) return;
         const message =
           e?.response?.data?.message || "Failed to load video. Please try again.";
         setError(message);
-        if (typeof onErrorChange === "function") onErrorChange(message);
+        if (typeof onErrorChangeRef.current === "function") {
+          onErrorChangeRef.current(message);
+        }
       } finally {
         if (!cancelled) {
           setLoading(false);
-          if (typeof onLoadingChange === "function") onLoadingChange(false);
+          if (typeof onLoadingChangeRef.current === "function") {
+            onLoadingChangeRef.current(false);
+          }
         }
       }
     };
@@ -76,7 +92,7 @@ export default function VideoPlayer({
     return () => {
       cancelled = true;
     };
-  }, [lectureId, onErrorChange, onLoadingChange, onStreamReady]);
+  }, [lectureId]);
 
   useEffect(() => {
     if (!streamUrl || !videoRef.current) return undefined;
@@ -85,7 +101,7 @@ export default function VideoPlayer({
       video.src = streamUrl;
     }
     video.muted = true;
-    video.preload = isHls ? "metadata" : "auto";
+    video.preload = "metadata";
     video.crossOrigin = "anonymous";
     video.controlsList = "nodownload";
     video.disablePictureInPicture = true;

@@ -163,70 +163,8 @@ const drawIndividualOmrReport = (doc, studentProfile, testData, attemptData, ran
     }
   });
 
-  // Footer for OMR Page (Always on summary page)
-  doc.fontSize(8).fillColor("#94a3b8").text("Powered by TryUnity Solutions | Assessment Systems", startX, 765, { align: "center" });
-
-  // Detailed Question Analysis Section (Optional)
-  if (!includeDetails) return;
-
-  doc.addPage();
-  doc.fontSize(16).font("Helvetica-Bold").fillColor("#1e293b").text("Detailed Question Analysis", { align: "center" });
-  doc.moveDown(1.5);
-
-  testQuestions.forEach((qObj, idx) => {
-    let ans = {};
-    const qId = trimText(qObj.questionId);
-    const qOrder = toNumber(qObj.order);
-    
-    ans = answers.find(a => 
-      (qId && trimText(a.questionId) === qId) || 
-      (qOrder && toNumber(a.questionOrder) === qOrder)
-    ) || {};
-
-    const finalCorrectLetter = ans.correctLetter || (qObj && qObj.correctAnswer ? (["A", "B", "C", "D"].find(l => qObj.correctAnswer.toUpperCase().includes(l)) || qObj.correctAnswer.toUpperCase()) : "-");
-    const studentLetter = ans.selectedLetter || "N.A";
-
-    const questionText = stripFormulaHtml(qObj.questionText || "Question text not available");
-    const correctOptionText = stripFormulaHtml(qObj[`option${finalCorrectLetter}`] || "");
-    const studentOptionText = studentLetter !== "N.A" ? stripFormulaHtml(qObj[`option${studentLetter}`] || "") : "Not Answered";
-
-    // Prevent breaking inside a single question block if near bottom
-    if (doc.y > 680) {
-      // Footer for previous page
-      doc.fontSize(8).fillColor("#94a3b8").text("Powered by TryUnity Solutions | Assessment Systems", startX, 760, { align: "center" });
-      doc.addPage();
-    }
-
-    doc.font("Helvetica-Bold").fontSize(10).fillColor("#1e293b").text(`Q${idx + 1}: `, { continued: true });
-    doc.font("Helvetica").text(questionText);
-    doc.moveDown(0.3);
-
-    let statusColor = "#94a3b8";
-    let statusText = "Missed";
-    if (ans.selectedLetter) {
-      if (ans.isCorrect) {
-        statusColor = "#16a34a";
-        statusText = "Correct";
-      } else {
-        statusColor = "#dc2626";
-        statusText = "Wrong";
-      }
-    }
-
-    doc.font("Helvetica-Bold").fontSize(9);
-    doc.fillColor(statusColor).text(`Status: ${statusText}`, { continued: true });
-    doc.fillColor("#475569").text(` | Marks: ${ans.marksObtained || 0}/${ans.marks || qObj.marks || 1}`);
-
-    doc.moveDown(0.2);
-    doc.font("Helvetica").fillColor("#334155");
-    doc.text(`Your Answer: Option ${studentLetter} ${studentOptionText !== "Not Answered" ? `(${studentOptionText})` : ""}`);
-    doc.text(`Correct Answer: Option ${finalCorrectLetter} ${correctOptionText ? `(${correctOptionText})` : ""}`);
-
-    doc.moveDown(1.5);
-  });
-
-  // Footer for last page
-  doc.fontSize(8).fillColor("#94a3b8").text("Powered by TryUnity Solutions | Assessment Systems", startX, 760, { align: "center" });
+  // Footer
+  doc.fontSize(8).fillColor("#94a3b8").text("Powered by SUM Academy | Assessment Systems", startX, 765, { align: "center" });
 };
 
 const toIso = (value) => {
@@ -2820,13 +2758,12 @@ export const downloadStudentTestRankingPdf = async (req, res) => {
       doc.moveDown(1);
 
       let y = doc.y;
-      doc.rect(40, y, 515, 20).fill("#f1f5f9");
-      doc.fillColor("#475569").fontSize(9);
+      doc.rect(40, y, 515, 20).fill("#1e293b");
+      doc.fillColor("#ffffff").fontSize(9).font("Helvetica-Bold");
       doc.text("Rank", 45, y + 6);
       doc.text("Student Name", 85, y + 6);
-      doc.text("Status", 220, y + 6);
-      doc.text("Marks", 290, y + 6);
-      doc.text("C/W/M", 350, y + 6);
+      doc.text("Status", 240, y + 6);
+      doc.text("Marks", 320, y + 6);
       doc.text("%", 410, y + 6);
       y += 25;
 
@@ -2834,22 +2771,20 @@ export const downloadStudentTestRankingPdf = async (req, res) => {
         if (y > 750) {
           doc.addPage();
           y = 50;
-          doc.rect(40, y, 515, 20).fill("#f1f5f9");
-          doc.fillColor("#475569").fontSize(9);
+          doc.rect(40, y, 515, 20).fill("#1e293b");
+          doc.fillColor("#ffffff").fontSize(9).font("Helvetica-Bold");
           doc.text("Rank", 45, y + 6);
           doc.text("Student Name", 85, y + 6);
-          doc.text("Status", 220, y + 6);
-          doc.text("Marks", 290, y + 6);
-          doc.text("C/W/M", 350, y + 6);
+          doc.text("Status", 240, y + 6);
+          doc.text("Marks", 320, y + 6);
           doc.text("%", 410, y + 6);
           y += 25;
         }
-        doc.fillColor("#1e293b").fontSize(9);
+        doc.font("Helvetica").fillColor("#1e293b").fontSize(9);
         doc.text(row.position, 45, y);
-        doc.text(row.studentName, 85, y, { width: 130 });
-        doc.text(row.status, 220, y);
-        doc.text(`${row.obtainedMarks}/${row.totalMarks}`, 290, y);
-        doc.text(`${row.correctCount}/${row.wrongCount}/${row.missedCount}`, 350, y);
+        doc.text(row.studentName, 85, y, { width: 150 });
+        doc.text(row.status, 240, y);
+        doc.text(`${row.obtainedMarks}/${row.totalMarks}`, 320, y);
         doc.text(`${row.percentage}%`, 410, y);
         doc.moveTo(40, y + 12).lineTo(555, y + 12).stroke("#f1f5f9");
         y += 18;
@@ -2861,7 +2796,7 @@ export const downloadStudentTestRankingPdf = async (req, res) => {
         const studentProfile = await ensureStudentProfile(r.studentId);
         const attemptDoc = await db.collection(COLLECTIONS.TEST_ATTEMPTS).doc(r.attemptId).get();
         const attemptData = attemptDoc.data() || {};
-        drawIndividualOmrReport(doc, { ...studentProfile, uid: r.studentId }, { ...testData, testId }, { ...r, evaluatedAnswers: attemptData.evaluatedAnswers || attemptData.answers }, { position: r.position, total: ranking.length }, true);
+        drawIndividualOmrReport(doc, { ...studentProfile, uid: r.studentId }, { ...testData, testId }, { ...r, evaluatedAnswers: attemptData.evaluatedAnswers || attemptData.answers }, { position: r.position, total: ranking.length }, false);
       }
 
       doc.end();

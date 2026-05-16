@@ -187,7 +187,13 @@ const normalizeProgressPayload = (payload = {}) => {
     }));
 
     const normalizedQuizzes = quizzes.map((quiz, quizIndex) => {
-      const dueAt = toIsoIfValidDate(quiz.dueAt);
+      // Extended checks for dueDate and assignment.dueAt for robustness.
+      const dueAt = toIsoIfValidDate(
+        quiz.dueDate || 
+        quiz.dueAt || 
+        quiz.assignment?.dueAt || 
+        quiz.assignmentDueAt
+      );
       const GRACE_PERIOD_MS = 5 * 60 * 1000;
       const isExpired = Boolean(
         quiz.isExpired === true ||
@@ -224,10 +230,16 @@ const normalizeProgressPayload = (payload = {}) => {
   });
 
   const normalizedFinalQuizzes = subjectQuizzes.map((quiz, index) => {
-    const dueAt = toIsoIfValidDate(quiz.dueAt);
+    const dueAt = toIsoIfValidDate(
+      quiz.dueDate || 
+      quiz.dueAt || 
+      quiz.assignment?.dueAt || 
+      quiz.assignmentDueAt
+    );
+    const GRACE_PERIOD_MS = 5 * 60 * 1000;
     const isExpired = Boolean(
       quiz.isExpired === true ||
-        (dueAt && new Date(dueAt).getTime() < nowMs && !quiz.result)
+        (dueAt && new Date(dueAt).getTime() + GRACE_PERIOD_MS < nowMs && !quiz.result)
     );
     return {
       quizId: quiz.quizId || quiz.id || `final-${index}`,
@@ -701,6 +713,55 @@ function StudentCoursePlayer() {
     watchedPercent,
   ]);
 
+  const handleStreamReady = useCallback((url) => {
+    setVideoSrc(url || "");
+  }, []);
+
+  const handleLoadingChange = useCallback((loading) => {
+    setIsLoadingVideo(Boolean(loading));
+  }, []);
+
+  const handleErrorChange = useCallback((message) => {
+    setVideoLoadError(message || "");
+    if (message) setVideoSrc("");
+  }, []);
+
+  const handleTimeUpdate = useCallback((time, total) => {
+    const safeTime = Math.max(0, toNumber(time, 0));
+    const safeDuration = Math.max(
+      0,
+      toNumber(total, 0),
+      parseDurationInputToSeconds(currentLecture?.duration)
+    );
+    setCurrentTime(safeTime);
+    setDuration(safeDuration);
+    setMaxWatchedSeconds((previous) => Math.max(previous, safeTime));
+  }, [currentLecture?.duration]);
+
+  const handleProgress = useCallback((pct, time, total) => {
+    const safeTime = Math.max(0, toNumber(time, 0));
+    const safeDuration = Math.max(
+      0,
+      toNumber(total, 0),
+      parseDurationInputToSeconds(currentLecture?.duration)
+    );
+    if (safeDuration > 0) setDuration(safeDuration);
+    setMaxWatchedSeconds((previous) => Math.max(previous, safeTime));
+  }, [currentLecture?.duration]);
+
+  const handlePlayState = useCallback((playing) => {
+    setIsPlaying(Boolean(playing));
+  }, []);
+
+  const handleComplete = useCallback(() => {
+    const endTime = Math.max(1, toNumber(durationRef.current, 0));
+    setCurrentTime(endTime);
+    setMaxWatchedSeconds((previous) => Math.max(previous, endTime));
+    currentTimeRef.current = endTime;
+    watchedPercentRef.current = 100;
+    void flushWatchProgress({ force: true });
+  }, [flushWatchProgress]);
+
   useEffect(
     () => () => {
       void flushWatchProgress({ force: true });
@@ -974,46 +1035,13 @@ function StudentCoursePlayer() {
                       "Student"
                     }
                     studentEmail={userProfile?.email || ""}
-                    onStreamReady={(url) => {
-                      setVideoSrc(url || "");
-                    }}
-                    onLoadingChange={(loading) => {
-                      setIsLoadingVideo(Boolean(loading));
-                    }}
-                    onErrorChange={(message) => {
-                      setVideoLoadError(message || "");
-                      if (message) setVideoSrc("");
-                    }}
-                    onTimeUpdate={(time, total) => {
-                      const safeTime = Math.max(0, toNumber(time, 0));
-                      const safeDuration = Math.max(
-                        0,
-                        toNumber(total, 0),
-                        parseDurationInputToSeconds(currentLecture?.duration)
-                      );
-                      setCurrentTime(safeTime);
-                      setDuration(safeDuration);
-                      setMaxWatchedSeconds((previous) => Math.max(previous, safeTime));
-                    }}
-                    onProgress={(pct, time, total) => {
-                      const safeTime = Math.max(0, toNumber(time, 0));
-                      const safeDuration = Math.max(
-                        0,
-                        toNumber(total, 0),
-                        parseDurationInputToSeconds(currentLecture?.duration)
-                      );
-                      if (safeDuration > 0) setDuration(safeDuration);
-                      setMaxWatchedSeconds((previous) => Math.max(previous, safeTime));
-                    }}
-                    onPlayState={(playing) => setIsPlaying(Boolean(playing))}
-                    onComplete={() => {
-                      const endTime = Math.max(1, toNumber(durationRef.current, 0));
-                      setCurrentTime(endTime);
-                      setMaxWatchedSeconds((previous) => Math.max(previous, endTime));
-                      currentTimeRef.current = endTime;
-                      watchedPercentRef.current = 100;
-                      void flushWatchProgress({ force: true });
-                    }}
+                    onStreamReady={handleStreamReady}
+                    onLoadingChange={handleLoadingChange}
+                    onErrorChange={handleErrorChange}
+                    onTimeUpdate={handleTimeUpdate}
+                    onProgress={handleProgress}
+                    onPlayState={handlePlayState}
+                    onComplete={handleComplete}
                     disableSeeking={isLivePremiere || currentLecture?.disableSeeking}
                   />
                 ) : null}

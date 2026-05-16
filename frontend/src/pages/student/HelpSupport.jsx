@@ -201,7 +201,11 @@ function StudentHelpSupport() {
             placeholder="Search for help topics..."
             className="w-full rounded-full border border-slate-200 bg-white px-12 py-3 text-sm text-slate-700 shadow-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
           />
-          <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">Search</span>
+          <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+          </span>
         </div>
       </motion.section>
 

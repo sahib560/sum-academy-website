@@ -522,7 +522,7 @@ function StudentTestAttempt() {
         )}
       </AnimatePresence>
 
-      <div className="flex-1 flex flex-col mx-auto w-full max-w-7xl px-4 py-2 sm:px-6 sm:py-4">
+      <div className="flex-1 flex flex-col mx-auto w-full max-w-none px-4 py-2 sm:px-6 sm:py-4">
         {/* Header Section */}
         <section className="mb-4 shrink-0 overflow-hidden rounded-[1.5rem] border border-slate-200 bg-white p-4 sm:p-6 shadow-md">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -627,7 +627,20 @@ function StudentTestAttempt() {
                 onClick={() => startMutation.mutate()}
                 disabled={startMutation.isPending || !isAvailable}
               >
-                {startMutation.isPending ? "Initializing..." : isScheduled ? `Starts at ${new Date(test.startAt).toLocaleTimeString()}` : isEnded ? "Test Period Ended" : "Start Official Test"}
+                {startMutation.isPending ? (
+                  "Initializing..."
+                ) : isScheduled ? (
+                  <div className="flex flex-col items-center">
+                    <span className="text-xs font-medium uppercase tracking-widest opacity-80">Scheduled</span>
+                    <span className="text-sm">
+                      Starts in {Math.ceil((startAt - now) / 1000)}s
+                    </span>
+                  </div>
+                ) : isEnded ? (
+                  "Test Period Ended"
+                ) : (
+                  "Start Official Test"
+                )}
                 <svg className="h-5 w-5 transition-transform group-hover:translate-x-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
                 </svg>

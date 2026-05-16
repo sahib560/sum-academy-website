@@ -344,15 +344,18 @@ export const generateInvoicePDF = async ({
 
   if (normalizedStatus === "paid") {
     // Watermark/Stamp
+    const stampX = W - 66;
+    const stampY = y - 28;
     doc.setDrawColor(...BRAND.green);
-    doc.setLineWidth(1.5);
-    doc.roundedRect(W - 66, y - 24, 52, 16, 4, 4);
+    doc.setLineWidth(1);
+    doc.roundedRect(stampX, stampY, 52, 18, 2, 2);
     doc.setTextColor(...BRAND.green);
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(16);
-    doc.text("PAID", W - 40, y - 13, { align: "center" });
+    doc.setFontSize(14);
+    doc.text("PAID", stampX + 26, stampY + 8, { align: "center" });
     doc.setFontSize(8);
-    doc.text(invoiceDate, W - 40, y - 6.5, { align: "center" });
+    doc.setFont("helvetica", "normal");
+    doc.text(invoiceDate, stampX + 26, stampY + 14, { align: "center" });
   }
 
   y += 10;
@@ -390,9 +393,9 @@ export const generateReceiptPDF = async ({
   verifiedAt,
   logoUrl,
 }) => {
-  const doc = new jsPDF({ unit: "mm", format: [148, 210] });
+  const doc = new jsPDF({ unit: "mm", format: [148, 240] });
   const W = 148;
-  const H = 210;
+  const H = 240;
   const logo = await loadLogo(logoUrl);
 
   drawHeader(doc, logo, "RECEIPT", "Payment Confirmation", W);
@@ -450,7 +453,7 @@ export const generateReceiptPDF = async ({
 
   details.forEach(([label, value]) => {
     drawInfoRow(doc, 10, y, label, value, colW);
-    y += 12;
+    y += 10.5;
   });
 
   y += 6;

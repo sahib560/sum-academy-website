@@ -935,9 +935,16 @@ export const buildCourseContentForStudent = async (
     const quizzesWithStatus = chapterQuizzes.map((quiz) => {
       const quizId = trimText(quiz.id);
       const result = quizResultsMap[quizId] || null;
-      const dueAtDate = toDate(quiz.dueAt || quiz.assignmentDueAt || null);
+      const dueAtDate = toDate(
+        quiz.dueDate || 
+        quiz.dueAt || 
+        quiz.assignment?.dueAt || 
+        quiz.assignmentDueAt || 
+        null
+      );
       const dueAt = dueAtDate ? dueAtDate.toISOString() : null;
-      const isExpired = Boolean(dueAtDate && dueAtDate.getTime() < nowMs && !result);
+      const GRACE_PERIOD_MS = 5 * 60 * 1000;
+      const isExpired = Boolean(dueAtDate && (dueAtDate.getTime() + GRACE_PERIOD_MS) < nowMs && !result);
       // Quizzes are attemptable even if previous videos are not completed (per product requirement).
       const quizLocked =
         isExpired ||
@@ -996,9 +1003,16 @@ export const buildCourseContentForStudent = async (
   const subjectQuizzes = toSubjectQuizList(quizzes).map((quiz) => {
     const quizId = trimText(quiz.id);
     const result = quizResultsMap[quizId] || null;
-    const dueAtDate = toDate(quiz.dueAt || quiz.assignmentDueAt || null);
+    const dueAtDate = toDate(
+      quiz.dueDate || 
+      quiz.dueAt || 
+      quiz.assignment?.dueAt || 
+      quiz.assignmentDueAt || 
+      null
+    );
     const dueAt = dueAtDate ? dueAtDate.toISOString() : null;
-    const isExpired = Boolean(dueAtDate && dueAtDate.getTime() < nowMs && !result);
+    const GRACE_PERIOD_MS = 5 * 60 * 1000;
+    const isExpired = Boolean(dueAtDate && (dueAtDate.getTime() + GRACE_PERIOD_MS) < nowMs && !result);
     // Quizzes are attemptable even if previous chapters are not completed (per product requirement).
     const quizLocked =
       isExpired ||

@@ -759,9 +759,9 @@ function StudentQuizAttempt() {
           </div>
         </div>
       ) : (
-        <div className="mx-auto max-w-[1400px]">
+        <div className="mx-auto max-w-none">
           {!started ? (
-            <div className="flex min-h-screen items-center justify-center px-4 py-12">
+            <div className="flex min-h-screen items-center justify-center px-4 py-12 overflow-y-auto">
               <Motion.div 
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -832,10 +832,23 @@ function StudentQuizAttempt() {
                     disabled={isScheduled && !canAttempt}
                   >
                     <span className="relative z-10 flex items-center justify-center gap-2">
-                      Start Quiz Attempt
-                      <svg className="h-5 w-5 transition-transform group-hover:translate-x-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
-                      </svg>
+                      {isScheduled && isInFuture ? (
+                        <div className="flex flex-col items-center">
+                          <span className="text-[10px] uppercase tracking-widest opacity-60">Starting in</span>
+                          <span className="text-sm font-bold">
+                            {Math.ceil((startAt - now) / 1000)} Seconds
+                          </span>
+                        </div>
+                      ) : isScheduled && isPastEnd ? (
+                        "Quiz Expired"
+                      ) : (
+                        <>
+                          Start Quiz Attempt
+                          <svg className="h-5 w-5 transition-transform group-hover:translate-x-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                          </svg>
+                        </>
+                      )}
                     </span>
                   </button>
                 </div>
@@ -845,7 +858,7 @@ function StudentQuizAttempt() {
             <div className="flex h-full min-h-screen lg:h-screen flex-col overflow-hidden">
               {/* Top Navigation Bar */}
               <header className="sticky top-0 z-50 border-b border-slate-800 bg-[#0f172a]/80 py-4 backdrop-blur-md">
-                <div className="mx-auto flex max-w-[1400px] items-center justify-between px-6">
+                <div className="mx-auto flex max-w-none items-center justify-between px-6">
                   <div className="flex items-center gap-4">
                     <div className="hidden h-10 w-10 items-center justify-center rounded-xl bg-indigo-600 font-bold text-white sm:flex">
                       Q
@@ -895,7 +908,7 @@ function StudentQuizAttempt() {
               </header>
 
               <main className="flex-1 overflow-y-auto px-6 py-8">
-                <div className="mx-auto grid max-w-[1400px] gap-8 lg:grid-cols-[1fr_350px]">
+                <div className="mx-auto grid max-w-none gap-8 lg:grid-cols-[1fr_350px]">
                   {/* Left Column: Question Area */}
                   <div className="space-y-6">
                     <Motion.div
@@ -1132,7 +1145,7 @@ function StudentQuizAttempt() {
                             } else if (state.isAnswered) {
                               baseStyle += "border-blue-500 bg-blue-500/20 text-blue-400 hover:bg-blue-500/30";
                             } else {
-                              baseStyle += "border-slate-800 bg-slate-800/40 text-slate-500 hover:border-slate-700";
+                              baseStyle += "border-slate-800 bg-slate-800/40 text-slate-500 hover:border-indigo-500/50 hover:bg-slate-800/60 hover:text-slate-400";
                             }
 
                             return (

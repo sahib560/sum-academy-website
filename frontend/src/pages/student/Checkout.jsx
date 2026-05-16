@@ -57,11 +57,7 @@ function Checkout() {
   const [selectedShiftId, setSelectedShiftId] = useState(prefillShiftId);
   const [installmentMode, setInstallmentMode] = useState("full");
 
-  useEffect(() => {
-    if (selectedClass && !selectedShiftId && selectedClass.shifts?.length > 0) {
-      setSelectedShiftId(selectedClass.shifts[0].id);
-    }
-  }, [selectedClass, selectedShiftId]);
+
   const [installments, setInstallments] = useState(2);
   const [paymentMethod, setPaymentMethod] = useState("bank_transfer");
   const [initiatedPayment, setInitiatedPayment] = useState(null);
@@ -91,6 +87,13 @@ function Checkout() {
       null,
     [selectedClass, selectedShiftId]
   );
+
+
+  useEffect(() => {
+    if (selectedClass && !selectedShiftId && selectedClass.shifts?.length > 0) {
+      setSelectedShiftId(selectedClass.shifts[0].id);
+    }
+  }, [selectedClass, selectedShiftId]);
 
   const fallbackClassTotal = Number(classInfoFromState?.totalPrice || 0);
   const fallbackClassRemaining = Number(

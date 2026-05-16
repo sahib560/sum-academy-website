@@ -535,8 +535,8 @@ function StudentQuizzes() {
           <button
             key={tab}
             type="button"
-            className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
-              activeTab === tab ? "bg-primary text-white" : "bg-white text-slate-700 shadow-sm"
+            className={`rounded-full px-4 py-2 text-sm font-semibold transition hover:bg-slate-50 active:scale-95 ${
+              activeTab === tab ? "bg-primary text-white hover:bg-primary/90" : "bg-white text-slate-700 shadow-sm"
             }`}
             onClick={() => setActiveTab(tab)}
           >
@@ -643,7 +643,7 @@ function StudentQuizzes() {
                     ) : (
                       <button
                         type="button"
-                        className="inline-flex rounded-full border border-slate-300 px-4 py-2 text-xs font-semibold text-slate-700"
+                        className="inline-flex rounded-full border border-slate-300 px-4 py-2 text-xs font-semibold text-slate-700 transition-all hover:bg-slate-50 hover:border-slate-400 active:scale-95"
                         onClick={() => setResultPreview(quiz)}
                       >
                         View Results

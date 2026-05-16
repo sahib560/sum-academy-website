@@ -1301,7 +1301,7 @@ export default function TestsManager({
 
       {selectedTestId ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4">
-          <div className="max-h-[85vh] w-full max-w-3xl overflow-auto rounded-3xl bg-white p-5">
+          <div className="max-h-[85vh] w-full max-w-7xl overflow-auto rounded-3xl bg-white p-5">
             <div className="mb-4 flex items-center justify-between">
               <h3 className="font-heading text-xl text-slate-900">Test Details</h3>
               <div className="flex flex-wrap items-center gap-2">

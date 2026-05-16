@@ -397,7 +397,7 @@ function Dashboard() {
           </div>
         </div>
 
-        <div className="mt-6 min-h-[18rem] w-full overflow-hidden">
+        <div className="relative mt-6 h-72 w-full overflow-hidden">
           {revenueLoading ? (
             <div className="skeleton h-full w-full rounded-2xl" />
           ) : revenueError ? (

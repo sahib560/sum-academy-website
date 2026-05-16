@@ -83,6 +83,7 @@ function StudentAnnouncements() {
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [expanded, setExpanded] = useState({});
+  const [selectedAnnouncement, setSelectedAnnouncement] = useState(null);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -169,7 +170,13 @@ function StudentAnnouncements() {
 
   const markReadMutation = useMutation({
     mutationFn: (id) => markAnnouncementRead(id),
-    onSuccess: () => {
+    onSuccess: (data, variables) => {
+      queryClient.setQueryData(["student-announcements"], (old) => {
+        if (!Array.isArray(old)) return old;
+        return old.map((item) =>
+          item.id === variables ? { ...item, isRead: true } : item
+        );
+      });
       queryClient.invalidateQueries({ queryKey: ["student-announcements"] });
       queryClient.invalidateQueries({ queryKey: ["my-announcements"] });
       toast.success("Marked as read");
@@ -278,7 +285,13 @@ function StudentAnnouncements() {
             return (
               <div
                 key={item.id}
-                className={`rounded-3xl border-l-4 p-5 shadow-sm ${
+                onClick={() => {
+                  setSelectedAnnouncement(item);
+                  if (unread) {
+                    markReadMutation.mutate(item.id);
+                  }
+                }}
+                className={`cursor-pointer rounded-3xl border-l-4 p-5 shadow-sm transition-all hover:scale-[1.01] active:scale-[0.99] ${
                   unread ? "border-primary bg-primary/5" : "border-slate-200 bg-white"
                 }`}
               >
@@ -301,23 +314,9 @@ function StudentAnnouncements() {
                 </div>
 
                 <h3 className="mt-3 font-heading text-lg text-slate-900">{item.title}</h3>
-                <p className={`mt-2 text-sm text-slate-500 ${expanded[item.id] ? "" : "line-clamp-3"}`}>
+                <p className="mt-2 line-clamp-2 text-sm text-slate-500">
                   {item.message}
                 </p>
-
-                {item.message.length > 180 ? (
-                  <button
-                    className="mt-2 text-xs font-semibold text-primary"
-                    onClick={() =>
-                      setExpanded((prev) => ({
-                        ...prev,
-                        [item.id]: !prev[item.id],
-                      }))
-                    }
-                  >
-                    {expanded[item.id] ? "Show Less" : "Read More"}
-                  </button>
-                ) : null}
 
                 <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-500">
                   <div className="flex items-center gap-2">
@@ -336,15 +335,6 @@ function StudentAnnouncements() {
                   <div className="flex items-center gap-3">
                     <span>{formatDate(item.date)}</span>
                     <span>{relativeDays(item.date)}</span>
-                    {unread ? (
-                      <button
-                        className="text-primary"
-                        onClick={() => markReadMutation.mutate(item.id)}
-                        disabled={markReadMutation.isPending}
-                      >
-                        Mark as Read
-                      </button>
-                    ) : null}
                   </div>
                 </div>
               </div>
@@ -352,6 +342,72 @@ function StudentAnnouncements() {
           })
         )}
       </motion.section>
+
+      {/* Announcement Details Modal */}
+      {selectedAnnouncement && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+            onClick={() => setSelectedAnnouncement(null)}
+          />
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            className="relative w-full max-w-2xl overflow-hidden rounded-[2.5rem] bg-white shadow-2xl"
+          >
+            <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50 px-8 py-6">
+              <div className="flex items-center gap-3">
+                <span className={`rounded-full px-3 py-1 text-xs font-semibold ${typeBadgeStyles[selectedAnnouncement.type]}`}>
+                  {selectedAnnouncement.source}
+                </span>
+                {selectedAnnouncement.isPinned && (
+                  <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700">
+                    Pinned
+                  </span>
+                )}
+              </div>
+              <button
+                onClick={() => setSelectedAnnouncement(null)}
+                className="rounded-full p-2 text-slate-400 hover:bg-slate-200 hover:text-slate-600"
+              >
+                <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="max-h-[70vh] overflow-y-auto px-8 py-10">
+              <h2 className="font-heading text-3xl text-slate-900">{selectedAnnouncement.title}</h2>
+              
+              <div className="mt-4 flex items-center gap-3 text-sm text-slate-500">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-primary font-bold">
+                    {selectedAnnouncement.teacher[0]}
+                  </span>
+                  <span className="font-semibold text-slate-700">{selectedAnnouncement.teacher}</span>
+                </div>
+                <span>•</span>
+                <span>{formatDate(selectedAnnouncement.date)}</span>
+              </div>
+
+              <div className="mt-8 whitespace-pre-wrap text-lg leading-relaxed text-slate-600">
+                {selectedAnnouncement.message}
+              </div>
+            </div>
+
+            <div className="border-t border-slate-100 bg-slate-50 px-8 py-6 flex justify-end">
+              <button
+                onClick={() => setSelectedAnnouncement(null)}
+                className="btn-primary min-w-[120px]"
+              >
+                Close
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
     </div>
   );
 }

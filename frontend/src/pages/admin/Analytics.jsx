@@ -1,6 +1,27 @@
 import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
+import { jsPDF } from "jspdf";
+import "jspdf-autotable";
+import toast from "react-hot-toast";
+import {
+  FiActivity,
+  FiAward,
+  FiBarChart2,
+  FiBookOpen,
+  FiCalendar,
+  FiChevronDown,
+  FiChevronUp,
+  FiClipboard,
+  FiClock,
+  FiCreditCard,
+  FiDownload,
+  FiFilter,
+  FiPieChart,
+  FiSearch,
+  FiTrendingUp,
+  FiUsers,
+} from "react-icons/fi";
 import {
   Bar,
   BarChart,
@@ -520,6 +541,105 @@ function Analytics() {
   const showStudentsEmpty =
     !studentsLoading && (studentsError || students.length === 0);
 
+  const exportDetailedAnalyticsPdf = async () => {
+    const doc = new jsPDF("p", "mm", "a4");
+    const generatedAt = new Date().toLocaleDateString("en-PK", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+
+    // Branding
+    doc.setFillColor(74, 99, 245); // Primary Blue
+    doc.rect(0, 0, 210, 40, "F");
+    doc.setTextColor(255, 255, 255);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(24);
+    doc.text("SUM Academy", 15, 25);
+    doc.setFontSize(12);
+    doc.setFont("helvetica", "normal");
+    doc.text("Detailed Analytics & Performance Report", 15, 33);
+
+    // Metadata
+    doc.setTextColor(100, 116, 139);
+    doc.setFontSize(10);
+    doc.text(`Generated on: ${generatedAt}`, 145, 50);
+    doc.text(`Reporting Period: ${range}`, 145, 55);
+
+    // Section: Revenue Summary (if available)
+    doc.setTextColor(30, 41, 59);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(16);
+    doc.text("Revenue & Payment Summary", 15, 55);
+    
+    const revenueData = [
+      ["Metric", "Value"],
+      ["Total Revenue", `PKR ${totalRevenue.toLocaleString()}`],
+      ["Period", range],
+    ];
+
+    doc.autoTable({
+      startY: 62,
+      head: [revenueData[0]],
+      body: revenueData.slice(1),
+      theme: "grid",
+      headStyles: { fillStyle: "#4a63f5", textColor: 255, fontStyle: "bold" },
+      styles: { fontSize: 10, cellPadding: 5 },
+    });
+
+    // Section: Class Performance
+    let nextY = doc.lastAutoTable.finalY + 15;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(16);
+    doc.text("Class Performance Overview", 15, nextY);
+
+    const classRows = mappedClassPerformance.slice(0, 10).map(c => [
+      c.className || "N/A",
+      `${c.avgScore?.toFixed(1) || 0}%`,
+      `${c.completionRate?.toFixed(1) || 0}%`,
+      c.studentsCount?.toString() || "0"
+    ]);
+
+    doc.autoTable({
+      startY: nextY + 7,
+      head: [["Class Name", "Avg Score", "Completion", "Students"]],
+      body: classRows,
+      theme: "striped",
+      headStyles: { fillStyle: "#6366f1", textColor: 255 },
+      styles: { fontSize: 10, cellPadding: 5 },
+    });
+
+    // Section: Teacher Performance
+    nextY = doc.lastAutoTable.finalY + 15;
+    if (nextY > 230) {
+      doc.addPage();
+      nextY = 25;
+    }
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(16);
+    doc.text("Teacher Performance Ratings", 15, nextY);
+
+    const teacherRows = teacherPerformance.slice(0, 10).map(t => [
+      t.teacherName || "N/A",
+      t.assignedClassesCount?.toString() || "0",
+      `${t.avgStudentPerformance?.toFixed(1) || 0}%`
+    ]);
+
+    doc.autoTable({
+      startY: nextY + 7,
+      head: [["Teacher Name", "Classes", "Avg Student Perf"]],
+      body: teacherRows,
+      theme: "grid",
+      headStyles: { fillStyle: "#0f172a", textColor: 255 },
+      styles: { fontSize: 9, cellPadding: 3 },
+    });
+
+    doc.save(`sum-academy-analytics-${Date.now()}.pdf`);
+    toast.success("Professional report generated successfully.");
+  };
+
   const exportReport = () => {
     const rows = [
       ["Metric", "Value"],
@@ -537,7 +657,7 @@ function Analytics() {
   };
 
   return (
-    <div className="space-y-8">
+    <div className="w-full max-w-none space-y-8">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h2 className="font-heading text-3xl text-slate-900">
@@ -547,9 +667,19 @@ function Analytics() {
             Track revenue, enrollments, and growth metrics.
           </p>
         </div>
-        <button className="btn-outline" onClick={exportReport}>
-          Export Report
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-primary hover:text-primary active:scale-95"
+            onClick={exportDetailedAnalyticsPdf}
+          >
+            <FiDownload className="h-4 w-4" />
+            Download PDF Report
+          </button>
+          <button className="btn-outline flex items-center gap-2" onClick={exportReport}>
+            <FiActivity className="h-4 w-4" />
+            Export CSV
+          </button>
+        </div>
       </div>
 
       <motion.section
@@ -999,7 +1129,7 @@ function Analytics() {
                 </div>
 
                 <div className="hidden overflow-x-auto sm:block">
-                  <table className="min-w-[760px] text-left text-sm">
+                  <table className="w-full text-left text-sm">
                     <thead className="border-b border-slate-200 text-xs uppercase text-slate-400">
                       <tr>
                         {[
@@ -1121,7 +1251,7 @@ function Analytics() {
                 </div>
 
                 <div className="hidden overflow-x-auto sm:block">
-                  <table className="min-w-[680px] text-left text-sm">
+                  <table className="w-full text-left text-sm">
                     <thead className="border-b border-slate-200 text-xs uppercase text-slate-400">
                       <tr>
                         {[
