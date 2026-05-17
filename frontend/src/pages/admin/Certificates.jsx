@@ -294,7 +294,7 @@ export default function Certificates() {
   const coursesQ = useQuery({ queryKey: ["admin-courses"], queryFn: getCourses });
 
   const certs = Array.isArray(certQ.data) ? certQ.data : (certQ.data?.data || certQ.data?.rows || EMPTY);
-  const students = Array.isArray(studentsQ.data) ? studentsQ.data : (studentsQ.data?.data || studentsQ.data?.rows || EMPTY);
+  const students = Array.isArray(studentsQ.data) ? studentsQ.data : (studentsQ.data?.items || studentsQ.data?.data || studentsQ.data?.rows || EMPTY);
   const courses = Array.isArray(coursesQ.data) ? coursesQ.data : (coursesQ.data?.data || coursesQ.data?.rows || EMPTY);
 
   const generateM = useMutation({

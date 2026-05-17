@@ -652,13 +652,25 @@ const toSubjectQuizList = (quizzes = []) =>
     return scope === "subject" || !hasChapter;
   });
 
+const courseContentCache = new Map();
+const CACHE_TTL_MS = 25000;
+
 export const buildCourseContentForStudent = async (
   studentId,
   courseId,
   options = {}
 ) => {
-  const { ignoreAccessWindow = false } = options;
+  const { ignoreAccessWindow = false, forceRefresh = false } = options;
   const cleanCourseId = trimText(courseId);
+
+  const cacheKey = `${studentId}_${cleanCourseId}`;
+  if (!forceRefresh && !ignoreAccessWindow && courseContentCache.has(cacheKey)) {
+    const cached = courseContentCache.get(cacheKey);
+    if (Date.now() - cached.timestamp < CACHE_TTL_MS) {
+      return cached.data;
+    }
+  }
+
   const [subjectSnap, courseSnap] = await Promise.all([
     db.collection("subjects").doc(cleanCourseId).get(),
     db.collection("courses").doc(cleanCourseId).get(),
@@ -944,7 +956,7 @@ export const buildCourseContentForStudent = async (
       );
       const dueAt = dueAtDate ? dueAtDate.toISOString() : null;
       const GRACE_PERIOD_MS = 5 * 60 * 1000;
-      const isExpired = Boolean(dueAtDate && (dueAtDate.getTime() + GRACE_PERIOD_MS) < nowMs && !result);
+      const isExpired = Boolean(dueAtDate && (dueAtDate.getTime() + GRACE_PERIOD_MS) < nowMs);
       // Quizzes are attemptable even if previous videos are not completed (per product requirement).
       const quizLocked =
         isExpired ||
@@ -1062,7 +1074,7 @@ export const buildCourseContentForStudent = async (
   const fullyCompleted =
     (totalLectures === 0 ? false : completedLectures >= totalLectures) && allQuizzesPassed;
 
-  return {
+  const result = {
     course: { id: cleanCourseId, ...(contentSnap.data() || {}) },
     subject: { id: cleanCourseId, ...(contentSnap.data() || {}) },
     enrollmentRows: enrollmentState.rows,
@@ -1077,6 +1089,12 @@ export const buildCourseContentForStudent = async (
     subjectQuizzes,
     progressMap,
   };
+
+  if (!ignoreAccessWindow) {
+    courseContentCache.set(cacheKey, { timestamp: Date.now(), data: result });
+  }
+
+  return result;
 };
 
 const ensureTeacherCanManageCourse = async (requesterRole, requesterId, courseId) => {
@@ -1457,7 +1475,7 @@ export const markLectureComplete = async (req, res) => {
       }
     }
 
-    const builtAfter = await buildCourseContentForStudent(studentId, courseId);
+    const builtAfter = await buildCourseContentForStudent(studentId, courseId, { forceRefresh: true });
     if (builtAfter.error) {
       return errorResponse(res, builtAfter.error, builtAfter.status || 400, {
         ...(builtAfter.meta || {}),

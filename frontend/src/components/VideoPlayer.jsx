@@ -50,12 +50,20 @@ export default function VideoPlayer({
   const onStreamReadyRef = useRef(onStreamReady);
   const onErrorChangeRef = useRef(onErrorChange);
   const onLoadingChangeRef = useRef(onLoadingChange);
+  const onTimeUpdateRef = useRef(onTimeUpdate);
+  const onProgressRef = useRef(onProgress);
+  const onPlayStateRef = useRef(onPlayState);
+  const onCompleteRef = useRef(onComplete);
 
   useEffect(() => {
     onStreamReadyRef.current = onStreamReady;
     onErrorChangeRef.current = onErrorChange;
     onLoadingChangeRef.current = onLoadingChange;
-  }, [onStreamReady, onErrorChange, onLoadingChange]);
+    onTimeUpdateRef.current = onTimeUpdate;
+    onProgressRef.current = onProgress;
+    onPlayStateRef.current = onPlayState;
+    onCompleteRef.current = onComplete;
+  }, [onStreamReady, onErrorChange, onLoadingChange, onTimeUpdate, onProgress, onPlayState, onComplete]);
 
   useEffect(() => {
     if (!lectureId) return;
@@ -109,8 +117,8 @@ export default function VideoPlayer({
 
     const onLoadedMetadata = () => {
       setDuration(video.duration || 0);
-      if (typeof onTimeUpdate === "function") {
-        onTimeUpdate(video.currentTime || 0, video.duration || 0);
+      if (typeof onTimeUpdateRef.current === "function") {
+        onTimeUpdateRef.current(video.currentTime || 0, video.duration || 0);
       }
     };
 
@@ -120,8 +128,8 @@ export default function VideoPlayer({
         : 0;
       setCurrentTime(video.currentTime || 0);
       progressRef.current = Math.round(pct);
-      if (typeof onProgress === "function") onProgress(Math.round(pct), video.currentTime || 0, video.duration || 0);
-      if (typeof onTimeUpdate === "function") onTimeUpdate(video.currentTime || 0, video.duration || 0);
+      if (typeof onProgressRef.current === "function") onProgressRef.current(Math.round(pct), video.currentTime || 0, video.duration || 0);
+      if (typeof onTimeUpdateRef.current === "function") onTimeUpdateRef.current(video.currentTime || 0, video.duration || 0);
 
       if (video.buffered.length > 0 && video.duration > 0) {
         const bufferedEnd = video.buffered.end(video.buffered.length - 1);
@@ -130,7 +138,7 @@ export default function VideoPlayer({
 
       if (pct >= 80 && !video.dataset.marked) {
         video.dataset.marked = "true";
-        if (typeof onComplete === "function") onComplete();
+        if (typeof onCompleteRef.current === "function") onCompleteRef.current();
       }
     };
 
@@ -169,17 +177,17 @@ export default function VideoPlayer({
     const onPlaying = () => {
       setLoading(false);
       setIsPlaying(true);
-      if (typeof onPlayState === "function") onPlayState(true);
-      if (typeof onLoadingChange === "function") onLoadingChange(false);
+      if (typeof onPlayStateRef.current === "function") onPlayStateRef.current(true);
+      if (typeof onLoadingChangeRef.current === "function") onLoadingChangeRef.current(false);
     };
     const onPause = () => {
       setIsPlaying(false);
-      if (typeof onPlayState === "function") onPlayState(false);
+      if (typeof onPlayStateRef.current === "function") onPlayStateRef.current(false);
     };
     const onEnded = () => {
       setIsPlaying(false);
-      if (typeof onPlayState === "function") onPlayState(false);
-      if (typeof onComplete === "function") onComplete();
+      if (typeof onPlayStateRef.current === "function") onPlayStateRef.current(false);
+      if (typeof onCompleteRef.current === "function") onCompleteRef.current();
     };
 
     video.addEventListener("loadedmetadata", onLoadedMetadata);
@@ -204,12 +212,6 @@ export default function VideoPlayer({
     };
   }, [
     isHls,
-    onComplete,
-    onErrorChange,
-    onLoadingChange,
-    onPlayState,
-    onProgress,
-    onTimeUpdate,
     streamUrl,
     videoRef,
   ]);

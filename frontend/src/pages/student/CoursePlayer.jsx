@@ -1452,26 +1452,28 @@ function StudentCoursePlayer() {
                               <button
                                 type="button"
                                 className={`mt-2 rounded-full px-3 py-1 text-[11px] font-semibold ${
-                                  quiz.isLocked || quiz.isExpired
+                                  quiz.isLocked || (quiz.isExpired && !quiz.result)
                                     ? "cursor-not-allowed bg-slate-200 text-slate-500"
                                     : "bg-indigo-600 text-white"
                                 }`}
                                 onClick={() => {
-                                  if (quiz.isLocked || quiz.isExpired) {
+                                  if (quiz.isLocked || (quiz.isExpired && !quiz.result)) {
                                     toast.error(quiz.lockReason || "Complete chapter videos first");
                                     return;
                                   }
                                   navigate(`/student/quizzes/${quiz.quizId}/attempt`);
                                 }}
-                                disabled={quiz.isLocked || quiz.isExpired}
+                                disabled={quiz.isLocked || (quiz.isExpired && !quiz.result)}
                               >
-                                {quiz.isExpired
+                                {quiz.isExpired && !quiz.result
                                   ? "Expired"
                                   : quiz.isPassed
                                   ? "Review Quiz"
-                                  : quiz.isAttempted
+                                  : (quiz.isAttempted && !quiz.isExpired)
                                     ? "Retry Quiz"
-                                    : "Start Quiz"}
+                                    : (quiz.isAttempted && quiz.isExpired)
+                                      ? "Review Quiz"
+                                      : "Start Quiz"}
                               </button>
                             </div>
                           ))}
@@ -1508,26 +1510,28 @@ function StudentCoursePlayer() {
                           <button
                             type="button"
                             className={`mt-2 rounded-full px-3 py-1 text-[11px] font-semibold ${
-                              quiz.isLocked || quiz.isExpired
+                              quiz.isLocked || (quiz.isExpired && !quiz.result)
                                 ? "cursor-not-allowed bg-slate-200 text-slate-500"
                                 : "bg-indigo-600 text-white"
                             }`}
                             onClick={() => {
-                              if (quiz.isLocked || quiz.isExpired) {
+                              if (quiz.isLocked || (quiz.isExpired && !quiz.result)) {
                                 toast.error(quiz.lockReason || "Complete all chapters first");
                                 return;
                               }
                               navigate(`/student/quizzes/${quiz.quizId}/attempt`);
                             }}
-                            disabled={quiz.isLocked || quiz.isExpired}
+                            disabled={quiz.isLocked || (quiz.isExpired && !quiz.result)}
                           >
-                            {quiz.isExpired
+                            {quiz.isExpired && !quiz.result
                               ? "Expired"
                               : quiz.isPassed
                               ? "Review Final Quiz"
-                              : quiz.isAttempted
+                              : (quiz.isAttempted && !quiz.isExpired)
                                 ? "Retry Final Quiz"
-                                : "Start Final Quiz"}
+                                : (quiz.isAttempted && quiz.isExpired)
+                                  ? "Review Final Quiz"
+                                  : "Start Final Quiz"}
                           </button>
                         </div>
                       ))}
