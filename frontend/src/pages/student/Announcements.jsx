@@ -77,6 +77,60 @@ const relativeDays = (value) => {
   return `${Math.floor(diff)} days ago`;
 };
 
+const renderMarkdown = (text) => {
+  if (!text) return null;
+  const lines = String(text).split('\n');
+  const elements = [];
+  let listItems = [];
+
+  const flushList = () => {
+    if (listItems.length > 0) {
+      elements.push(
+        <ul key={`list-${elements.length}`} className="list-disc pl-6 space-y-2 my-3 text-slate-700">
+          {[...listItems]}
+        </ul>
+      );
+      listItems = [];
+    }
+  };
+
+  const parseInline = (line, lineIdx) => {
+    const html = line
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/\*\*(.*?)\*\*/g, '<strong class="font-bold text-slate-900">$1</strong>')
+      .replace(/\*(.*?)\*/g, '<em class="italic">$1</em>')
+      .replace(/_(.*?)_/g, '<em class="italic">$1</em>');
+    return <span key={`inline-${lineIdx}`} dangerouslySetInnerHTML={{ __html: html }} />;
+  };
+
+  lines.forEach((line, i) => {
+    const listMatch = line.match(/^[ \t]*[-*][ \t]+(.*)$/);
+    if (listMatch) {
+      listItems.push(
+        <li key={i} className="leading-relaxed">
+          {parseInline(listMatch[1], i)}
+        </li>
+      );
+    } else {
+      flushList();
+      if (line.trim() === '') {
+        elements.push(<div key={i} className="h-4" />);
+      } else {
+        elements.push(
+          <div key={i} className="leading-relaxed min-h-[1.5rem]">
+            {parseInline(line, i)}
+          </div>
+        );
+      }
+    }
+  });
+  flushList();
+
+  return <div className="space-y-1">{elements}</div>;
+};
+
 function StudentAnnouncements() {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState("all");
@@ -392,8 +446,8 @@ function StudentAnnouncements() {
                 <span>{formatDate(selectedAnnouncement.date)}</span>
               </div>
 
-              <div className="mt-8 whitespace-pre-wrap text-lg leading-relaxed text-slate-600">
-                {selectedAnnouncement.message}
+              <div className="mt-8 text-lg leading-relaxed text-slate-600">
+                {renderMarkdown(selectedAnnouncement.message)}
               </div>
             </div>
 
