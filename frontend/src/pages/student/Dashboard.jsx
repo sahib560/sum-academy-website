@@ -90,7 +90,7 @@ function StudentDashboard() {
   const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["student-dashboard"],
     queryFn: () => getStudentDashboard(),
-    staleTime: 30000,
+    staleTime: 0,
   });
 
   const dashboard = useMemo(

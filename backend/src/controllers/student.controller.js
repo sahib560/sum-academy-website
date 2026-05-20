@@ -566,6 +566,7 @@ const getValidatedStudentCertificates = async (uid) => {
     .filter((cert) => {
       const courseId = trimText(cert.subjectId || cert.courseId);
       if (!courseId) return false;
+      if (cert.issuedWithoutCompletion) return true;
       return courseValidationMap[courseId] === true;
     })
     .sort(

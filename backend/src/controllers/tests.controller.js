@@ -979,6 +979,16 @@ const getStudentAttemptsByTest = async (uid = "") => {
   return map;
 };
 
+const filterAttemptsByAssignment = (attempts = [], testData = {}) => {
+  const assignedAt = parseDate(testData?.assignedAt);
+  if (!assignedAt) return attempts;
+  return attempts.filter((attempt) => {
+    const startedAt = parseDate(attempt.startedAt || attempt.createdAt);
+    if (!startedAt) return true;
+    return startedAt.getTime() >= assignedAt.getTime();
+  });
+};
+
 const getLatestAttempt = (attempts = []) =>
   [...(Array.isArray(attempts) ? attempts : [])].sort((a, b) => {
     const aTs = parseDate(a.submittedAt || a.updatedAt || a.startedAt || a.createdAt)?.getTime() || 0;
@@ -1073,13 +1083,17 @@ const ensureStudentCanAccessTest = async ({ testId = "", uid = "" }) => {
 const buildRankingRows = async (testId = "") => {
   const cleanTestId = trimText(testId);
   if (!cleanTestId) return [];
+  const testSnap = await db.collection(COLLECTIONS.TESTS).doc(cleanTestId).get();
+  const testData = testSnap.exists ? testSnap.data() || {} : {};
   const snap = await db
     .collection(COLLECTIONS.TEST_ATTEMPTS)
     .where("testId", "==", cleanTestId)
     .get();
 
-  const rows = snap.docs
-    .map((doc) => ({ id: doc.id, ...(doc.data() || {}) }))
+  const rows = filterAttemptsByAssignment(
+    snap.docs.map((doc) => ({ id: doc.id, ...(doc.data() || {}) })),
+    testData
+  )
     .filter((row) => ["submitted", "auto_submitted"].includes(lowerText(row.status)))
     .map((row) => {
       const obtainedMarks = getAttemptScoreValue(row);
@@ -1193,14 +1207,15 @@ const getActorDisplayName = async (uid = "", fallback = "User") => {
   );
 };
 
-const getTestAttemptRowsForStudent = async (studentId = "", testId = "") => {
+const getTestAttemptRowsForStudent = async (studentId = "", testId = "", testData = null) => {
   const snap = await db
     .collection(COLLECTIONS.TEST_ATTEMPTS)
     .where("studentId", "==", trimText(studentId))
     .get();
-  return snap.docs
+  const attempts = snap.docs
     .map((doc) => ({ id: doc.id, ref: doc.ref, ...(doc.data() || {}) }))
     .filter((row) => trimText(row.testId) === trimText(testId));
+  return filterAttemptsByAssignment(attempts, testData);
 };
 
 const getCurrentQuestionForAttempt = (testData = {}, attemptData = {}) => {
@@ -2118,7 +2133,9 @@ export const getStudentTests = async (req, res) => {
         return aTs - bTs;
       })
       .map((row) => {
-        const latestAttempt = getLatestAttempt(attemptsByTest[row.id] || []);
+        const latestAttempt = getLatestAttempt(
+          filterAttemptsByAssignment(attemptsByTest[row.id] || [], row)
+        );
         return {
           ...serializeTestSummary(row.id, row, latestAttempt),
           durationMinutes: Math.max(1, toNumber(row.durationMinutes, 30)),
@@ -2144,7 +2161,7 @@ export const getStudentTestById = async (req, res) => {
     if (access.error) return errorResponse(res, access.error, access.status || 403);
 
     const { testData } = access;
-    const attempts = await getTestAttemptRowsForStudent(uid, testId);
+    const attempts = await getTestAttemptRowsForStudent(uid, testId, testData);
     const inProgress = getInProgressAttempt(attempts);
     const submitted = getSubmittedAttempt(attempts);
 
@@ -2207,7 +2224,7 @@ export const startStudentTest = async (req, res) => {
     const scheduleGate = ensureActiveScheduleWindow(testData);
     if (scheduleGate.error) return errorResponse(res, scheduleGate.error, scheduleGate.status || 400);
 
-    const attempts = await getTestAttemptRowsForStudent(uid, testId);
+    const attempts = await getTestAttemptRowsForStudent(uid, testId, testData);
     const submitted = getSubmittedAttempt(attempts);
     if (submitted) {
       return errorResponse(res, "Test already submitted", 409, { code: "ALREADY_SUBMITTED" });
@@ -2295,7 +2312,7 @@ export const submitStudentTestAnswer = async (req, res) => {
     const scheduleGate = ensureActiveScheduleWindow(testData);
     if (scheduleGate.error) return errorResponse(res, scheduleGate.error, scheduleGate.status || 400);
 
-    const attempts = await getTestAttemptRowsForStudent(uid, testId);
+    const attempts = await getTestAttemptRowsForStudent(uid, testId, testData);
     const inProgress = getInProgressAttempt(attempts);
     if (!inProgress) {
       return errorResponse(res, "No active test attempt found", 404, { code: "ATTEMPT_NOT_FOUND" });
@@ -2478,7 +2495,7 @@ export const finishStudentTest = async (req, res) => {
       }
     }
 
-    const attempts = await getTestAttemptRowsForStudent(uid, testId);
+    const attempts = await getTestAttemptRowsForStudent(uid, testId, testData);
     const inProgress = getInProgressAttempt(attempts);
     if (!inProgress) {
       const submitted = getSubmittedAttempt(attempts);
@@ -2567,7 +2584,7 @@ export const getStudentTestRanking = async (req, res) => {
     const access = await ensureStudentCanAccessTest({ testId, uid });
     if (access.error) return errorResponse(res, access.error, access.status || 403);
 
-    const attempts = await getTestAttemptRowsForStudent(uid, testId);
+    const attempts = await getTestAttemptRowsForStudent(uid, testId, access.testData);
     const submitted = getSubmittedAttempt(attempts);
     if (!submitted) {
       return errorResponse(res, "Submit the test first to view ranking", 403, {
@@ -2611,7 +2628,7 @@ export const downloadStudentTestRankingPdf = async (req, res) => {
     const access = await ensureStudentCanAccessTest({ testId, uid });
     if (access.error) return errorResponse(res, access.error, access.status || 403);
 
-    const attempts = await getTestAttemptRowsForStudent(uid, testId);
+    const attempts = await getTestAttemptRowsForStudent(uid, testId, access.testData);
     const submitted = getSubmittedAttempt(attempts);
     if (!submitted) {
       return errorResponse(res, "Submit the test first to download ranking", 403, {
@@ -2818,7 +2835,7 @@ export const downloadStudentTestRankingPdf = async (req, res) => {
       if (access.error) return errorResponse(res, access.error, access.status || 403);
       const testData = access.testData;
 
-      const attempts = await getTestAttemptRowsForStudent(uid, testId);
+      const attempts = await getTestAttemptRowsForStudent(uid, testId, testData);
       const submitted = getSubmittedAttempt(attempts);
       if (!submitted) return errorResponse(res, "Test results not found", 404);
 

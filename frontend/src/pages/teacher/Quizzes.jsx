@@ -366,8 +366,8 @@ function TeacherQuizzes() {
   const quizzesQuery = useQuery({
     queryKey: ["teacher-quizzes"],
     queryFn: getTeacherQuizzes,
-    staleTime: 5 * 60 * 1000,
-    refetchInterval: 5 * 60 * 1000,
+    staleTime: 0,
+    refetchInterval: 30 * 1000,
   });
 
   const teacherStudentsQuery = useQuery({

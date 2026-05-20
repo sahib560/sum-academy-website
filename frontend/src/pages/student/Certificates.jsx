@@ -89,13 +89,13 @@ function StudentCertificates() {
   } = useQuery({
     queryKey: ["student-certificates"],
     queryFn: () => getStudentCertificates(),
-    staleTime: 30000,
+    staleTime: 0,
   });
 
   const { data: coursesRows, isLoading: coursesLoading } = useQuery({
     queryKey: ["student-courses-for-certificates"],
     queryFn: () => getStudentCourses(),
-    staleTime: 30000,
+    staleTime: 0,
   });
 
   const certificates = useMemo(

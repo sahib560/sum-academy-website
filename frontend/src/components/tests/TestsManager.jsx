@@ -1300,7 +1300,7 @@ export default function TestsManager({
       </section>
 
       {selectedTestId ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4">
+        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-900/60 p-4">
           <div className="max-h-[85vh] w-full max-w-7xl overflow-auto rounded-3xl bg-white p-5">
             <div className="mb-4 flex items-center justify-between">
               <h3 className="font-heading text-xl text-slate-900">Test Details</h3>
@@ -1515,7 +1515,7 @@ export default function TestsManager({
       ) : null}
 
       {actor === "admin" && adminEditOpen && adminDraft ? (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/60 p-4">
+        <div className="fixed inset-0 z-[95] flex items-center justify-center bg-slate-900/60 p-4">
           <div className="max-h-[90vh] w-full max-w-4xl overflow-auto rounded-3xl bg-white p-5">
             <div className="mb-4 flex items-center justify-between">
               <h3 className="font-heading text-xl text-slate-900">Edit Test</h3>
@@ -1847,7 +1847,7 @@ export default function TestsManager({
       ) : null}
 
       {actor === "admin" && adminDeleteOpen ? (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/60 p-4">
+        <div className="fixed inset-0 z-[95] flex items-center justify-center bg-slate-900/60 p-4">
           <div className="w-full max-w-md rounded-3xl bg-white p-5">
             <h3 className="font-heading text-lg text-slate-900">Delete test?</h3>
             <p className="mt-1 text-sm text-slate-600">
@@ -1875,7 +1875,7 @@ export default function TestsManager({
       ) : null}
 
       {actor === "admin" && adminReassignOpen ? (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/60 p-4">
+        <div className="fixed inset-0 z-[95] flex items-center justify-center bg-slate-900/60 p-4">
           <div className="w-full max-w-lg rounded-3xl bg-white p-5">
             <div className="mb-3 flex items-center justify-between">
               <h3 className="font-heading text-lg text-slate-900">Reassign test</h3>
@@ -1994,7 +1994,7 @@ export default function TestsManager({
         </div>
       ) : null}
       {studentDetailOpen && studentDetailData ? (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[95] flex items-center justify-center p-4">
           <div 
             className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
             onClick={() => setStudentDetailOpen(false)}
