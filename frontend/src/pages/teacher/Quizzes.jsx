@@ -1818,7 +1818,7 @@ function TeacherQuizzes() {
         </Motion.section>
       </div>
 
-      <div className="hidden grid gap-6 xl:grid-cols-[1.1fr_1fr]">
+      <div className="grid gap-6 xl:grid-cols-[1.1fr_1fr]">
         <Motion.section
           id="teacher-quiz-list"
           {...fadeUp}

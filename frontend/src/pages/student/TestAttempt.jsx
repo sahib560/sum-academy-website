@@ -52,7 +52,6 @@ function StudentTestAttempt() {
   const [currentQuestion, setCurrentQuestion] = useState(null);
   const [selectedAnswer, setSelectedAnswer] = useState("");
   const [isFlagged, setIsFlagged] = useState(false);
-  const [questionTimeLeft, setQuestionTimeLeft] = useState(0);
   const [hasReachedLast, setHasReachedLast] = useState(false);
   const [imageBlobUrls, setImageBlobUrls] = useState({});
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
@@ -63,6 +62,13 @@ function StudentTestAttempt() {
   const [securityDeactivatedInfo, setSecurityDeactivatedInfo] = useState(null);
   const lastViolationRef = useRef({ reason: "", count: 0, at: 0 });
   const [currentTimeMs, setCurrentTimeMs] = useState(Date.now());
+
+  const now = currentTimeMs + serverOffsetMsRef.current;
+  const startAt = test?.startAt ? new Date(test.startAt).getTime() : 0;
+  const endAt = test?.endAt ? new Date(test.endAt).getTime() : 0;
+  const expiresAtMs = attempt?.expiresAt ? new Date(attempt.expiresAt).getTime() : endAt;
+  const testTimeLeft = Math.max(0, Math.floor((expiresAtMs - now) / 1000));
+  const totalDurationSeconds = Math.max(1, Math.floor((expiresAtMs - startAt) / 1000));
 
   const detailQuery = useQuery({
     queryKey: ["student-test-by-id", testId],
@@ -302,50 +308,14 @@ function StudentTestAttempt() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const perQuestionLimitSeconds = useMemo(() => {
-    const raw = Number(test?.perQuestionTimeLimit || 60);
-    return Number.isFinite(raw) ? Math.max(10, Math.min(600, raw)) : 60;
-  }, [test?.perQuestionTimeLimit]);
-
   useEffect(() => {
-    if (!inProgress || !currentQuestion?.questionId) return;
-    setQuestionTimeLeft(perQuestionLimitSeconds);
-    autoAdvanceRef.current = { questionId: currentQuestion.questionId, fired: false };
-    warnedTenRef.current = { questionId: currentQuestion.questionId, fired: false };
-  }, [currentQuestion?.questionId, inProgress, perQuestionLimitSeconds]);
-
-  useEffect(() => {
-    if (!inProgress || !currentQuestion?.questionId) return undefined;
-
-    const tick = () => {
-      setQuestionTimeLeft((prev) => {
-        const next = Math.max(0, Number(prev || 0) - 1);
-        if (next === 10) {
-          if (
-            warnedTenRef.current.questionId === currentQuestion.questionId &&
-            !warnedTenRef.current.fired
-          ) {
-            warnedTenRef.current.fired = true;
-            toast.error("10 seconds remaining for this question", { duration: 2500 });
-          }
-        }
-        if (next <= 0) {
-          if (
-            autoAdvanceRef.current.questionId === currentQuestion.questionId &&
-            !autoAdvanceRef.current.fired
-          ) {
-            autoAdvanceRef.current.fired = true;
-            toast("Time up! Moving to next question...", { duration: 1800 });
-            saveAndNavigate("next");
-          }
-        }
-        return next;
-      });
-    };
-
-    const timer = setInterval(tick, 1000);
-    return () => clearInterval(timer);
-  }, [currentQuestion?.questionId, inProgress]);
+    if (!inProgress) return;
+    if (testTimeLeft <= 0 && !autoFinishRef.current) {
+      autoFinishRef.current = true;
+      toast.error("Time is up! Submitting test...", { duration: 2000 });
+      finishMutation.mutate("timeout");
+    }
+  }, [inProgress, testTimeLeft, finishMutation]);
 
   useEffect(() => {
     if (!inProgress) return undefined;
@@ -467,10 +437,6 @@ function StudentTestAttempt() {
     }
   };
 
-  const now = currentTimeMs + serverOffsetMsRef.current;
-  const startAt = test?.startAt ? new Date(test.startAt).getTime() : 0;
-  const endAt = test?.endAt ? new Date(test.endAt).getTime() : 0;
-  
   const isScheduled = startAt > now;
   const isEnded = endAt > 0 && now > endAt;
   const isAvailable = !isScheduled && !isEnded;
@@ -533,16 +499,16 @@ function StudentTestAttempt() {
             
             {inProgress && (
               <div className="flex flex-col items-end gap-2">
-                <span className="text-xs font-bold uppercase tracking-widest text-slate-500">Question Timer</span>
+                <span className="text-xs font-bold uppercase tracking-widest text-slate-500">Time Remaining</span>
                 <div className="flex items-center gap-3">
-                   <span className={`font-mono text-2xl sm:text-3xl font-bold ${questionTimeLeft <= 10 ? "animate-pulse text-rose-500" : "text-indigo-400"}`}>
-                    {formatSeconds(questionTimeLeft)}
+                   <span className={`font-mono text-2xl sm:text-3xl font-bold ${testTimeLeft <= 60 ? "animate-pulse text-rose-500" : "text-indigo-400"}`}>
+                    {formatSeconds(testTimeLeft)}
                    </span>
                    <div className="h-10 sm:h-12 w-1.5 rounded-full bg-slate-800 overflow-hidden">
                       <Motion.div 
                         initial={{ height: "100%" }}
-                        animate={{ height: `${(questionTimeLeft / perQuestionLimitSeconds) * 100}%` }}
-                        className={`w-full rounded-full transition-colors ${questionTimeLeft <= 10 ? "bg-rose-500" : "bg-indigo-500"}`}
+                        animate={{ height: `${(testTimeLeft / totalDurationSeconds) * 100}%` }}
+                        className={`w-full rounded-full transition-colors ${testTimeLeft <= 60 ? "bg-rose-500" : "bg-indigo-500"}`}
                       />
                    </div>
                 </div>
@@ -605,13 +571,13 @@ function StudentTestAttempt() {
                     <div className="mt-1 h-5 w-5 shrink-0 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-600">
                       <svg className="h-3 w-3" fill="currentColor" viewBox="0 0 20 20"><path d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 01-1.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" /></svg>
                     </div>
-                    <span>Each question has a strict time limit of <span className="font-bold text-slate-800">{perQuestionLimitSeconds} seconds</span>.</span>
+                    <span>The test has a total duration of <span className="font-bold text-slate-800">{Math.ceil(totalDurationSeconds / 60)} minutes</span>.</span>
                   </li>
                   <li className="flex items-start gap-3">
                     <div className="mt-1 h-5 w-5 shrink-0 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-600">
                       <svg className="h-3 w-3" fill="currentColor" viewBox="0 0 20 20"><path d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 01-1.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" /></svg>
                     </div>
-                    <span>You can navigate between questions, but the timer resets on every transition.</span>
+                    <span>You can freely navigate back and forth between questions without resetting the timer.</span>
                   </li>
                   <li className="flex items-start gap-3">
                     <div className="mt-1 h-5 w-5 shrink-0 rounded-full bg-red-50 flex items-center justify-center text-red-600">

@@ -960,6 +960,8 @@ const ensureStudentProfile = async (uid = "") => {
       trimText(userData.email).split("@")[0] ||
       "Student",
     email: trimText(studentData.email) || trimText(userData.email),
+    fatherName: trimText(studentData.fatherName) || trimText(userData.fatherName) || "N/A",
+    rollNumber: trimText(studentData.rollNumber) || trimText(userData.rollNumber) || "N/A",
   };
 };
 
