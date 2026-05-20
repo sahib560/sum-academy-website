@@ -502,10 +502,12 @@ const getValidatedStudentCertificates = async (uid) => {
     .map((entry) => trimText(entry?.certId || entry?.id))
     .filter(Boolean);
 
-  if (!certIds.length) return [];
+  const uniqueCertIds = [...new Set(certIds)];
+
+  if (!uniqueCertIds.length) return [];
 
   const certDocs = await Promise.all(
-    certIds.map(async (certId) => {
+    uniqueCertIds.map(async (certId) => {
       const byCertIdSnap = await db
         .collection(COLLECTIONS.CERTIFICATES)
         .where("certId", "==", certId)
