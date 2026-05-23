@@ -225,7 +225,7 @@ export async function parseDocxForTestPreview(file) {
   const rawText = await extractTextFromDocxFile(file);
   const { meta, questions } = parseDocxBlocks(rawText);
 
-  const scope         = trimText(meta["scope"] || "class").toLowerCase();
+  const scope         = trimText(meta["scope"] || "").toLowerCase();
   const classId       = trimText(meta["classid"] || "");
   const title         = trimText(meta["title"] || "");
   const description   = trimText(meta["description"] || "");
@@ -233,24 +233,7 @@ export async function parseDocxForTestPreview(file) {
   const endAt         = trimText(meta["endat"]   || meta["enddate"]   || "");
   const maxViolations = Number(meta["maxviolations"] || 3);
 
-  // Validate meta
-  if (!["class", "center"].includes(scope))
-    return { error: "Scope must be 'class' or 'center'. Add a line: Scope: class", rows: [], meta: null };
-  if (title.length < 3)
-    return { error: "Title is required (min 3 chars). Add a line: Title: <your title>", rows: [], meta: null };
-  if (
-    !startAt ||
-    !endAt ||
-    Number.isNaN(new Date(startAt).getTime()) ||
-    Number.isNaN(new Date(endAt).getTime())
-  )
-    return {
-      error: "Start At and End At must be valid ISO dates (e.g. 2025-06-01T09:00:00). Add both lines.",
-      rows: [],
-      meta: null,
-    };
-  if (scope === "class" && !classId)
-    return { error: "Class ID is required for class scope. Add a line: Class ID: <id>", rows: [], meta: null };
+  // Validate only questions
   if (questions.length === 0)
     return { error: "No questions found. Use format — Q1: Question text", rows: [], meta: null };
 

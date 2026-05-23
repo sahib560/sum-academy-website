@@ -67,6 +67,15 @@ const TEST_CSV_HEADERS = [
   "marks",
 ];
 
+const REQUIRED_CSV_HEADERS = [
+  "questiontext",
+  "optiona",
+  "optionb",
+  "optionc",
+  "optiond",
+  "correctanswer",
+];
+
 const parseCsvLine = (line = "") => {
   const row = [];
   let current = "";
@@ -315,7 +324,7 @@ export default function TestsManager({
     const parsed = parseCsvToRows(String(text || "").replace(/^\uFEFF/, ""));
     const headers = parsed.headers || [];
     const rows = parsed.rows || [];
-    const missing = TEST_CSV_HEADERS.filter((h) => !headers.includes(h));
+    const missing = REQUIRED_CSV_HEADERS.filter((h) => !headers.includes(h));
     if (!headers.length) {
       return { error: "CSV header row is missing", rows: [], meta: null };
     }
@@ -327,25 +336,12 @@ export default function TestsManager({
     }
 
     const first = rows[0] || {};
-    const scope = String(first.scope || "class").trim().toLowerCase();
+    const scope = String(first.scope || "").trim().toLowerCase();
     const title = String(first.title || "").trim();
     const startAt = String(first.startat || "").trim();
     const endAt = String(first.endat || "").trim();
     const classId = String(first.classid || "").trim();
     const maxViolations = Number(first.maxviolations || 3);
-
-    if (!["class", "center"].includes(scope)) {
-      return { error: "scope must be class or center", rows: [], meta: null };
-    }
-    if (title.length < 3) {
-      return { error: "title is required (min 3 chars)", rows: [], meta: null };
-    }
-    if (!startAt || !endAt || Number.isNaN(new Date(startAt).getTime()) || Number.isNaN(new Date(endAt).getTime())) {
-      return { error: "startAt and endAt must be valid ISO dates", rows: [], meta: null };
-    }
-    if (scope === "class" && !classId) {
-      return { error: "classId is required for class scope", rows: [], meta: null };
-    }
 
     const meta = {
       scope,
@@ -710,15 +706,17 @@ export default function TestsManager({
                   onClick={() => {
                     const meta = bulkPreview.meta || {};
                     const rows = Array.isArray(bulkPreview.rows) ? bulkPreview.rows : [];
+                    const finalScope = meta.scope || form.scope || "class";
+                    const finalClassId = finalScope === "class" ? (meta.classId || form.classId || "") : "";
                     const payload = {
                       title: meta.title || form.title,
-                      description: meta.description || "",
-                      scope: meta.scope || "class",
-                      classId: meta.scope === "class" ? meta.classId : "",
-                      startAt: meta.startAt,
-                      endAt: meta.endAt,
+                      description: meta.description || form.description || "",
+                      scope: finalScope,
+                      classId: finalClassId,
+                      startAt: meta.startAt || form.startAt,
+                      endAt: meta.endAt || form.endAt,
                       perQuestionTimeLimit: Number(form.perQuestionTimeLimit || 60),
-                      maxViolations: Number(meta.maxViolations || 3),
+                      maxViolations: Number(meta.maxViolations || form.maxViolations || 3),
                       questions: rows.map((row) => ({
                         questionText: row.questionTextHtml,
                         optionA: row.optionA,
