@@ -57,8 +57,25 @@ const normKey = (v) =>
 
 async function extractTextFromDocxFile(file) {
   const arrayBuffer = await file.arrayBuffer();
-  const result = await mammoth.extractRawText({ arrayBuffer });
-  return result.value || "";
+  const result = await mammoth.convertToHtml({ arrayBuffer });
+  let html = result.value || "";
+
+  // Convert structural HTML elements to newlines
+  html = html.replace(/<\/p>/gi, "\n");
+  html = html.replace(/<br\s*\/?>/gi, "\n");
+  html = html.replace(/<\/tr>/gi, "\n");
+  html = html.replace(/<\/td>/gi, "  ");
+
+  // Remove all other HTML tags
+  html = html.replace(/<[^>]+>/g, " ");
+
+  // Decode common entities
+  html = html.replace(/&nbsp;/gi, " ");
+  html = html.replace(/&lt;/gi, "<");
+  html = html.replace(/&gt;/gi, ">");
+  html = html.replace(/&amp;/gi, "&");
+
+  return html;
 }
 
 /**
