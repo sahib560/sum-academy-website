@@ -1,10 +1,40 @@
 import mammoth from "mammoth";
 import { Document, Packer, Paragraph, TextRun } from "docx";
 
+/**
+ * Extract clean plain text from a DOCX buffer.
+ * Uses convertToHtml so paragraph boundaries are preserved even in
+ * Compatibility Mode or two-column DOCX files.
+ */
 export const extractDocxText = async (buffer) => {
   try {
-    const result = await mammoth.extractRawText({ buffer });
-    return result.value; // The raw text
+    const result = await mammoth.convertToHtml({ buffer });
+    let html = result.value || "";
+
+    // Convert block-level close tags → newlines BEFORE stripping
+    html = html.replace(/<\/(p|li|tr|h[1-6])>/gi, "\n");
+    html = html.replace(/<br\s*\/?>/gi, "\n");
+    html = html.replace(/<\/td>/gi, "  ");
+
+    // Strip remaining tags
+    html = html.replace(/<[^>]+>/g, "");
+
+    // Decode HTML entities
+    html = html
+      .replace(/&nbsp;/gi, " ")
+      .replace(/&lt;/gi, "<")
+      .replace(/&gt;/gi, ">")
+      .replace(/&amp;/gi, "&")
+      .replace(/&quot;/gi, '"')
+      .replace(/&#39;/gi, "'");
+
+    // Re-inject newlines before structural markers (handles collapsed lines)
+    html = html.replace(/([^\n])(Q\s*\d+\s*[:.]\s)/gi, "$1\n$2");
+    html = html.replace(/^(Q\s*\d+\s*[:.]\s)/i, "\n$1");
+    html = html.replace(/([^\n])(Marks?\s*:)/gi, "$1\n$2");
+    html = html.replace(/([^\n])([A-D]\s*[.)])/g, "$1\n$2");
+
+    return html;
   } catch (error) {
     console.error("mammoth extraction error:", error);
     throw new Error("Failed to extract text from DOCX file");
@@ -13,6 +43,7 @@ export const extractDocxText = async (buffer) => {
 
 export const parseQuizOrTestDocxText = (text) => {
   const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+
   const rows = [];
   
   const globals = {
@@ -95,19 +126,22 @@ export const parseQuizOrTestDocxText = (text) => {
       continue;
     }
 
-    // Question start (e.g., Q1:, Q:, Question 1:)
-    if (/^q\d*:|^question\s*\d*:/i.test(lowerLine)) {
+    // Question start — Q1: / Q10: (must have at least one digit to avoid false matches on "Question:" metadata)
+    if (/^q\s*\d+\s*[:.]/i.test(line)) {
       if (currentQuestion) {
         rows.push({ ...globals, ...currentQuestion });
       }
+      const colonIdx = line.indexOf(":");
+      const dotIdx   = line.indexOf(".");
+      const sepIdx   = (colonIdx > 0 && dotIdx > 0) ? Math.min(colonIdx, dotIdx) : Math.max(colonIdx, dotIdx);
       currentQuestion = {
-        questionText: line.substring(line.indexOf(":") + 1).trim(),
+        questionText: sepIdx >= 0 ? line.substring(sepIdx + 1).trim() : "",
         optionA: "",
         optionB: "",
         optionC: "",
         optionD: "",
         correctAnswer: "",
-        marks: "1"
+        marks: "1",
       };
       continue;
     }
@@ -115,24 +149,32 @@ export const parseQuizOrTestDocxText = (text) => {
     if (currentQuestion) {
       if (lowerLine.startsWith("marks:")) {
         currentQuestion.marks = line.substring(line.indexOf(":") + 1).trim();
-      } else if (/^a\)/i.test(line)) {
-        currentQuestion.optionA = line.substring(2).replace(/✓|\*/g, "").trim();
-        if (line.includes("✓") || line.includes("*")) currentQuestion.correctAnswer = "A";
-      } else if (/^b\)/i.test(line)) {
-        currentQuestion.optionB = line.substring(2).replace(/✓|\*/g, "").trim();
-        if (line.includes("✓") || line.includes("*")) currentQuestion.correctAnswer = "B";
-      } else if (/^c\)/i.test(line)) {
-        currentQuestion.optionC = line.substring(2).replace(/✓|\*/g, "").trim();
-        if (line.includes("✓") || line.includes("*")) currentQuestion.correctAnswer = "C";
-      } else if (/^d\)/i.test(line)) {
-        currentQuestion.optionD = line.substring(2).replace(/✓|\*/g, "").trim();
-        if (line.includes("✓") || line.includes("*")) currentQuestion.correctAnswer = "D";
+      } else if (/^a\s*[.)]/i.test(line)) {
+        const text = line.replace(/^a\s*[.)]\s*/i, "");
+        const isCorrect = /[✓*√]/.test(text);
+        currentQuestion.optionA = text.replace(/[✓*√]/g, "").trim();
+        if (isCorrect) currentQuestion.correctAnswer = "A";
+      } else if (/^b\s*[.)]/i.test(line)) {
+        const text = line.replace(/^b\s*[.)]\s*/i, "");
+        const isCorrect = /[✓*√]/.test(text);
+        currentQuestion.optionB = text.replace(/[✓*√]/g, "").trim();
+        if (isCorrect) currentQuestion.correctAnswer = "B";
+      } else if (/^c\s*[.)]/i.test(line)) {
+        const text = line.replace(/^c\s*[.)]\s*/i, "");
+        const isCorrect = /[✓*√]/.test(text);
+        currentQuestion.optionC = text.replace(/[✓*√]/g, "").trim();
+        if (isCorrect) currentQuestion.correctAnswer = "C";
+      } else if (/^d\s*[.)]/i.test(line)) {
+        const text = line.replace(/^d\s*[.)]\s*/i, "");
+        const isCorrect = /[✓*√]/.test(text);
+        currentQuestion.optionD = text.replace(/[✓*√]/g, "").trim();
+        if (isCorrect) currentQuestion.correctAnswer = "D";
       } else if (lowerLine.startsWith("correct answer:")) {
         currentQuestion.correctAnswer = line.substring(line.indexOf(":") + 1).trim().toUpperCase();
       } else {
         // Multi-line question text if options haven't started yet
         if (!currentQuestion.optionA) {
-          currentQuestion.questionText += "\n" + line;
+          currentQuestion.questionText += " " + line;
         }
       }
     }

@@ -3,37 +3,14 @@
  * Parses a .docx File object into the same data shapes produced by
  * parseCsvForPreview() (Quizzes) and parseBulkCsvFile() (Tests).
  *
- * DOCX template format expected:
- *
- * === QUIZ ===
- * Course ID: <id>
- * Subject ID: <id>
- * Chapter ID: <id>        ← only for scope=chapter
- * Scope: chapter
- * Quiz Title: My Quiz
- * Pass Score: 50
+ * Supported question format (any of these work):
  *
  * Q1: What is H₂SO₄?
+ * Marks: 2
  * A) Water
- * B) Sulfuric acid ✓      ← mark correct with ✓ or *
+ * B) Sulfuric acid ✓    ← mark correct with ✓ , * , or √
  * C) Hydrochloric acid
  * D) Nitric acid
- * Marks: 2
- *
- * === TEST ===
- * Title: Midterm Test
- * Scope: class
- * Class ID: <id>
- * Start At: 2025-06-01T09:00:00
- * End At: 2025-06-01T11:00:00
- * Max Violations: 3
- *
- * Q1: Solve: ∫x dx
- * A) x
- * B) x²/2 ✓
- * C) 2x
- * D) x²
- * Marks: 5
  */
 
 import * as mammoth from "mammoth";
@@ -57,55 +34,80 @@ const normKey = (v) =>
 
 async function extractTextFromDocxFile(file) {
   const arrayBuffer = await file.arrayBuffer();
+
+  // convertToHtml preserves paragraph boundaries as </p> tags
   const result = await mammoth.convertToHtml({ arrayBuffer });
   let html = result.value || "";
 
-  // Convert structural HTML elements to newlines
-  html = html.replace(/<\/p>/gi, "\n");
+  // Step 1: Convert block-level close tags → newlines BEFORE stripping tags
+  html = html.replace(/<\/(p|li|tr|h[1-6])>/gi, "\n");
   html = html.replace(/<br\s*\/?>/gi, "\n");
-  html = html.replace(/<\/tr>/gi, "\n");
   html = html.replace(/<\/td>/gi, "  ");
 
-  // Remove all other HTML tags
-  html = html.replace(/<[^>]+>/g, " ");
+  // Step 2: Strip all remaining HTML tags
+  html = html.replace(/<[^>]+>/g, "");
 
-  // Decode common entities
-  html = html.replace(/&nbsp;/gi, " ");
-  html = html.replace(/&lt;/gi, "<");
-  html = html.replace(/&gt;/gi, ">");
-  html = html.replace(/&amp;/gi, "&");
+  // Step 3: Decode common HTML entities
+  html = html
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'");
 
   return html;
 }
 
 /**
- * Turns raw extracted DOCX text into { meta, questions }.
- *   meta      — key/value pairs found before the first question
- *   questions — array of { questionText, optionA-D, correctLetter, marks }
+ * Split raw text into { meta, questions }.
+ *
+ * This is format-agnostic: it works whether the document had proper
+ * paragraph breaks (template) or everything collapsed onto one line
+ * (Compatibility Mode / manually typed / two-column layout).
  */
 function parseDocxBlocks(rawText) {
-  // If mammoth misses newlines (e.g. Compatibility Mode DOCX), forcefully reconstruct them
-  // by injecting a newline before known structural patterns.
-  let healedText = rawText
-    .replace(/(Marks?\s*:)/gi, "\n$1")
-    .replace(/([A-D]\s*[.)])/g, "\n$1")
-    .replace(/(Q\s*\d+\s*[:.])/gi, "\n$1");
+  // Safety: strip any stray HTML tags
+  let text = rawText.replace(/<[^>]+>/g, "");
 
-  const lines = healedText
+  // ── Aggressively re-inject newlines before every structural marker ────────
+  // We avoid \b because after stripping tags the boundary chars may differ.
+  // Strategy: if the marker is NOT already at the start of a line, add \n before it.
+
+  // Q1: / Q2: / Q10:  (must have at least one digit)
+  text = text.replace(/([^\n])(Q\s*\d+\s*[:.]\s)/gi, "$1\n$2");
+  // Start-of-string case
+  text = text.replace(/^(Q\s*\d+\s*[:.]\s)/i, "\n$1");
+
+  // Marks:
+  text = text.replace(/([^\n])(Marks?\s*:)/gi, "$1\n$2");
+
+  // A) B) C) D)  or  A. B. C. D.
+  // Only inject when preceded by a non-newline (handles mid-line collapse)
+  text = text.replace(/([^\n])(\s[A-D]\s*[.)])/g, "$1\n$2");
+  // Also catch A) at start of line or after newline already done (idempotent)
+  text = text.replace(/([^\n])([A-D]\s*[.)])/g, "$1\n$2");
+
+  // ── Split into clean lines ────────────────────────────────────────────────
+  const lines = text
     .split(/\r?\n/)
     .map((l) => l.trim())
     .filter((l) => l.length > 0);
 
+  // ── Parse line-by-line ────────────────────────────────────────────────────
   const meta = {};
   const questions = [];
   let current = null;
   let qLines = [];
 
-  // Regex patterns
-  const Q_RE = /^Q\s*\d+\s*[:.]\s*(.*)$/i;
-  const OPT_RE = /^([A-D])\s*[.)]\s*(.*)$/i;
-  const MARKS_RE = /^[Mm]arks?\s*:\s*(\d+(?:\.\d+)?)$/i;
-  const META_RE = /^([^:]{2,40}?)\s*:\s*(.*)$/;
+  // Q1:  Q10:  — requires at least one digit after Q
+  const Q_RE     = /^Q\s*(\d+)\s*[:.]\s*(.*)/i;
+  // A) B) C) D)  /  A. B. C. D.
+  const OPT_RE   = /^([A-D])\s*[.)]\s*(.*)/i;
+  // Marks: 1  (non-strict end so trailing spaces don't break it)
+  const MARKS_RE = /^Marks?\s*:\s*(\d+(?:\.\d+)?)/i;
+  // Generic key: value  (for metadata lines before first question)
+  const META_RE  = /^([^:]{2,40}?)\s*:\s*(.*)/;
 
   const flush = () => {
     if (!current) return;
@@ -116,46 +118,61 @@ function parseDocxBlocks(rawText) {
   };
 
   for (const line of lines) {
-    // New question block
+    // Skip comment / instruction lines
+    if (line.startsWith("#")) continue;
+
+    // ── new question block ─────────────────────────────────────────────────
     const qMatch = line.match(Q_RE);
     if (qMatch) {
       flush();
-      current = { optionA: "", optionB: "", optionC: "", optionD: "", correctLetter: "", marks: "1" };
-      const firstLine = qMatch[1].trim();
-      if (firstLine) qLines = [firstLine];
+      current = {
+        optionA: "",
+        optionB: "",
+        optionC: "",
+        optionD: "",
+        correctLetter: "",
+        marks: "1",
+      };
+      const firstLine = (qMatch[2] || "").trim();
+      qLines = firstLine ? [firstLine] : [];
       continue;
     }
 
     if (!current) {
-      // Metadata (before first question)
+      // Metadata line (before first Q)
       const mMatch = line.match(META_RE);
       if (mMatch) meta[normKey(mMatch[1])] = trimText(mMatch[2]);
       continue;
     }
 
-    // Marks line (inside a question)
+    // ── Marks line ────────────────────────────────────────────────────────
     const marksMatch = line.match(MARKS_RE);
-    if (marksMatch) {
+    // Guard: don't confuse "Marks:" with an option like "A) ..."
+    if (marksMatch && !line.match(OPT_RE)) {
       current.marks = marksMatch[1];
       continue;
     }
 
-    // Option line (inside a question)
+    // ── Option line ───────────────────────────────────────────────────────
     const optMatch = line.match(OPT_RE);
     if (optMatch) {
       const letter = optMatch[1].toUpperCase();
       let text = trimText(optMatch[2]);
-      const isCorrect = text.includes("✓") || text.includes("*") || text.includes("√");
+      // Detect correct-answer markers: ✓  *  √
+      const isCorrect = /[✓*√]/.test(text);
       if (isCorrect) {
         text = trimText(text.replace(/[✓*√]/g, ""));
-        current.correctLetter = letter; // store the LETTER, not the text
+        current.correctLetter = letter;
       }
       current[`option${letter}`] = text;
       continue;
     }
 
-    // Multi-line question text continuation
-    qLines.push(line);
+    // ── continuation of multi-line question text ──────────────────────────
+    // Only if options haven't started yet for this question
+    if (!current.optionA) {
+      qLines.push(line);
+    }
   }
 
   flush();
@@ -202,7 +219,7 @@ export async function parseDocxForQuizPreview(file) {
     optionB: q.optionB,
     optionC: q.optionC,
     optionD: q.optionD,
-    correctAnswer: q.correctLetter, // letter: A | B | C | D
+    correctAnswer: q.correctLetter,
     marks: q.marks,
     legacyQuestionType: "mcq",
     imageUrl: "",
@@ -257,7 +274,6 @@ export async function parseDocxForTestPreview(file) {
   const endAt         = trimText(meta["endat"]   || meta["enddate"]   || "");
   const maxViolations = Number(meta["maxviolations"] || 3);
 
-  // Validate only questions
   if (questions.length === 0)
     return { error: "No questions found. Use format — Q1: Question text", rows: [], meta: null };
 
@@ -277,7 +293,7 @@ export async function parseDocxForTestPreview(file) {
     const optionB = q.optionB;
     const optionC = q.optionC;
     const optionD = q.optionD;
-    const correct = q.correctLetter; // letter A/B/C/D
+    const correct = q.correctLetter;
     const marks = Number.isFinite(Number(q.marks)) ? Math.max(1, Number(q.marks)) : 1;
 
     const errors = [];
