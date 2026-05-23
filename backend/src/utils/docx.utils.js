@@ -221,19 +221,7 @@ export const generateDocxTemplate = async (type, data = {}) => {
 
   } else if (type === "test") {
     addLine("# INSTRUCTIONS:", true, "FF0000");
-    addLine("# Do NOT change the Class ID or Scope.", false, "FF0000");
-    addLine("# Provide Start At and End At in standard date/time format (e.g. 2026-06-01T10:00:00Z).", false, "FF0000");
-    addLine("# To mark correct answers, put a ✓ or * at the end of the option text.", false, "FF0000");
-    addEmpty();
-
-    addLine(`Scope: ${data.scope || "class"}`);
-    addLine(`Class ID: ${data.classId || ""}`);
-    addLine(`Test Title: ${data.title || "Biology Test 1"}`);
-    addLine(`Description: ${data.description || "Weekly test"}`);
-    addLine(`Start At: ${data.startAt || new Date().toISOString()}`);
-    addLine(`End At: ${data.endAt || new Date().toISOString()}`);
-    addLine(`Duration Minutes: ${data.durationMinutes || 60}`);
-    addLine(`Max Violations: ${data.maxViolations || 3}`);
+    addLine("# To mark correct answers, put a ✓, *, or √ at the end of the option text.", false, "FF0000");
     addEmpty();
 
     addLine("Q1: The human heart has how many chambers?", true);
@@ -242,6 +230,78 @@ export const generateDocxTemplate = async (type, data = {}) => {
     addLine("B) 3");
     addLine("C) 4 ✓");
     addLine("D) 5");
+    addEmpty();
+
+    addLine("Q2: What is the chemical symbol for Gold?", true);
+    addLine("Marks: 1");
+    addLine("A) Ag");
+    addLine("B) Au ✓");
+    addLine("C) Pb");
+    addLine("D) Fe");
+    addEmpty();
+
+    addLine("Q3: Which planet is known as the Red Planet?", true);
+    addLine("Marks: 1");
+    addLine("A) Venus");
+    addLine("B) Jupiter");
+    addLine("C) Mars ✓");
+    addLine("D) Saturn");
+    addEmpty();
+
+    addLine("Q4: What is the powerhouse of the cell?", true);
+    addLine("Marks: 1");
+    addLine("A) Nucleus");
+    addLine("B) Mitochondria ✓");
+    addLine("C) Ribosome");
+    addLine("D) Golgi apparatus");
+    addEmpty();
+
+    addLine("Q5: What is the hardest natural substance on Earth?", true);
+    addLine("Marks: 1");
+    addLine("A) Gold");
+    addLine("B) Iron");
+    addLine("C) Diamond ✓");
+    addLine("D) Platinum");
+    addEmpty();
+
+    addLine("Q6: How many continents are there on Earth?", true);
+    addLine("Marks: 1");
+    addLine("A) 5");
+    addLine("B) 6");
+    addLine("C) 7 ✓");
+    addLine("D) 8");
+    addEmpty();
+
+    addLine("Q7: What is the freezing point of water in Celsius?", true);
+    addLine("Marks: 1");
+    addLine("A) 0 ✓");
+    addLine("B) 32");
+    addLine("C) 100");
+    addLine("D) -10");
+    addEmpty();
+
+    addLine("Q8: Which gas do plants primarily absorb?", true);
+    addLine("Marks: 1");
+    addLine("A) Oxygen");
+    addLine("B) Nitrogen");
+    addLine("C) Carbon Dioxide ✓");
+    addLine("D) Hydrogen");
+    addEmpty();
+
+    addLine("Q9: What is the largest mammal in the world?", true);
+    addLine("Marks: 1");
+    addLine("A) Elephant");
+    addLine("B) Blue Whale ✓");
+    addLine("C) Giraffe");
+    addLine("D) Great White Shark");
+    addEmpty();
+
+    addLine("Q10: Who wrote 'Romeo and Juliet'?", true);
+    addLine("Marks: 1");
+    addLine("A) Charles Dickens");
+    addLine("B) Mark Twain");
+    addLine("C) William Shakespeare ✓");
+    addLine("D) Jane Austen");
   }
 
   const doc = new Document({
