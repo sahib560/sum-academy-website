@@ -4,6 +4,7 @@ import { AnimatePresence, motion as Motion } from "framer-motion";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Toaster, toast } from "react-hot-toast";
 import { Skeleton } from "../../components/Skeleton.jsx";
+import { parseDocxForQuizPreview } from "../../utils/docx.utils.js";
 import {
   ResponsiveContainer,
   BarChart,
@@ -848,13 +849,25 @@ function TeacherQuizzes() {
       return;
     }
 
+    setBulkFile(file);
+    setBulkPreview(null);
+    setBulkRowBusy({});
+    setUploadResult(null);
+    setUploadProgress(0);
+
     if (isDocx) {
-      setBulkFile(file);
-      setBulkPreview({ isValid: true, globalErrors: [], tableRows: [] });
-      setBulkRowBusy({});
-      setUploadResult(null);
-      setUploadProgress(0);
-      toast.success("DOCX file selected. Ready to upload directly.");
+      try {
+        toast.loading("Parsing DOCX…", { id: "docx-parse" });
+        const preview = await parseDocxForQuizPreview(file);
+        setBulkPreview(preview);
+        if (preview.globalErrors.length || !preview.isValid) {
+          toast.error("Fix errors shown below before uploading", { id: "docx-parse" });
+        } else {
+          toast.success(`DOCX parsed — ${preview.questionCount} question(s) ready`, { id: "docx-parse" });
+        }
+      } catch (err) {
+        toast.error("Unable to read DOCX file", { id: "docx-parse" });
+      }
       return;
     }
 
@@ -862,12 +875,7 @@ function TeacherQuizzes() {
       // Ensure UTF-8 (handles BOM and Word-copied symbols more reliably)
       const text = await file.text();
       const preview = parseCsvForPreview(text);
-      setBulkFile(file);
       setBulkPreview(preview);
-      setBulkRowBusy({});
-      setUploadResult(null);
-      setUploadProgress(0);
-
       if (preview.globalErrors.length || !preview.isValid) {
         toast.error("Fix errors in CSV before uploading");
       } else {
@@ -893,7 +901,7 @@ function TeacherQuizzes() {
 
   const handleBulkUpload = () => {
     if (!bulkFile || !bulkPreview?.isValid) {
-      toast.error("Fix errors in CSV before uploading");
+      toast.error("Fix all errors before uploading");
       return;
     }
     bulkUploadMutation.mutate({ file: bulkFile });
@@ -1797,7 +1805,7 @@ function TeacherQuizzes() {
 	                  onClick={handleBulkUpload}
 	                  disabled={!bulkFile || !bulkPreview?.isValid || bulkUploadMutation.isPending}
 	                >
-	                  {bulkUploadMutation.isPending ? "Uploading..." : `Upload ${bulkFile?.name?.endsWith(".docx") ? "DOCX" : "CSV"}`}
+	                  {bulkUploadMutation.isPending ? "Uploading..." : `Upload ${bulkFile?.name?.toLowerCase().endsWith(".docx") ? "DOCX" : "CSV"}`}
 	                </button>
 	                <button type="button" className="btn-outline" onClick={resetBulkFlow}>
 	                  Start Over
