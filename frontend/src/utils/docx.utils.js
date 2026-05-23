@@ -84,7 +84,14 @@ async function extractTextFromDocxFile(file) {
  *   questions — array of { questionText, optionA-D, correctLetter, marks }
  */
 function parseDocxBlocks(rawText) {
-  const lines = rawText
+  // If mammoth misses newlines (e.g. Compatibility Mode DOCX), forcefully reconstruct them
+  // by injecting a newline before known structural patterns.
+  let healedText = rawText
+    .replace(/(Marks?\s*:)/gi, "\n$1")
+    .replace(/([A-D]\s*[.)])/g, "\n$1")
+    .replace(/(Q\s*\d+\s*[:.])/gi, "\n$1");
+
+  const lines = healedText
     .split(/\r?\n/)
     .map((l) => l.trim())
     .filter((l) => l.length > 0);
@@ -138,9 +145,9 @@ function parseDocxBlocks(rawText) {
     if (optMatch) {
       const letter = optMatch[1].toUpperCase();
       let text = trimText(optMatch[2]);
-      const isCorrect = text.includes("✓") || text.includes("*");
+      const isCorrect = text.includes("✓") || text.includes("*") || text.includes("√");
       if (isCorrect) {
-        text = trimText(text.replace(/[✓*]/g, ""));
+        text = trimText(text.replace(/[✓*√]/g, ""));
         current.correctLetter = letter; // store the LETTER, not the text
       }
       current[`option${letter}`] = text;
