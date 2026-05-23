@@ -841,8 +841,20 @@ function TeacherQuizzes() {
     if (!file) return;
     const isCsv =
       lowerText(file?.type).includes("csv") || lowerText(file?.name).endsWith(".csv");
-    if (!isCsv) {
-      toast.error("Please upload a CSV file only");
+    const isDocx = lowerText(file?.name).endsWith(".docx");
+
+    if (!isCsv && !isDocx) {
+      toast.error("Please upload a CSV or DOCX file only");
+      return;
+    }
+
+    if (isDocx) {
+      setBulkFile(file);
+      setBulkPreview({ isValid: true, globalErrors: [], tableRows: [] });
+      setBulkRowBusy({});
+      setUploadResult(null);
+      setUploadProgress(0);
+      toast.success("DOCX file selected. Ready to upload directly.");
       return;
     }
 
@@ -1785,7 +1797,7 @@ function TeacherQuizzes() {
 	                  onClick={handleBulkUpload}
 	                  disabled={!bulkFile || !bulkPreview?.isValid || bulkUploadMutation.isPending}
 	                >
-	                  {bulkUploadMutation.isPending ? "Uploading..." : "Upload CSV (Legacy)"}
+	                  {bulkUploadMutation.isPending ? "Uploading..." : `Upload ${bulkFile?.name?.endsWith(".docx") ? "DOCX" : "CSV"}`}
 	                </button>
 	                <button type="button" className="btn-outline" onClick={resetBulkFlow}>
 	                  Start Over

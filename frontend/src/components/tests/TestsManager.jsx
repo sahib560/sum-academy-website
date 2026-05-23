@@ -625,10 +625,20 @@ export default function TestsManager({
                 setBulkBusyRow({});
                 setBulkFile(file);
                 if (!file) return;
-                if (!file.name.toLowerCase().endsWith(".csv")) {
-                  setBulkErrors(["Please select a .csv file"]);
+
+                const isCsv = file.name.toLowerCase().endsWith(".csv");
+                const isDocx = file.name.toLowerCase().endsWith(".docx");
+
+                if (!isCsv && !isDocx) {
+                  setBulkErrors(["Please select a .csv or .docx file"]);
                   return;
                 }
+
+                if (isDocx) {
+                  setBulkPreview({ isDocxUpload: true, meta: {}, rows: [] });
+                  return;
+                }
+
                 try {
                   const parsed = await parseBulkCsvFile(file);
                   if (parsed.error) {
@@ -678,51 +688,67 @@ export default function TestsManager({
             <div className="mt-5 space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-4">
                 <div className="text-sm text-slate-700">
-                  <p className="font-semibold text-slate-900">
-                    {bulkReadyCount}/{bulkTotalCount} questions ready
-                  </p>
+                  {bulkPreview.isDocxUpload ? (
+                    <p className="font-semibold text-slate-900">DOCX file ready</p>
+                  ) : (
+                    <p className="font-semibold text-slate-900">
+                      {bulkReadyCount}/{bulkTotalCount} questions ready
+                    </p>
+                  )}
                   <p className="text-xs text-slate-500">
-                    Review, add images, then add all questions to the test.
+                    {bulkPreview.isDocxUpload ? "Upload the document directly to the server." : "Review, add images, then add all questions to the test."}
                   </p>
                 </div>
-                <button
-                  type="button"
-                  disabled={!bulkAllValid || createMutation.isPending}
-                  onClick={() => {
-                    const meta = bulkPreview.meta || {};
-                    const rows = Array.isArray(bulkPreview.rows) ? bulkPreview.rows : [];
-                    const payload = {
-                      title: meta.title || form.title,
-                      description: meta.description || "",
-                      scope: meta.scope || "class",
-                      classId: meta.scope === "class" ? meta.classId : "",
-                      startAt: meta.startAt,
-                      endAt: meta.endAt,
-                      perQuestionTimeLimit: Number(form.perQuestionTimeLimit || 60),
-                      maxViolations: Number(meta.maxViolations || 3),
-                      questions: rows.map((row) => ({
-                        questionText: row.questionTextHtml,
-                        optionA: row.optionA,
-                        optionB: row.optionB,
-                        optionC: row.optionC,
-                        optionD: row.optionD,
-                        correctAnswer: row.correct,
-                        marks: row.marks,
-                        imageUrl: row.imageUrl || null,
-                        imagePath: row.imagePath || null,
-                      })),
-                    };
-                    createMutation.mutate(payload);
-                  }}
-                  className="rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {createMutation.isPending ? "Adding..." : "Add All to Test"}
-                </button>
+                {bulkPreview.isDocxUpload ? (
+                  <button
+                    type="button"
+                    disabled={bulkMutation.isPending}
+                    onClick={() => bulkMutation.mutate(bulkFile)}
+                    className="rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {bulkMutation.isPending ? "Uploading DOCX..." : "Upload DOCX"}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={!bulkAllValid || createMutation.isPending}
+                    onClick={() => {
+                      const meta = bulkPreview.meta || {};
+                      const rows = Array.isArray(bulkPreview.rows) ? bulkPreview.rows : [];
+                      const payload = {
+                        title: meta.title || form.title,
+                        description: meta.description || "",
+                        scope: meta.scope || "class",
+                        classId: meta.scope === "class" ? meta.classId : "",
+                        startAt: meta.startAt,
+                        endAt: meta.endAt,
+                        perQuestionTimeLimit: Number(form.perQuestionTimeLimit || 60),
+                        maxViolations: Number(meta.maxViolations || 3),
+                        questions: rows.map((row) => ({
+                          questionText: row.questionTextHtml,
+                          optionA: row.optionA,
+                          optionB: row.optionB,
+                          optionC: row.optionC,
+                          optionD: row.optionD,
+                          correctAnswer: row.correct,
+                          marks: row.marks,
+                          imageUrl: row.imageUrl || null,
+                          imagePath: row.imagePath || null,
+                        })),
+                      };
+                      createMutation.mutate(payload);
+                    }}
+                    className="rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {createMutation.isPending ? "Adding..." : "Add All to Test"}
+                  </button>
+                )}
               </div>
 
               <div className="overflow-x-auto rounded-2xl border border-slate-200">
-                <table className="min-w-full text-left text-xs">
-                  <thead className="bg-slate-50 text-slate-600">
+                {!bulkPreview.isDocxUpload && (
+                  <table className="min-w-full text-left text-xs">
+                    <thead className="bg-slate-50 text-slate-600">
                     <tr>
                       <th className="px-3 py-2">#</th>
                       <th className="px-3 py-2">Question</th>
@@ -865,8 +891,9 @@ export default function TestsManager({
                         </tr>
                       );
                     })}
-                  </tbody>
-                </table>
+                    </tbody>
+                  </table>
+                )}
               </div>
             </div>
           ) : null}
