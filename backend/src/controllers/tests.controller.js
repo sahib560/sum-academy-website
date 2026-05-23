@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from "uuid";
 import { admin, db, bucket } from "../config/firebase.js";
 import { COLLECTIONS } from "../config/collections.js";
 import { successResponse, errorResponse } from "../utils/response.utils.js";
+import { extractDocxText, parseQuizOrTestDocxText, generateDocxTemplate } from "../utils/docx.utils.js";
 import { sendTestScheduleBroadcastEmail } from "../services/email.service.js";
 
 const serverTimestamp = () => admin.firestore.FieldValue.serverTimestamp();
@@ -1451,6 +1452,24 @@ export const downloadTestBulkTemplate = async (req, res) => {
       Math.ceil((endAt.getTime() - startAt.getTime()) / (60 * 1000))
     );
     const maxViolations = Math.max(1, toNumber(req.query?.maxViolations, 3));
+    const format = lowerText(req.query?.format || "csv");
+
+    if (format === "docx") {
+      const docxBuffer = await generateDocxTemplate("test", {
+        scope,
+        classId: scope === "center" ? "" : classId || "CLASS_ID_HERE",
+        title,
+        description,
+        startAt: startAt.toISOString(),
+        endAt: endAt.toISOString(),
+        durationMinutes: String(computedDurationMinutes),
+        maxViolations: String(maxViolations),
+      });
+      const filename = `Test_Bulk_Template_${safeFilePart("SUM_Academy")}.docx`;
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      return res.status(200).send(docxBuffer);
+    }
 
     const commentRows = [
       "# INSTRUCTIONS:",
@@ -1536,12 +1555,21 @@ export const bulkUploadManagedTest = async (req, res) => {
     if (!uid) return errorResponse(res, "Missing user uid", 400);
 
     const fileBuffer = req.file?.buffer;
-    const csvText = fileBuffer
-      ? fileBuffer.toString("utf-8").replace(/^\uFEFF/, "")
-      : trimText(req.body?.csvText || "");
-    if (!csvText) return errorResponse(res, "CSV file is required", 400);
+    let parsed;
+    const isDocx = req.file?.mimetype === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" || req.file?.originalname?.toLowerCase().endsWith(".docx");
 
-    const parsed = parseCsvToRows(csvText);
+    if (isDocx) {
+      if (!fileBuffer) return errorResponse(res, "DOCX file buffer missing", 400);
+      const extractedText = await extractDocxText(fileBuffer);
+      parsed = parseQuizOrTestDocxText(extractedText);
+    } else {
+      const csvText = fileBuffer
+        ? fileBuffer.toString("utf-8").replace(/^\uFEFF/, "")
+        : trimText(req.body?.csvText || "");
+      if (!csvText) return errorResponse(res, "CSV file is required", 400);
+      parsed = parseCsvToRows(csvText);
+    }
+
     const headers = parsed.headers || [];
     const rows = parsed.rows || [];
     if (!headers.length) return errorResponse(res, "CSV header row is missing", 400);

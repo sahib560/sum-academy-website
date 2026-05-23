@@ -791,7 +791,7 @@ function TeacherQuizzes() {
     });
   };
 
-  const handleTemplateDownload = async () => {
+  const handleTemplateDownload = async (format = "csv") => {
     if (!bulkTargetReady) {
       toast.error("Select course, subject, scope, and chapter (if required)");
       return;
@@ -806,12 +806,13 @@ function TeacherQuizzes() {
         subjectName:
           selectedBulkSubject?.subjectName || selectedBulkSubject?.name || "",
         chapterName: selectedBulkChapter?.title || "",
+        format,
       });
 
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = filename || "quiz_template.csv";
+      link.download = filename || (format === "docx" ? "quiz_template.docx" : "quiz_template.csv");
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -1536,25 +1537,35 @@ function TeacherQuizzes() {
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                 Step 2 - Download Template
               </p>
-              <button
-                type="button"
-                className="btn-primary mt-3"
-                onClick={handleTemplateDownload}
-                disabled={!bulkTargetReady}
-              >
-                Download Template
-              </button>
+              <div className="flex gap-3 mt-3">
+                <button
+                  type="button"
+                  className="btn-primary"
+                  onClick={() => handleTemplateDownload("csv")}
+                  disabled={!bulkTargetReady}
+                >
+                  Download CSV
+                </button>
+                <button
+                  type="button"
+                  className="btn-primary bg-blue-600 hover:bg-blue-700"
+                  onClick={() => handleTemplateDownload("docx")}
+                  disabled={!bulkTargetReady}
+                >
+                  Download DOCX
+                </button>
+              </div>
 
               {templateDownloaded ? (
                 <p className="mt-3 text-xs font-semibold text-emerald-600">
-                  Template downloaded! Open in Excel, fill your questions, then upload below.
+                  Template downloaded! Open it, fill your questions, then upload below.
                 </p>
               ) : null}
             </div>
 
             <div className="rounded-2xl border border-slate-200 p-4">
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Step 3 - Upload Filled CSV
+                Step 3 - Upload Filled File
               </p>
               <div
                 role="button"
@@ -1580,20 +1591,21 @@ function TeacherQuizzes() {
                     : "border-slate-300 bg-slate-50"
                 }`}
               >
-                Drop your filled CSV here or click to browse
+                Drop your filled file here or click to browse
               </div>
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".csv,text/csv"
                 className="hidden"
-                onChange={handleFileInputChange}
+                id="quiz-bulk-upload"
+                accept=".csv,text/csv,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                onChange={handleBulkFileChange}
               />
 
               {bulkFile ? (
                 <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs">
                   <p className="font-semibold text-emerald-700">
-                    {bulkFile.name} ({formatBytes(bulkFile.size)}) - valid CSV
+                    {bulkFile.name} ({formatBytes(bulkFile.size)}) - valid file
                   </p>
                 </div>
               ) : null}

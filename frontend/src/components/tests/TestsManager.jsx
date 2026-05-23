@@ -421,7 +421,7 @@ export default function TestsManager({
     setForm((p) => (p.durationMinutes === computedDuration ? p : { ...p, durationMinutes: computedDuration }));
   }, [computedDuration]);
 
-  const downloadTemplate = async () => {
+  const downloadTemplate = async (format = "csv") => {
     try {
       if (!downloadTestTemplate) {
         toast.error("Template download is not available");
@@ -447,11 +447,12 @@ export default function TestsManager({
         startAt: startIso,
         endAt: endIso,
         maxViolations: form.maxViolations,
+        format,
       });
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = filename || "test_template.csv";
+      link.download = filename || (format === "docx" ? "test_template.docx" : "test_template.csv");
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -588,25 +589,35 @@ export default function TestsManager({
         <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
-              <h2 className="font-heading text-xl text-slate-900">Bulk Create Test (CSV)</h2>
+              <h2 className="font-heading text-xl text-slate-900">Bulk Create Test</h2>
               <p className="mt-1 text-sm text-slate-500">
-                Upload one CSV to create one test with many MCQ questions. Correct answer must be A/B/C/D.
+                Upload one file (CSV or DOCX) to create one test with many MCQ questions. Correct answer must be A/B/C/D.
               </p>
             </div>
-            <button
-              type="button"
-              onClick={downloadTemplate}
-              disabled={!canDownloadTemplate}
-              className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700"
-            >
-              Download Template
-            </button>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => downloadTemplate("csv")}
+                disabled={!canDownloadTemplate}
+                className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700"
+              >
+                Download CSV Template
+              </button>
+              <button
+                type="button"
+                onClick={() => downloadTemplate("docx")}
+                disabled={!canDownloadTemplate}
+                className="rounded-xl border border-slate-300 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-100"
+              >
+                Download DOCX Template
+              </button>
+            </div>
           </div>
 
           <div className="mt-4 flex flex-wrap items-center gap-3">
             <input
               type="file"
-              accept=".csv"
+              accept=".csv,text/csv,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
               onChange={async (e) => {
                 const file = e.target.files?.[0] || null;
                 setBulkErrors([]);
