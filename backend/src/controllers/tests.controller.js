@@ -951,6 +951,16 @@ const ensureStudentProfile = async (uid = "") => {
   ]);
   const studentData = studentSnap.exists ? studentSnap.data() || {} : {};
   const userData = userSnap.exists ? userSnap.data() || {} : {};
+  const fatherName =
+    trimText(studentData.fatherName) ||
+    trimText(studentData.parentName) ||
+    trimText(studentData.guardianName) ||
+    trimText(studentData.father_name) ||
+    trimText(userData.fatherName) ||
+    trimText(userData.parentName) ||
+    trimText(userData.guardianName) ||
+    trimText(userData.father_name) ||
+    "";
   return {
     fullName:
       trimText(studentData.fullName) ||
@@ -961,7 +971,7 @@ const ensureStudentProfile = async (uid = "") => {
       trimText(userData.email).split("@")[0] ||
       "Student",
     email: trimText(studentData.email) || trimText(userData.email),
-    fatherName: trimText(studentData.fatherName) || trimText(userData.fatherName) || "N/A",
+    fatherName: fatherName || "N/A",
     rollNumber: trimText(studentData.rollNumber) || trimText(userData.rollNumber) || "N/A",
   };
 };
