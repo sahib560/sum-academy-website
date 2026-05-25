@@ -34,6 +34,21 @@ const toInputDateTime = (value) => {
 
 const parseLocalDateTime = (value) => {
   if (!value) return null;
+  // datetime-local inputs return "YYYY-MM-DDTHH:mm" with NO timezone info.
+  // new Date(string) can treat this as UTC in some browsers → wrong by ±hours.
+  // Force LOCAL time by using the Date(y,m,d,h,min) constructor instead.
+  const match = String(value).match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+  if (match) {
+    const d = new Date(
+      Number(match[1]),
+      Number(match[2]) - 1, // month is 0-indexed
+      Number(match[3]),
+      Number(match[4]),
+      Number(match[5])
+    );
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  // Fallback for ISO strings that already have timezone info (e.g. from server)
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 };
@@ -495,8 +510,8 @@ export default function TestsManager({
       description: form.description,
       scope: form.scope,
       classId: isCenter ? "" : form.classId,
-      startAt: new Date(form.startAt).toISOString(),
-      endAt: new Date(form.endAt).toISOString(),
+      startAt: parseLocalDateTime(form.startAt)?.toISOString() || "",
+      endAt: parseLocalDateTime(form.endAt)?.toISOString() || "",
       durationMinutes: Number(computedDuration || form.durationMinutes || 60),
       perQuestionTimeLimit: Number(form.perQuestionTimeLimit || 60),
       maxViolations: Number(form.maxViolations || 3),
@@ -708,13 +723,15 @@ export default function TestsManager({
                     const rows = Array.isArray(bulkPreview.rows) ? bulkPreview.rows : [];
                     const finalScope = meta.scope || form.scope || "class";
                     const finalClassId = finalScope === "class" ? (meta.classId || form.classId || "") : "";
+                    const rawStartAt = meta.startAt || form.startAt;
+                    const rawEndAt   = meta.endAt   || form.endAt;
                     const payload = {
                       title: meta.title || form.title,
                       description: meta.description || form.description || "",
                       scope: finalScope,
                       classId: finalClassId,
-                      startAt: meta.startAt || form.startAt,
-                      endAt: meta.endAt || form.endAt,
+                      startAt: parseLocalDateTime(rawStartAt)?.toISOString() || rawStartAt || "",
+                      endAt:   parseLocalDateTime(rawEndAt)?.toISOString()   || rawEndAt   || "",
                       perQuestionTimeLimit: Number(form.perQuestionTimeLimit || 60),
                       maxViolations: Number(meta.maxViolations || form.maxViolations || 3),
                       questions: rows.map((row) => ({
@@ -974,22 +991,6 @@ export default function TestsManager({
               value={form.maxViolations}
               onChange={(e) =>
                 setForm((p) => ({ ...p, maxViolations: Number(e.target.value || 3) }))
-              }
-            />
-          </label>
-          <label className="text-xs text-slate-500">
-            Per Question Time (sec)
-            <input
-              type="number"
-              min={10}
-              max={600}
-              className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-              value={form.perQuestionTimeLimit}
-              onChange={(e) =>
-                setForm((p) => ({
-                  ...p,
-                  perQuestionTimeLimit: Number(e.target.value || 60),
-                }))
               }
             />
           </label>
@@ -1413,7 +1414,7 @@ export default function TestsManager({
                     questions | {selected.totalMarks || 0} marks
                   </p>
                   <p className="mt-1 text-xs text-slate-500">
-                    Per question: {Number(selected.perQuestionTimeLimit || 60)}s
+                    Duration: {selected.durationMinutes || 60}m
                   </p>
                 </div>
                 <div>
@@ -1585,22 +1586,6 @@ export default function TestsManager({
                   className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
                   value={adminDraft.endAt}
                   onChange={(e) => setAdminDraft((p) => ({ ...p, endAt: e.target.value }))}
-                />
-              </label>
-              <label className="text-xs text-slate-500">
-                Per Question Time (sec)
-                <input
-                  type="number"
-                  min={10}
-                  max={600}
-                  className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                  value={adminDraft.perQuestionTimeLimit}
-                  onChange={(e) =>
-                    setAdminDraft((p) => ({
-                      ...p,
-                      perQuestionTimeLimit: Number(e.target.value || 60),
-                    }))
-                  }
                 />
               </label>
               <label className="text-xs text-slate-500">
