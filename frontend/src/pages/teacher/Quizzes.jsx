@@ -1619,7 +1619,7 @@ function TeacherQuizzes() {
                 className="hidden"
                 id="quiz-bulk-upload"
                 accept=".csv,text/csv,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                onChange={handleBulkFileChange}
+                onChange={handleFileInputChange}
               />
 
               {bulkFile ? (
