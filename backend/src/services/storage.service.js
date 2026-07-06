@@ -1,6 +1,6 @@
 import path from "path";
 import { v4 as uuidv4 } from "uuid";
-import { bucket } from "../config/firebase.js";
+import { uploadToR2, deleteFromR2, uploadFileToR2FromPath } from "./r2.service.js";
 
 const ALLOWED_IMAGE_TYPES = [
   "image/jpeg",
@@ -64,20 +64,6 @@ const sanitizeFolder = (value = "") =>
     .replace(/\\/g, "/")
     .replace(/^\/+|\/+$/g, "");
 
-const normalizeBucketName = (name = "") =>
-  String(name || "")
-    .trim()
-    .replace(/^gs:\/\//i, "")
-    .replace(/^\/+|\/+$/g, "");
-
-const buildGoogleApisUrl = (bucketName, filePath) =>
-  `https://storage.googleapis.com/${normalizeBucketName(bucketName)}/${filePath}`;
-
-const buildFirebaseTokenUrl = (bucketName, filePath, token) =>
-  `https://firebasestorage.googleapis.com/v0/b/${normalizeBucketName(
-    bucketName
-  )}/o/${encodeURIComponent(filePath)}?alt=media&token=${token}`;
-
 export const uploadFile = async ({
   fileBuffer,
   originalName,
@@ -109,33 +95,16 @@ export const uploadFile = async ({
   const fileName = `${Date.now()}-${uuidv4()}${ext}`;
   const safeFolder = sanitizeFolder(folder);
   const filePath = `${safeFolder}/${fileName}`;
-  const file = bucket.file(filePath);
-  const downloadToken = uuidv4();
 
-  await file.save(fileBuffer, {
-    resumable: false,
+  const { url } = await uploadToR2({
+    fileBuffer,
+    key: filePath,
+    contentType: mimeType,
     metadata: {
-      contentType: mimeType,
-      metadata: {
-        originalName,
-        uploadedAt: new Date().toISOString(),
-        firebaseStorageDownloadTokens: downloadToken,
-      },
+      originalName,
+      uploadedAt: new Date().toISOString(),
     },
   });
-
-  let url = buildGoogleApisUrl(bucket.name, filePath);
-  try {
-    await file.makePublic();
-  } catch (error) {
-    // Buckets with Uniform Access don't allow object ACL updates.
-    // Fallback to Firebase token URL so upload still works.
-    console.warn(
-      "makePublic failed, using token URL:",
-      error?.message || error
-    );
-    url = buildFirebaseTokenUrl(bucket.name, filePath, downloadToken);
-  }
 
   return {
     url,
@@ -150,20 +119,7 @@ export const uploadFile = async ({
 export const deleteFile = async (filePathOrUrl) => {
   try {
     if (!filePathOrUrl) return;
-    const raw = String(filePathOrUrl || "").trim();
-    const normalizedBucket = normalizeBucketName(bucket.name);
-    const googlePrefix = `https://storage.googleapis.com/${normalizedBucket}/`;
-    const firebasePrefix = `https://firebasestorage.googleapis.com/v0/b/${normalizedBucket}/o/`;
-
-    let cleanPath = raw;
-    if (raw.startsWith(googlePrefix)) {
-      cleanPath = raw.replace(googlePrefix, "");
-    } else if (raw.startsWith(firebasePrefix)) {
-      const encoded = raw.replace(firebasePrefix, "").split("?")[0];
-      cleanPath = decodeURIComponent(encoded || "");
-    }
-    if (!cleanPath) return;
-    await bucket.file(cleanPath).delete();
+    await deleteFromR2(filePathOrUrl);
   } catch (error) {
     console.error("Delete file error:", error?.message || error);
   }
@@ -254,33 +210,11 @@ export const uploadVideoFromPath = async (
   const extension = path.extname(originalName) || ".mp4";
   const fileName = `${Date.now()}-${uuidv4()}${extension}`;
   const filePath = `videos/${sanitizeFolder(subfolder)}/${fileName}`;
-  const downloadToken = uuidv4();
 
-  await bucket.upload(localPath, {
-    destination: filePath,
-    resumable: false,
-    metadata: {
-      contentType: safeMime,
-      cacheControl: "public,max-age=31536000,immutable",
-      metadata: {
-        originalName,
-        uploadedAt: new Date().toISOString(),
-        firebaseStorageDownloadTokens: downloadToken,
-      },
-    },
+  const { url } = await uploadFileToR2FromPath(localPath, filePath, safeMime, {
+    originalName,
+    uploadedAt: new Date().toISOString(),
   });
-
-  const remote = bucket.file(filePath);
-  let url = buildGoogleApisUrl(bucket.name, filePath);
-  try {
-    await remote.makePublic();
-  } catch (error) {
-    console.warn(
-      "makePublic failed for video, using token URL:",
-      error?.message || error
-    );
-    url = buildFirebaseTokenUrl(bucket.name, filePath, downloadToken);
-  }
 
   return {
     url,
@@ -360,40 +294,23 @@ export const uploadAPKFromPath = async (
 
   const fileName = `${Date.now()}-${uuidv4()}.apk`;
   const filePath = `apps/android/${fileName}`;
-  const downloadToken = uuidv4();
-  await bucket.upload(localPath, {
-    destination: filePath,
-    resumable: false,
-    metadata: {
-      contentType:
-        normalizedMime || "application/vnd.android.package-archive",
-      metadata: {
-        originalName,
-        uploadedAt: new Date().toISOString(),
-        firebaseStorageDownloadTokens: downloadToken,
-      },
-    },
-  });
 
-  const remote = bucket.file(filePath);
-  let url = buildGoogleApisUrl(bucket.name, filePath);
-  try {
-    await remote.makePublic();
-  } catch (error) {
-    console.warn(
-      "makePublic failed for APK, using token URL:",
-      error?.message || error
-    );
-    url = buildFirebaseTokenUrl(bucket.name, filePath, downloadToken);
-  }
+  const { url } = await uploadFileToR2FromPath(
+    localPath,
+    filePath,
+    normalizedMime || "application/vnd.android.package-archive",
+    {
+      originalName,
+      uploadedAt: new Date().toISOString(),
+    }
+  );
 
   return {
     url,
     fileName,
     filePath,
     originalName,
-    mimeType:
-      normalizedMime || "application/vnd.android.package-archive",
+    mimeType: normalizedMime || "application/vnd.android.package-archive",
     size: Number(fileSize || 0) || null,
   };
 };

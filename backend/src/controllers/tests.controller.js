@@ -1,6 +1,7 @@
 import PDFDocument from "pdfkit";
 import { v4 as uuidv4 } from "uuid";
-import { admin, db, bucket } from "../config/firebase.js";
+import { admin, db } from "../config/firebase.js";
+import { uploadToR2, deleteFromR2 } from "../services/r2.service.js";
 import { COLLECTIONS } from "../config/collections.js";
 import { successResponse, errorResponse } from "../utils/response.utils.js";
 import { extractDocxText, parseQuizOrTestDocxText, generateDocxTemplate } from "../utils/docx.utils.js";
@@ -645,13 +646,7 @@ const MAX_TEST_QUESTION_IMAGE_SIZE_BYTES = 2 * 1024 * 1024;
 const ALLOWED_TEST_IMAGE_MIMES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const safeStorageFilename = (filename = "") =>
   trimText(filename).replace(/[^\w.-]+/g, "_").slice(0, 120) || "image";
-const buildFirebaseDownloadUrl = ({ path, token }) => {
-  const bucketName = bucket?.name || "";
-  if (!bucketName || !path || !token) return "";
-  return `https://firebasestorage.googleapis.com/v0/b/${encodeURIComponent(
-    bucketName
-  )}/o/${encodeURIComponent(path)}?alt=media&token=${encodeURIComponent(token)}`;
-};
+// Removed buildFirebaseDownloadUrl
 
 export const uploadTestQuestionImage = async (req, res) => {
   try {
@@ -680,24 +675,19 @@ export const uploadTestQuestionImage = async (req, res) => {
       });
     }
 
-    const token = uuidv4();
     const safeName = safeStorageFilename(file.originalname);
     const path = `${TEST_QUESTION_IMAGE_PREFIX}/${Date.now()}-${safeName}`;
-    const storageFile = bucket.file(path);
 
-    await storageFile.save(file.buffer, {
+    const { url: imageUrl } = await uploadToR2({
+      fileBuffer: file.buffer,
+      key: path,
       contentType: mime,
-      resumable: false,
       metadata: {
-        metadata: {
-          firebaseStorageDownloadTokens: token,
-          uploadedBy: uid,
-          uploadedByRole: role,
-        },
+        uploadedBy: uid,
+        uploadedByRole: role,
       },
     });
 
-    const imageUrl = buildFirebaseDownloadUrl({ path, token });
     return successResponse(
       res,
       { imageUrl, imagePath: path },
@@ -728,10 +718,9 @@ export const deleteTestQuestionImage = async (req, res) => {
     }
 
     try {
-      await bucket.file(imagePath).delete();
+      await deleteFromR2(imagePath);
     } catch (storageError) {
-      const code = storageError?.code || storageError?.statusCode;
-      if (!(code === 404 || code === 400)) throw storageError;
+      console.error("Failed to delete image:", storageError);
     }
 
     return successResponse(res, { imagePath }, "Question image deleted");
@@ -1281,7 +1270,7 @@ const collectTestQuestionImagePaths = (questions = []) => {
 const deleteStoragePathsBestEffort = async (paths = []) => {
   const unique = [...new Set((Array.isArray(paths) ? paths : []).map((p) => trimText(p)).filter(Boolean))];
   if (!unique.length) return { deleted: 0 };
-  const results = await Promise.allSettled(unique.map((p) => bucket.file(p).delete()));
+  const results = await Promise.allSettled(unique.map((p) => deleteFromR2(p)));
   const deleted = results.filter((r) => r.status === "fulfilled").length;
   return { deleted };
 };

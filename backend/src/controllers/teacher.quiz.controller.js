@@ -1,4 +1,5 @@
-import { db, admin, bucket } from "../config/firebase.js";
+import { db, admin } from "../config/firebase.js";
+import { uploadToR2, deleteFromR2 } from "../services/r2.service.js";
 import { COLLECTIONS } from "../config/collections.js";
 import { successResponse, errorResponse } from "../utils/response.utils.js";
 import { v4 as uuidv4 } from "uuid";
@@ -161,13 +162,7 @@ const ALLOWED_QUIZ_IMAGE_MIMES = new Set(["image/jpeg", "image/png", "image/webp
 const safeStorageFilename = (filename = "") =>
   trimText(filename).replace(/[^\w.-]+/g, "_").slice(0, 120) || "image";
 
-const buildFirebaseDownloadUrl = ({ path, token }) => {
-  const bucketName = bucket?.name || "";
-  if (!bucketName || !path || !token) return "";
-  return `https://firebasestorage.googleapis.com/v0/b/${encodeURIComponent(
-    bucketName
-  )}/o/${encodeURIComponent(path)}?alt=media&token=${encodeURIComponent(token)}`;
-};
+// Removed buildFirebaseDownloadUrl
 
 export const uploadQuizQuestionImage = async (req, res) => {
   try {
@@ -196,21 +191,19 @@ export const uploadQuizQuestionImage = async (req, res) => {
       });
     }
 
-    const token = uuidv4();
     const safeName = safeStorageFilename(file.originalname);
     const path = `${QUIZ_QUESTION_IMAGE_PREFIX}/${Date.now()}-${safeName}`;
-    const storageFile = bucket.file(path);
 
-    await storageFile.save(file.buffer, {
+    const { url } = await uploadToR2({
+      fileBuffer: file.buffer,
+      key: path,
       contentType: mime,
-      metadata: { firebaseStorageDownloadTokens: token },
-      resumable: false,
     });
 
     return successResponse(
       res,
       {
-        imageUrl: buildFirebaseDownloadUrl({ path, token }),
+        imageUrl: url,
         imagePath: path,
       },
       "Quiz question image uploaded"
@@ -239,10 +232,9 @@ export const deleteQuizQuestionImage = async (req, res) => {
     }
 
     try {
-      await bucket.file(imagePath).delete();
+      await deleteFromR2(imagePath);
     } catch (storageError) {
-      const code = storageError?.code || storageError?.statusCode;
-      if (!(code === 404 || code === 400)) throw storageError;
+      console.error("Failed to delete image:", storageError);
     }
 
     return successResponse(res, { imagePath }, "Quiz question image deleted");
@@ -2698,27 +2690,9 @@ export const deleteTeacherQuiz = async (req, res) => {
     if (Array.isArray(quizData.questions)) {
       const deletionPromises = quizData.questions.map(async (q) => {
         const imagePath = q.imagePath || q.imageUrl;
-        if (imagePath && imagePath.includes("firebasestorage")) {
+        if (imagePath) {
           try {
-            // Extract file path from URL if needed, but bucket.file() expects the full path
-            // e.g. quiz_images/xxxx.jpg
-            // If the frontend stored raw paths like "quizzes/xxxx.jpg", we just delete them.
-            // But if it's an HTTP URL, we should extract the path.
-            // Usually we store the storage path in imagePath.
-            let pathToDelete = imagePath;
-            if (pathToDelete.startsWith("http")) {
-              const urlObj = new URL(pathToDelete);
-              pathToDelete = decodeURIComponent(urlObj.pathname.split("/o/")[1].split("?")[0]);
-            }
-            if (pathToDelete) {
-              await bucket.file(pathToDelete).delete();
-            }
-          } catch (imgError) {
-            console.error("Failed to delete quiz image:", imgError);
-          }
-        } else if (imagePath) {
-          try {
-             await bucket.file(imagePath).delete();
+             await deleteFromR2(imagePath);
           } catch (imgError) {
              console.error("Failed to delete quiz image:", imgError);
           }

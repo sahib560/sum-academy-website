@@ -1,4 +1,5 @@
-import { db, bucket } from "../config/firebase.js";
+import { db } from "../config/firebase.js";
+import { checkR2ObjectExists, getR2PresignedUrl, streamFromR2, extractR2KeyFromUrl } from "../services/r2.service.js";
 import { COLLECTIONS } from "../config/collections.js";
 import { successResponse, errorResponse } from "../utils/response.utils.js";
 
@@ -7,10 +8,13 @@ const toText = (value = "") => String(value || "").trim();
 const extractStoragePath = (url = "") => {
   const raw = toText(url);
   if (!raw) return "";
-  // Firebase token URL pattern
+  // Check R2 URL first
+  const r2Key = extractR2KeyFromUrl(raw);
+  if (r2Key !== raw) return r2Key;
+  // Firebase token URL pattern fallback
   const firebaseMatch = raw.match(/\/o\/(.+?)(\?|$)/);
   if (firebaseMatch?.[1]) return decodeURIComponent(firebaseMatch[1]);
-  // Google APIs public URL pattern
+  // Google APIs public URL pattern fallback
   const parts = raw.split("storage.googleapis.com/");
   if (parts.length > 1) {
     const pathPart = parts[1].split("?")[0];
@@ -101,18 +105,12 @@ export const getVideoStreamUrl = async (req, res) => {
       return errorResponse(res, "Video file path not found", 404);
     }
 
-    const file = bucket.file(videoPath);
-    const [exists] = await file.exists();
+    const { exists } = await checkR2ObjectExists(videoPath);
     if (!exists) {
       return errorResponse(res, "Video file not found in storage", 404);
     }
 
-    const [signedUrl] = await file.getSignedUrl({
-      action: "read",
-      expires: Date.now() + 2 * 60 * 60 * 1000,
-      responseDisposition: "inline",
-      responseType: "video/mp4",
-    });
+    const signedUrl = await getR2PresignedUrl(videoPath, 7200);
 
     const studentSnap = await db
       .collection(COLLECTIONS.STUDENTS)
@@ -162,51 +160,7 @@ export const streamVideo = async (req, res) => {
       return res.status(404).json({ error: "Video path not found" });
     }
 
-    const file = bucket.file(filePath);
-    const [metadata] = await file.getMetadata();
-    const fileSize = parseInt(metadata.size, 10);
-    const mimeType = metadata.contentType || "video/mp4";
-
-    const range = req.headers.range;
-    if (range) {
-      const parts = range.replace(/bytes=/, "").split("-");
-      const start = parseInt(parts[0], 10);
-      const end = parts[1]
-        ? parseInt(parts[1], 10)
-        : Math.min(start + 10 * 1024 * 1024, fileSize - 1);
-      const chunkSize = end - start + 1;
-
-      res.writeHead(206, {
-        "Content-Range": `bytes ${start}-${end}/${fileSize}`,
-        "Accept-Ranges": "bytes",
-        "Content-Length": chunkSize,
-        "Content-Type": mimeType,
-        "Cache-Control": "no-cache",
-        "X-Frame-Options": "DENY",
-      });
-
-      const stream = file.createReadStream({ start, end });
-      stream.on("error", (err) => {
-        console.error("Stream error:", err);
-        if (!res.headersSent) res.status(500).end();
-      });
-      stream.pipe(res);
-      return;
-    }
-
-    res.writeHead(200, {
-      "Content-Length": fileSize,
-      "Content-Type": mimeType,
-      "Accept-Ranges": "bytes",
-      "Cache-Control": "no-cache",
-      "X-Frame-Options": "DENY",
-    });
-    const stream = file.createReadStream();
-    stream.on("error", (err) => {
-      console.error("Stream error:", err);
-      if (!res.headersSent) res.status(500).end();
-    });
-    stream.pipe(res);
+    await streamFromR2(filePath, req.headers.range, res);
   } catch (error) {
     console.error("streamVideo error:", error);
     if (!res.headersSent) {
@@ -254,18 +208,12 @@ export const getLiveSessionVideo = async (req, res) => {
       return errorResponse(res, "Recording path not found", 404);
     }
 
-    const file = bucket.file(filePath);
-    const [exists] = await file.exists();
+    const { exists } = await checkR2ObjectExists(filePath);
     if (!exists) {
       return errorResponse(res, "Recording file not found", 404);
     }
 
-    const [signedUrl] = await file.getSignedUrl({
-      action: "read",
-      expires: Date.now() + 2 * 60 * 60 * 1000,
-      responseDisposition: "inline",
-      responseType: "video/mp4",
-    });
+    const signedUrl = await getR2PresignedUrl(filePath, 7200);
 
     return successResponse(
       res,
