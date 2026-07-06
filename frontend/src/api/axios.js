@@ -73,17 +73,27 @@ api.interceptors.request.use(
     const user = firebaseAuth.currentUser;
     if (user) {
       const token = await user.getIdToken();
+      if (config.headers && typeof config.headers.set === 'function') {
+        config.headers.set('Authorization', `Bearer ${token}`);
+      } else {
+        config.headers = {
+          ...config.headers,
+          Authorization: `Bearer ${token}`,
+        };
+      }
+    }
+    if (config.headers && typeof config.headers.set === 'function') {
+      config.headers.set('Cache-Control', 'no-cache, no-store, max-age=0');
+      config.headers.set('Pragma', 'no-cache');
+      config.headers.set('Expires', '0');
+    } else {
       config.headers = {
         ...config.headers,
-        Authorization: `Bearer ${token}`,
+        "Cache-Control": "no-cache, no-store, max-age=0",
+        Pragma: "no-cache",
+        Expires: "0",
       };
     }
-    config.headers = {
-      ...config.headers,
-      "Cache-Control": "no-cache, no-store, max-age=0",
-      Pragma: "no-cache",
-      Expires: "0",
-    };
 
     // Add cache-buster for GET requests to avoid stale proxy/browser responses.
     if (method === "get") {
@@ -94,12 +104,18 @@ api.interceptors.request.use(
     }
 
     if (typeof window !== "undefined") {
-      config.headers = {
-        ...config.headers,
-        "x-device-fingerprint": DEVICE_FINGERPRINT,
-        "x-screen-resolution": `${window.screen.width}x${window.screen.height}`,
-        "x-platform": navigator.platform,
-      };
+      if (config.headers && typeof config.headers.set === 'function') {
+        config.headers.set('x-device-fingerprint', DEVICE_FINGERPRINT);
+        config.headers.set('x-screen-resolution', `${window.screen.width}x${window.screen.height}`);
+        config.headers.set('x-platform', navigator.platform);
+      } else {
+        config.headers = {
+          ...config.headers,
+          "x-device-fingerprint": DEVICE_FINGERPRINT,
+          "x-screen-resolution": `${window.screen.width}x${window.screen.height}`,
+          "x-platform": navigator.platform,
+        };
+      }
     }
     return config;
   },
