@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion as Motion } from "framer-motion";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
-import { getDownloadURL, ref, uploadBytesResumable } from "firebase/storage";
+import { getDownloadURL, ref, uploadBytesResumable } from "firebase/storage"; // kept only as fallback – not used for uploads
 import FileUploader from "../../components/FileUploader.jsx";
 import {
   getEmailTemplates,
@@ -29,7 +29,7 @@ import { defaultSettings } from "../../context/SettingsContext.jsx";
 import { storage } from "../../config/firebase.js";
 import { useSettings } from "../../hooks/useSettings.js";
 import { sanitizePhoneInput } from "../../utils/phone.js";
-import { uploadLogo as uploadLogoToStorage } from "../../utils/firebaseUpload.js";
+import { uploadLogo as uploadLogoToStorage, uploadGenericImage } from "../../utils/firebaseUpload.js";
 
 const tabs = [
   "General",
@@ -403,11 +403,7 @@ function SiteSettings() {
     const isCertificate =
       field === "certificateLogoUrl" || field === "certificateSignatureUrl";
     const isCertLogo = field === "certificateLogoUrl";
-    const allowed = isLogo
-      ? ["image/jpeg", "image/png", "image/webp", "image/svg+xml"]
-      : isCertificate
-        ? ["image/jpeg", "image/png", "image/webp", "image/svg+xml"]
-        : ["image/png", "image/x-icon", "image/vnd.microsoft.icon", "image/svg+xml"];
+    const allowed = ["image/jpeg", "image/png", "image/webp", "image/svg+xml", "image/x-icon", "image/vnd.microsoft.icon"];
     if (!allowed.includes(file.type)) {
       toast.error("Unsupported file type.");
       return;
@@ -419,26 +415,23 @@ function SiteSettings() {
 
     try {
       setUploadingAsset(field);
-      const fileRef = ref(
-        storage,
-        `settings/${field}/${Date.now()}-${file.name}`
-      );
-      const uploadTask = uploadBytesResumable(fileRef, file);
-      await new Promise((resolve, reject) => {
-        uploadTask.on("state_changed", null, reject, resolve);
-      });
-      const url = await getDownloadURL(fileRef);
+      // Upload via backend API → Cloudflare R2
+      const uploaded = await (isLogo
+        ? uploadLogoToStorage(file)
+        : uploadGenericImage(file));
+      const url = uploaded?.url || "";
+      if (!url) throw new Error("Upload returned no URL");
       if (isCertificate) {
         updateSection("certificate", {
           [isCertLogo ? "logoUrl" : "signatureUrl"]: url,
         });
-        toast.success(isCertLogo ? "Certificate logo uploaded." : "Signature uploaded.");
+        toast.success(`Saved to Cloudflare: ${isCertLogo ? "Certificate logo" : "Signature"}.`);
       } else {
         updateSection("general", { [field]: url });
-        toast.success(isLogo ? "Logo uploaded." : "Favicon uploaded.");
+        toast.success(`Saved to Cloudflare: ${isLogo ? "Logo" : "Favicon"}\n${url}`);
       }
-    } catch {
-      toast.error("Upload failed.");
+    } catch (err) {
+      toast.error(err?.message || "Upload failed.");
     } finally {
       setUploadingAsset("");
     }

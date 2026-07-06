@@ -649,7 +649,7 @@ function Courses() {
       );
       setForm((prev) => ({ ...prev, thumbnail: uploaded.url }));
       setThumbState({ uploading: false, progress: 100, error: "" });
-      toast.success("Thumbnail uploaded.");
+      toast.success(`Thumbnail saved to Cloudflare R2:\n${uploaded.url}`);
     } catch (error) {
       setThumbState({
         uploading: false,

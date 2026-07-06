@@ -687,16 +687,15 @@ function Checkout() {
                     if (!initiatedPayment?.paymentId) {
                       throw new Error("Payment session not found");
                     }
+                    // uploadReceiptToStorage now posts to /payments/:id/receipt
+                    // which uploads to Cloudflare R2 and saves the URL to Firestore atomically.
                     const uploaded = await uploadReceiptToStorage(
                       file,
-                      userProfile?.uid || initiatedPayment.paymentId,
+                      initiatedPayment.paymentId,
                       onProgress
                     );
-                    const receiptRes = await saveReceiptUrl(
-                      initiatedPayment.paymentId,
-                      uploaded.url
-                    );
-                    if (receiptRes?.receiptUploaded || receiptRes?.url) {
+                    const receiptRes = uploaded; // backend already saved it
+                    if (uploaded?.url) {
                       setReceiptUploaded(true);
                     }
                     const alreadySubmitted =
@@ -704,9 +703,7 @@ function Checkout() {
                       receiptRes?.status === "pending";
                     setReceiptSubmitted(alreadySubmitted);
                     toast.success(
-                      alreadySubmitted
-                        ? "Receipt uploaded. Waiting for admin verification."
-                        : "Receipt uploaded. Click Finish to submit."
+                      `Receipt saved to Cloudflare R2.${alreadySubmitted ? " Waiting for admin." : " Click Finish to submit."}`
                     );
                     return uploaded;
                   }}

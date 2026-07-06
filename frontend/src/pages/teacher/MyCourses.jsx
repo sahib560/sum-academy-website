@@ -438,7 +438,7 @@ function MyCourses() {
                     setResourceModal({ open: false, type: "pdf", lectureId: "" });
                     setResourceTitle("");
                     toast.success(
-                      resourceModal.type === "pdf" ? "PDF notes added" : "Book added"
+                      `${resourceModal.type === "pdf" ? "PDF notes" : "Book"} saved to Cloudflare R2:\n${uploaded.url}`
                     );
                     return uploaded;
                   }}

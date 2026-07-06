@@ -8,6 +8,8 @@ const ALLOWED_IMAGE_TYPES = [
   "image/png",
   "image/webp",
   "image/svg+xml",
+  "image/x-icon",
+  "image/vnd.microsoft.icon",
 ];
 
 const ALLOWED_PDF_TYPES = ["application/pdf"];

@@ -933,7 +933,7 @@ function TeacherQuizzes() {
       setBulkRowBusy((p) => ({ ...p, [rowNo]: true }));
       const data = await uploadQuizQuestionImage(file);
       setBulkRowImage(rowNo, { imageUrl: data.imageUrl, imagePath: data.imagePath });
-      toast.success("Image attached");
+      toast.success(`Image saved to Cloudflare R2:\n${data.imageUrl}`);
     } catch (error) {
       toast.error(error?.response?.data?.message || "Failed to upload image");
     } finally {
@@ -1351,6 +1351,7 @@ function TeacherQuizzes() {
                               const data = await uploadQuizQuestionImage(file);
                               onUpdateQuestion(index, "imageUrl", data.imageUrl);
                               onUpdateQuestion(index, "imagePath", data.imagePath);
+                              toast.success(`Image saved to Cloudflare R2:\n${data.imageUrl}`);
                             } catch (err) {
                               toast.error("Failed to upload image");
                             }

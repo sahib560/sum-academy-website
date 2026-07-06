@@ -859,7 +859,7 @@ export default function TestsManager({
                                       if (!uploaded?.imageUrl || !uploaded?.imagePath) {
                                         throw new Error("Upload did not return imageUrl");
                                       }
-                                      toast.success("Question image added");
+                                      toast.success(`Image saved to Cloudflare R2:\n${uploaded.imageUrl}`);
                                       setBulkPreview((p) => ({
                                         ...p,
                                         rows: (p.rows || []).map((r, i) =>
@@ -1154,7 +1154,7 @@ export default function TestsManager({
                           if (!uploaded?.imageUrl || !uploaded?.imagePath) {
                             throw new Error("Upload did not return imageUrl");
                           }
-                          toast.success("Question image added");
+                          toast.success(`Image saved to Cloudflare R2:\n${uploaded.imageUrl}`);
                           setForm((p) => ({
                             ...p,
                             questions: p.questions.map((q, i) =>
@@ -1715,7 +1715,7 @@ export default function TestsManager({
                           }
                           try {
                             const uploaded = await uploadQuestionImage(file);
-                            toast.success("Question image added");
+                            toast.success(`Image saved to Cloudflare R2:\n${uploaded.imageUrl}`);
                             setAdminDraft((p) => ({
                               ...p,
                               questions: (p.questions || []).map((row, i) =>
