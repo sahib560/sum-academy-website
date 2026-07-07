@@ -1005,17 +1005,33 @@ export const initiatePayment = async (req, res) => {
       (row) => !paidCourseIds.has(row.courseId)
     );
 
-    const originalAmount = Number(
+    const classFlatPrice = Math.max(0, toNumber(classData.price, toNumber(classData.totalPrice, 0)));
+    
+    const sumAllCourses = Number(
       resolvedClassCourses
         .reduce((sum, row) => sum + toNumber(row.finalPrice, row.price), 0)
         .toFixed(2)
     );
-    const courseDiscountAmount = 0;
-    const amountAfterCourseDiscount = Number(
+    
+    const sumPayableCourses = Number(
       payableClassCourses
         .reduce((sum, row) => sum + toNumber(row.finalPrice, row.price), 0)
         .toFixed(2)
     );
+    
+    const sumPaidCourses = Number(
+      resolvedClassCourses
+        .filter((row) => paidCourseIds.has(row.courseId))
+        .reduce((sum, row) => sum + toNumber(row.finalPrice, row.price), 0)
+        .toFixed(2)
+    );
+
+    const originalAmount = classFlatPrice > 0 ? classFlatPrice : sumAllCourses;
+    const amountAfterCourseDiscount = classFlatPrice > 0 
+      ? Math.max(0, classFlatPrice - sumPaidCourses) 
+      : sumPayableCourses;
+
+    const courseDiscountAmount = 0;
     const courseDiscountPercent = 0;
 
     if (!amountAfterCourseDiscount) {
