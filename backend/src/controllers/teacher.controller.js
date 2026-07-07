@@ -1956,7 +1956,7 @@ export const getTeacherVideoLibrary = async (req, res) => {
     const payload = videos
       .map((row) => normalizeVideoLibraryRow(row.id, row))
       .filter((row) => row.isActive)
-      .filter((row) => String(row.url || "").includes("r2.cloudflarestorage.com"))
+      .filter((row) => Boolean(row.url))
       .filter((row) => {
         if (role === "admin") return true;
         return row.teacherId === uid || allowedCourseIds.has(row.courseId);

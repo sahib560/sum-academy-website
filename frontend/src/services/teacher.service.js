@@ -282,7 +282,7 @@ export const gradeTeacherShortAnswers = (quizId, resultId, data) =>
     .then((r) => r.data);
 
 export const fetchProtectedImage = async (imagePath) => {
-  const response = await api.get("/storage/protected-image", {
+  const response = await api.get("/media/image", {
     params: { path: imagePath },
     responseType: "blob",
   });

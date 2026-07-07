@@ -3171,7 +3171,7 @@ export const getVideoLibrary = async (req, res) => {
     const payload = rows
       .map((row) => normalizeVideoLibraryRow(row.id, row))
       .filter((row) => row.isActive)
-      .filter((row) => String(row.url || "").includes("r2.cloudflarestorage.com"));
+      .filter((row) => Boolean(row.url));
 
     return successResponse(res, payload, "Video library fetched");
   } catch (e) {
