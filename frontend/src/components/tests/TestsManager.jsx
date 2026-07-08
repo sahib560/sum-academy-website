@@ -810,7 +810,15 @@ export default function TestsManager({
                                   disabled={busy}
                                   className="rounded-lg border border-slate-200 px-2 py-1 text-[11px] font-semibold text-slate-700 disabled:opacity-60"
                                   onClick={async () => {
-                                    if (!row.imagePath) return;
+                                    if (!row.imagePath) {
+                                      setBulkPreview((p) => ({
+                                        ...p,
+                                        rows: (p.rows || []).map((r, i) =>
+                                          i === idx ? { ...r, imageUrl: "", imagePath: "" } : r
+                                        ),
+                                      }));
+                                      return;
+                                    }
                                     setBulkBusyRow((p) => ({ ...p, [idx]: true }));
                                     try {
                                       await removeQuestionImage(row.imagePath);

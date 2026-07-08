@@ -1333,7 +1333,15 @@ function TeacherQuizzes() {
                         <div className="relative h-16 w-16 overflow-hidden rounded-lg border border-slate-200">
                            <img src={question.imageUrl} className="h-full w-full object-cover" alt="Q preview" />
                            <button 
-                             onClick={() => onUpdateQuestion(index, "imagePath", "")}
+                             type="button"
+                             onClick={async () => {
+                               const path = question.imagePath;
+                               onUpdateQuestion(index, "imageUrl", "");
+                               onUpdateQuestion(index, "imagePath", "");
+                               if (path) {
+                                 try { await deleteQuizQuestionImage(path); } catch { /* ignore */ }
+                               }
+                             }}
                              className="absolute inset-0 flex items-center justify-center bg-rose-500/80 opacity-0 hover:opacity-100 transition-opacity text-white font-bold text-[10px]"
                            >
                              Remove
