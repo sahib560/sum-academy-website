@@ -173,3 +173,88 @@ export const streamFromR2 = async (key, rangeHeader, res) => {
     }
   }
 };
+
+export const streamPdfFileFromR2 = async (
+  key,
+  rangeHeader,
+  res,
+  { disposition = "inline", filename = "document.pdf" } = {}
+) => {
+  try {
+    const headCommand = new HeadObjectCommand({
+      Bucket: bucketName,
+      Key: key,
+    });
+    let metadata;
+    try {
+      metadata = await s3Client.send(headCommand);
+    } catch (err) {
+      if (err.name === "NotFound" || err.$metadata?.httpStatusCode === 404) {
+        return res.status(404).json({ success: false, message: "PDF file not found in storage" });
+      }
+      throw err;
+    }
+
+    const fileSize = metadata.ContentLength;
+    const sanitizedFilename = String(filename || "document.pdf")
+      .replace(/["\r\n]/g, "")
+      .trim();
+    const encodedFilename = encodeURIComponent(sanitizedFilename);
+    const contentDisposition = `${disposition}; filename="${sanitizedFilename}"; filename*=UTF-8''${encodedFilename}`;
+
+    let getCommandParams = {
+      Bucket: bucketName,
+      Key: key,
+    };
+
+    const commonHeaders = {
+      "Content-Type": "application/pdf",
+      "Content-Disposition": contentDisposition,
+      "Accept-Ranges": "bytes",
+      "Cache-Control": "public, max-age=3600",
+    };
+
+    if (rangeHeader) {
+      const parts = rangeHeader.replace(/bytes=/, "").split("-");
+      const start = parseInt(parts[0], 10);
+      const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+
+      if (start >= fileSize || end >= fileSize || start > end) {
+        res.writeHead(416, {
+          "Content-Range": `bytes */${fileSize}`,
+          "Content-Type": "application/pdf",
+        });
+        return res.end();
+      }
+
+      const chunkSize = end - start + 1;
+      getCommandParams.Range = `bytes=${start}-${end}`;
+
+      res.writeHead(206, {
+        ...commonHeaders,
+        "Content-Range": `bytes ${start}-${end}/${fileSize}`,
+        "Content-Length": chunkSize,
+      });
+    } else {
+      res.writeHead(200, {
+        ...commonHeaders,
+        "Content-Length": fileSize,
+      });
+    }
+
+    const command = new GetObjectCommand(getCommandParams);
+    const response = await s3Client.send(command);
+
+    response.Body.pipe(res);
+    response.Body.on("error", (err) => {
+      console.error("PDF stream error:", err);
+      if (!res.headersSent) res.status(500).end();
+    });
+  } catch (error) {
+    console.error("streamPdfFileFromR2 error:", error);
+    if (!res.headersSent) {
+      res.status(500).json({ success: false, message: "Failed to stream PDF file" });
+    }
+  }
+};
+

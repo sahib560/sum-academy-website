@@ -31,6 +31,7 @@ export const COLLECTIONS = {
   SUPPORT_MESSAGES: "supportMessages",
   SECURITY_VIOLATIONS: "securityViolations",
   FINAL_QUIZ_REQUESTS: "finalQuizRequests",
+  PDF_RESOURCES: "pdfResources",
 };
 
 export const SUBJECT_SCHEMA = {
@@ -130,4 +131,25 @@ export const CERTIFICATE_SCHEMA = {
   qrCode: "",
   issuedAt: null,
   createdAt: null,
+};
+
+export const PDF_RESOURCE_SCHEMA = {
+  title: "",
+  slug: "",
+  description: "",
+  category: "General",
+  subject: "General",
+  classLevel: "All",
+  tags: [],
+  originalFileName: "",
+  objectKey: "",
+  contentType: "application/pdf",
+  fileSize: 0,
+  pageCount: null,
+  status: "draft", // "draft" | "published" | "archived"
+  createdAt: null,
+  updatedAt: null,
+  publishedAt: null,
+  uploadedBy: "",
+  downloadCount: 0,
 };

@@ -8,6 +8,7 @@ import { useSettings } from "../hooks/useSettings.js";
 const navLinks = [
   { label: "Home", to: "/" },
   { label: "Courses", to: "/courses" },
+  { label: "Resources", to: "/resources" },
   { label: "Teachers", to: "/teachers" },
   { label: "About", to: "/about" },
   { label: "Contact", to: "/contact" },

@@ -12,6 +12,7 @@ import {
   FiClipboard,
   FiClock,
   FiCreditCard,
+  FiFileText,
   FiGrid,
   FiLogOut,
   FiMenu,
@@ -60,6 +61,7 @@ const navSections = [
     title: "Content",
     items: [
       { label: "Videos", to: "/admin/videos", icon: "film" },
+      { label: "PDF Resources", to: "/admin/pdf-resources", icon: "file" },
       { label: "Subject Content", to: "/admin/course-content", icon: "book" },
       { label: "Quizzes", to: "/admin/quizzes", icon: "clipboard" },
       { label: "Tests", to: "/admin/tests", icon: "clipboard" },
@@ -83,6 +85,7 @@ const iconMap = {
   clock: <FiClock className="h-4 w-4" />,
   tag: <FiTag className="h-4 w-4" />,
   film: <FiBookOpen className="h-4 w-4" />,
+  file: <FiFileText className="h-4 w-4" />,
   clipboard: <FiClipboard className="h-4 w-4" />,
   award: <FiAward className="h-4 w-4" />,
   bell: <FiBell className="h-4 w-4" />,

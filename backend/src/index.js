@@ -25,6 +25,10 @@ import uploadRoutes from "./routes/upload.routes.js";
 import progressRoutes from "./routes/progress.routes.js";
 import videoRoutes from "./routes/video.routes.js";
 import mediaRoutes from "./routes/media.routes.js";
+import {
+  publicPdfResourceRoutes,
+  adminPdfResourceRoutes,
+} from "./routes/pdfResource.routes.js";
 import { verifyToken } from "./middlewares/auth.middleware.js";
 import { validatePromoCode } from "./controllers/admin.controller.js";
 import { exploreCourses, getPublicTeachers } from "./controllers/student.controller.js";
@@ -372,6 +376,9 @@ app.use("/api", mediaRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/admin", adminPaymentRoutes);
 app.use("/api/classes", classesPublicRoutes);
+app.use("/api/admin", adminPdfResourceRoutes);
+app.use("/api/public", publicPdfResourceRoutes);
+app.use("/api", publicPdfResourceRoutes);
 app.get("/api/courses/explore", exploreCourses);
 app.get("/api/teachers/public", getPublicTeachers);
 app.post("/api/contact/messages", submitPublicContactMessage);
