@@ -317,4 +317,58 @@ export const uploadAPKFromPath = async (
   };
 };
 
+export const isPdfBuffer = (buffer) => {
+  if (!buffer || !Buffer.isBuffer(buffer) || buffer.length < 5) return false;
+  // %PDF- magic bytes: 0x25, 0x50, 0x44, 0x46, 0x2D
+  return (
+    buffer[0] === 0x25 &&
+    buffer[1] === 0x50 &&
+    buffer[2] === 0x44 &&
+    buffer[3] === 0x46 &&
+    buffer[4] === 0x2d
+  );
+};
+
+export const uploadPdfResource = async ({
+  fileBuffer,
+  originalName,
+  maxSize = MAX_SIZES.pdf,
+}) => {
+  if (!fileBuffer || !Buffer.isBuffer(fileBuffer)) {
+    throw new Error("Invalid file buffer");
+  }
+  if (!isPdfBuffer(fileBuffer)) {
+    throw new Error("Invalid file signature: uploaded file is not a valid PDF document");
+  }
+
+  const limit = Number(maxSize || MAX_SIZES.pdf);
+  if (fileBuffer.length > limit) {
+    throw new Error(
+      `File too large. Maximum allowed size is ${Math.round(limit / 1024 / 1024)}MB`
+    );
+  }
+
+  const fileName = `${Date.now()}-${uuidv4()}.pdf`;
+  const objectKey = `pdf-resources/${fileName}`;
+
+  const { url } = await uploadToR2({
+    fileBuffer,
+    key: objectKey,
+    contentType: "application/pdf",
+    metadata: {
+      originalName: String(originalName || "document.pdf").slice(0, 200),
+      uploadedAt: new Date().toISOString(),
+    },
+  });
+
+  return {
+    objectKey,
+    fileName,
+    url,
+    size: fileBuffer.length,
+    contentType: "application/pdf",
+  };
+};
+
 export { MAX_SIZES };
+

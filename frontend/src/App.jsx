@@ -11,6 +11,7 @@ import Footer from "./components/Footer.jsx";
 import ProtectedRoute from "./components/ProtectedRoute.jsx";
 import Home from "./pages/Home.jsx";
 import Courses from "./pages/Courses.jsx";
+import Resources from "./pages/public/Resources.jsx";
 import Teachers from "./pages/Teachers.jsx";
 import About from "./pages/About.jsx";
 import Contact from "./pages/Contact.jsx";
@@ -21,6 +22,7 @@ import AdminLayout from "./layouts/AdminLayout.jsx";
 import Dashboard from "./pages/admin/Dashboard.jsx";
 import Users from "./pages/admin/Users.jsx";
 import AdminCourses from "./pages/admin/Courses.jsx";
+import AdminPdfResources from "./pages/admin/PdfResources.jsx";
 import Payments from "./pages/admin/Payments.jsx";
 import Installments from "./pages/admin/Installments.jsx";
 import PromoCodes from "./pages/admin/PromoCodes.jsx";
@@ -200,6 +202,7 @@ function AppLayout({ showComingSoon }) {
   const publicRoutes = new Set([
     "/",
     "/courses",
+    "/resources",
     "/teachers",
     "/about",
     "/contact",
@@ -281,6 +284,7 @@ function AppLayout({ showComingSoon }) {
       <Routes>
         <Route path="/" element={<HomeRoute />} />
         <Route path="/courses" element={<Courses />} />
+        <Route path="/resources" element={<Resources />} />
         <Route path="/teachers" element={<Teachers />} />
         <Route path="/about" element={<About />} />
         <Route path="/contact" element={<Contact />} />
@@ -367,6 +371,7 @@ function AppLayout({ showComingSoon }) {
           <Route path="students" element={<Students />} />
           <Route path="classes" element={<Classes />} />
           <Route path="videos" element={<AdminVideos />} />
+          <Route path="pdf-resources" element={<AdminPdfResources />} />
           <Route path="quizzes" element={<TeacherQuizzes />} />
           <Route path="tests" element={<AdminTests />} />
           <Route path="quizzes/my" element={<TeacherMyQuizzes />} />

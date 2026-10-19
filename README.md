@@ -109,12 +109,14 @@ sum-academy/
 │   │   └── hooks/        # Custom React hooks (Auth, Settings)
 ├── backend/              # Node.js Server
 │   ├── src/
-│   │   ├── config/       # Firebase, Payments, Collections
-│   │   ├── controllers/  # Business logic
+│   │   ├── config/       # Firebase, Collections, R2 config
+│   │   ├── controllers/  # Business logic (PDF resources, classes, admin)
 │   │   ├── routes/       # API Endpoint definitions
 │   │   ├── middlewares/  # Auth, Validation, Error handling
+│   │   ├── services/     # R2 storage, streaming, notifications
 │   │   └── utils/        # PDF generation, formatters
-└── docs/                 # Detailed API and Streaming documentation
+└── docs/                 # Detailed architecture & feature documentation
+    └── PDF_RESOURCE_MANAGEMENT.md # PDF Resource Management System guide
 ```
 
 ---
