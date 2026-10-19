@@ -62,7 +62,7 @@ const toNumber = (value, fallback = 0) => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
-const APK_URL = `${import.meta.env.VITE_API_URL.replace("/api", "")}/download/app`;
+const APK_URL = `${String(import.meta.env.VITE_API_URL || "https://sumacademy.net/api").replace("/api", "")}/download/app`;
 
 const formatCountdown = (seconds) => {
   const safe = Math.max(0, Math.floor(toNumber(seconds, 0)));
